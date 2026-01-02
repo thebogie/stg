@@ -4,7 +4,7 @@
 //! using ephemeral containers for true isolation.
 
 use anyhow::Result;
-use actix_web::{test, web, App, HttpResponse};
+use actix_web::{test, web, App, HttpResponse, error::ResponseError};
 use serde_json::json;
 use testing::{TestEnvironment, app_setup};
 
@@ -16,7 +16,13 @@ use shared::dto::player::{PlayerDto, LoginResponse};
 
 #[tokio::test]
 async fn test_player_registration() -> Result<()> {
-    let env = TestEnvironment::new().await?;
+    // Set explicit timeout for test environment setup
+    let env = tokio::time::timeout(
+        std::time::Duration::from_secs(120),
+        TestEnvironment::new()
+    ).await
+    .map_err(|_| anyhow::anyhow!("Test environment setup timed out after 120s"))??;
+    
     env.wait_for_ready().await?;
 
     let app_data = app_setup::setup_test_app_data(&env).await?;
@@ -317,14 +323,37 @@ async fn test_get_current_player_unauthorized() -> Result<()> {
         .uri("/api/players/me")
         .to_request();
 
-    let resp = test::call_service(&app, req).await;
+    // Use try_call_service to handle error responses properly
+    let resp = test::try_call_service(&app, req).await;
     
     // The middleware returns 401 Unauthorized for missing auth
-    assert!(
-        resp.status().is_client_error(),
-        "Unauthenticated request should return 4xx, got: {}",
-        resp.status()
-    );
+    match resp {
+        Ok(resp) => {
+            assert!(
+                resp.status().is_client_error(),
+                "Unauthenticated request should return 4xx, got: {}",
+                resp.status()
+            );
+            assert_eq!(
+                resp.status(),
+                401,
+                "Should return 401 Unauthorized, got: {}",
+                resp.status()
+            );
+        }
+        Err(e) => {
+            // If it's an ErrorUnauthorized, convert it to a response to check status
+            // In actix-web, service errors can be converted to responses
+            use actix_web::error::ResponseError;
+            let status = e.as_response_error().status_code();
+            assert_eq!(
+                status,
+                401,
+                "Should return 401 Unauthorized error, got: {}",
+                status
+            );
+        }
+    }
 
     Ok(())
 }
@@ -377,8 +406,18 @@ async fn test_player_logout() -> Result<()> {
         }))
         .to_request();
     let login_resp = test::call_service(&app, login_req).await;
+    assert!(
+        login_resp.status().is_success(),
+        "Login should succeed, got status: {}",
+        login_resp.status()
+    );
+    
     let login_body: LoginResponse = test::read_body_json(login_resp).await;
     let session_id = login_body.session_id;
+    assert!(!session_id.is_empty(), "Session ID should not be empty after login");
+
+    // Give Redis a moment to ensure session is stored
+    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
     // Logout - backend expects Authorization header
     let logout_req = test::TestRequest::post()
@@ -389,9 +428,13 @@ async fn test_player_logout() -> Result<()> {
     let logout_resp = test::call_service(&app, logout_req).await;
     assert!(
         logout_resp.status().is_success(),
-        "Logout should succeed, got status: {}",
-        logout_resp.status()
+        "Logout should succeed, got status: {}. Response: {:?}",
+        logout_resp.status(),
+        test::read_body_json::<serde_json::Value, _>(logout_resp).await
     );
+
+    // Give Redis a moment to ensure session is deleted
+    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
     // Verify session is invalidated - try to access /me
     let me_req = test::TestRequest::get()
@@ -399,12 +442,28 @@ async fn test_player_logout() -> Result<()> {
         .insert_header(("Authorization", format!("Bearer {}", session_id)))
         .to_request();
 
-    let me_resp = test::call_service(&app, me_req).await;
-    assert_eq!(
-        me_resp.status(),
-        401,
-        "Session should be invalidated after logout"
-    );
+    // Use try_call_service to handle the expected error
+    let me_resp_result = test::try_call_service(&app, me_req).await;
+    match me_resp_result {
+        Ok(resp) => {
+            assert_eq!(
+                resp.status(),
+                401,
+                "Session should be invalidated after logout, got status: {}",
+                resp.status()
+            );
+        }
+        Err(e) => {
+            // ErrorUnauthorized is expected after logout
+            let status = e.as_response_error().status_code();
+            assert_eq!(
+                status,
+                401,
+                "Session should be invalidated after logout, got error status: {}",
+                status
+            );
+        }
+    }
 
     Ok(())
 }

@@ -126,7 +126,9 @@ ENV FRONTEND_PORT=50003
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
     CMD wget --quiet --tries=1 --spider http://localhost:${FRONTEND_PORT}/ || exit 1
 
-EXPOSE ${FRONTEND_PORT}
+# EXPOSE doesn't support variables, so we expose common ports
+# The actual port is controlled by the nginx config and environment variable
+EXPOSE 50003 8080
 
 CMD ["nginx", "-g", "daemon off;"]
 

@@ -224,21 +224,7 @@ mod tests {
         assert!(duration.as_millis() < 50); // Should complete in under 50ms
     }
 
-    // Async test
-    #[tokio::test]
-    async fn test_async_operation() {
-        let result = async { 42 }.await;
-        assert_eq!(result, 42);
-    }
-
-    #[tokio::test]
-    async fn test_async_delay() {
-        use tokio::time::{sleep, Duration};
-        
-        let start = std::time::Instant::now();
-        sleep(Duration::from_millis(10)).await;
-        let duration = start.elapsed();
-        
-        assert!(duration.as_millis() >= 10);
-    }
+    // Async tests removed - tokio is not available for WASM builds
+    // If you need async testing, use integration tests in the testing crate
+    // or E2E tests with Playwright
 } 

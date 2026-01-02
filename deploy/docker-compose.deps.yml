@@ -24,7 +24,7 @@ services:
     container_name: arangodb-dev
     image: arangodb:3.12.5
     ports:
-      - "${ARANGODB_PORT:-50001}:8529"
+      - "${ARANGODB_PORT:-50011}:8529"  # hybrid_dev_env uses port 50011
     environment:
       - ARANGO_ROOT_PASSWORD=${ARANGO_ROOT_PASSWORD}
     volumes:

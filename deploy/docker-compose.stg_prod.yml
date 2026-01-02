@@ -1,0 +1,50 @@
+# Production/Staging override for docker-compose.yaml
+# This file adds production-specific configurations for the stg_prod environment
+# Usage: docker compose -p stg_prod -f docker-compose.yaml -f docker-compose.prod.yml -f docker-compose.stg_prod.yml up -d
+#
+# NOTE: All variables come from config/.env.production via --env-file
+# This includes: ARANGO_URL, REDIS_URL, API keys, database credentials, etc.
+
+services:
+  frontend:
+    # Production: Override ports for stg_prod environment
+    # Ports: frontend 50001, backend 50002, arangodb 50003, redis 63791
+    ports:
+      - "50001:${FRONTEND_PORT:-50001}"  # Host port 50001
+    environment:
+      - FRONTEND_PORT=${FRONTEND_PORT:-50001}  # Container port
+    networks:
+      - stg_rd_net
+
+  backend:
+    # Production: Override ports for stg_prod environment
+    ports:
+      - "50002:${BACKEND_PORT:-50002}"  # Host port 50002
+    environment:
+      - SERVER_PORT=${BACKEND_PORT:-50002}  # Container port
+    networks:
+      - stg_rd_net
+
+  redis:
+    # Production: Override port for stg_prod environment
+    # Container port stays 6379 for internal communication
+    ports:
+      - "63791:6379"  # Host port 63791 -> container port 6379
+    networks:
+      - stg_rd_net
+
+  arangodb:
+    # Production: Override port for stg_prod environment
+    # Container port stays 8529 for internal communication
+    ports:
+      - "50003:8529"  # Host port 50003 -> container port 8529
+    networks:
+      - stg_rd_net
+
+# Production: Use separate network (isolated from other environments)
+# Note: Network is created by deploy.sh script
+networks:
+  stg_rd_net:
+    name: stg_prod
+    external: true
+

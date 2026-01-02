@@ -22,7 +22,7 @@ export default defineConfig({
   /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
   use: {
     /* Base URL to use in actions like `await page.goto('/')`. */
-    baseURL: process.env.FRONTEND_URL || 'http://localhost:8080',
+    baseURL: process.env.FRONTEND_URL || 'http://localhost:50023',
     /* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
     trace: 'on-first-retry',
     /* Take screenshot on failure */
@@ -30,39 +30,49 @@ export default defineConfig({
   },
 
   /* Configure projects for major browsers */
+  /* Note: Only Chromium is enabled by default. To test on other browsers, run:
+   *   npx playwright install firefox webkit
+   * Then uncomment the browser projects below.
+   */
   projects: [
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
     },
 
-    {
-      name: 'firefox',
-      use: { ...devices['Desktop Firefox'] },
-    },
+    // Uncomment after running: npx playwright install firefox
+    // {
+    //   name: 'firefox',
+    //   use: { ...devices['Desktop Firefox'] },
+    // },
 
-    {
-      name: 'webkit',
-      use: { ...devices['Desktop Safari'] },
-    },
+    // Uncomment after running: npx playwright install webkit
+    // {
+    //   name: 'webkit',
+    //   use: { ...devices['Desktop Safari'] },
+    // },
 
     /* Test against mobile viewports. */
+    // Mobile Chrome uses Chromium engine, so it works without additional install
     {
       name: 'Mobile Chrome',
       use: { ...devices['Pixel 5'] },
     },
-    {
-      name: 'Mobile Safari',
-      use: { ...devices['iPhone 12'] },
-    },
+    // Uncomment after running: npx playwright install webkit
+    // {
+    //   name: 'Mobile Safari',
+    //   use: { ...devices['iPhone 12'] },
+    // },
   ],
 
-  /* Run your local dev server before starting the tests */
+  /* Run Docker containers before starting the tests */
   webServer: {
-    command: 'cargo run --package frontend',
-    url: 'http://localhost:8080',
+    command: './scripts/start-e2e-docker.sh',
+    url: 'http://localhost:50023',
     reuseExistingServer: !process.env.CI,
-    timeout: 120 * 1000,
+    timeout: 300 * 1000, // 5 minutes for first build
+    stdout: 'pipe',
+    stderr: 'pipe',
   },
 });
 

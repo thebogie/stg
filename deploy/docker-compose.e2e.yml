@@ -1,0 +1,46 @@
+# E2E Test Override - Ports and Network Only
+# This file ensures E2E tests use the EXACT same configuration as production
+# Usage: docker compose -p e2e_env -f docker-compose.yaml -f docker-compose.prod.yml -f docker-compose.stg_prod.yml -f docker-compose.e2e.yml up -d
+#
+# IMPORTANT: This file ONLY overrides ports and network name.
+# All other settings come from docker-compose.prod.yml and docker-compose.stg_prod.yml
+# This guarantees E2E matches production exactly (except for ports needed for testing).
+#
+# NOTE: All variables come from config/.env.development via --env-file
+# This includes: ARANGO_URL, REDIS_URL, API keys, database credentials, etc.
+
+services:
+  frontend:
+    # E2E: Override ports for E2E environment
+    # Ports: frontend 50023, backend 50022, arangodb 50021, redis 63790
+    ports:
+      - "50023:8080"  # Host port 50023 -> container port 8080 (nginx listens on FRONTEND_PORT env var)
+    environment:
+      - FRONTEND_PORT=8080  # Container internal port (nginx config)
+
+  backend:
+    # E2E: Override port mapping
+    ports:
+      - "50022:50022"  # Host port 50022 -> container port 50022
+    environment:
+      - SERVER_PORT=50022  # Backend listens on this port
+
+  redis:
+    # E2E: Override host port to avoid conflicts
+    # Container port stays 6379 for internal communication
+    ports:
+      - "63790:6379"  # Host port 63790 -> container port 6379
+
+  arangodb:
+    # E2E: Override host port to avoid conflicts
+    # Container port stays 8529 for internal communication
+    ports:
+      - "50021:8529"  # Host port 50021 -> container port 8529
+
+# E2E: Use separate network (isolated from other environments)
+# Network configuration is identical to production, just different name
+# Note: Network is created by start-e2e-docker.sh script
+networks:
+  stg_rd_net:
+    name: e2e_env
+    external: true

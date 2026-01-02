@@ -1,4 +1,9 @@
 //! Frontend E2E-style API tests for contest filters. Require BACKEND_BASE_URL.
+//! 
+//! Note: These tests are only compiled for non-WASM targets as they use
+//! server-side libraries (reqwest, tokio) that are not compatible with WASM.
+
+#![cfg(not(target_arch = "wasm32"))]
 
 use std::env;
 use serde::Deserialize;

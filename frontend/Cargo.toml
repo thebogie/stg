@@ -93,10 +93,19 @@ urlencoding = "2.1"
 
 [dev-dependencies]
 wasm-bindgen-test = "0.3.45"
-actix-web = "4.4"
-tokio = { version = "1.36", features = ["full"] }
 futures = "0.3"
-reqwest = { version = "0.11", features = ["json"] }
+
+# Server-side dependencies only for non-WASM targets
+# These are not compatible with WASM and are not used in frontend tests.
+# NOTE: wasm-pack test tries to compile ALL dev-dependencies for WASM,
+# even conditionally compiled ones. Since reqwest depends on tokio with
+# network features (which pulls in mio that doesn't support WASM), we
+# cannot include these dependencies here. If you need server-side testing,
+# use integration tests in the testing crate instead.
+# [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+# actix-web = "4.4"
+# tokio = { version = "1.36", features = ["rt", "rt-multi-thread", "time", "macros", "sync"] }
+# reqwest = { version = "0.11", features = ["json"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { version = "0.2.12", features = ["js"] }

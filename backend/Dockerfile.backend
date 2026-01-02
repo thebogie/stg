@@ -1,32 +1,58 @@
-FROM rust:1.88.0 as builder
+# Build stage - optimized for speed and caching
+FROM rust:1.88.0-slim as builder
 
-# Install build dependencies
-RUN apt-get update && apt-get install -y \
+# Install build dependencies in a single layer
+RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config \
     libssl-dev \
+    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Copy the entire workspace
-COPY . .
+# Copy workspace files first for better Docker layer caching
+COPY Cargo.toml Cargo.lock ./
 
-# Build the backend
-WORKDIR /app/backend
-RUN cargo build --release --bin backend
+# Copy all workspace members (Cargo requires all workspace members to be present)
+# .dockerignore will exclude unnecessary files like node_modules, target, etc.
+# We need all members because workspace resolution requires them all
+COPY frontend ./frontend
+COPY backend ./backend
+COPY shared ./shared
+COPY dataload ./dataload
+COPY testing ./testing
+COPY migrations ./migrations
+COPY scripts ./scripts
 
-# Production stage
+# Build the backend binary from workspace root
+# Using --package backend ensures we only build the backend package
+# Strip binary to reduce size (strip will fail if binary doesn't exist)
+RUN cargo build --release --package backend && \
+    strip /app/target/release/backend && \
+    test -f /app/target/release/backend && \
+    test -x /app/target/release/backend && \
+    ls -lh /app/target/release/backend && \
+    echo "✅ Binary built and stripped successfully"
+
+# Production stage - minimal runtime image
 FROM debian:bookworm-slim
 
-# Install runtime dependencies
-RUN apt-get update && apt-get install -y \
+# Install only essential runtime dependencies (wget for healthcheck)
+RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     libssl3 \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
+    wget \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
 
-# Copy the binary from builder
-COPY --from=builder /app/target/release/backend /usr/local/bin/
+# Create non-root user for security
+RUN useradd -m -u 1000 appuser && \
+    mkdir -p /app/data && \
+    chown -R appuser:appuser /app
+
+# Copy the stripped binary from builder
+COPY --from=builder /app/target/release/backend /usr/local/bin/backend
+RUN chmod +x /usr/local/bin/backend
 
 # Build arguments for environment variables
 ARG RUST_ENV
@@ -34,14 +60,24 @@ ARG RUST_LOG
 ARG RUST_BACKTRACE
 
 # Set default environment variables (can be overridden by .env files)
-ENV RUST_ENV=${RUST_ENV:-info}
+ENV RUST_ENV=${RUST_ENV:-production}
 ENV RUST_LOG=${RUST_LOG:-info}
-ENV RUST_BACKTRACE=${RUST_BACKTRACE:-1}
+ENV RUST_BACKTRACE=${RUST_BACKTRACE:-0}
 ENV SERVER_PORT=50002
+ENV SERVER_HOST=0.0.0.0
 ENV BACKEND_URL=http://0.0.0.0:50002
+
+# Switch to non-root user
+USER appuser
+WORKDIR /app
 
 # Expose the default port (will be overridden by environment variables at runtime)
 EXPOSE 50002
 
+# Health check (using wget which is smaller than curl)
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 --start-period=10s \
+    CMD wget --no-verbose --tries=1 --spider http://localhost:${SERVER_PORT:-50002}/health || exit 1
+
 # Run the binary
-CMD ["backend"] 
+ENTRYPOINT ["/usr/local/bin/backend"]
+CMD []

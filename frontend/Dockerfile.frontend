@@ -1,48 +1,60 @@
-# Build stage
-FROM rust:1.88.0 as builder
+# Build stage - optimized for speed and caching
+FROM rust:1.88.0-slim as builder
 
-# Install build dependencies
-RUN apt-get update && apt-get install -y \
+# Install all build dependencies in a single layer
+RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     wget \
     tar \
     ca-certificates \
+    build-essential \
+    pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Node.js 20
+# Install Node.js 20 (LTS) - use official NodeSource method
 RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
-    && apt-get install -y nodejs
+    && apt-get install -y --no-install-recommends nodejs \
+    && rm -rf /var/lib/apt/lists/*
 
-# Download and install the latest Binaryen
-RUN LATEST_URL=$(curl -s https://api.github.com/repos/WebAssembly/binaryen/releases/latest | grep "browser_download_url.*x86_64-linux.tar.gz\"" | grep -v "sha256" | head -1 | cut -d '"' -f 4) && \
-    echo "Downloading: $LATEST_URL" && \
-    wget -O binaryen-latest.tar.gz "$LATEST_URL" && \
-    tar -xzf binaryen-latest.tar.gz && \
-    BINARYEN_DIR=$(tar -tzf binaryen-latest.tar.gz | head -1 | cut -f1 -d"/") && \
+# Download and install latest Binaryen
+# Fetch latest release dynamically for up-to-date builds
+RUN LATEST_URL=$(curl -s https://api.github.com/repos/WebAssembly/binaryen/releases/latest | \
+    grep "browser_download_url.*x86_64-linux.tar.gz\"" | grep -v "sha256" | head -1 | cut -d '"' -f 4) && \
+    echo "Downloading Binaryen: $LATEST_URL" && \
+    wget -q -O binaryen.tar.gz "$LATEST_URL" && \
+    tar -xzf binaryen.tar.gz && \
+    BINARYEN_DIR=$(tar -tzf binaryen.tar.gz | head -1 | cut -f1 -d"/") && \
     mv "$BINARYEN_DIR" /opt/binaryen && \
-    rm binaryen-latest.tar.gz
+    rm binaryen.tar.gz
 
 ENV PATH="/opt/binaryen/bin:${PATH}"
 
-# Install Rust toolchain and dependencies
-RUN cargo install trunk && \
+# Install Rust toolchain and dependencies (cache this layer)
+RUN cargo install trunk --locked && \
     rustup target add wasm32-unknown-unknown
 
-# Set working directory
 WORKDIR /app
 
-# Copy dependency files first for better caching
+# Copy dependency files first for better Docker layer caching
 COPY Cargo.toml Cargo.lock ./
 COPY frontend/package*.json ./frontend/
 COPY frontend/Trunk.toml ./frontend/Trunk.toml
 
-# Install npm dependencies
+# Install npm dependencies (this layer cached if package files don't change)
 WORKDIR /app/frontend
-RUN npm ci --production=false
+RUN npm ci --production=false --prefer-offline --no-audit
 
-# Copy source code
+# Copy all workspace members (Cargo requires all workspace members to be present)
+# .dockerignore will exclude unnecessary files like node_modules, target, etc.
+# We need all members because workspace resolution requires them all
 WORKDIR /app
-COPY . .
+COPY backend ./backend
+COPY shared ./shared
+COPY dataload ./dataload
+COPY testing ./testing
+COPY migrations ./migrations
+COPY scripts ./scripts
+COPY frontend ./frontend
 
 # Build CSS and frontend
 WORKDIR /app/frontend
@@ -57,22 +69,54 @@ ENV GIT_COMMIT=${GIT_COMMIT}
 ENV BUILD_DATE=${BUILD_DATE}
 
 # Build with version info
+# Note: Trunk.toml sets dist = "../_build/frontend-dist", so output goes to _build/frontend-dist
 RUN npm run build:css:prod && \
     trunk build --release --no-default-features
 
-# Manually optimize the WASM (find the latest built file)
-RUN WASM_INPUT=$(ls dist/.stage/frontend-*_bg.wasm | sort | tail -n 1) && \
-    WASM_OUTPUT="dist/frontend_bg.optimized.wasm" && \
-    wasm-opt --enable-bulk-memory --enable-nontrapping-float-to-int -Oz -o $WASM_OUTPUT $WASM_INPUT
+# Verify build output exists
+# Trunk.toml sets dist = "../_build/frontend-dist" (relative to frontend/), so output is at /app/_build/frontend-dist
+RUN echo "Checking build output..." && \
+    ls -lah ../_build/frontend-dist/ 2>/dev/null || ls -lah dist/ 2>/dev/null || (echo "ERROR: No dist directory found" && exit 1)
 
-# Final stage: Nginx server
+# Manually optimize the WASM (find the WASM file that Trunk generated)
+# Trunk outputs to ../_build/frontend-dist per Trunk.toml (relative to frontend/ directory)
+RUN if [ -d "../_build/frontend-dist" ]; then \
+        DIST_DIR="../_build/frontend-dist"; \
+    elif [ -d "dist" ]; then \
+        DIST_DIR="dist"; \
+    else \
+        echo "ERROR: No dist directory found"; \
+        exit 1; \
+    fi && \
+    if [ -n "$(find "$DIST_DIR" -name '*_bg.wasm' -type f | head -1)" ]; then \
+        WASM_INPUT=$(find "$DIST_DIR" -name '*_bg.wasm' -type f | head -1) && \
+        echo "Found WASM file: $WASM_INPUT" && \
+        wasm-opt --enable-bulk-memory --enable-nontrapping-float-to-int -Oz \
+            -o "$DIST_DIR/frontend_bg.optimized.wasm" "$WASM_INPUT" && \
+        echo "✅ WASM optimized"; \
+    else \
+        echo "⚠️  No WASM file found to optimize (Trunk may have already optimized it)"; \
+    fi
+
+# Final stage: Minimal Nginx server
 FROM nginx:alpine
 
+# Install gettext for envsubst (needed for template substitution)
+# Use --no-cache to keep image small
+RUN apk add --no-cache gettext
+
 # Copy built files from builder stage
-COPY --from=builder /app/frontend/dist /usr/share/nginx/html
+# Trunk.toml sets dist = "../_build/frontend-dist", so output is at _build/frontend-dist (relative to frontend/)
+# Since we're in /app/frontend when building, the output is at /app/_build/frontend-dist
+COPY --from=builder /app/_build/frontend-dist /usr/share/nginx/html
+
+# Create templates directory (nginx:alpine's entrypoint processes .template files from here)
+RUN mkdir -p /etc/nginx/templates
 
 # Create nginx config template for static serving (SPA support)
-RUN cat > /etc/nginx/conf.d/default.conf.template <<'EOF'
+# nginx:alpine's entrypoint automatically processes .template files using envsubst
+# Files in /etc/nginx/templates/*.template are processed to /etc/nginx/conf.d/*.conf
+RUN cat > /etc/nginx/templates/default.conf.template <<'EOF'
 server {
     listen ${FRONTEND_PORT};
     server_name localhost;
@@ -109,20 +153,12 @@ server {
 }
 EOF
 
-# Add startup script to substitute environment variables
-RUN cat > /docker-entrypoint.d/30-nginx-envsubst.sh <<'EOF'
-#!/bin/sh
-# Substitute environment variables
-envsubst '${FRONTEND_PORT}' < /etc/nginx/conf.d/default.conf.template > /etc/nginx/conf.d/default.conf
-exec /docker-entrypoint.sh nginx -g "daemon off;"
-EOF
-
-RUN chmod +x /docker-entrypoint.d/30-nginx-envsubst.sh
-
 # Set default values for environment variables
 ENV FRONTEND_PORT=50003
 # Note: BACKEND_URL not needed - external Traefik routes /api/ to backend
 
-EXPOSE ${FRONTEND_PORT}
+# EXPOSE doesn't support variables, so we expose common ports
+# The actual port is controlled by the nginx config and environment variable
+EXPOSE 50003 8080
 
 CMD ["nginx", "-g", "daemon off;"]

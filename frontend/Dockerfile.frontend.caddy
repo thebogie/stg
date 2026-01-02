@@ -1,0 +1,153 @@
+# Build stage - same as before
+FROM rust:1.88.0-slim as builder
+
+# Install all build dependencies in a single layer
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    wget \
+    tar \
+    ca-certificates \
+    build-essential \
+    pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Node.js 20 (LTS)
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
+# Download and install latest Binaryen
+RUN LATEST_URL=$(curl -s https://api.github.com/repos/WebAssembly/binaryen/releases/latest | \
+    grep "browser_download_url.*x86_64-linux.tar.gz\"" | grep -v "sha256" | head -1 | cut -d '"' -f 4) && \
+    echo "Downloading Binaryen: $LATEST_URL" && \
+    wget -q -O binaryen.tar.gz "$LATEST_URL" && \
+    tar -xzf binaryen.tar.gz && \
+    BINARYEN_DIR=$(tar -tzf binaryen.tar.gz | head -1 | cut -f1 -d"/") && \
+    mv "$BINARYEN_DIR" /opt/binaryen && \
+    rm binaryen.tar.gz
+
+ENV PATH="/opt/binaryen/bin:${PATH}"
+
+# Install Rust toolchain and dependencies
+RUN cargo install trunk --locked && \
+    rustup target add wasm32-unknown-unknown
+
+WORKDIR /app
+
+# Copy dependency files first for better Docker layer caching
+COPY Cargo.toml Cargo.lock ./
+COPY frontend/package*.json ./frontend/
+COPY frontend/Trunk.toml ./frontend/Trunk.toml
+
+# Install npm dependencies
+WORKDIR /app/frontend
+RUN npm ci --production=false --prefer-offline --no-audit
+
+# Copy all workspace members
+WORKDIR /app
+COPY backend ./backend
+COPY shared ./shared
+COPY dataload ./dataload
+COPY testing ./testing
+COPY migrations ./migrations
+COPY scripts ./scripts
+COPY frontend ./frontend
+
+# Build CSS and frontend
+WORKDIR /app/frontend
+ARG DOCKER_ENV
+ARG FRONTEND_PORT
+ARG GIT_COMMIT
+ARG BUILD_DATE
+ENV DOCKER_ENV=${DOCKER_ENV}
+ENV FRONTEND_PORT=${FRONTEND_PORT:-50003}
+ENV GIT_COMMIT=${GIT_COMMIT}
+ENV BUILD_DATE=${BUILD_DATE}
+
+RUN npm run build:css:prod && \
+    trunk build --release --no-default-features
+
+# Verify build output
+RUN echo "Checking build output..." && \
+    ls -lah ../_build/frontend-dist/ 2>/dev/null || ls -lah dist/ 2>/dev/null || (echo "ERROR: No dist directory found" && exit 1)
+
+# Optimize WASM
+RUN if [ -d "../_build/frontend-dist" ]; then \
+        DIST_DIR="../_build/frontend-dist"; \
+    elif [ -d "dist" ]; then \
+        DIST_DIR="dist"; \
+    else \
+        echo "ERROR: No dist directory found"; \
+        exit 1; \
+    fi && \
+    if [ -n "$(find "$DIST_DIR" -name '*_bg.wasm' -type f | head -1)" ]; then \
+        WASM_INPUT=$(find "$DIST_DIR" -name '*_bg.wasm' -type f | head -1) && \
+        echo "Found WASM file: $WASM_INPUT" && \
+        wasm-opt --enable-bulk-memory --enable-nontrapping-float-to-int -Oz \
+            -o "$DIST_DIR/frontend_bg.optimized.wasm" "$WASM_INPUT" && \
+        echo "✅ WASM optimized"; \
+    else \
+        echo "⚠️  No WASM file found to optimize"; \
+    fi
+
+# Final stage: Caddy (much simpler than nginx!)
+FROM caddy:2-alpine
+
+# Copy built files
+COPY --from=builder /app/_build/frontend-dist /usr/share/caddy
+
+# Caddyfile - MUCH simpler than nginx config!
+# Caddy automatically handles:
+# - SPA routing (try_files equivalent)
+# - WASM MIME types
+# - Gzip compression
+# - Security headers
+RUN cat > /etc/caddy/Caddyfile <<'EOF'
+{
+    # Global options
+    auto_https off  # Disable auto HTTPS in Docker (Traefik handles it)
+}
+
+:${FRONTEND_PORT} {
+    root * /usr/share/caddy
+    file_server
+    
+    # SPA routing - all routes go to index.html
+    try_files {path} /index.html
+    
+    # WASM files - correct MIME type
+    @wasm {
+        path *.wasm
+    }
+    handle @wasm {
+        header Content-Type "application/wasm"
+        header Cross-Origin-Embedder-Policy "require-corp"
+        header Cross-Origin-Opener-Policy "same-origin"
+        file_server
+    }
+    
+    # Static assets with caching
+    @static {
+        path *.js *.css *.png *.jpg *.jpeg *.gif *.ico *.svg
+    }
+    handle @static {
+        header Cache-Control "public, max-age=31536000, immutable"
+        file_server
+    }
+    
+    # Security headers
+    header {
+        X-Content-Type-Options "nosniff"
+        -Server  # Hide server name
+    }
+}
+EOF
+
+# Set default port
+ENV FRONTEND_PORT=50003
+
+EXPOSE 50003 8080
+
+# Caddy automatically handles env var substitution in Caddyfile!
+CMD ["caddy", "run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
+

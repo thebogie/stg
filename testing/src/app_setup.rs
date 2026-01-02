@@ -99,6 +99,7 @@ pub async fn setup_test_app_data(env: &TestEnvironment) -> Result<TestAppData> {
 
     // Game repository with BGG service
     let bgg_service = BGGService::new_with_config(&BGGConfig {
+        api_token: None,
         api_url: "http://localhost:8080".to_string(), // Mock URL for tests
     });
     let game_repo = web::Data::new(

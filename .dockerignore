@@ -1,20 +1,46 @@
 # Ignore Rust build artifacts
 /target
+**/target
 
 # Ignore node modules
 /frontend/node_modules
+**/node_modules
+
+# Ignore frontend build artifacts (not needed for backend build)
+/frontend/dist
+/frontend/.stage
+**/*.wasm
 
 # Ignore VCS
 .git
+.gitignore
 
 # Ignore logs
 *.log
+**/*.log
 
 # Ignore OS files
 .DS_Store
+**/.DS_Store
 
 # Ignore editor files
 *.swp
 *.swo
 .idea/
-.vscode/ 
+.vscode/
+
+# Ignore Docker data directories (created at runtime, can have permission issues)
+/deploy/docker-data/
+/_build/
+/test-results/
+
+# Ignore documentation and other non-essential files
+/docs/
+*.md
+!README.md
+
+# Ignore test files (not needed for backend build)
+**/tests/
+**/test/
+/e2e/
+/testing/e2e/ 

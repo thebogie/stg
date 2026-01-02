@@ -3,6 +3,11 @@ name = "backend"
 version = "0.2.1"
 edition = "2021"
 
+# Explicitly define the binary (even though main.rs exists, this ensures it's built)
+[[bin]]
+name = "backend"
+path = "src/main.rs"
+
 [dependencies]
 # Web framework
 actix-web = "4.4"

@@ -30,7 +30,7 @@ usage() {
   echo -e "${YELLOW}Usage: $0 [options]${NC}"
   echo -e ""
   echo -e "Options:"
-  echo -e "  --env ENV              Environment: development (default) or production"
+  echo -e "  --env ENV              Environment: development (default), production, or stg_prod"
   echo -e "  --env-file FILE       Custom .env file path (relative to config/)"
   echo -e "  --build               Build images before starting"
   echo -e "  --no-cache            Build without cache"
@@ -44,7 +44,8 @@ usage() {
   echo -e ""
   echo -e "Examples:"
   echo -e "  $0                                    # Start development"
-  echo -e "  $0 --env production --build          # Build and start production"
+  echo -e "  $0 --env production --build          # Build and start production (stg_prod)"
+  echo -e "  $0 --env stg_prod --build             # Build and start staging/production"
   echo -e "  $0 --env development --logs backend   # Show backend logs"
   echo -e "  $0 --down                             # Stop all containers"
   exit 0
@@ -109,9 +110,9 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# Determine environment file
+# Determine environment file and project name
 if [ -z "$ENV_FILE" ]; then
-  if [ "$ENVIRONMENT" = "production" ]; then
+  if [ "$ENVIRONMENT" = "production" ] || [ "$ENVIRONMENT" = "stg_prod" ]; then
     ENV_FILE="$PROJECT_ROOT/config/.env.production"
   else
     ENV_FILE="$PROJECT_ROOT/config/.env.development"
@@ -123,6 +124,18 @@ else
   fi
 fi
 
+# Determine project name and network name
+if [ "$ENVIRONMENT" = "stg_prod" ]; then
+  PROJECT_NAME="stg_prod"
+  NETWORK_NAME="stg_prod"
+elif [ "$ENVIRONMENT" = "production" ]; then
+  PROJECT_NAME="stg_prod"
+  NETWORK_NAME="stg_prod"
+else
+  PROJECT_NAME="hybrid_dev_env"
+  NETWORK_NAME="hybrid_dev_env"
+fi
+
 # Check if environment file exists
 if [ ! -f "$ENV_FILE" ]; then
   echo -e "${RED}❌ Error: Environment file not found: $ENV_FILE${NC}"
@@ -132,8 +145,11 @@ fi
 
 # Docker compose files
 COMPOSE_BASE="$SCRIPT_DIR/docker-compose.yaml"
-if [ "$ENVIRONMENT" = "production" ]; then
+if [ "$ENVIRONMENT" = "production" ] || [ "$ENVIRONMENT" = "stg_prod" ]; then
   COMPOSE_OVERRIDE="$SCRIPT_DIR/docker-compose.prod.yml"
+  if [ "$ENVIRONMENT" = "stg_prod" ]; then
+    COMPOSE_STG_PROD="$SCRIPT_DIR/docker-compose.stg_prod.yml"
+  fi
 else
   COMPOSE_OVERRIDE="$SCRIPT_DIR/docker-compose.dev.yml"
 fi
@@ -146,6 +162,11 @@ fi
 
 if [ ! -f "$COMPOSE_OVERRIDE" ]; then
   echo -e "${RED}❌ Error: docker-compose override not found: $COMPOSE_OVERRIDE${NC}"
+  exit 1
+fi
+
+if [ -n "${COMPOSE_STG_PROD:-}" ] && [ ! -f "$COMPOSE_STG_PROD" ]; then
+  echo -e "${RED}❌ Error: docker-compose.stg_prod.yml not found: $COMPOSE_STG_PROD${NC}"
   exit 1
 fi
 
@@ -164,14 +185,33 @@ if [ "$ENVIRONMENT" = "production" ] && [ "$BUILD" = true ]; then
   fi
 fi
 
+# Ensure network exists (for external networks)
+ensure_network() {
+  if ! docker network inspect "$NETWORK_NAME" > /dev/null 2>&1; then
+    echo -e "${BLUE}📡 Creating network: ${NETWORK_NAME}...${NC}"
+    docker network create "$NETWORK_NAME" > /dev/null 2>&1
+    echo -e "${GREEN}✅ Network created${NC}"
+  fi
+}
+
 # Docker compose command builder
 compose_cmd() {
   local cmd="$1"
   shift
+  local compose_files=(
+    -f "$COMPOSE_BASE"
+    -f "$COMPOSE_OVERRIDE"
+  )
+  
+  # Add stg_prod override if needed
+  if [ -n "${COMPOSE_STG_PROD:-}" ]; then
+    compose_files+=(-f "$COMPOSE_STG_PROD")
+  fi
+  
   docker compose \
+    -p "$PROJECT_NAME" \
     --env-file "$ENV_FILE" \
-    -f "$COMPOSE_BASE" \
-    -f "$COMPOSE_OVERRIDE" \
+    "${compose_files[@]}" \
     "$cmd" "$@"
 }
 
@@ -179,6 +219,9 @@ compose_cmd() {
 case "$ACTION" in
   up)
     echo -e "${GREEN}🚀 Starting $ENVIRONMENT environment...${NC}"
+    echo -e "${BLUE}   Project: ${PROJECT_NAME} (network: ${NETWORK_NAME})${NC}"
+    # Ensure network exists for external networks
+    ensure_network
     if [ "$BUILD" = true ]; then
       if [ "$NO_CACHE" = true ]; then
         compose_cmd build --no-cache
