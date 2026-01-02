@@ -1,0 +1,70 @@
+// Migration script to add creator tracking to existing contests
+// This script will:
+// 1. Add creator_id field to all existing contests
+// 2. Set created_at field to the contest's stop time
+// 3. Use a default creator ID for all existing contests
+
+// First, let's see what contests exist and their current structure
+LET existing_contests = (
+    FOR contest IN contest
+        RETURN {
+            _id: contest._id,
+            _key: contest._key,
+            name: contest.name,
+            start: contest.start,
+            stop: contest.stop,
+            has_creator_id: HAS(contest, "creator_id"),
+            has_created_at: HAS(contest, "created_at")
+        }
+)
+
+// Display current state
+RETURN {
+    message: "Current contest structure before migration",
+    total_contests: LENGTH(existing_contests),
+    contests_with_creator_id: LENGTH(FOR c IN existing_contests FILTER c.has_creator_id RETURN 1),
+    contests_with_created_at: LENGTH(FOR c IN existing_contests FILTER c.has_created_at RETURN 1),
+    sample_contests: existing_contests[0..3]
+}
+
+// Uncomment the following section to actually perform the migration
+/*
+// Migration: Add creator_id and created_at to all existing contests
+LET migration_results = (
+    FOR contest IN contest
+        UPDATE contest WITH {
+            creator_id: "player/2025041711441879994340500",
+            created_at: contest.stop
+        } IN contest
+        RETURN {
+            _id: OLD._id,
+            _key: OLD._key,
+            name: OLD.name,
+            old_creator_id: OLD.creator_id,
+            new_creator_id: NEW.creator_id,
+            old_created_at: OLD.created_at,
+            new_created_at: NEW.created_at
+        }
+)
+
+// Verify the migration results
+LET verification = (
+    FOR contest IN contest
+        RETURN {
+            _id: contest._id,
+            name: contest.name,
+            creator_id: contest.creator_id,
+            created_at: contest.created_at,
+            stop: contest.stop
+        }
+)
+
+RETURN {
+    message: "Migration completed successfully",
+    migrated_count: LENGTH(migration_results),
+    verification_sample: verification[0..3],
+    all_contests_now_have_creator: LENGTH(FOR c IN verification FILTER HAS(c, "creator_id") RETURN 1) == LENGTH(verification),
+    all_contests_now_have_created_at: LENGTH(FOR c IN verification FILTER HAS(c, "created_at") RETURN 1) == LENGTH(verification)
+}
+*/
+

@@ -1,0 +1,49 @@
+# Docker Compose for dependencies only (ArangoDB and Redis)
+# Used for hybrid development where backend/frontend run locally
+# Usage: docker compose -f docker-compose.deps.yml up -d
+
+services:
+  redis:
+    container_name: redis-dev
+    image: redis:7-alpine
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - ${VOLUME_PATH:-./docker-data}/redis_data:/data
+    command: redis-server --appendonly yes
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - hybrid_dev_env
+
+  arangodb:
+    container_name: arangodb-dev
+    image: arangodb:3.12.5
+    ports:
+      - "${ARANGODB_PORT:-50001}:8529"
+    environment:
+      - ARANGO_ROOT_PASSWORD=${ARANGO_ROOT_PASSWORD}
+    volumes:
+      - ${VOLUME_PATH:-./docker-data}/arango_data:/var/lib/arangodb3
+      - ${VOLUME_PATH:-./docker-data}/arango_apps_data:/var/lib/arangodb3-apps
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 8529 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    networks:
+      - hybrid_dev_env
+
+networks:
+  hybrid_dev_env:
+    name: hybrid_dev_env
+    external: true
+
+
+

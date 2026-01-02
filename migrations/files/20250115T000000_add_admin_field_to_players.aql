@@ -1,0 +1,15 @@
+// Add isAdmin field to all existing players
+// This migration adds administrative privileges field to the player collection
+// All existing players will default to non-admin (false)
+
+// First, update all existing players to have isAdmin field set to false
+FOR player IN player
+  UPDATE player WITH { isAdmin: false } IN player
+  OPTIONS { ignoreErrors: true }
+
+// Return migration summary
+RETURN {
+  migration: "add_admin_field_to_players",
+  timestamp: DATE_ISO8601(DATE_NOW()),
+  message: "Successfully added isAdmin field to all players"
+}

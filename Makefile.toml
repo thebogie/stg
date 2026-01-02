@@ -1,0 +1,10 @@
+[tasks.backend]
+command = "cargo"
+args = ["run", "--bin", "stg_rd"]
+
+[tasks.frontend]
+command = "cargo"
+args = ["run", "--bin", "stg_rd-frontend"]
+
+[tasks.dev]
+dependencies = ["backend", "frontend"] 

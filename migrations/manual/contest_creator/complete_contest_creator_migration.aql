@@ -1,0 +1,60 @@
+// Complete migration script for contest creator tracking
+// This script will:
+// 1. Show current state
+// 2. Perform the migration
+// Note: Post-migration verification moved to a separate script to avoid
+//       read-after-write access rules in ArangoDB.
+
+// ============================================================================
+// STEP 1: PRE-MIGRATION ANALYSIS
+// ============================================================================
+LET pre_migration_analysis = (
+    FOR contest IN contest
+        RETURN {
+            _id: contest._id,
+            name: contest.name,
+            has_creator_id: HAS(contest, "creator_id"),
+            has_created_at: HAS(contest, "created_at"),
+            stop: contest.stop
+        }
+)
+
+LET pre_migration_summary = {
+    total_contests: LENGTH(pre_migration_analysis),
+    contests_with_creator_id: LENGTH(FOR c IN pre_migration_analysis FILTER c.has_creator_id RETURN 1),
+    contests_with_created_at: LENGTH(FOR c IN pre_migration_analysis FILTER c.has_created_at RETURN 1),
+    sample_before: pre_migration_analysis[0..3]
+}
+
+// ============================================================================
+// STEP 2: PERFORM MIGRATION
+// ============================================================================
+LET migration_results = (
+    FOR contest IN contest
+        UPDATE contest WITH {
+            creator_id: "player/2025041711441879994340500",
+            created_at: contest.stop
+        } IN contest
+        RETURN {
+            _id: OLD._id,
+            name: OLD.name,
+            stop: OLD.stop,
+            new_creator_id: NEW.creator_id,
+            new_created_at: NEW.created_at
+        }
+)
+
+// ============================================================================
+// FINAL RESULTS
+// ============================================================================
+RETURN {
+    migration_completed: true,
+    timestamp: DATE_ISO8601(DATE_NOW()),
+    pre_migration: pre_migration_summary,
+    migration_results: {
+        migrated_count: LENGTH(migration_results),
+        sample_migrations: migration_results[0..3]
+    },
+    note: "Run verify_contest_creator_migration.aql to validate post-migration."
+}
+

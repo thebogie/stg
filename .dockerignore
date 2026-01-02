@@ -1,0 +1,20 @@
+# Ignore Rust build artifacts
+/target
+
+# Ignore node modules
+/frontend/node_modules
+
+# Ignore VCS
+.git
+
+# Ignore logs
+*.log
+
+# Ignore OS files
+.DS_Store
+
+# Ignore editor files
+*.swp
+*.swo
+.idea/
+.vscode/ 

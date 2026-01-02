@@ -1,0 +1,26 @@
+// Initialize rating_latest for all existing players with default ratings
+// This gives all players a starting rating in the global scope
+
+FOR player IN player
+  LET player_contests = (
+    FOR result IN resulted_in
+    FILTER result._to == player._id
+    RETURN 1
+  )
+  
+  LET games_played = LENGTH(player_contests)
+  
+  // Only initialize ratings for players who have played games
+  FILTER games_played > 0
+  
+  // Insert global rating (scope_type: "global", scope_id: null)
+  INSERT {
+    player_id: player._id,
+    scope_type: "global",
+    scope_id: null,
+    rating: 1200.0,  // Starting ELO rating
+    games_played: games_played,
+    last_updated: DATE_ISO8601(DATE_NOW()),
+    confidence: games_played * 0.1 < 1.0 ? games_played * 0.1 : 1.0  // Confidence based on games played, capped at 1.0
+  } INTO rating_latest
+  OPTIONS { ignoreErrors: true }

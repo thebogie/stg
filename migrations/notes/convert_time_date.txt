@@ -1,0 +1,127 @@
+
+arangorestore --input-directory smacktalk --server.endpoint tcp://127.0.0.1:8529 --server.username root --server.password test --create-database true  --server.database smacktalk
+
+FOR doc IN contest
+  FILTER doc.start != null 
+    AND IS_STRING(doc.start) 
+    AND REGEX_TEST(doc.start, "^[0-9]{4}-[0-1][0-9]-[0-3][0-9]T[0-2][0-9]:[0-5][0-9]:[0-5][0-9](\\.[0-9]+)?([+-][0-9]{2}:[0-9]{2}|Z)?$")
+  FILTER doc.stop != null 
+    AND IS_STRING(doc.stop) 
+    AND REGEX_TEST(doc.stop, "^[0-9]{4}-[0-1][0-9]-[0-3][0-9]T[0-2][0-9]:[0-5][0-9]:[0-5][0-9](\\.[0-9]+)?([+-][0-9]{2}:[0-9]{2}|Z)?$")
+
+  LET isStartUtc = REGEX_TEST(doc.start, "Z$")
+  LET isStopUtc = REGEX_TEST(doc.stop, "Z$")
+
+  LET startIsoDate = (
+    isStartUtc ? doc.start :
+      (doc.startoffset != null 
+        AND IS_STRING(doc.startoffset) 
+        AND REGEX_TEST(doc.startoffset, "^[+-][0-1][0-9]:[0-5][0-9]$")
+        AND NOT REGEX_TEST(doc.start, "[+-][0-9]{2}:[0-9]{2}$") 
+        ? CONCAT(doc.start, doc.startoffset) 
+        : doc.start
+      )
+  )
+
+  LET stopIsoDate = (
+    isStopUtc ? doc.stop :
+      (doc.stopoffset != null 
+        AND IS_STRING(doc.stopoffset) 
+        AND REGEX_TEST(doc.stopoffset, "^[+-][0-1][0-9]:[0-5][0-9]$")
+        AND NOT REGEX_TEST(doc.stop, "[+-][0-9]{2}:[0-9]{2}$") 
+        ? CONCAT(doc.stop, doc.stopoffset) 
+        : doc.stop
+      )
+  )
+
+  LET startUtcTimestamp = isStartUtc ? null : DATE_TIMESTAMP(startIsoDate)
+  LET stopUtcTimestamp = isStopUtc ? null : DATE_TIMESTAMP(stopIsoDate)
+
+  FILTER (isStartUtc OR startUtcTimestamp != null) 
+     AND (isStopUtc OR stopUtcTimestamp != null)
+
+  LET startUtcString = isStartUtc ? doc.start : DATE_ISO8601(startUtcTimestamp)
+  LET stopUtcString = isStopUtc ? doc.stop : DATE_ISO8601(stopUtcTimestamp)
+
+  // --- Convert offsets to minutes ---
+  LET startParts = (
+    doc.startoffset != null 
+      AND IS_STRING(doc.startoffset) 
+      AND REGEX_TEST(doc.startoffset, "^[+-][0-1][0-9]:[0-5][0-9]$")
+      ? REGEX_SPLIT(SUBSTRING(doc.startoffset,1), ":")
+      : null
+  )
+  LET startOffsetMinutes = (
+    isStartUtc ? doc.startoffset :
+      (startParts != null ?
+        TO_STRING((TO_NUMBER(startParts[0]) * 60 + TO_NUMBER(startParts[1])) * (LEFT(doc.startoffset,1) == "-" ? -1 : 1))
+        : null
+      )
+  )
+
+  LET stopParts = (
+    doc.stopoffset != null 
+      AND IS_STRING(doc.stopoffset) 
+      AND REGEX_TEST(doc.stopoffset, "^[+-][0-1][0-9]:[0-5][0-9]$")
+      ? REGEX_SPLIT(SUBSTRING(doc.stopoffset,1), ":")
+      : null
+  )
+  LET stopOffsetMinutes = (
+    isStopUtc ? doc.stopoffset :
+      (stopParts != null ?
+        TO_STRING((TO_NUMBER(stopParts[0]) * 60 + TO_NUMBER(stopParts[1])) * (LEFT(doc.stopoffset,1) == "-" ? -1 : 1))
+        : null
+      )
+  )
+
+  UPDATE doc WITH { 
+    start: startUtcString,
+    stop: stopUtcString,
+    startoffset: startOffsetMinutes,
+    stopoffset: stopOffsetMinutes
+  } IN contest
+  OPTIONS { keepNull: false, mergeObjects: true }
+  RETURN { 
+    _key: NEW._key, 
+    old_start: OLD.start, 
+    old_startoffset: OLD.startoffset, 
+    old_stop: OLD.stop, 
+    old_stopoffset: OLD.stopoffset, 
+    new_start: NEW.start,
+    new_stop: NEW.stop,
+    new_startoffset: NEW.startoffset,
+    new_stopoffset: NEW.stopoffset
+  }
+
+
+
+If "2025-09-04T13:13:28.989Z" , ignore
+If "2014-11-08T16:00:00" , add offset value to end to get ready to convert
+If "2025-09-04T06:34:45.770-05:00" , needs to convert
+Then convert list into UTC
+
+
+
+start: "2014-11-08T15:00:00"
+startoffset: "-05:00"
+stop: "2014-11-08T16:00:00"
+stopoffset: "-05:00"
+
+
+start: "2025-09-04T06:34:45.770-05:00"
+startoffset: "-300"
+stop: "2025-09-04T07:34:45.770-05:00"
+stopoffset: "-300"
+
+
+docker exec arangodb arangodump \
+  --server.endpoint tcp://127.0.0.1:8529 \
+  --server.username root \
+  --server.password test \
+  --output-directory /tmp/arangodump \
+  --include-system-collections false \
+  --server.database smacktalk
+
+
+
+

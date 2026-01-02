@@ -1,0 +1,130 @@
+
+services:
+  frontend:
+    container_name: frontend
+    # Use specific image if IMAGE_TAG is set, otherwise build
+    image: ${FRONTEND_IMAGE:-stg_rd-frontend:${IMAGE_TAG:-latest}}
+    build:
+      context: ..
+      dockerfile: ./frontend/Dockerfile.frontend
+      args:
+        DOCKER_ENV: "true"
+        FRONTEND_PORT: "${FRONTEND_PORT}"
+        GIT_COMMIT: "${GIT_COMMIT:-unknown}"
+        BUILD_DATE: "${BUILD_DATE:-unknown}"
+    ports:
+      - "${FRONTEND_PORT}:${FRONTEND_PORT}"
+    env_file:
+      - ${ENV_FILE}
+    environment:
+      # Flag to indicate we're running in Docker
+      - DOCKER_ENV=true
+      - FRONTEND_PORT=${FRONTEND_PORT}
+      # Note: API routing handled by external Traefik
+    depends_on:
+      - backend
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${FRONTEND_PORT}"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - stg_rd_net
+
+  backend:
+    container_name: backend
+    # Use specific image if IMAGE_TAG is set, otherwise build
+    image: ${BACKEND_IMAGE:-stg_rd-backend:${IMAGE_TAG:-latest}}
+    build:
+      context: ..
+      dockerfile: ./backend/Dockerfile.backend
+      args:
+        RUST_ENV: "${RUST_ENV}"
+        RUST_LOG: "${RUST_LOG}"
+        RUST_BACKTRACE: "${RUST_BACKTRACE}"
+    ports:
+      - "${BACKEND_PORT}:${BACKEND_PORT}"
+    env_file:
+      - ${ENV_FILE}
+    environment:
+      # Override URLs for container-to-container communication
+      - ARANGO_URL=http://arangodb:${ARANGODB_INTERNAL_PORT}
+      - REDIS_URL=redis://redis:${REDIS_INTERNAL_PORT}/
+      # Override server binding for Docker
+      - SERVER_HOST=0.0.0.0
+      - SERVER_PORT=${BACKEND_PORT}
+      - RUST_ENV=${RUST_ENV}
+      - RUST_LOG=${RUST_LOG}
+      - RUST_BACKTRACE=${RUST_BACKTRACE}
+      - ARANGO_DB=${ARANGO_DB}
+      - ARANGO_USERNAME=${ARANGO_USERNAME}
+      - ARANGO_PASSWORD=${ARANGO_PASSWORD}
+      - ARANGO_ROOT_PASSWORD=${ARANGO_ROOT_PASSWORD}
+      - DB_POOL_SIZE=${DB_POOL_SIZE}
+      - DB_TIMEOUT=${DB_TIMEOUT}
+      - REDIS_POOL_SIZE=${REDIS_POOL_SIZE}
+      - REDIS_TIMEOUT=${REDIS_TIMEOUT}
+    depends_on:
+      - redis
+      - arangodb
+    volumes:
+      - ${VOLUME_PATH}/backend_data:/app/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${BACKEND_PORT}/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - stg_rd_net
+
+  redis:
+    container_name: redis
+    image: redis:7-alpine
+    ports:
+      - "${REDIS_PORT}:${REDIS_INTERNAL_PORT}"
+    env_file:
+      - ${ENV_FILE}
+    volumes:
+      - ${VOLUME_PATH}/redis_data:/data
+    command: redis-server --appendonly yes
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - stg_rd_net
+
+  arangodb:
+    container_name: arangodb
+    image: arangodb:3.12.5
+    ports:
+      - "${ARANGODB_PORT}:${ARANGODB_INTERNAL_PORT}"
+    env_file:
+      - ${ENV_FILE}
+    environment:
+      - ARANGO_ROOT_PASSWORD=${ARANGO_ROOT_PASSWORD}
+    volumes:
+      - ${VOLUME_PATH}/arango_data:/var/lib/arangodb3
+      - ${VOLUME_PATH}/arango_apps_data:/var/lib/arangodb3-apps
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${ARANGODB_INTERNAL_PORT}/_admin/server/availability"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - stg_rd_net
+
+volumes:
+  redis_data:
+  arango_data:
+  arango_apps_data:
+
+networks:
+  stg_rd_net:
+    driver: bridge
+# NOTE: All variables (API_URL, ARANGO_ROOT_PASSWORD, RUST_BACKTRACE, ENV_FILE, VOLUME_PATH, etc.) should be set in your .env.X file and passed with --env-file 

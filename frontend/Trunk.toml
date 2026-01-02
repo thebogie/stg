@@ -1,0 +1,38 @@
+[wasm]
+# Enable all necessary WebAssembly features
+features = ["bulk-memory", "mutable-globals", "nontrapping-fptoint"]
+
+[build]
+# Explicitly enable bulk memory for wasm-opt
+wasm_opt = false
+target = "index.html"
+release = true
+dist = "../_build/frontend-dist"  # All generated objects in _build/
+
+# Serve static files
+[serve]
+addresses = ["0.0.0.0"]  # Replace deprecated 'address'
+port = 50013
+open = false
+
+# Pass environment variables to the build process
+[build.env]
+GIT_COMMIT = { value = "", from_env = "GIT_COMMIT" }
+BUILD_DATE = { value = "", from_env = "BUILD_DATE" }
+
+
+[watch]
+watch = ["src", "../shared/src"]
+
+[[hooks]]
+stage = "pre_build"
+command = "cargo"
+command_arguments = ["build", "--package=frontend", "--target", "wasm32-unknown-unknown"]
+
+[clean]
+cargo = true
+
+[[proxy]]
+rewrite = "/api/"
+backend = "http://localhost:50012/api/" 
+

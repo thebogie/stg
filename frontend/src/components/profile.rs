@@ -1,0 +1,9 @@
+pub mod profile_tabs;
+pub mod overall_stats_tab;
+pub mod game_performance_tab;
+pub mod ratings_tab;
+pub mod nemesis_tab;
+pub mod owned_tab;
+pub mod trends_tab;
+pub mod comparison_tab;
+pub mod settings_tab;

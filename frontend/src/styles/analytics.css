@@ -1,0 +1,235 @@
+/* Analytics Page Styles */
+.analytics-page {
+    min-height: 100vh;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
+
+.analytics-header {
+    background: rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(10px);
+    padding: 1.5rem 2rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.analytics-header h1 {
+    color: white;
+    margin: 0 0 1rem 0;
+    font-size: 2rem;
+    font-weight: 600;
+}
+
+.analytics-nav {
+    display: flex;
+    gap: 1rem;
+}
+
+.nav-link {
+    padding: 0.75rem 1.5rem;
+    border-radius: 8px;
+    text-decoration: none;
+    color: rgba(255, 255, 255, 0.8);
+    font-weight: 500;
+    transition: all 0.2s ease;
+    border: 1px solid transparent;
+}
+
+.nav-link:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: white;
+    text-decoration: none;
+}
+
+.nav-link.active {
+    background: rgba(255, 255, 255, 0.2);
+    color: white;
+    border-color: rgba(255, 255, 255, 0.3);
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .analytics-header {
+        padding: 1rem;
+    }
+
+    .analytics-header h1 {
+        font-size: 1.5rem;
+    }
+
+    .analytics-nav {
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    .nav-link {
+        text-align: center;
+    }
+}
+
+.analytics-page h1 {
+    color: #2c3e50;
+    text-align: center;
+    margin-bottom: 2rem;
+    font-size: 2.5rem;
+    font-weight: 300;
+}
+
+.loading {
+    text-align: center;
+    padding: 2rem;
+    font-size: 1.2rem;
+    color: #7f8c8d;
+}
+
+.stats-section {
+    margin-bottom: 3rem;
+}
+
+.stats-section h2 {
+    color: #34495e;
+    margin-bottom: 1.5rem;
+    font-size: 1.8rem;
+    font-weight: 400;
+}
+
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 1.5rem;
+}
+
+.stat-card {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 1.5rem;
+    border-radius: 12px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.stat-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
+}
+
+.stat-card h3 {
+    margin: 0 0 0.5rem 0;
+    font-size: 1rem;
+    font-weight: 500;
+    opacity: 0.9;
+}
+
+.stat-value {
+    margin: 0;
+    font-size: 2rem;
+    font-weight: 700;
+}
+
+.leaderboard-section {
+    margin-bottom: 3rem;
+}
+
+.leaderboard-section h2 {
+    color: #34495e;
+    margin-bottom: 1.5rem;
+    font-size: 1.8rem;
+    font-weight: 400;
+}
+
+.leaderboard-category h3 {
+    color: #7f8c8d;
+    margin-bottom: 1rem;
+    font-size: 1.2rem;
+    font-weight: 500;
+}
+
+.leaderboard-table {
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    overflow: hidden;
+}
+
+.leaderboard-table table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.leaderboard-table th {
+    background: #f8f9fa;
+    color: #495057;
+    padding: 1rem;
+    text-align: left;
+    font-weight: 600;
+    border-bottom: 2px solid #e9ecef;
+}
+
+.leaderboard-table td {
+    padding: 1rem;
+    border-bottom: 1px solid #e9ecef;
+    color: #495057;
+}
+
+.leaderboard-table tr:hover {
+    background: #f8f9fa;
+}
+
+.leaderboard-table tr:last-child td {
+    border-bottom: none;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+    .analytics-page {
+        padding: 1rem;
+    }
+    
+    .analytics-page h1 {
+        font-size: 2rem;
+    }
+    
+    .stats-grid {
+        grid-template-columns: 1fr;
+        gap: 1rem;
+    }
+    
+    .stat-card {
+        padding: 1rem;
+    }
+    
+    .stat-value {
+        font-size: 1.5rem;
+    }
+    
+    .leaderboard-table {
+        font-size: 0.9rem;
+    }
+    
+    .leaderboard-table th,
+    .leaderboard-table td {
+        padding: 0.75rem;
+    }
+}
+
+/* Animation for loading state */
+@keyframes pulse {
+    0% { opacity: 1; }
+    50% { opacity: 0.5; }
+    100% { opacity: 1; }
+}
+
+.loading {
+    animation: pulse 1.5s ease-in-out infinite;
+}
+
+/* Success/error states */
+.stat-card.success {
+    background: linear-gradient(135deg, #56ab2f 0%, #a8e6cf 100%);
+}
+
+.stat-card.warning {
+    background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+}
+
+.stat-card.info {
+    background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+} 

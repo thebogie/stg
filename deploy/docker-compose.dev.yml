@@ -1,0 +1,63 @@
+# Development override for docker-compose.yaml
+# This file adds development-specific configurations like volume mounts for live reload
+# Usage: docker compose -f docker-compose.yaml -f docker-compose.dev.yml up
+
+services:
+  frontend:
+    # Note: For development, you may want to comment out volumes and use local trunk serve
+    # or uncomment the command override below to use trunk serve inside container
+    build:
+      # target: builder  # Uncomment if you want to use builder stage (requires Dockerfile changes)
+    volumes:
+      # Mount source code for live reload (if using a dev server inside container)
+      - ./frontend:/app/frontend:rw
+      - ./shared:/app/shared:rw
+      - ./Cargo.toml:/app/Cargo.toml:ro
+      - ./Cargo.lock:/app/Cargo.lock:ro
+      # Exclude target directory to avoid conflicts
+      - /app/target
+    environment:
+      # Development-specific environment variables
+      - RUST_ENV=development
+      - RUST_LOG=debug
+      - RUST_BACKTRACE=1
+      - DOCKER_ENV=true
+    # Override command for development (if you want to run dev server)
+    # Uncomment if you want to use trunk serve inside container
+    # command: sh -c "cd /app/frontend && npm run build:css:prod && trunk serve --no-default-features --features frontend --address 0.0.0.0 --port ${FRONTEND_PORT}"
+    # For production-like testing, keep the default nginx command
+
+  backend:
+    volumes:
+      # Mount source code for live reload
+      - ./backend:/app/backend:rw
+      - ./shared:/app/shared:rw
+      - ./Cargo.toml:/app/Cargo.toml:ro
+      - ./Cargo.lock:/app/Cargo.lock:ro
+      # Mount target directory to persist build cache
+      - ./target:/app/target:rw
+      # Exclude migrations if you want to manage them separately
+      - ./migrations:/app/migrations:ro
+    environment:
+      # Development-specific environment variables
+      - RUST_ENV=development
+      - RUST_LOG=debug
+      - RUST_BACKTRACE=1
+    # Override command for development with cargo watch for auto-reload
+    # Uncomment to enable auto-reload on code changes (requires cargo-watch in Dockerfile)
+    # command: sh -c "cd /app/backend && cargo install cargo-watch --locked && cargo watch -x 'run --package backend --bin backend'"
+    # For production-like testing, keep the default binary command
+    # Note: For true production parity, comment out volumes and use the built binary
+
+  redis:
+    # Development: expose more ports if needed
+    # Keep production-like setup for testing
+
+  arangodb:
+    # Development: expose more ports if needed
+    # Keep production-like setup for testing
+    volumes:
+      # Persist data for development
+      - ${VOLUME_PATH}/arango_data:/var/lib/arangodb3:rw
+      - ${VOLUME_PATH}/arango_apps_data:/var/lib/arangodb3-apps:rw
+

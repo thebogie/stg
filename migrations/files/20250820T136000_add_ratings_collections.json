@@ -1,0 +1,14 @@
+{
+  "steps": [
+    {
+      "type": "create_collection",
+      "name": "rating_latest",
+      "collection_type": "document"
+    },
+    {
+      "type": "create_collection",
+      "name": "rating_history",
+      "collection_type": "document"
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+// Find all venues with place_id = null
+FOR venue IN venue
+FILTER venue.place_id == null
+RETURN {
+    id: venue._id,
+    name: venue.displayName,
+    address: venue.formattedAddress,
+    place_id: venue.place_id,
+    lat: venue.lat,
+    lng: venue.lng,
+    timezone: venue.timezone
+}

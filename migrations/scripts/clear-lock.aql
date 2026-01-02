@@ -1,0 +1,4 @@
+// Clear migration lock - run this if migrations fail and leave a lock
+FOR doc IN migration_lock
+  FILTER doc._key == "lock"
+  REMOVE doc IN migration_lock

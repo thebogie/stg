@@ -1,0 +1,84 @@
+// Check venue place_id status
+// This query shows statistics about venue place_ids
+
+// Count total venues
+LET total_venues = LENGTH(FOR v IN venue RETURN v)
+
+// Count venues with valid place_id (not null, empty, or placeholder values)
+LET valid_place_ids = LENGTH(
+    FOR v IN venue 
+    FILTER v.place_id != null 
+        AND v.place_id != "" 
+        AND v.place_id != "Unknown Place"
+        AND v.place_id != "unknown"
+        AND v.place_id != "Unknown"
+        AND v.place_id != "placeholder"
+        AND v.place_id != "temp"
+    RETURN v
+)
+
+// Count venues with missing place_id
+LET missing_place_ids = LENGTH(
+    FOR v IN venue 
+    FILTER v.place_id == null 
+        OR v.place_id == "" 
+        OR v.place_id == "Unknown Place"
+        OR v.place_id == "unknown"
+        OR v.place_id == "Unknown"
+        OR v.place_id == "placeholder"
+        OR v.place_id == "temp"
+    RETURN v
+)
+
+// Show sample venues with missing place_id
+LET sample_missing = (
+    FOR v IN venue 
+    FILTER v.place_id == null 
+        OR v.place_id == "" 
+        OR v.place_id == "Unknown Place"
+        OR v.place_id == "unknown"
+        OR v.place_id == "Unknown"
+        OR v.place_id == "placeholder"
+        OR v.place_id == "temp"
+    LIMIT 10
+    RETURN {
+        id: v._id,
+        name: v.displayName,
+        address: v.formattedAddress,
+        place_id: v.place_id,
+        lat: v.lat,
+        lng: v.lng
+    }
+)
+
+// Show sample venues with valid place_id
+LET sample_valid = (
+    FOR v IN venue 
+    FILTER v.place_id != null 
+        AND v.place_id != "" 
+        AND v.place_id != "Unknown Place"
+        AND v.place_id != "unknown"
+        AND v.place_id != "Unknown"
+        AND v.place_id != "placeholder"
+        AND v.place_id != "temp"
+    LIMIT 5
+    RETURN {
+        id: v._id,
+        name: v.displayName,
+        address: v.formattedAddress,
+        place_id: v.place_id,
+        lat: v.lat,
+        lng: v.lng
+    }
+)
+
+RETURN {
+    summary: {
+        total_venues: total_venues,
+        valid_place_ids: valid_place_ids,
+        missing_place_ids: missing_place_ids,
+        completion_percentage: total_venues > 0 ? (valid_place_ids * 100.0) / total_venues : 0
+    },
+    sample_missing_venues: sample_missing,
+    sample_valid_venues: sample_valid
+}

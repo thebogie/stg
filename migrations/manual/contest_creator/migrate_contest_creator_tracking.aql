@@ -1,0 +1,19 @@
+// Direct migration script to add creator tracking to existing contests
+// Run this script to update all existing contests with:
+// - creator_id: "player/2025041711441879994340500"
+// - created_at: contest.stop (the stop time)
+
+// Step 1: Update all contests with creator_id and created_at
+FOR contest IN contest
+    UPDATE contest WITH {
+        creator_id: "player/2025041711441879994340500",
+        created_at: contest.stop
+    } IN contest
+    RETURN {
+        _id: OLD._id,
+        name: OLD.name,
+        stop: OLD.stop,
+        new_creator_id: NEW.creator_id,
+        new_created_at: NEW.created_at
+    }
+

@@ -1,0 +1,23 @@
+[package]
+name = "stg-rd-migrations"
+version = "0.2.2"
+edition = "2021"
+authors = ["The Bogie <thebogie@example.com>"]
+description = "ArangoDB migration tool for STG_RD"
+license = "MIT"
+repository = "https://github.com/thebogie/stg_rd"
+documentation = "https://docs.rs/stg_rd"
+readme = "README.md"
+
+[dependencies]
+anyhow = "1.0.79"
+clap = { version = "4", features = ["derive", "env"] }
+reqwest = { version = "0.12", features = ["json", "gzip", "brotli", "deflate", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1.0.114"
+sha2 = "0.10"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+url = "2"
+hex = "0.4"
+time = { version = "0.3", features = ["formatting", "parsing"] }
+urlencoding = "2.1"

@@ -1,0 +1,111 @@
+# Nextest configuration for optimized test execution
+# https://nexte.st/book/config.html
+
+[profile.default]
+# Default profile for unit tests
+test-threads = "auto"
+retries = 0
+run-ignored = "never"
+partition-strategy = "round-robin"
+
+# Test timeouts
+test-timeout = "60s"
+build-timeout = "300s"
+
+# Output configuration
+output = { type = "pretty", immediate = false }
+failure-output = { type = "pretty", immediate = false }
+success-output = { type = "pretty", immediate = false }
+
+# Test filtering
+filter = { kind = "exact" }
+
+[profile.integration]
+# Profile for integration tests (slower, more resources)
+test-threads = 2  # Fewer threads to avoid overwhelming services
+retries = 1       # Retry once for flaky integration tests
+run-ignored = "only"  # Only run ignored tests (integration tests)
+test-timeout = "300s"  # Longer timeout for integration tests
+build-timeout = "600s"
+
+# More verbose output for integration tests
+output = { type = "pretty", immediate = true }
+failure-output = { type = "pretty", immediate = true }
+success-output = { type = "pretty", immediate = true }
+
+[profile.ci]
+# Profile for CI/CD environments
+test-threads = "auto"
+retries = 2  # More retries in CI for stability
+run-ignored = "never"
+test-timeout = "120s"
+build-timeout = "600s"
+
+# CI-friendly output
+output = { type = "json", immediate = false }
+failure-output = { type = "pretty", immediate = true }
+success-output = { type = "json", immediate = false }
+
+[profile.debug]
+# Profile for debugging tests
+test-threads = 1  # Single thread for easier debugging
+retries = 0
+run-ignored = "never"
+test-timeout = "600s"
+build-timeout = "600s"
+
+# Very verbose output for debugging
+output = { type = "pretty", immediate = true }
+failure-output = { type = "pretty", immediate = true }
+success-output = { type = "pretty", immediate = true }
+
+# Test grouping for better organization
+[[profile.default.overrides]]
+filter = { name = "test_real_database_operations" }
+profile = "integration"
+
+[[profile.default.overrides]]
+filter = { name = "test_real_api_endpoints" }
+profile = "integration"
+
+[[profile.default.overrides]]
+filter = { name = "test_real_third_party_apis" }
+profile = "integration"
+
+[[profile.default.overrides]]
+filter = { name = "test_real_authentication" }
+profile = "integration"
+
+[[profile.default.overrides]]
+filter = { name = "test_real_performance" }
+profile = "integration"
+
+[[profile.default.overrides]]
+filter = { name = "test_real_data_consistency" }
+profile = "integration"
+
+# Group tests by category for better organization
+[[profile.default.overrides]]
+filter = { name = "test_concurrent_user_load" }
+profile = "integration"
+
+[[profile.default.overrides]]
+filter = { name = "test_response_time_benchmarks" }
+profile = "integration"
+
+[[profile.default.overrides]]
+filter = { name = "test_memory_usage_under_load" }
+profile = "integration"
+
+# Security tests can be run in parallel
+[[profile.default.overrides]]
+filter = { name = "test_input_sanitization" }
+profile = "default"
+
+[[profile.default.overrides]]
+filter = { name = "test_sql_injection_prevention" }
+profile = "default"
+
+[[profile.default.overrides]]
+filter = { name = "test_xss_prevention" }
+profile = "default" 

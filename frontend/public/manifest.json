@@ -1,0 +1,17 @@
+{
+  "name": "STG - Tournament Management",
+  "short_name": "STG",
+  "description": "Create and manage your contests with ease. Professional tournament management made simple.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#2563eb",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "32x32",
+      "type": "image/svg+xml"
+    }
+  ]
+}

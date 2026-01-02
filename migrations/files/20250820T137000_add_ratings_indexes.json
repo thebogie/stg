@@ -1,0 +1,61 @@
+{
+  "steps": [
+    {
+      "type": "ensure_index",
+      "collection": "rating_latest",
+      "index": {
+        "type": "persistent",
+        "fields": ["player_id", "scope_type", "scope_id"],
+        "unique": true
+      }
+    },
+    {
+      "type": "ensure_index",
+      "collection": "rating_latest",
+      "index": {
+        "type": "persistent",
+        "fields": ["rating"]
+      }
+    },
+    {
+      "type": "ensure_index",
+      "collection": "rating_latest",
+      "index": {
+        "type": "persistent",
+        "fields": ["scope_type", "rating"]
+      }
+    },
+    {
+      "type": "ensure_index",
+      "collection": "rating_latest",
+      "index": {
+        "type": "persistent",
+        "fields": ["games_played"]
+      }
+    },
+    {
+      "type": "ensure_index",
+      "collection": "rating_history",
+      "index": {
+        "type": "persistent",
+        "fields": ["player_id", "scope_type", "scope_id"]
+      }
+    },
+    {
+      "type": "ensure_index",
+      "collection": "rating_history",
+      "index": {
+        "type": "persistent",
+        "fields": ["period_end"]
+      }
+    },
+    {
+      "type": "ensure_index",
+      "collection": "rating_history",
+      "index": {
+        "type": "persistent",
+        "fields": ["player_id", "period_end"]
+      }
+    }
+  ]
+}

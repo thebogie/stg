@@ -1,0 +1,47 @@
+FROM rust:1.88.0 as builder
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y \
+    pkg-config \
+    libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy the entire workspace
+COPY . .
+
+# Build the backend
+WORKDIR /app/backend
+RUN cargo build --release --bin backend
+
+# Production stage
+FROM debian:bookworm-slim
+
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    libssl3 \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy the binary from builder
+COPY --from=builder /app/target/release/backend /usr/local/bin/
+
+# Build arguments for environment variables
+ARG RUST_ENV
+ARG RUST_LOG
+ARG RUST_BACKTRACE
+
+# Set default environment variables (can be overridden by .env files)
+ENV RUST_ENV=${RUST_ENV:-info}
+ENV RUST_LOG=${RUST_LOG:-info}
+ENV RUST_BACKTRACE=${RUST_BACKTRACE:-1}
+ENV SERVER_PORT=50002
+ENV BACKEND_URL=http://0.0.0.0:50002
+
+# Expose the default port (will be overridden by environment variables at runtime)
+EXPOSE 50002
+
+# Run the binary
+CMD ["backend"] 

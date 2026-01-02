@@ -1,0 +1,44 @@
+// Verification script to check that the creator tracking migration was successful
+// This script will show:
+// 1. Total number of contests
+// 2. How many have creator_id
+// 3. How many have created_at
+// 4. Sample of updated contests
+
+LET total_contests = LENGTH(FOR c IN contest RETURN 1)
+
+LET contests_with_creator_id = (
+    FOR c IN contest
+        FILTER HAS(c, "creator_id") && c.creator_id != null
+        RETURN c
+)
+
+LET contests_with_created_at = (
+    FOR c IN contest
+        FILTER HAS(c, "created_at") && c.created_at != null
+        RETURN c
+)
+
+LET sample_contests = (
+    FOR c IN contest
+        LIMIT 5
+        RETURN {
+            _id: c._id,
+            name: c.name,
+            creator_id: c.creator_id,
+            created_at: c.created_at,
+            stop: c.stop,
+            has_creator_id: HAS(c, "creator_id"),
+            has_created_at: HAS(c, "created_at")
+        }
+)
+
+RETURN {
+    migration_status: "Creator tracking migration verification",
+    total_contests: total_contests,
+    contests_with_creator_id: LENGTH(contests_with_creator_id),
+    contests_with_created_at: LENGTH(contests_with_created_at),
+    migration_success: LENGTH(contests_with_creator_id) == total_contests && LENGTH(contests_with_created_at) == total_contests,
+    sample_updated_contests: sample_contests
+}
+

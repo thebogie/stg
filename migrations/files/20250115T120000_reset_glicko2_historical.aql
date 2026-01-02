@@ -1,0 +1,23 @@
+// Reset and recalculate all Glicko2 ratings from historical data (first database entry onwards)
+// This migration will:
+// 1. Clear existing rating_latest and rating_history collections
+// 2. Trigger a complete historical recalculation via the backend API
+// Note: This requires the backend to be running for the API call to work
+
+// Get counts before clearing
+LET latest_count = LENGTH(rating_latest)
+LET history_count = LENGTH(rating_history)
+
+// Clear existing ratings data
+FOR doc IN rating_latest
+    REMOVE doc IN rating_latest
+
+FOR hist IN rating_history  
+    REMOVE hist IN rating_history
+
+RETURN {
+    message: "Glicko2 ratings reset completed. Run historical recalculation via admin API endpoint.",
+    cleared_latest: latest_count,
+    cleared_history: history_count,
+    next_step: "Call POST /api/ratings/recalculate/historical as admin to populate historical data"
+}

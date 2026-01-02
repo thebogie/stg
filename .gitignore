@@ -1,0 +1,34 @@
+# All generated objects consolidated in _build/
+_build/
+
+# Rust (kept at root for Rust conventions, but will be in _build/target via CARGO_TARGET_DIR)
+target/
+Cargo.lock
+
+# Node
+node_modules/
+package-lock.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment files (keep templates, ignore actual .env files)
+config/.env.development
+config/.env.production
+config/.env.*
+!.env.*.template
+
+# Docker data
+docker-data/
+
+# Cleanup artifacts
+*.old
+*.backup
+*.bak

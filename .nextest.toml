@@ -1,0 +1,27 @@
+# cargo-nextest configuration
+# See https://nexte.st/book/configuration.html
+
+[profile.default]
+# Test timeout (default: 60s)
+test-timeout = "300s"
+
+# Retry failed tests
+retries = { backoff = "exponential", count = 2 }
+
+# Output format
+status-level = "flaky"
+
+# JUnit XML output
+junit = { path = "_build/test-results.xml" }
+
+# Test grouping
+threads-required = { file = 1 }
+
+[profile.ci]
+# CI-specific settings
+test-timeout = "600s"
+retries = { backoff = "exponential", count = 3 }
+status-level = "none"
+
+
+
