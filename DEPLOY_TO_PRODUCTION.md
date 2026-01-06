@@ -1,88 +1,72 @@
 # Deploy Tested Docker Containers to Production
 
-This guide walks you through deploying your tested Docker containers from your development machine to your production server.
+This guide walks you through deploying your tested Docker containers from your development machine to your production server using Docker Hub with a single private repository.
 
 ## Prerequisites
 
 - ✅ All tests have passed on your development machine
 - ✅ Docker images have been built and tested
 - ✅ Production server has Docker and Docker Compose installed
-- ✅ SSH access to production server
+- ✅ Docker Hub account (free tier allows 1 private repository)
 - ✅ Production server has the project repository cloned
 
 ## Step-by-Step Deployment Process
 
-### Step 1: Export Tested Images (On Development Machine)
+### Step 1: Build and Tag Images (On Development Machine)
 
-First, export your tested Docker images to tar.gz files that can be transferred to production:
+First, ensure your production images are built with proper version tags:
 
 ```bash
 # From your project root directory
 cd /home/thebogie/work/stg
 
-# Export the tested images
-./scripts/export-tested-images.sh
-```
-
-**What this does:**
-- Exports frontend and backend images to `_build/artifacts/`
-- Creates checksums for verification
-- Generates deployment instructions
-
-**Output files:**
-- `_build/artifacts/frontend-v<version>.tar.gz`
-- `_build/artifacts/backend-v<version>.tar.gz`
-- `_build/artifacts/*.sha256` (checksums)
-- `_build/artifacts/deploy-info-<version>.txt`
-
-**Note the version tag** - you'll need it for deployment. It will be displayed in the output.
-
-**Important:** If you ran E2E tests (`just test-frontend-e2e`), the script will automatically detect those images and create a version file. However, if you want proper version tracking with git commit info, you can run:
-
-```bash
-# This will be fast if images already exist (uses Docker cache)
+# Build production images (creates version tags)
 ./scripts/build-prod-images.sh
 ```
 
-Then run the export script again. The `build-prod-images.sh` script creates proper version tags and tracking, but if images already exist from testing, it will reuse them quickly.
+**What this does:**
+- Builds frontend and backend Docker images in release mode
+- Tags images with version (git commit + timestamp)
+- Creates `_build/.build-version` file with version info
 
-### Step 2: Transfer Images to Production Server
+**Output:**
+- Images: `stg_rd-frontend:latest` and `stg_rd-backend:latest`
+- Version file: `_build/.build-version` (contains version tag like `va8b5487-20260106-073414`)
 
-Transfer the exported image files to your production server:
+**Note:** If you already ran E2E tests, the images may already exist. The build script will reuse them quickly due to Docker cache.
 
-```bash
-# From your development machine
-# Replace USER and PRODUCTION_SERVER with your actual values
-scp _build/artifacts/*.tar.gz* user@production-server:/tmp/
+### Step 2: Push Images to Docker Hub (On Development Machine)
 
-# Example:
-# scp _build/artifacts/*.tar.gz* deploy@prod.example.com:/tmp/
-```
-
-**Alternative: Using rsync (better for large files):**
-```bash
-rsync -avz --progress _build/artifacts/*.tar.gz* user@production-server:/tmp/
-```
-
-**Alternative: Using Docker Registry (Recommended for frequent deployments):**
-
-If you have a Docker registry (Docker Hub, AWS ECR, etc.):
+Push your tested images to Docker Hub using a single private repository with descriptive tags:
 
 ```bash
-# Tag images
-docker tag stg_rd-frontend:tested your-registry/stg_rd-frontend:v<version>
-docker tag stg_rd-backend:tested your-registry/stg_rd-backend:v<version>
+# Login to Docker Hub
+docker login
 
-# Push to registry
-docker push your-registry/stg_rd-frontend:v<version>
-docker push your-registry/stg_rd-backend:v<version>
+# Get the version tag from the build
+VERSION=$(cat _build/.build-version | grep VERSION_TAG | cut -d'"' -f2)
+echo "Version: $VERSION"
+
+# Tag both images to the same repository with descriptive tags
+docker tag stg_rd-frontend:latest your-username/stg_rd:frontend-$VERSION
+docker tag stg_rd-backend:latest your-username/stg_rd:backend-$VERSION
+
+# Push to Docker Hub
+docker push your-username/stg_rd:frontend-$VERSION
+docker push your-username/stg_rd:backend-$VERSION
 ```
 
-Then on production server:
+**Example:**
 ```bash
-docker pull your-registry/stg_rd-frontend:v<version>
-docker pull your-registry/stg_rd-backend:v<version>
+docker tag stg_rd-frontend:latest therealbogie/stg_rd:frontend-va8b5487-20260106-073414
+docker tag stg_rd-backend:latest therealbogie/stg_rd:backend-va8b5487-20260106-073414
+docker push therealbogie/stg_rd:frontend-va8b5487-20260106-073414
+docker push therealbogie/stg_rd:backend-va8b5487-20260106-073414
 ```
+
+**Important:** 
+- Make sure to set the `stg_rd` repository to **Private** on Docker Hub if you want to keep your images private
+- The free tier allows 1 private repository, which is why we use a single repository with different tags
 
 ### Step 3: Prepare Production Server
 
@@ -90,7 +74,7 @@ docker pull your-registry/stg_rd-backend:v<version>
 
 1. **Navigate to project directory:**
    ```bash
-   cd /path/to/stg  # Replace with your actual production path
+   cd /home/thebogie/stg/repo  # Or wherever your repo is located
    ```
 
 2. **Ensure production environment is configured:**
@@ -103,7 +87,7 @@ docker pull your-registry/stg_rd-backend:v<version>
    ```
 
    **Important settings to verify:**
-   - `VOLUME_PATH` - Absolute path for persistent data (e.g., `/var/lib/stg_rd`)
+   - `VOLUME_PATH` - Absolute path for persistent data (e.g., `/home/thebogie/stg`)
    - `ARANGO_ROOT_PASSWORD` - Strong password for ArangoDB
    - `ARANGO_PASSWORD` - Strong password for database user
    - `REDIS_PASSWORD` - Redis password (if using)
@@ -117,55 +101,50 @@ docker pull your-registry/stg_rd-backend:v<version>
    docker network create stg_prod 2>/dev/null || true
    ```
 
-4. **Create volume directories (if needed):**
-   ```bash
-   # Check VOLUME_PATH in your .env.production file first
-   sudo mkdir -p /var/lib/stg_rd/arango_data
-   sudo mkdir -p /var/lib/stg_rd/arango_apps_data
-   sudo chown -R $USER:$USER /var/lib/stg_rd  # Adjust permissions as needed
-   ```
-
-### Step 4: Deploy Images on Production Server
+### Step 4: Pull and Deploy Images (On Production Server)
 
 **On your production server:**
 
-1. **Load the Docker images:**
+1. **Pull images from Docker Hub:**
    ```bash
-   # Load frontend image
-   gunzip -c /tmp/frontend-v<version>.tar.gz | docker load
-   
-   # Load backend image
-   gunzip -c /tmp/backend-v<version>.tar.gz | docker load
-   
-   # Verify images are loaded
-   docker images | grep -E "frontend|backend"
+   # Login to Docker Hub
+   docker login
+
+   # Pull the images (replace with your actual version tag)
+   VERSION="va8b5487-20260106-073414"  # Get this from your build
+   docker pull your-username/stg_rd:frontend-$VERSION
+   docker pull your-username/stg_rd:backend-$VERSION
    ```
 
-2. **Deploy using the deployment script:**
+2. **Tag images for deployment:**
    ```bash
-   # Get the version tag from the export (or use 'tested' if images were tagged that way)
-   # The script can auto-detect the version from the tar.gz files
-   
-   ./scripts/deploy-tested-images.sh --version v<version> --image-dir /tmp
-   
-   # Or let it auto-detect:
-   ./scripts/deploy-tested-images.sh --image-dir /tmp
+   # Tag them to the expected names for deployment
+   docker tag your-username/stg_rd:frontend-$VERSION stg_rd-frontend:latest
+   docker tag your-username/stg_rd:backend-$VERSION stg_rd-backend:latest
    ```
+
+3. **Deploy using the deployment script:**
+   ```bash
+   # Deploy with the version tag (--skip-load because images are already loaded from Docker Hub)
+   ./scripts/deploy-tested-images.sh --version $VERSION --skip-load --skip-backup
+   ```
+
+   **Note:** 
+   - The `--skip-load` flag tells the script that images are already loaded from Docker Hub (no tar.gz files needed)
+   - The `--skip-backup` flag is optional - remove it if you want to backup before deployment
 
    **What this script does:**
-   - Verifies checksums
-   - Loads images (if not already loaded)
-   - Creates database backup (optional, can skip with `--skip-backup`)
+   - Verifies images are available
+   - Creates database backup (unless `--skip-backup` is used)
    - Stops old containers
    - Starts new containers with tested images
    - Runs migrations (optional, can skip with `--skip-migrations`)
    - Verifies deployment health
 
-3. **Alternative: Manual deployment (if you prefer more control):**
+4. **Alternative: Manual deployment (if you prefer more control):**
    ```bash
    # Set environment variables
    export ENV_FILE=config/.env.production
-   export IMAGE_TAG=v<version>  # or 'tested'
    
    # Stop existing containers
    docker compose \
@@ -175,7 +154,7 @@ docker pull your-registry/stg_rd-backend:v<version>
        -f deploy/docker-compose.stg_prod.yml \
        down
    
-   # Start new containers
+   # Start new containers (uses stg_rd-frontend:latest and stg_rd-backend:latest)
    docker compose \
        --env-file config/.env.production \
        -f deploy/docker-compose.yaml \
@@ -222,10 +201,7 @@ curl http://localhost:50002/health
 
 # Frontend (adjust port from your .env.production)
 curl http://localhost:50001/
-```
 
-**Check service health:**
-```bash
 # Detailed health check
 curl http://localhost:50002/health/detailed
 ```
@@ -249,23 +225,67 @@ curl http://localhost:50002/health/detailed
    docker image prune -a
    ```
 
-3. **Clean up transferred files (optional):**
-   ```bash
-   # Remove the tar.gz files from /tmp
-   rm /tmp/*.tar.gz*
-   ```
+## Quick Reference
+
+### Development Machine Commands
+```bash
+# Build production images
+./scripts/build-prod-images.sh
+
+# Get version tag
+VERSION=$(cat _build/.build-version | grep VERSION_TAG | cut -d'"' -f2)
+
+# Tag and push to Docker Hub
+docker login
+docker tag stg_rd-frontend:latest your-username/stg_rd:frontend-$VERSION
+docker tag stg_rd-backend:latest your-username/stg_rd:backend-$VERSION
+docker push your-username/stg_rd:frontend-$VERSION
+docker push your-username/stg_rd:backend-$VERSION
+```
+
+### Production Server Commands
+```bash
+# Pull images
+docker login
+VERSION="va8b5487-20260106-073414"  # Your version tag
+docker pull your-username/stg_rd:frontend-$VERSION
+docker pull your-username/stg_rd:backend-$VERSION
+
+# Tag for deployment
+docker tag your-username/stg_rd:frontend-$VERSION stg_rd-frontend:latest
+docker tag your-username/stg_rd:backend-$VERSION stg_rd-backend:latest
+
+# Deploy
+cd /home/thebogie/stg/repo
+./scripts/deploy-tested-images.sh --version $VERSION --skip-load --skip-backup
+
+# Check status
+docker compose --env-file config/.env.production \
+    -f deploy/docker-compose.yaml \
+    -f deploy/docker-compose.prod.yml \
+    -f deploy/docker-compose.stg_prod.yml \
+    ps
+
+# View logs
+docker compose --env-file config/.env.production \
+    -f deploy/docker-compose.yaml \
+    -f deploy/docker-compose.prod.yml \
+    -f deploy/docker-compose.stg_prod.yml \
+    logs -f
+```
 
 ## Troubleshooting
 
-### Images Not Found
+### Images Not Found After Pull
 
-If deployment script can't find images:
+If images aren't found after pulling:
 ```bash
-# Check what images are available
-docker images | grep -E "frontend|backend|stg_rd"
+# Verify images were pulled
+docker images | grep stg_rd
 
-# If images have 'tested' tag instead of version tag:
-export IMAGE_TAG=tested
+# Make sure you tagged them correctly
+docker tag your-username/stg_rd:frontend-$VERSION stg_rd-frontend:latest
+docker tag your-username/stg_rd:backend-$VERSION stg_rd-backend:latest
 ```
 
 ### Port Conflicts
@@ -309,43 +329,15 @@ docker compose \
     -f deploy/docker-compose.stg_prod.yml \
     down
 
-# Load previous version images (if you have them)
-gunzip -c /tmp/frontend-v<previous-version>.tar.gz | docker load
-gunzip -c /tmp/backend-v<previous-version>.tar.gz | docker load
+# Pull previous version from Docker Hub
+docker pull your-username/stg_rd:frontend-$PREVIOUS_VERSION
+docker pull your-username/stg_rd:backend-$PREVIOUS_VERSION
 
-# Deploy previous version
-./scripts/deploy-tested-images.sh --version v<previous-version> --image-dir /tmp
-```
+# Tag and deploy
+docker tag your-username/stg_rd:frontend-$PREVIOUS_VERSION stg_rd-frontend:latest
+docker tag your-username/stg_rd:backend-$PREVIOUS_VERSION stg_rd-backend:latest
 
-## Quick Reference
-
-### Development Machine Commands
-```bash
-# Export tested images
-./scripts/export-tested-images.sh
-
-# Transfer to production
-scp _build/artifacts/*.tar.gz* user@production-server:/tmp/
-```
-
-### Production Server Commands
-```bash
-# Load and deploy
-./scripts/deploy-tested-images.sh --image-dir /tmp
-
-# Check status
-docker compose --env-file config/.env.production \
-    -f deploy/docker-compose.yaml \
-    -f deploy/docker-compose.prod.yml \
-    -f deploy/docker-compose.stg_prod.yml \
-    ps
-
-# View logs
-docker compose --env-file config/.env.production \
-    -f deploy/docker-compose.yaml \
-    -f deploy/docker-compose.prod.yml \
-    -f deploy/docker-compose.stg_prod.yml \
-    logs -f
+./scripts/deploy-tested-images.sh --version $PREVIOUS_VERSION --skip-backup
 ```
 
 ## Security Best Practices
@@ -353,11 +345,10 @@ docker compose --env-file config/.env.production \
 1. **Use strong passwords** in `config/.env.production`
 2. **Never commit** `.env.production` to version control
 3. **Use SSH keys** instead of passwords for server access
-4. **Verify checksums** before deploying (script does this automatically)
-5. **Backup database** before deployment (script does this automatically)
-6. **Use Docker registry** for production (more secure than SCP)
-7. **Limit network access** - only expose necessary ports
-8. **Monitor logs** after deployment for any issues
+4. **Set repository to Private** on Docker Hub
+5. **Use Docker registry** for production (more secure than file transfer)
+6. **Limit network access** - only expose necessary ports
+7. **Monitor logs** after deployment for any issues
 
 ## Next Steps
 
@@ -366,4 +357,3 @@ docker compose --env-file config/.env.production \
 - Set up CI/CD pipeline for automated deployments
 - Document your production environment specifics
 - Set up log aggregation (ELK, Loki, etc.)
-

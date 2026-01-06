@@ -37,6 +37,7 @@ VERSION_TAG=""
 IMAGE_DIR="/tmp"
 SKIP_BACKUP=false
 SKIP_MIGRATIONS=false
+SKIP_LOAD=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -56,9 +57,13 @@ while [[ $# -gt 0 ]]; do
             SKIP_MIGRATIONS=true
             shift
             ;;
+        --skip-load)
+            SKIP_LOAD=true
+            shift
+            ;;
         *)
             log_error "Unknown option: $1"
-            echo "Usage: $0 [--version TAG] [--image-dir DIR] [--skip-backup] [--skip-migrations]"
+            echo "Usage: $0 [--version TAG] [--image-dir DIR] [--skip-backup] [--skip-migrations] [--skip-load]"
             exit 1
             ;;
     esac
@@ -123,47 +128,53 @@ if [ "$SKIP_BACKUP" = false ]; then
     fi
 fi
 
-# Load images
-FRONTEND_IMAGE_FILE="${IMAGE_DIR}/frontend-${VERSION_TAG}.tar.gz"
-BACKEND_IMAGE_FILE="${IMAGE_DIR}/backend-${VERSION_TAG}.tar.gz"
+# Load images (skip if --skip-load is used, e.g., when images are already loaded from Docker Hub)
+if [ "$SKIP_LOAD" = false ]; then
+    FRONTEND_IMAGE_FILE="${IMAGE_DIR}/frontend-${VERSION_TAG}.tar.gz"
+    BACKEND_IMAGE_FILE="${IMAGE_DIR}/backend-${VERSION_TAG}.tar.gz"
 
-if [ ! -f "$FRONTEND_IMAGE_FILE" ]; then
-    log_error "Frontend image file not found: $FRONTEND_IMAGE_FILE"
-    exit 1
-fi
-
-if [ ! -f "$BACKEND_IMAGE_FILE" ]; then
-    log_error "Backend image file not found: $BACKEND_IMAGE_FILE"
-    exit 1
-fi
-
-# Verify checksums if available
-if [ -f "${FRONTEND_IMAGE_FILE}.sha256" ]; then
-    log_info "Verifying frontend image checksum..."
-    # Run checksum verification from the image directory
-    (cd "$IMAGE_DIR" && sha256sum -c "$(basename "${FRONTEND_IMAGE_FILE}.sha256")") || {
-        log_error "Frontend image checksum verification failed!"
+    if [ ! -f "$FRONTEND_IMAGE_FILE" ]; then
+        log_error "Frontend image file not found: $FRONTEND_IMAGE_FILE"
+        log_info "If images are already loaded from Docker Hub, use --skip-load flag"
         exit 1
-    }
-fi
+    fi
 
-if [ -f "${BACKEND_IMAGE_FILE}.sha256" ]; then
-    log_info "Verifying backend image checksum..."
-    # Run checksum verification from the image directory
-    (cd "$IMAGE_DIR" && sha256sum -c "$(basename "${BACKEND_IMAGE_FILE}.sha256")") || {
-        log_error "Backend image checksum verification failed!"
+    if [ ! -f "$BACKEND_IMAGE_FILE" ]; then
+        log_error "Backend image file not found: $BACKEND_IMAGE_FILE"
+        log_info "If images are already loaded from Docker Hub, use --skip-load flag"
         exit 1
-    }
+    fi
+
+    # Verify checksums if available
+    if [ -f "${FRONTEND_IMAGE_FILE}.sha256" ]; then
+        log_info "Verifying frontend image checksum..."
+        # Run checksum verification from the image directory
+        (cd "$IMAGE_DIR" && sha256sum -c "$(basename "${FRONTEND_IMAGE_FILE}.sha256")") || {
+            log_error "Frontend image checksum verification failed!"
+            exit 1
+        }
+    fi
+
+    if [ -f "${BACKEND_IMAGE_FILE}.sha256" ]; then
+        log_info "Verifying backend image checksum..."
+        # Run checksum verification from the image directory
+        (cd "$IMAGE_DIR" && sha256sum -c "$(basename "${BACKEND_IMAGE_FILE}.sha256")") || {
+            log_error "Backend image checksum verification failed!"
+            exit 1
+        }
+    fi
+
+    # Load images
+    log_info "Loading frontend image..."
+    gunzip -c "$FRONTEND_IMAGE_FILE" | docker load
+    log_success "Frontend image loaded"
+
+    log_info "Loading backend image..."
+    gunzip -c "$BACKEND_IMAGE_FILE" | docker load
+    log_success "Backend image loaded"
+else
+    log_info "Skipping image load (images should already be available from Docker Hub)"
 fi
-
-# Load images
-log_info "Loading frontend image..."
-gunzip -c "$FRONTEND_IMAGE_FILE" | docker load
-log_success "Frontend image loaded"
-
-log_info "Loading backend image..."
-gunzip -c "$BACKEND_IMAGE_FILE" | docker load
-log_success "Backend image loaded"
 
 # Get image names - try common names first, then fall back to project name
 COMPOSE_PROJECT_NAME=$(basename "$PROJECT_ROOT" | tr '[:upper:]' '[:lower:]' | tr -cd '[:alnum:]-')
