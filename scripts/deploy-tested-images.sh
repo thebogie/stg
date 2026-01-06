@@ -107,7 +107,9 @@ log_info "  Image directory: $IMAGE_DIR"
 if [ "$SKIP_BACKUP" = false ]; then
     log_info "Creating database backup before deployment..."
     if [ -f "$PROJECT_ROOT/scripts/backup-prod-db.sh" ]; then
-        "$PROJECT_ROOT/scripts/backup-prod-db.sh" || {
+        # Use local backup directory to avoid permission issues
+        mkdir -p "${PROJECT_ROOT}/_build/backups"
+        "$PROJECT_ROOT/scripts/backup-prod-db.sh" --output-dir "${PROJECT_ROOT}/_build/backups" || {
             log_warning "Backup failed, but continuing..."
         }
     else
@@ -132,7 +134,8 @@ fi
 # Verify checksums if available
 if [ -f "${FRONTEND_IMAGE_FILE}.sha256" ]; then
     log_info "Verifying frontend image checksum..."
-    sha256sum -c "${FRONTEND_IMAGE_FILE}.sha256" || {
+    # Run checksum verification from the image directory
+    (cd "$IMAGE_DIR" && sha256sum -c "$(basename "${FRONTEND_IMAGE_FILE}.sha256")") || {
         log_error "Frontend image checksum verification failed!"
         exit 1
     }
@@ -140,7 +143,8 @@ fi
 
 if [ -f "${BACKEND_IMAGE_FILE}.sha256" ]; then
     log_info "Verifying backend image checksum..."
-    sha256sum -c "${BACKEND_IMAGE_FILE}.sha256" || {
+    # Run checksum verification from the image directory
+    (cd "$IMAGE_DIR" && sha256sum -c "$(basename "${BACKEND_IMAGE_FILE}.sha256")") || {
         log_error "Backend image checksum verification failed!"
         exit 1
     }
@@ -236,14 +240,19 @@ if [ "$SKIP_MIGRATIONS" = false ]; then
     if [ -d "$PROJECT_ROOT/migrations/files" ] && [ -n "$(ls -A "$PROJECT_ROOT/migrations/files" 2>/dev/null)" ]; then
         log_info "Running migrations..."
         
-        # Extract ArangoDB port
-        if [[ "$ARANGO_URL" =~ :([0-9]+) ]]; then
+        # Extract ArangoDB port for migrations (run from host, so use external port)
+        # If ARANGO_URL uses container name (arangodb), use ARANGODB_PORT (external port)
+        # Otherwise, extract port from URL
+        if [[ "$ARANGO_URL" =~ arangodb: ]]; then
+            # Using container name, so use external port
+            ARANGO_PORT="${ARANGODB_PORT:-50003}"
+        elif [[ "$ARANGO_URL" =~ :([0-9]+) ]]; then
             ARANGO_PORT="${BASH_REMATCH[1]}"
         else
-            ARANGO_PORT="8529"
+            ARANGO_PORT="${ARANGODB_PORT:-8529}"
         fi
         
-        # Run migrations
+        # Run migrations (from host, so use localhost with external port)
         cargo run --package stg-rd-migrations --release -- \
             --endpoint "http://localhost:${ARANGO_PORT}" \
             --database "${ARANGO_DB:-smacktalk}" \

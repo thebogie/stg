@@ -58,9 +58,84 @@ fi
 # Check for version file
 VERSION_FILE="${PROJECT_ROOT}/_build/.build-version"
 if [ ! -f "$VERSION_FILE" ]; then
-    log_error "No build version file found. Build images first:"
-    log_info "  ./scripts/build-prod-images.sh"
-    exit 1
+    log_warning "No build version file found. Attempting to detect existing images..."
+    
+    # Try to find existing images
+    COMPOSE_PROJECT_NAME=$(basename "$PROJECT_ROOT" | tr '[:upper:]' '[:lower:]' | tr -cd '[:alnum:]-')
+    
+    # Check for images with common tags
+    FRONTEND_FOUND=""
+    BACKEND_FOUND=""
+    
+    # Try 'tested' tag first
+    if docker image inspect "${COMPOSE_PROJECT_NAME}-frontend:tested" > /dev/null 2>&1; then
+        FRONTEND_FOUND="${COMPOSE_PROJECT_NAME}-frontend:tested"
+    elif docker image inspect "stg_rd-frontend:tested" > /dev/null 2>&1; then
+        FRONTEND_FOUND="stg_rd-frontend:tested"
+    elif docker image inspect "${COMPOSE_PROJECT_NAME}-frontend:latest" > /dev/null 2>&1; then
+        FRONTEND_FOUND="${COMPOSE_PROJECT_NAME}-frontend:latest"
+    elif docker image inspect "stg_rd-frontend:latest" > /dev/null 2>&1; then
+        FRONTEND_FOUND="stg_rd-frontend:latest"
+    fi
+    
+    if docker image inspect "${COMPOSE_PROJECT_NAME}-backend:tested" > /dev/null 2>&1; then
+        BACKEND_FOUND="${COMPOSE_PROJECT_NAME}-backend:tested"
+    elif docker image inspect "stg_rd-backend:tested" > /dev/null 2>&1; then
+        BACKEND_FOUND="stg_rd-backend:tested"
+    elif docker image inspect "${COMPOSE_PROJECT_NAME}-backend:latest" > /dev/null 2>&1; then
+        BACKEND_FOUND="${COMPOSE_PROJECT_NAME}-backend:latest"
+    elif docker image inspect "stg_rd-backend:latest" > /dev/null 2>&1; then
+        BACKEND_FOUND="stg_rd-backend:latest"
+    fi
+    
+    if [ -n "$FRONTEND_FOUND" ] && [ -n "$BACKEND_FOUND" ]; then
+        log_info "Found existing images:"
+        log_info "  Frontend: $FRONTEND_FOUND"
+        log_info "  Backend: $BACKEND_FOUND"
+        log_info "Creating version file from existing images..."
+        
+        # Get git commit and build date
+        if command -v git > /dev/null 2>&1; then
+            GIT_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+        else
+            GIT_COMMIT="unknown"
+        fi
+        BUILD_DATE=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
+        VERSION_TAG="tested-$(date +%Y%m%d-%H%M%S)"
+        
+        # Extract image names (without tag) for version file
+        FRONTEND_IMAGE_NAME=$(echo "$FRONTEND_FOUND" | cut -d: -f1)
+        BACKEND_IMAGE_NAME=$(echo "$BACKEND_FOUND" | cut -d: -f1)
+        
+        # Create version file
+        mkdir -p "${PROJECT_ROOT}/_build"
+        cat > "$VERSION_FILE" <<EOF
+GIT_COMMIT=$GIT_COMMIT
+BUILD_DATE=$BUILD_DATE
+VERSION_TAG=$VERSION_TAG
+FRONTEND_IMAGE=$FRONTEND_IMAGE_NAME
+BACKEND_IMAGE=$BACKEND_IMAGE_NAME
+EOF
+        log_success "Created version file from existing images"
+        
+        # Store full image names with tags for later use
+        export FRONTEND_FOUND
+        export BACKEND_FOUND
+    else
+        log_error "No build version file found and could not detect existing images."
+        log_info ""
+        log_info "You have two options:"
+        log_info "  1. Build production images (recommended):"
+        log_info "     ./scripts/build-prod-images.sh"
+        log_info "     (This will be fast if images already exist due to Docker cache)"
+        log_info ""
+        log_info "  2. If you ran E2E tests, the images may exist but need version tracking."
+        log_info "     Run build-prod-images.sh to create the version file."
+        log_info ""
+        log_info "Available images:"
+        docker images | grep -E "frontend|backend|stg_rd" | head -10 || log_info "  (none found)"
+        exit 1
+    fi
 fi
 
 source "$VERSION_FILE"
@@ -78,39 +153,56 @@ log_info "Exporting images to: $OUTPUT_DIR"
 FRONTEND_EXPORT="${OUTPUT_DIR}/frontend-${VERSION_TAG}.tar.gz"
 BACKEND_EXPORT="${OUTPUT_DIR}/backend-${VERSION_TAG}.tar.gz"
 
-# Try to find images with 'tested' tag first, then version tag
-FRONTEND_IMAGE="${FRONTEND_IMAGE}:tested"
-BACKEND_IMAGE="${BACKEND_IMAGE}:tested"
-
-if ! docker image inspect "$FRONTEND_IMAGE" > /dev/null 2>&1; then
-    FRONTEND_IMAGE="${FRONTEND_IMAGE}:${VERSION_TAG}"
+# Determine which images to export
+# If we auto-detected images above (FRONTEND_FOUND/BACKEND_FOUND set), use those
+# Otherwise, try to find images using the version file info
+if [ -n "${FRONTEND_FOUND:-}" ]; then
+    # Use the image we found during auto-detection
+    FRONTEND_TO_EXPORT="$FRONTEND_FOUND"
+else
+    # Try to find images with 'tested' tag first, then version tag, then latest
+    FRONTEND_TO_EXPORT="${FRONTEND_IMAGE}:tested"
+    if ! docker image inspect "$FRONTEND_TO_EXPORT" > /dev/null 2>&1; then
+        FRONTEND_TO_EXPORT="${FRONTEND_IMAGE}:${VERSION_TAG}"
+        if ! docker image inspect "$FRONTEND_TO_EXPORT" > /dev/null 2>&1; then
+            FRONTEND_TO_EXPORT="${FRONTEND_IMAGE}:latest"
+        fi
+    fi
 fi
 
-if ! docker image inspect "$BACKEND_IMAGE" > /dev/null 2>&1; then
-    BACKEND_IMAGE="${BACKEND_IMAGE}:${VERSION_TAG}"
+if [ -n "${BACKEND_FOUND:-}" ]; then
+    BACKEND_TO_EXPORT="$BACKEND_FOUND"
+else
+    BACKEND_TO_EXPORT="${BACKEND_IMAGE}:tested"
+    if ! docker image inspect "$BACKEND_TO_EXPORT" > /dev/null 2>&1; then
+        BACKEND_TO_EXPORT="${BACKEND_IMAGE}:${VERSION_TAG}"
+        if ! docker image inspect "$BACKEND_TO_EXPORT" > /dev/null 2>&1; then
+            BACKEND_TO_EXPORT="${BACKEND_IMAGE}:latest"
+        fi
+    fi
 fi
 
 # Verify images exist
-if ! docker image inspect "$FRONTEND_IMAGE" > /dev/null 2>&1; then
-    log_error "Frontend image not found: $FRONTEND_IMAGE"
+if ! docker image inspect "$FRONTEND_TO_EXPORT" > /dev/null 2>&1; then
+    log_error "Frontend image not found: $FRONTEND_TO_EXPORT"
     log_info "Available images:"
     docker images | grep -E "frontend|stg_rd" || true
     exit 1
 fi
 
-if ! docker image inspect "$BACKEND_IMAGE" > /dev/null 2>&1; then
-    log_error "Backend image not found: $BACKEND_IMAGE"
+if ! docker image inspect "$BACKEND_TO_EXPORT" > /dev/null 2>&1; then
+    log_error "Backend image not found: $BACKEND_TO_EXPORT"
     log_info "Available images:"
     docker images | grep -E "backend|stg_rd" || true
     exit 1
 fi
 
-log_info "Exporting frontend image: $FRONTEND_IMAGE"
-docker save "$FRONTEND_IMAGE" | gzip > "$FRONTEND_EXPORT"
+log_info "Exporting frontend image: $FRONTEND_TO_EXPORT"
+docker save "$FRONTEND_TO_EXPORT" | gzip > "$FRONTEND_EXPORT"
 log_success "Frontend exported: $FRONTEND_EXPORT ($(du -h "$FRONTEND_EXPORT" | cut -f1))"
 
-log_info "Exporting backend image: $BACKEND_IMAGE"
-docker save "$BACKEND_IMAGE" | gzip > "$BACKEND_EXPORT"
+log_info "Exporting backend image: $BACKEND_TO_EXPORT"
+docker save "$BACKEND_TO_EXPORT" | gzip > "$BACKEND_EXPORT"
 log_success "Backend exported: $BACKEND_EXPORT ($(du -h "$BACKEND_EXPORT" | cut -f1))"
 
 # Create deployment info file
@@ -124,8 +216,8 @@ Build Date: $BUILD_DATE
 Export Date: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
 
 Images:
-  Frontend: $FRONTEND_IMAGE
-  Backend: $BACKEND_IMAGE
+  Frontend: $FRONTEND_TO_EXPORT
+  Backend: $BACKEND_TO_EXPORT
 
 Files:
   Frontend: frontend-${VERSION_TAG}.tar.gz
@@ -162,8 +254,8 @@ log_info "To transfer to production:"
 log_info "  scp ${OUTPUT_DIR}/*.tar.gz* user@production-server:/tmp/"
 log_info ""
 log_info "Or use a Docker registry (recommended):"
-log_info "  docker tag $FRONTEND_IMAGE your-registry/stg_rd-frontend:${VERSION_TAG}"
-log_info "  docker tag $BACKEND_IMAGE your-registry/stg_rd-backend:${VERSION_TAG}"
+log_info "  docker tag $FRONTEND_TO_EXPORT your-registry/stg_rd-frontend:${VERSION_TAG}"
+log_info "  docker tag $BACKEND_TO_EXPORT your-registry/stg_rd-backend:${VERSION_TAG}"
 log_info "  docker push your-registry/stg_rd-frontend:${VERSION_TAG}"
 log_info "  docker push your-registry/stg_rd-backend:${VERSION_TAG}"
 
