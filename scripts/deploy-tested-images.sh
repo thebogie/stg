@@ -159,36 +159,79 @@ log_info "Loading backend image..."
 gunzip -c "$BACKEND_IMAGE_FILE" | docker load
 log_success "Backend image loaded"
 
-# Get image names
+# Get image names - try common names first, then fall back to project name
 COMPOSE_PROJECT_NAME=$(basename "$PROJECT_ROOT" | tr '[:upper:]' '[:lower:]' | tr -cd '[:alnum:]-')
-FRONTEND_IMAGE="${COMPOSE_PROJECT_NAME}-frontend:${VERSION_TAG}"
-BACKEND_IMAGE="${COMPOSE_PROJECT_NAME}-backend:${VERSION_TAG}"
+
+# Try to find the actual image names that were loaded
+# Common names: stg_rd-frontend, stg-frontend, or project-name-frontend
+FRONTEND_IMAGE=""
+BACKEND_IMAGE=""
+
+# Check for stg_rd images first (most common)
+if docker image inspect "stg_rd-frontend:latest" > /dev/null 2>&1; then
+    FRONTEND_IMAGE="stg_rd-frontend:${VERSION_TAG}"
+    # Tag with version if not already tagged
+    if ! docker image inspect "$FRONTEND_IMAGE" > /dev/null 2>&1; then
+        docker tag "stg_rd-frontend:latest" "$FRONTEND_IMAGE" 2>/dev/null || true
+    fi
+elif docker image inspect "stg-frontend:latest" > /dev/null 2>&1; then
+    FRONTEND_IMAGE="stg-frontend:${VERSION_TAG}"
+    if ! docker image inspect "$FRONTEND_IMAGE" > /dev/null 2>&1; then
+        docker tag "stg-frontend:latest" "$FRONTEND_IMAGE" 2>/dev/null || true
+    fi
+else
+    # Fall back to project name
+    FRONTEND_IMAGE="${COMPOSE_PROJECT_NAME}-frontend:${VERSION_TAG}"
+fi
+
+if docker image inspect "stg_rd-backend:latest" > /dev/null 2>&1; then
+    BACKEND_IMAGE="stg_rd-backend:${VERSION_TAG}"
+    if ! docker image inspect "$BACKEND_IMAGE" > /dev/null 2>&1; then
+        docker tag "stg_rd-backend:latest" "$BACKEND_IMAGE" 2>/dev/null || true
+    fi
+elif docker image inspect "stg-backend:latest" > /dev/null 2>&1; then
+    BACKEND_IMAGE="stg-backend:${VERSION_TAG}"
+    if ! docker image inspect "$BACKEND_IMAGE" > /dev/null 2>&1; then
+        docker tag "stg-backend:latest" "$BACKEND_IMAGE" 2>/dev/null || true
+    fi
+else
+    # Fall back to project name
+    BACKEND_IMAGE="${COMPOSE_PROJECT_NAME}-backend:${VERSION_TAG}"
+fi
 
 # Verify images are loaded
 if ! docker image inspect "$FRONTEND_IMAGE" > /dev/null 2>&1; then
-    log_warning "Could not find $FRONTEND_IMAGE, checking for 'tested' tag..."
-    FRONTEND_IMAGE="${COMPOSE_PROJECT_NAME}-frontend:tested"
-    if ! docker image inspect "$FRONTEND_IMAGE" > /dev/null 2>&1; then
+    log_warning "Could not find $FRONTEND_IMAGE, checking for 'latest' tag..."
+    # Try latest tag
+    FRONTEND_BASE=$(echo "$FRONTEND_IMAGE" | cut -d: -f1)
+    if docker image inspect "${FRONTEND_BASE}:latest" > /dev/null 2>&1; then
+        FRONTEND_IMAGE="${FRONTEND_BASE}:latest"
+        log_info "Using ${FRONTEND_IMAGE} (will tag as ${FRONTEND_BASE}:${VERSION_TAG})"
+        docker tag "$FRONTEND_IMAGE" "${FRONTEND_BASE}:${VERSION_TAG}" 2>/dev/null || true
+        FRONTEND_IMAGE="${FRONTEND_BASE}:${VERSION_TAG}"
+    else
         log_error "Frontend image not found after loading"
         log_info "Available images:"
-        docker images | grep frontend || true
+        docker images | grep -E "frontend|stg_rd" || true
         exit 1
     fi
-    # Update VERSION_TAG to match
-    VERSION_TAG="tested"
 fi
 
 if ! docker image inspect "$BACKEND_IMAGE" > /dev/null 2>&1; then
-    log_warning "Could not find $BACKEND_IMAGE, checking for 'tested' tag..."
-    BACKEND_IMAGE="${COMPOSE_PROJECT_NAME}-backend:tested"
-    if ! docker image inspect "$BACKEND_IMAGE" > /dev/null 2>&1; then
+    log_warning "Could not find $BACKEND_IMAGE, checking for 'latest' tag..."
+    # Try latest tag
+    BACKEND_BASE=$(echo "$BACKEND_IMAGE" | cut -d: -f1)
+    if docker image inspect "${BACKEND_BASE}:latest" > /dev/null 2>&1; then
+        BACKEND_IMAGE="${BACKEND_BASE}:latest"
+        log_info "Using ${BACKEND_IMAGE} (will tag as ${BACKEND_BASE}:${VERSION_TAG})"
+        docker tag "$BACKEND_IMAGE" "${BACKEND_BASE}:${VERSION_TAG}" 2>/dev/null || true
+        BACKEND_IMAGE="${BACKEND_BASE}:${VERSION_TAG}"
+    else
         log_error "Backend image not found after loading"
         log_info "Available images:"
-        docker images | grep backend || true
+        docker images | grep -E "backend|stg_rd" || true
         exit 1
     fi
-    # Update VERSION_TAG to match
-    VERSION_TAG="tested"
 fi
 
 log_success "Images loaded:"
