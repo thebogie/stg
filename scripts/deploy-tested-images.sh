@@ -83,6 +83,12 @@ set -a
 source "$ENV_FILE"
 set +a
 
+# Ensure ENV_FILE is an absolute path for docker-compose
+# (docker-compose resolves paths relative to where it's run)
+if [[ ! "$ENV_FILE" =~ ^/ ]]; then
+    ENV_FILE="${PROJECT_ROOT}/${ENV_FILE}"
+fi
+
 export ENV_FILE
 
 # If version not provided, try to find latest in image dir
