@@ -8,18 +8,18 @@
 services:
   frontend:
     # Production: Override ports for stg_prod environment
-    # Ports: frontend 50001, backend 50002, arangodb 50003, redis 63791
+    # Ports: arangodb 50001, backend 50002, frontend 50003, redis 63791
     ports:
-      - "50001:${FRONTEND_PORT:-50001}"  # Host port 50001
+      - "50003:${FRONTEND_PORT:-50003}"  # Host port 50003 -> container port 50003
     environment:
-      - FRONTEND_PORT=${FRONTEND_PORT:-50001}  # Container port
+      - FRONTEND_PORT=${FRONTEND_PORT:-50003}  # Container port
     networks:
       - stg_rd_net
 
   backend:
     # Production: Override ports for stg_prod environment
     ports:
-      - "50002:${BACKEND_PORT:-50002}"  # Host port 50002
+      - "50002:${BACKEND_PORT:-50002}"  # Host port 50002 -> container port 50002
     environment:
       - SERVER_PORT=${BACKEND_PORT:-50002}  # Container port
     networks:
@@ -37,7 +37,7 @@ services:
     # Production: Override port for stg_prod environment
     # Container port stays 8529 for internal communication
     ports:
-      - "50003:8529"  # Host port 50003 -> container port 8529
+      - "50001:8529"  # Host port 50001 -> container port 8529
     networks:
       - stg_rd_net
 
