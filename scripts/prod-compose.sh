@@ -51,6 +51,14 @@ fi
 # Export ENV_FILE as absolute path for docker-compose
 export ENV_FILE
 
+# Ensure the production network exists (needed for docker-compose.stg_prod.yml)
+if docker network ls | grep -q "stg_prod"; then
+    log_info "Network 'stg_prod' already exists"
+else
+    log_info "Creating network 'stg_prod'..."
+    docker network create stg_prod || log_warning "Failed to create network (may already exist)"
+fi
+
 # Change to deploy directory so relative paths in compose files work
 cd "$PROJECT_ROOT/deploy"
 
