@@ -9,6 +9,7 @@ This guide walks you through deploying your tested Docker containers from your d
 - ✅ Production server has Docker and Docker Compose installed
 - ✅ Docker Hub account (free tier allows 1 private repository)
 - ✅ Production server has the project repository cloned
+- ✅ Rust/Cargo installed on production server (if running migrations)
 
 ## Step-by-Step Deployment Process
 
@@ -33,7 +34,9 @@ cd /home/thebogie/work/stg
 - Images: `stg_rd-frontend:latest` and `stg_rd-backend:latest`
 - Version file: `_build/.build-version` (contains version tag like `va8b5487-20260106-073414`)
 
-**Note:** If you already ran E2E tests, the images may already exist. The build script will reuse them quickly due to Docker cache.
+**Note:** 
+- If you already ran E2E tests, the images may already exist. The build script will reuse them quickly due to Docker cache.
+- The version tag format is: `v<git-commit>-<date>-<time>` (e.g., `va8b5487-20260106-073414`)
 
 ### Step 2: Push Images to Docker Hub (On Development Machine)
 
@@ -211,6 +214,7 @@ curl http://localhost:50002/health/detailed
 1. **Run migrations (if needed):**
    ```bash
    # If you skipped migrations during deployment
+   # Note: Requires Rust/Cargo to be installed on production server
    cargo run --package stg-rd-migrations --release -- \
        --endpoint "http://localhost:50003" \
        --database "smacktalk" \
@@ -218,6 +222,8 @@ curl http://localhost:50002/health/detailed
        --password "<your-password>" \
        --migrations-dir migrations/files
    ```
+   
+   **Note:** If you don't have Rust installed on production, you can skip migrations during deployment with `--skip-migrations` and run them later, or install Rust with: `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`
 
 2. **Clean up old images (optional):**
    ```bash
@@ -330,6 +336,7 @@ docker compose \
     down
 
 # Pull previous version from Docker Hub
+PREVIOUS_VERSION="v<previous-version>"  # Replace with actual previous version
 docker pull your-username/stg_rd:frontend-$PREVIOUS_VERSION
 docker pull your-username/stg_rd:backend-$PREVIOUS_VERSION
 
@@ -337,7 +344,7 @@ docker pull your-username/stg_rd:backend-$PREVIOUS_VERSION
 docker tag your-username/stg_rd:frontend-$PREVIOUS_VERSION stg_rd-frontend:latest
 docker tag your-username/stg_rd:backend-$PREVIOUS_VERSION stg_rd-backend:latest
 
-./scripts/deploy-tested-images.sh --version $PREVIOUS_VERSION --skip-backup
+./scripts/deploy-tested-images.sh --version $PREVIOUS_VERSION --skip-load --skip-backup
 ```
 
 ## Security Best Practices

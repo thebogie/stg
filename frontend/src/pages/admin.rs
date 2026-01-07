@@ -299,18 +299,14 @@ pub fn admin_page(_props: &AdminPageProps) -> Html {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yew::platform::spawn_local;
-    use yew::platform::time::sleep;
-    use std::time::Duration;
     use wasm_bindgen_test::*;
-    use gloo_utils::document;
-    use web_sys::Element;
 
     wasm_bindgen_test_configure!(run_in_browser);
 
     // Mock auth context for testing - simplified version
+    #[allow(dead_code)]
     fn create_mock_auth_context(is_admin: bool) -> crate::auth::AuthContext {
-        use crate::auth::{AuthContext, AuthState, AuthAction};
+        use crate::auth::{AuthContext, AuthState};
         use shared::dto::player::PlayerDto;
         
         let mock_player = if is_admin {

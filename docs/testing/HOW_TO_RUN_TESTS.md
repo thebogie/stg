@@ -26,10 +26,6 @@ Runs all test suites in order:
    - ~5-10 minutes (first run), ~2-5 minutes (subsequent)
    - Tests complete user workflows
 
-3. **Frontend WASM Unit Tests** (`just test-frontend-unit`)
-   - Optional, may fail in WSL2
-   - Gracefully skipped if geckodriver issues occur
-
 ### `just test-full` (With Reports)
 
 Runs all tests AND generates reports:
@@ -61,12 +57,6 @@ just test-integration
 ```bash
 just test-frontend-e2e
 # Uses Docker, tests complete frontend application
-```
-
-### Frontend WASM Unit Tests (Optional)
-```bash
-just test-frontend-unit
-# May fail in WSL2, gracefully skipped
 ```
 
 ## Test Execution Times
@@ -157,11 +147,6 @@ docker ps
 ./scripts/setup-hybrid-dev.sh
 ```
 
-### WASM Unit Tests Fail
-
-**Problem**: Geckodriver errors
-
-**Solution**: This is expected in WSL2. E2E tests provide better coverage anyway. The test suite gracefully skips them.
 
 ## Summary
 
@@ -179,5 +164,4 @@ just test-full
 - `just test-backend` - Backend unit tests
 - `just test-integration` - API + database tests
 - `just test-frontend-e2e` - Frontend E2E tests (Docker)
-- `just test-frontend-unit` - WASM unit tests (optional)
 

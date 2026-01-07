@@ -79,6 +79,7 @@ fake = "2.9"
 rstest = "0.18"
 test-case = "3.3"
 proptest = "1.4"
+testing = { path = "../testing" }
 
 [profile.release]
 panic = "abort"

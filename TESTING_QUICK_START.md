@@ -46,15 +46,7 @@ npx playwright test
 
 **Note:** E2E tests will start the frontend automatically. You may need the backend running if tests make API calls.
 
-### Frontend Unit Tests (Optional)
-```bash
-# Yew/WASM unit tests (may fail in WSL2/headless environments)
-# E2E tests are preferred for frontend testing
-just test-frontend-unit
-
-# Or directly:
-cd frontend && wasm-pack test --headless --firefox
-```
+**Note:** WASM unit tests are not supported in WSL2/headless environments. E2E tests provide comprehensive frontend coverage and work reliably in all environments.
 
 ## 📊 With Coverage Reports
 

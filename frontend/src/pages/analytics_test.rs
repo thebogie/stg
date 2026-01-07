@@ -89,7 +89,6 @@ pub fn analytics_test(_props: &AnalyticsTestProps) -> Html {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use wasm_bindgen_test::*;
 
     wasm_bindgen_test_configure!(run_in_browser);

@@ -20,11 +20,13 @@ use serde_json::Value;
 use chrono::DateTime;
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 struct StreakData {
     current_streak: i32,
     longest_streak: i32,
 }
 
+#[allow(dead_code)]
 async fn fetch_contest_details_for_streaks(contest_ids: Vec<String>, player_id: &str, core_stats: yew::UseStateHandle<Option<CoreStats>>) {
     let mut all_contests = Vec::new();
     
@@ -84,6 +86,7 @@ async fn fetch_contest_details_for_streaks(contest_ids: Vec<String>, player_id: 
     }
 }
 
+#[allow(dead_code)]
 fn calculate_streaks_from_contests(contests: &[Value], player_id: &str) -> StreakData {
     let mut player_contests = Vec::new();
     

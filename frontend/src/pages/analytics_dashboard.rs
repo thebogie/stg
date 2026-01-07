@@ -474,7 +474,6 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
         
         use_effect_with((), move |_| {
             // Load venue performance for the current user
-            let user_id = "player/2025041711441894568690500"; // Placeholder
             let set_venue_performance = venue_performance.clone();
             let set_venue_loading = venue_loading.clone();
             set_venue_loading.set(true);
@@ -526,7 +525,6 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
             });
             
             // Load game recommendations
-            let user_id = "player/2025041711441894568690500"; // Placeholder
             let set_game_recommendations = game_recommendations.clone();
             let set_recommendations_loading = recommendations_loading.clone();
             set_recommendations_loading.set(true);
@@ -569,7 +567,6 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
             });
             
             // Load gaming communities
-            let user_id = "player/2025041711441894568690500"; // Placeholder
             let set_gaming_communities = gaming_communities.clone();
             let set_communities_loading = communities_loading.clone();
             set_communities_loading.set(true);
@@ -608,7 +605,6 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
             });
             
             // Load player networking
-            let user_id = "player/2025041711441894568690500"; // Placeholder
             let set_player_networking = player_networking.clone();
             let set_networking_loading = networking_loading.clone();
             set_networking_loading.set(true);

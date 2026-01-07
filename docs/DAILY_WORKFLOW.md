@@ -157,66 +157,17 @@ Files in _build/artifacts/:
 
 ---
 
-### Step 5: Transfer Images to Production
+### Step 5: Deploy to Production
 
-**What you do:**
-```bash
-# From your development machine
-scp _build/artifacts/*.tar.gz* user@production-server:/tmp/
-```
+**See the complete deployment guide**: **[DEPLOY_TO_PRODUCTION.md](../DEPLOY_TO_PRODUCTION.md)**
 
-**What it does:**
-- Copies tested image files to production server
-- Includes checksum files for verification
+**Quick summary:**
+1. Push images to Docker Hub (single private repository with tags)
+2. Pull images on production server
+3. Tag images for deployment
+4. Run deployment script with `--skip-load` flag
 
-**Why:**
-- **Secure transfer**: Only tested artifacts go to production
-- **No git pull needed**: Production doesn't need source code
-- **Fast**: Only transferring compiled images, not source
-
-**Alternative (Docker Registry):**
-If you set up a Docker registry:
-```bash
-# Tag and push
-docker tag stg_rd-frontend:vabc123-20250120-143022 your-registry/stg_rd-frontend:vabc123-20250120-143022
-docker tag stg_rd-backend:vabc123-20250120-143022 your-registry/stg_rd-backend:vabc123-20250120-143022
-docker push your-registry/stg_rd-frontend:vabc123-20250120-143022
-docker push your-registry/stg_rd-backend:vabc123-20250120-143022
-
-# On production, pull
-docker pull your-registry/stg_rd-frontend:vabc123-20250120-143022
-docker pull your-registry/stg_rd-backend:vabc123-20250120-143022
-```
-
-**Time**: ~2-5 minutes (depends on network speed)
-
----
-
-### Step 6: Deploy to Production
-
-**What you do (on production server):**
-```bash
-cd /path/to/stg_rd
-
-# Backup database (automatic, but good to verify)
-./scripts/backup-prod-db.sh
-
-# Deploy tested images
-./scripts/deploy-tested-images.sh --version vabc123-20250120-143022 --image-dir /tmp
-```
-
-**What it does:**
-- Loads tested images from tar.gz files
-- Verifies checksums
-- Stops old containers
-- Starts new containers with tested images
-- **Data stays in volumes** (no data loss)
-- Verifies deployment health
-
-**Why:**
-- **Zero downtime**: Old containers stop, new ones start
-- **Data safety**: Volumes persist, data never lost
-- **Exact artifacts**: Deploys exactly what you tested
+**Full details**: See `DEPLOY_TO_PRODUCTION.md` in the project root for complete step-by-step instructions.
 - **Health checks**: Verifies services are running
 
 **What happens to data:**

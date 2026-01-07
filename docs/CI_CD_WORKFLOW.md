@@ -148,71 +148,17 @@ just test-backend-coverage
 
 ## Phase 3: Production Release
 
-### Step 1: Transfer Images to Production
+**See the complete deployment guide**: **[DEPLOY_TO_PRODUCTION.md](../DEPLOY_TO_PRODUCTION.md)**
 
-```bash
-# From development machine
-scp _build/artifacts/*.tar.gz* user@production-server:/tmp/
-```
+This is the authoritative guide for deploying to production using Docker Hub with a single private repository.
 
-**Alternative: Docker Registry**
-```bash
-# Tag and push
-docker tag stg_rd-frontend:v<version> your-registry/stg_rd-frontend:v<version>
-docker tag stg_rd-backend:v<version> your-registry/stg_rd-backend:v<version>
-docker push your-registry/stg_rd-frontend:v<version>
-docker push your-registry/stg_rd-backend:v<version>
-```
+**Quick summary:**
+1. Push tested images to Docker Hub (single repository with tags)
+2. Pull images on production server
+3. Tag images for deployment
+4. Deploy using `deploy-tested-images.sh` with `--skip-load` flag
 
-### Step 2: Backup Production Database
-
-**On production server:**
-```bash
-./scripts/backup-prod-db.sh
-```
-
-**Backup location:**
-- Local backups: `_build/backups/` (on dev machine)
-- Production backups: `/backups/arangodb/` (on production server)
-
-### Step 3: Deploy Tested Images
-
-**On production server:**
-```bash
-cd /path/to/stg_rd
-
-# Deploy without migrations (regular code changes)
-./scripts/deploy-tested-images.sh --version v<version> --image-dir /tmp
-
-# OR deploy with migrations (schema/data changes)
-./scripts/deploy-with-migrations.sh --version v<version> --image-dir /tmp
-```
-
-**What it does:**
-- Loads tested images from tar.gz files
-- Verifies checksums
-- Stops old containers
-- Starts new containers with tested images
-- Runs migrations (if using deploy-with-migrations.sh)
-- Verifies deployment health
-
-### Step 4: Verify Deployment
-
-```bash
-# Check container status
-docker compose --env-file config/.env.production \
-  -f deploy/docker-compose.yaml \
-  -f deploy/docker-compose.prod.yml ps
-
-# Check logs
-docker compose --env-file config/.env.production \
-  -f deploy/docker-compose.yaml \
-  -f deploy/docker-compose.prod.yml logs -f
-
-# Test endpoints
-curl http://localhost:50012/health
-curl http://localhost:50013
-```
+**Full details**: See `DEPLOY_TO_PRODUCTION.md` in the project root for complete step-by-step instructions, troubleshooting, and rollback procedures.
 
 ## Complete Workflow Example
 

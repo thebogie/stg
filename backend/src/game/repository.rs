@@ -592,7 +592,9 @@ impl GameRepository for GameRepositoryImpl {
         let collection = self.db.collection("game").await
             .map_err(|e| format!("Failed to get collection: {}", e))?;
         
-        match collection.remove_document::<serde_json::Value>(id, RemoveOptions::default(), None).await {
+        // Arango expects document key, not full _id
+        let key = id.split_once('/').map(|(_, k)| k).unwrap_or(id);
+        match collection.remove_document::<serde_json::Value>(key, RemoveOptions::default(), None).await {
             Ok(_) => Ok(()),
             Err(e) => Err(format!("Failed to delete game: {}", e)),
         }

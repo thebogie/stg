@@ -2,9 +2,16 @@
 
 use anyhow::Result;
 use actix_web::{test, web, App};
+use actix_web::dev::ServiceResponse;
 use serde_json::json;
 use testing::{TestEnvironment, app_setup};
 use shared::dto::game::GameDto;
+
+/// Helper to read response body as text for debugging  
+async fn read_body_text<B: actix_web::body::MessageBody>(resp: ServiceResponse<B>) -> String {
+    let body = test::read_body(resp).await;
+    String::from_utf8_lossy(&body).to_string()
+}
 
 #[tokio::test]
 async fn test_create_game() -> Result<()> {
@@ -17,7 +24,14 @@ async fn test_create_game() -> Result<()> {
             .wrap(backend::middleware::Logger)
             .wrap(backend::middleware::cors_middleware())
             .app_data(actix_web::web::JsonConfig::default().limit(64 * 1024))
+            .app_data(app_data.redis_data.clone())
+            .app_data(app_data.player_repo.clone())
+            .app_data(app_data.session_store.clone())
             .app_data(app_data.game_repo.clone())
+            .service(web::scope("/api/players")
+                .service(backend::player::controller::register_handler_prod)
+                .service(backend::player::controller::login_handler_prod)
+            )
             .service(web::scope("/api/games")
                 .wrap(backend::auth::AuthMiddleware { 
                     redis: std::sync::Arc::new(app_data.redis_data.get_ref().clone()) 
@@ -35,7 +49,12 @@ async fn test_create_game() -> Result<()> {
             "password": "password123"
         }))
         .to_request();
-    test::call_service(&app, register_req).await;
+    let register_resp = test::call_service(&app, register_req).await;
+    assert!(
+        register_resp.status().is_success(),
+        "Registration should succeed, got status: {}",
+        register_resp.status()
+    );
     
     let login_req = test::TestRequest::post()
         .uri("/api/players/login")
@@ -45,13 +64,19 @@ async fn test_create_game() -> Result<()> {
         }))
         .to_request();
     let login_resp = test::call_service(&app, login_req).await;
+    assert!(
+        login_resp.status().is_success(),
+        "Login should succeed, got status: {}",
+        login_resp.status()
+    );
     let login_body: serde_json::Value = test::read_body_json(login_resp).await;
-    let session_id = login_body["session_id"].as_str().unwrap();
+    let session_id = login_body["session_id"].as_str().expect("Login response should contain session_id");
 
     // Create game
     let game_data = json!({
         "name": "Test Game",
-        "year_published": 2023
+        "year_published": 2023,
+        "source": "bgg"
     });
 
     let req = test::TestRequest::post()
@@ -61,8 +86,15 @@ async fn test_create_game() -> Result<()> {
         .to_request();
 
     let resp = test::call_service(&app, req).await;
-    assert!(resp.status().is_success());
-    
+    let status = resp.status();
+    if !status.is_success() {
+        let body_text = read_body_text(resp).await;
+        panic!(
+            "Create game should succeed, got status: {}, body: {}",
+            status,
+            body_text
+        );
+    }
     let game: GameDto = test::read_body_json(resp).await;
     assert_eq!(game.name, "Test Game");
     assert_eq!(game.year_published, Some(2023));
@@ -81,7 +113,15 @@ async fn test_get_all_games() -> Result<()> {
         App::new()
             .wrap(backend::middleware::Logger)
             .wrap(backend::middleware::cors_middleware())
+            .app_data(actix_web::web::JsonConfig::default().limit(64 * 1024))
+            .app_data(app_data.redis_data.clone())
+            .app_data(app_data.player_repo.clone())
+            .app_data(app_data.session_store.clone())
             .app_data(app_data.game_repo.clone())
+            .service(web::scope("/api/players")
+                .service(backend::player::controller::register_handler_prod)
+                .service(backend::player::controller::login_handler_prod)
+            )
             .service(web::scope("/api/games")
                 .wrap(backend::auth::AuthMiddleware { 
                     redis: std::sync::Arc::new(app_data.redis_data.get_ref().clone()) 
@@ -100,7 +140,12 @@ async fn test_get_all_games() -> Result<()> {
             "password": "password123"
         }))
         .to_request();
-    test::call_service(&app, register_req).await;
+    let register_resp = test::call_service(&app, register_req).await;
+    assert!(
+        register_resp.status().is_success(),
+        "Registration should succeed, got status: {}",
+        register_resp.status()
+    );
     
     let login_req = test::TestRequest::post()
         .uri("/api/players/login")
@@ -110,8 +155,13 @@ async fn test_get_all_games() -> Result<()> {
         }))
         .to_request();
     let login_resp = test::call_service(&app, login_req).await;
+    assert!(
+        login_resp.status().is_success(),
+        "Login should succeed, got status: {}",
+        login_resp.status()
+    );
     let login_body: serde_json::Value = test::read_body_json(login_resp).await;
-    let session_id = login_body["session_id"].as_str().unwrap();
+    let session_id = login_body["session_id"].as_str().expect("Login response should contain session_id");
 
     // Create multiple games
     for i in 0..3 {
@@ -120,7 +170,8 @@ async fn test_get_all_games() -> Result<()> {
             .insert_header(("Authorization", format!("Bearer {}", session_id)))
             .set_json(&json!({
                 "name": format!("Game {}", i),
-                "year_published": 2020 + i
+                "year_published": 2020 + i,
+                "source": "bgg"
             }))
             .to_request();
         test::call_service(&app, create_req).await;
@@ -133,8 +184,15 @@ async fn test_get_all_games() -> Result<()> {
         .to_request();
 
     let get_all_resp = test::call_service(&app, get_all_req).await;
-    assert!(get_all_resp.status().is_success());
-    
+    let status = get_all_resp.status();
+    if !status.is_success() {
+        let body_text = read_body_text(get_all_resp).await;
+        panic!(
+            "Get all games should succeed, got status: {}, body: {}",
+            status,
+            body_text
+        );
+    }
     let games: Vec<GameDto> = test::read_body_json(get_all_resp).await;
     assert!(games.len() >= 3);
 
@@ -152,7 +210,14 @@ async fn test_update_game() -> Result<()> {
             .wrap(backend::middleware::Logger)
             .wrap(backend::middleware::cors_middleware())
             .app_data(actix_web::web::JsonConfig::default().limit(64 * 1024))
+            .app_data(app_data.redis_data.clone())
+            .app_data(app_data.player_repo.clone())
+            .app_data(app_data.session_store.clone())
             .app_data(app_data.game_repo.clone())
+            .service(web::scope("/api/players")
+                .service(backend::player::controller::register_handler_prod)
+                .service(backend::player::controller::login_handler_prod)
+            )
             .service(web::scope("/api/games")
                 .wrap(backend::auth::AuthMiddleware { 
                     redis: std::sync::Arc::new(app_data.redis_data.get_ref().clone()) 
@@ -171,7 +236,12 @@ async fn test_update_game() -> Result<()> {
             "password": "password123"
         }))
         .to_request();
-    test::call_service(&app, register_req).await;
+    let register_resp = test::call_service(&app, register_req).await;
+    assert!(
+        register_resp.status().is_success(),
+        "Registration should succeed, got status: {}",
+        register_resp.status()
+    );
     
     let login_req = test::TestRequest::post()
         .uri("/api/players/login")
@@ -181,19 +251,34 @@ async fn test_update_game() -> Result<()> {
         }))
         .to_request();
     let login_resp = test::call_service(&app, login_req).await;
+    assert!(
+        login_resp.status().is_success(),
+        "Login should succeed, got status: {}",
+        login_resp.status()
+    );
     let login_body: serde_json::Value = test::read_body_json(login_resp).await;
-    let session_id = login_body["session_id"].as_str().unwrap();
+    let session_id = login_body["session_id"].as_str().expect("Login response should contain session_id");
 
     let create_req = test::TestRequest::post()
         .uri("/api/games")
         .insert_header(("Authorization", format!("Bearer {}", session_id)))
         .set_json(&json!({
             "name": "Original Game",
-            "year_published": 2020
+            "year_published": 2020,
+            "source": "bgg"
         }))
         .to_request();
     
     let create_resp = test::call_service(&app, create_req).await;
+    let status = create_resp.status();
+    if !status.is_success() {
+        let body_text = read_body_text(create_resp).await;
+        panic!(
+            "Create game should succeed, got status: {}, body: {}",
+            status,
+            body_text
+        );
+    }
     let game: GameDto = test::read_body_json(create_resp).await;
     let game_id = game.id.clone();
 
@@ -203,13 +288,21 @@ async fn test_update_game() -> Result<()> {
         .insert_header(("Authorization", format!("Bearer {}", session_id)))
         .set_json(&json!({
             "name": "Updated Game",
-            "year_published": 2024
+            "year_published": 2024,
+            "source": "bgg"
         }))
         .to_request();
 
     let update_resp = test::call_service(&app, update_req).await;
-    assert!(update_resp.status().is_success());
-    
+    let status = update_resp.status();
+    if !status.is_success() {
+        let body_text = read_body_text(update_resp).await;
+        panic!(
+            "Update game should succeed, got status: {}, body: {}",
+            status,
+            body_text
+        );
+    }
     let updated: GameDto = test::read_body_json(update_resp).await;
     assert_eq!(updated.name, "Updated Game");
     assert_eq!(updated.year_published, Some(2024));
@@ -228,7 +321,15 @@ async fn test_delete_game() -> Result<()> {
         App::new()
             .wrap(backend::middleware::Logger)
             .wrap(backend::middleware::cors_middleware())
+            .app_data(actix_web::web::JsonConfig::default().limit(64 * 1024))
+            .app_data(app_data.redis_data.clone())
+            .app_data(app_data.player_repo.clone())
+            .app_data(app_data.session_store.clone())
             .app_data(app_data.game_repo.clone())
+            .service(web::scope("/api/players")
+                .service(backend::player::controller::register_handler_prod)
+                .service(backend::player::controller::login_handler_prod)
+            )
             .service(web::scope("/api/games")
                 .wrap(backend::auth::AuthMiddleware { 
                     redis: std::sync::Arc::new(app_data.redis_data.get_ref().clone()) 
@@ -248,7 +349,12 @@ async fn test_delete_game() -> Result<()> {
             "password": "password123"
         }))
         .to_request();
-    test::call_service(&app, register_req).await;
+    let register_resp = test::call_service(&app, register_req).await;
+    assert!(
+        register_resp.status().is_success(),
+        "Registration should succeed, got status: {}",
+        register_resp.status()
+    );
     
     let login_req = test::TestRequest::post()
         .uri("/api/players/login")
@@ -258,15 +364,21 @@ async fn test_delete_game() -> Result<()> {
         }))
         .to_request();
     let login_resp = test::call_service(&app, login_req).await;
+    assert!(
+        login_resp.status().is_success(),
+        "Login should succeed, got status: {}",
+        login_resp.status()
+    );
     let login_body: serde_json::Value = test::read_body_json(login_resp).await;
-    let session_id = login_body["session_id"].as_str().unwrap();
+    let session_id = login_body["session_id"].as_str().expect("Login response should contain session_id");
 
     let create_req = test::TestRequest::post()
         .uri("/api/games")
         .insert_header(("Authorization", format!("Bearer {}", session_id)))
         .set_json(&json!({
             "name": "Delete Test Game",
-            "year_published": 2023
+            "year_published": 2023,
+            "source": "bgg"
         }))
         .to_request();
     
@@ -281,7 +393,16 @@ async fn test_delete_game() -> Result<()> {
         .to_request();
 
     let delete_resp = test::call_service(&app, delete_req).await;
-    assert!(delete_resp.status().is_success());
+    let delete_status = delete_resp.status();
+    if !delete_status.is_success() {
+        let body_bytes = test::read_body(delete_resp).await;
+        let body_text = String::from_utf8_lossy(&body_bytes);
+        panic!(
+            "Delete game should succeed, got status: {}, body: {}",
+            delete_status,
+            body_text
+        );
+    }
 
     // Verify game is deleted
     let get_req = test::TestRequest::get()

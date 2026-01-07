@@ -1,6 +1,5 @@
 #[cfg(test)]
 mod component_tests {
-    use wasm_bindgen_test::*;
     use serde_json::json;
 
     // Basic functionality tests for frontend utilities

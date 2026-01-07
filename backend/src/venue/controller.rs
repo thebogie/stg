@@ -139,7 +139,9 @@ where
     R: VenueRepository + Clone + 'static,
 {
     let usecase = VenueUseCaseImpl { repo: repo.get_ref().clone() };
-    match usecase.delete_venue(&path.into_inner()).await {
+    let param = path.into_inner();
+    let id = if param.contains('/') { param } else { format!("venue/{}", param) };
+    match usecase.delete_venue(&id).await {
         Ok(_) => HttpResponse::NoContent().finish(),
         Err(e) => {
             if e.contains("not found") {

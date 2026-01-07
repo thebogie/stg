@@ -12,15 +12,25 @@ The project includes comprehensive testing for both frontend and backend compone
 - **Unit Tests**: Individual component and function tests
 
 ### Frontend Tests
-- **Component Tests**: Yew component rendering and interaction tests
-- **Admin Page Tests**: Admin functionality and access control tests
-- **Integration Tests**: Component integration and state management tests
+- **E2E Tests**: End-to-end tests using Playwright that test the complete application in real browsers
+- **Note**: WASM unit tests are not supported in WSL2/headless environments, so E2E tests are the primary frontend testing method
 
 ## 🚀 Running Tests
 
 ### Quick Start
-Use the provided script to run all tests:
 
+**⚠️ Important:** The `run_tests.sh` script runs tests directly on your host machine (not in Docker containers). It tests your local code before building production images.
+
+**To test production Docker containers:**
+```bash
+# 1. Build production images
+./scripts/build-prod-images.sh
+
+# 2. Test production containers
+./scripts/test-prod-containers.sh --run-tests
+```
+
+**For unit tests on host machine:**
 ```bash
 ./scripts/run_tests.sh
 ```
@@ -47,20 +57,17 @@ cargo watch -x test
 
 ### Frontend Tests
 
-Navigate to the frontend directory and run tests:
+Frontend testing is done via E2E tests using Playwright:
 
 ```bash
-cd frontend
+# Run E2E tests (recommended - uses Docker containers)
+just test-frontend-e2e
 
-# Run all tests
-wasm-pack test --headless --firefox
-
-# Run tests in browser
-wasm-pack test --firefox
-
-# Run tests with output
-wasm-pack test --headless --firefox -- --nocapture
+# Or directly with Playwright
+npx playwright test
 ```
+
+**Note**: WASM unit tests (`wasm-pack test`) are not supported in WSL2/headless environments. E2E tests provide comprehensive coverage of frontend functionality.
 
 ## 📋 Test Categories
 
@@ -75,14 +82,15 @@ Tests the core rating calculation algorithm:
 - **Weighted Games**: Game weight impact on ratings
 - **Consistency**: Deterministic and reproducible results
 
-### 2. Admin Page Tests (`frontend/src/pages/admin_test.rs`)
+### 2. Frontend E2E Tests (`testing/e2e/*.spec.ts`)
 
-Tests the admin page functionality:
+Tests the complete frontend application:
 
-- **Access Control**: Admin-only access verification
-- **Tab Navigation**: Admin dashboard tab switching
-- **Component Rendering**: Admin page component creation
-- **State Management**: Admin state and props handling
+- **User Workflows**: Complete user interactions from start to finish
+- **Page Rendering**: All pages load and display correctly
+- **Navigation**: Routing and navigation between pages
+- **Integration**: Frontend-backend API integration
+- **Visual Regression**: Screenshot comparisons for UI consistency
 
 ### 3. Integration Tests (`backend/tests/ratings_integration_test.rs`)
 
@@ -110,12 +118,14 @@ proptest = "1.4"
 approx = "0.5"  # For floating-point comparisons
 ```
 
-### Frontend Dependencies
-```toml
-[dev-dependencies]
-wasm-bindgen-test = "0.3"
-gloo-utils = "0.3"
-web-sys = "0.3"
+### Frontend E2E Dependencies
+```json
+{
+  "devDependencies": {
+    "@playwright/test": "^1.40.0",
+    "playwright": "^1.40.0"
+  }
+}
 ```
 
 ## 🔍 Test Coverage
@@ -128,10 +138,10 @@ web-sys = "0.3"
 - **Rating Scheduler**: Background task coverage
 
 ### Frontend Coverage
-- **Admin Page**: Component rendering and state management
-- **Navigation**: Admin link visibility and routing
-- **Access Control**: Admin-only feature protection
-- **Component Integration**: Cross-component communication
+- **E2E Tests**: Complete user workflows and page interactions
+- **Visual Regression**: Screenshot-based UI testing
+- **API Integration**: Frontend-backend communication
+- **Browser Compatibility**: Tests run in Chrome, Firefox, and Safari
 
 ## 📊 Test Results
 
@@ -150,9 +160,13 @@ test ratings_tests::glicko_tests::test_glicko2_weighted_games ... ok
 test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 ```
 
-#### Frontend Tests
+#### Frontend E2E Tests
 ```
-test result: ok. X passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+Running 10 tests using 3 workers
+  ✓ tests/example.spec.ts:5:3 › Homepage loads correctly (1.2s)
+  ✓ tests/example.spec.ts:12:3 › Navigation displays correctly (0.8s)
+  
+  10 passed (15.3s)
 ```
 
 ## 🚨 Troubleshooting
@@ -164,10 +178,10 @@ test result: ok. X passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 2. **Redis Connection**: Ensure Redis is running
 3. **Dependencies**: Run `cargo clean && cargo build` if tests fail to compile
 
-#### Frontend Tests
-1. **WASM Build**: Run `wasm-pack build` before testing
-2. **Browser**: Ensure Firefox is installed for headless testing
-3. **Dependencies**: Run `cargo clean && cargo build` if tests fail to compile
+#### Frontend E2E Tests
+1. **Docker**: Ensure Docker is running (E2E tests use Docker containers)
+2. **Playwright**: Run `npx playwright install` to install browser binaries
+3. **Environment**: Ensure `config/.env.development` is configured
 
 ### Debug Mode
 Run tests with debug output:
@@ -176,8 +190,9 @@ Run tests with debug output:
 # Backend
 RUST_LOG=debug cargo test --verbose
 
-# Frontend
-RUST_LOG=debug wasm-pack test --headless --firefox -- --nocapture
+# Frontend E2E
+npx playwright test --debug  # Opens Playwright Inspector
+npx playwright test --ui     # Opens interactive UI mode
 ```
 
 ## 📝 Adding New Tests
@@ -197,19 +212,23 @@ fn test_function_name() {
 }
 ```
 
-### Frontend Test Structure
-```rust
-#[wasm_bindgen_test]
-async fn test_component_name() {
-    // Arrange
-    let props = ComponentProps {};
-    
-    // Act
-    let component = Component::new(props);
-    
-    // Assert
-    assert!(component.props == ComponentProps {});
-}
+### Frontend E2E Test Structure
+```typescript
+import { test, expect } from '@playwright/test';
+
+test('component name', async ({ page }) => {
+  // Navigate to page
+  await page.goto('http://localhost:8080');
+  
+  // Assert element exists
+  await expect(page.locator('h1')).toBeVisible();
+  
+  // Interact with elements
+  await page.click('button');
+  
+  // Assert state changed
+  await expect(page.locator('.result')).toContainText('Expected');
+});
 ```
 
 ## 🔄 Continuous Integration
@@ -217,13 +236,13 @@ async fn test_component_name() {
 Tests are designed to run in CI/CD pipelines:
 
 - **Backend**: Uses `cargo test` for Rust testing
-- **Frontend**: Uses `wasm-pack test` for WASM testing
+- **Frontend**: Uses Playwright for E2E testing
 - **Integration**: End-to-end system testing
 - **Coverage**: Test coverage reporting
 
 ## 📚 Additional Resources
 
 - [Rust Testing Guide](https://doc.rust-lang.org/book/ch11-00-testing.html)
-- [Yew Testing Documentation](https://yew.rs/docs/concepts/testing)
+- [Playwright Documentation](https://playwright.dev/)
 - [Actix Web Testing](https://actix.rs/docs/testing/)
-- [WASM Testing Guide](https://rustwasm.github.io/docs/wasm-pack/tutorials/npm-browser-packages/template-deep-dive/testing.html)
+- [E2E Testing Guide](./E2E_TESTING_GUIDE.md)

@@ -2,7 +2,7 @@
 
 # Deploy tested images to production
 # This script loads and deploys the tested images on the production server
-# Usage: ./scripts/deploy-tested-images.sh [--version TAG] [--image-dir DIR] [--skip-backup] [--skip-migrations]
+# Usage: ./scripts/deploy-tested-images.sh [--version TAG] [--image-dir DIR] [--skip-backup] [--skip-migrations] [--skip-load]
 
 set -e
 

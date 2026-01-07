@@ -223,7 +223,7 @@ pub fn contests(_props: &ContestsProps) -> Html {
         })
     };
 
-    let on_games_filter_change = {
+    let _on_games_filter_change = {
         let draft_state = draft_state.clone();
         Callback::from(move |e: Event| {
             let input: web_sys::HtmlSelectElement = e.target_unchecked_into();

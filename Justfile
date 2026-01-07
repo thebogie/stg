@@ -6,13 +6,11 @@ default:
     just test-all
 
 # Run all tests with nextest
-# Runs: backend unit tests, integration tests, E2E tests, and optional WASM unit tests
+# Runs: backend unit tests, integration tests, and E2E tests
 test-all:
     just test-backend
     just test-integration
     just test-frontend-e2e
-    # WASM unit tests are optional (may fail in WSL2/headless environments)
-    just test-frontend-unit || true
 
 # Run backend tests with nextest
 test-backend:
@@ -54,15 +52,6 @@ test-frontend-e2e-stop:
 # Alias for convenience
 test-frontend:
     just test-frontend-e2e
-
-# Run frontend unit tests (wasm-bindgen-test) - OPTIONAL
-# Note: May fail in WSL2/headless environments due to geckodriver issues.
-# E2E tests (test-frontend-e2e) are the primary frontend testing method.
-# This command will not fail the build if geckodriver has issues.
-# Note: Server-side dependencies (tokio, reqwest, actix-web) have been removed
-# from frontend dev-dependencies to avoid WASM compilation errors with mio.
-test-frontend-unit:
-    cd frontend && (wasm-pack test --headless --firefox || echo "⚠️  WASM unit tests skipped (geckodriver issue - this is OK, E2E tests provide coverage)")
 
 # Generate coverage report (HTML)
 coverage:

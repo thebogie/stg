@@ -23,7 +23,14 @@ async fn test_create_venue() -> Result<()> {
             .wrap(backend::middleware::Logger)
             .wrap(backend::middleware::cors_middleware())
             .app_data(actix_web::web::JsonConfig::default().limit(64 * 1024))
+            .app_data(app_data.redis_data.clone())
+            .app_data(app_data.player_repo.clone())
+            .app_data(app_data.session_store.clone())
             .app_data(app_data.venue_repo.clone())
+            .service(web::scope("/api/players")
+                .service(backend::player::controller::register_handler_prod)
+                .service(backend::player::controller::login_handler_prod)
+            )
             .service(web::scope("/api/venues")
                 .wrap(backend::auth::AuthMiddleware { 
                     redis: std::sync::Arc::new(app_data.redis_data.get_ref().clone()) 
@@ -43,7 +50,11 @@ async fn test_create_venue() -> Result<()> {
         .to_request();
     
     let register_resp = test::call_service(&app, register_req).await;
-    assert!(register_resp.status().is_success());
+    assert!(
+        register_resp.status().is_success(),
+        "Registration should succeed, got status: {}",
+        register_resp.status()
+    );
     
     let login_req = test::TestRequest::post()
         .uri("/api/players/login")
@@ -54,18 +65,21 @@ async fn test_create_venue() -> Result<()> {
         .to_request();
     
     let login_resp = test::call_service(&app, login_req).await;
-    assert!(login_resp.status().is_success());
+    assert!(
+        login_resp.status().is_success(),
+        "Login should succeed, got status: {}",
+        login_resp.status()
+    );
     let login_body: serde_json::Value = test::read_body_json(login_resp).await;
-    let session_id = login_body["session_id"].as_str().unwrap();
+    let session_id = login_body["session_id"].as_str().expect("Login response should contain session_id");
 
     // Create venue with authentication
     let venue_data = json!({
-        "name": "Test Venue",
-        "address": "123 Test St",
-        "city": "Test City",
-        "state": "TS",
-        "zip": "12345",
-        "country": "USA",
+        "displayName": "Test Venue",
+        "formattedAddress": "123 Test St, Test City, TS 12345, USA",
+        "place_id": "test_place_id",
+        "lat": 40.7128,
+        "lng": -74.0060,
         "timezone": "America/New_York"
     });
 
@@ -75,12 +89,20 @@ async fn test_create_venue() -> Result<()> {
         .set_json(&venue_data)
         .to_request();
 
-    let resp = test::call_service(&app, req).await;
-    assert!(resp.status().is_success(), "Venue creation should succeed");
-    
+    let mut resp = test::call_service(&app, req).await;
+    let status = resp.status();
+    if !status.is_success() {
+        let body_bytes = test::read_body(resp).await;
+        let body_text = String::from_utf8_lossy(&body_bytes);
+        panic!(
+            "Venue creation should succeed, got status: {}, body: {}",
+            status,
+            body_text
+        );
+    }
     let venue: VenueDto = test::read_body_json(resp).await;
     assert_eq!(venue.display_name, "Test Venue");
-    assert_eq!(venue.formatted_address, "123 Test St");
+    assert_eq!(venue.formatted_address, "123 Test St, Test City, TS 12345, USA");
     assert!(!venue.id.is_empty());
 
     Ok(())
@@ -96,7 +118,15 @@ async fn test_get_venue() -> Result<()> {
         App::new()
             .wrap(backend::middleware::Logger)
             .wrap(backend::middleware::cors_middleware())
+            .app_data(actix_web::web::JsonConfig::default().limit(64 * 1024))
+            .app_data(app_data.redis_data.clone())
+            .app_data(app_data.player_repo.clone())
+            .app_data(app_data.session_store.clone())
             .app_data(app_data.venue_repo.clone())
+            .service(web::scope("/api/players")
+                .service(backend::player::controller::register_handler_prod)
+                .service(backend::player::controller::login_handler_prod)
+            )
             .service(web::scope("/api/venues")
                 .wrap(backend::auth::AuthMiddleware { 
                     redis: std::sync::Arc::new(app_data.redis_data.get_ref().clone()) 
@@ -115,7 +145,12 @@ async fn test_get_venue() -> Result<()> {
             "password": "password123"
         }))
         .to_request();
-    test::call_service(&app, register_req).await;
+    let register_resp = test::call_service(&app, register_req).await;
+    assert!(
+        register_resp.status().is_success(),
+        "Registration should succeed, got status: {}",
+        register_resp.status()
+    );
     
     let login_req = test::TestRequest::post()
         .uri("/api/players/login")
@@ -125,36 +160,60 @@ async fn test_get_venue() -> Result<()> {
         }))
         .to_request();
     let login_resp = test::call_service(&app, login_req).await;
+    assert!(
+        login_resp.status().is_success(),
+        "Login should succeed, got status: {}",
+        login_resp.status()
+    );
     let login_body: serde_json::Value = test::read_body_json(login_resp).await;
-    let session_id = login_body["session_id"].as_str().unwrap();
+    let session_id = login_body["session_id"].as_str().expect("Login response should contain session_id");
 
     let create_req = test::TestRequest::post()
         .uri("/api/venues")
         .insert_header(("Authorization", format!("Bearer {}", session_id)))
         .set_json(&json!({
-            "name": "Get Test Venue",
-            "address": "456 Get St",
-            "city": "Get City",
-            "state": "GT",
-            "zip": "54321",
-            "country": "USA",
+            "displayName": "Get Test Venue",
+            "formattedAddress": "456 Get St, Get City, GT 54321, USA",
+            "place_id": "get_place_id",
+            "lat": 34.0522,
+            "lng": -118.2437,
             "timezone": "America/Los_Angeles"
         }))
         .to_request();
     
-    let create_resp = test::call_service(&app, create_req).await;
+    let mut create_resp = test::call_service(&app, create_req).await;
+    let create_status = create_resp.status();
+    if !create_status.is_success() {
+        let body_bytes = test::read_body(create_resp).await;
+        let body_text = String::from_utf8_lossy(&body_bytes);
+        panic!(
+            "Venue creation should succeed, got status: {}, body: {}",
+            create_status,
+            body_text
+        );
+    }
     let venue: VenueDto = test::read_body_json(create_resp).await;
     let venue_id = venue.id.clone();
+    // Extract just the key part (after "/") for the URL path
+    let venue_key = venue_id.split_once('/').map(|(_, k)| k).unwrap_or(&venue_id);
 
-    // Get venue by ID
+    // Get venue by ID (can use either full ID or just key)
     let get_req = test::TestRequest::get()
-        .uri(&format!("/api/venues/{}", venue_id))
+        .uri(&format!("/api/venues/{}", venue_key))
         .insert_header(("Authorization", format!("Bearer {}", session_id)))
         .to_request();
 
-    let get_resp = test::call_service(&app, get_req).await;
-    assert!(get_resp.status().is_success());
-    
+    let mut get_resp = test::call_service(&app, get_req).await;
+    let get_status = get_resp.status();
+    if !get_status.is_success() {
+        let body_bytes = test::read_body(get_resp).await;
+        let body_text = String::from_utf8_lossy(&body_bytes);
+        panic!(
+            "Get venue should succeed, got status: {}, body: {}",
+            get_status,
+            body_text
+        );
+    }
     let retrieved: VenueDto = test::read_body_json(get_resp).await;
     assert_eq!(retrieved.id, venue_id);
     assert_eq!(retrieved.display_name, "Get Test Venue");
@@ -172,7 +231,15 @@ async fn test_get_all_venues() -> Result<()> {
         App::new()
             .wrap(backend::middleware::Logger)
             .wrap(backend::middleware::cors_middleware())
+            .app_data(actix_web::web::JsonConfig::default().limit(64 * 1024))
+            .app_data(app_data.redis_data.clone())
+            .app_data(app_data.player_repo.clone())
+            .app_data(app_data.session_store.clone())
             .app_data(app_data.venue_repo.clone())
+            .service(web::scope("/api/players")
+                .service(backend::player::controller::register_handler_prod)
+                .service(backend::player::controller::login_handler_prod)
+            )
             .service(web::scope("/api/venues")
                 .wrap(backend::auth::AuthMiddleware { 
                     redis: std::sync::Arc::new(app_data.redis_data.get_ref().clone()) 
@@ -212,13 +279,18 @@ async fn test_get_all_venues() -> Result<()> {
             .set_json(&json!({
             "displayName": format!("Venue {}", i),
             "formattedAddress": format!("{} Test St, Test City, TS 12345, USA", i),
-            "placeId": format!("test_place_id_{}", i),
+            "place_id": format!("test_place_id_{}", i),
             "lat": 40.7128,
             "lng": -74.0060,
                 "timezone": "America/New_York"
             }))
             .to_request();
-        test::call_service(&app, create_req).await;
+        let create_resp = test::call_service(&app, create_req).await;
+        assert!(
+            create_resp.status().is_success(),
+            "Venue creation should succeed, got status: {}",
+            create_resp.status()
+        );
     }
 
     // Get all venues
@@ -227,9 +299,17 @@ async fn test_get_all_venues() -> Result<()> {
         .insert_header(("Authorization", format!("Bearer {}", session_id)))
         .to_request();
 
-    let get_all_resp = test::call_service(&app, get_all_req).await;
-    assert!(get_all_resp.status().is_success());
-    
+    let mut get_all_resp = test::call_service(&app, get_all_req).await;
+    let get_all_status = get_all_resp.status();
+    if !get_all_status.is_success() {
+        let body_bytes = test::read_body(get_all_resp).await;
+        let body_text = String::from_utf8_lossy(&body_bytes);
+        panic!(
+            "Get all venues should succeed, got status: {}, body: {}",
+            get_all_status,
+            body_text
+        );
+    }
     let venues: Vec<VenueDto> = test::read_body_json(get_all_resp).await;
     assert!(venues.len() >= 3);
 
@@ -247,7 +327,14 @@ async fn test_update_venue() -> Result<()> {
             .wrap(backend::middleware::Logger)
             .wrap(backend::middleware::cors_middleware())
             .app_data(actix_web::web::JsonConfig::default().limit(64 * 1024))
+            .app_data(app_data.redis_data.clone())
+            .app_data(app_data.player_repo.clone())
+            .app_data(app_data.session_store.clone())
             .app_data(app_data.venue_repo.clone())
+            .service(web::scope("/api/players")
+                .service(backend::player::controller::register_handler_prod)
+                .service(backend::player::controller::login_handler_prod)
+            )
             .service(web::scope("/api/venues")
                 .wrap(backend::auth::AuthMiddleware { 
                     redis: std::sync::Arc::new(app_data.redis_data.get_ref().clone()) 
@@ -285,37 +372,56 @@ async fn test_update_venue() -> Result<()> {
         .set_json(&json!({
             "displayName": "Original Venue",
             "formattedAddress": "123 Original St, Original City, OR 12345, USA",
-            "placeId": "original_place_id",
+            "place_id": "original_place_id",
             "lat": 40.7128,
             "lng": -74.0060,
             "timezone": "America/New_York"
         }))
         .to_request();
     
-    let create_resp = test::call_service(&app, create_req).await;
+    let mut create_resp = test::call_service(&app, create_req).await;
+    let create_status = create_resp.status();
+    if !create_status.is_success() {
+        let body_bytes = test::read_body(create_resp).await;
+        let body_text = String::from_utf8_lossy(&body_bytes);
+        panic!(
+            "Venue creation should succeed, got status: {}, body: {}",
+            create_status,
+            body_text
+        );
+    }
     let venue: VenueDto = test::read_body_json(create_resp).await;
     let venue_id = venue.id.clone();
 
     // Update venue
+    let venue_key = venue_id.split_once('/').map(|(_, k)| k).unwrap_or(&venue_id);
     let update_req = test::TestRequest::put()
-        .uri(&format!("/api/venues/{}", venue_id))
+        .uri(&format!("/api/venues/{}", venue_key))
         .insert_header(("Authorization", format!("Bearer {}", session_id)))
         .set_json(&json!({
             "displayName": "Updated Venue",
             "formattedAddress": "456 Updated St, Updated City, UP 54321, USA",
-            "placeId": "updated_place_id",
+            "place_id": "updated_place_id",
             "lat": 34.0522,
             "lng": -118.2437,
             "timezone": "America/Los_Angeles"
         }))
         .to_request();
 
-    let update_resp = test::call_service(&app, update_req).await;
-    assert!(update_resp.status().is_success());
-    
+    let mut update_resp = test::call_service(&app, update_req).await;
+    let update_status = update_resp.status();
+    if !update_status.is_success() {
+        let body_bytes = test::read_body(update_resp).await;
+        let body_text = String::from_utf8_lossy(&body_bytes);
+        panic!(
+            "Update venue should succeed, got status: {}, body: {}",
+            update_status,
+            body_text
+        );
+    }
     let updated: VenueDto = test::read_body_json(update_resp).await;
     assert_eq!(updated.display_name, "Updated Venue");
-    assert_eq!(updated.formatted_address, "456 Updated St");
+    assert_eq!(updated.formatted_address, "456 Updated St, Updated City, UP 54321, USA");
     assert_eq!(updated.id, venue_id);
 
     Ok(())
@@ -331,7 +437,15 @@ async fn test_delete_venue() -> Result<()> {
         App::new()
             .wrap(backend::middleware::Logger)
             .wrap(backend::middleware::cors_middleware())
+            .app_data(actix_web::web::JsonConfig::default().limit(64 * 1024))
+            .app_data(app_data.redis_data.clone())
+            .app_data(app_data.player_repo.clone())
+            .app_data(app_data.session_store.clone())
             .app_data(app_data.venue_repo.clone())
+            .service(web::scope("/api/players")
+                .service(backend::player::controller::register_handler_prod)
+                .service(backend::player::controller::login_handler_prod)
+            )
             .service(web::scope("/api/venues")
                 .wrap(backend::auth::AuthMiddleware { 
                     redis: std::sync::Arc::new(app_data.redis_data.get_ref().clone()) 
@@ -370,29 +484,50 @@ async fn test_delete_venue() -> Result<()> {
         .set_json(&json!({
             "displayName": "Delete Test Venue",
             "formattedAddress": "789 Delete St, Delete City, DL 12345, USA",
-            "placeId": "delete_place_id",
+            "place_id": "delete_place_id",
             "lat": 40.7128,
             "lng": -74.0060,
             "timezone": "America/New_York"
         }))
         .to_request();
     
-    let create_resp = test::call_service(&app, create_req).await;
+    let mut create_resp = test::call_service(&app, create_req).await;
+    let create_status = create_resp.status();
+    if !create_status.is_success() {
+        let body_bytes = test::read_body(create_resp).await;
+        let body_text = String::from_utf8_lossy(&body_bytes);
+        panic!(
+            "Venue creation should succeed, got status: {}, body: {}",
+            create_status,
+            body_text
+        );
+    }
     let venue: VenueDto = test::read_body_json(create_resp).await;
     let venue_id = venue.id.clone();
 
     // Delete venue
+    let venue_key = venue_id.split_once('/').map(|(_, k)| k).unwrap_or(&venue_id);
     let delete_req = test::TestRequest::delete()
-        .uri(&format!("/api/venues/{}", venue_id))
+        .uri(&format!("/api/venues/{}", venue_key))
         .insert_header(("Authorization", format!("Bearer {}", session_id)))
         .to_request();
 
     let delete_resp = test::call_service(&app, delete_req).await;
-    assert!(delete_resp.status().is_success());
+    let delete_status = delete_resp.status();
+    if !delete_status.is_success() {
+        let body_bytes = test::read_body(delete_resp).await;
+        let body_text = String::from_utf8_lossy(&body_bytes);
+        panic!(
+            "Delete venue should succeed, got status: {}, body: {}",
+            delete_status,
+            body_text
+        );
+    }
 
     // Verify venue is deleted
+    let venue_key = venue_id.split_once('/').map(|(_, k)| k).unwrap_or(&venue_id);
     let get_req = test::TestRequest::get()
-        .uri(&format!("/api/venues/{}", venue_id))
+        .uri(&format!("/api/venues/{}", venue_key))
         .insert_header(("Authorization", format!("Bearer {}", session_id)))
         .to_request();
 
@@ -413,7 +548,14 @@ async fn test_venue_validation_errors() -> Result<()> {
             .wrap(backend::middleware::Logger)
             .wrap(backend::middleware::cors_middleware())
             .app_data(actix_web::web::JsonConfig::default().limit(64 * 1024))
+            .app_data(app_data.redis_data.clone())
+            .app_data(app_data.player_repo.clone())
+            .app_data(app_data.session_store.clone())
             .app_data(app_data.venue_repo.clone())
+            .service(web::scope("/api/players")
+                .service(backend::player::controller::register_handler_prod)
+                .service(backend::player::controller::login_handler_prod)
+            )
             .service(web::scope("/api/venues")
                 .wrap(backend::auth::AuthMiddleware { 
                     redis: std::sync::Arc::new(app_data.redis_data.get_ref().clone()) 
@@ -471,7 +613,14 @@ async fn test_venue_unauthorized_access() -> Result<()> {
             .wrap(backend::middleware::Logger)
             .wrap(backend::middleware::cors_middleware())
             .app_data(actix_web::web::JsonConfig::default().limit(64 * 1024))
+            .app_data(app_data.redis_data.clone())
+            .app_data(app_data.player_repo.clone())
+            .app_data(app_data.session_store.clone())
             .app_data(app_data.venue_repo.clone())
+            .service(web::scope("/api/players")
+                .service(backend::player::controller::register_handler_prod)
+                .service(backend::player::controller::login_handler_prod)
+            )
             .service(web::scope("/api/venues")
                 .wrap(backend::auth::AuthMiddleware { 
                     redis: std::sync::Arc::new(app_data.redis_data.get_ref().clone()) 
@@ -486,15 +635,34 @@ async fn test_venue_unauthorized_access() -> Result<()> {
         .set_json(&json!({
             "displayName": "Unauthorized Venue",
             "formattedAddress": "123 Unauthorized St, Unauthorized City, UN 12345, USA",
-            "placeId": "unauthorized_place_id",
+            "place_id": "unauthorized_place_id",
             "lat": 40.7128,
             "lng": -74.0060,
             "timezone": "America/New_York"
         }))
         .to_request();
 
-    let resp = test::call_service(&app, req).await;
-    assert!(resp.status().is_client_error() || resp.status().as_u16() == 401);
+    // Use try_call_service for error responses
+    match test::try_call_service(&app, req).await {
+        Ok(resp) => {
+            assert!(
+                resp.status().is_client_error(),
+                "Unauthorized request should return client error, got: {}",
+                resp.status()
+            );
+        }
+        Err(e) => {
+            // If it's an ErrorUnauthorized, that's also acceptable
+            use actix_web::error::ResponseError;
+            let status = e.as_response_error().status_code();
+            assert_eq!(
+                status,
+                401,
+                "Should return 401 Unauthorized, got: {}",
+                status
+            );
+        }
+    }
 
     Ok(())
 }

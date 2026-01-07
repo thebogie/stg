@@ -155,72 +155,17 @@ Once tests pass:
 
 ### Phase 2: Deploy to Production
 
-#### Step 1: Transfer Images to Production
+**See the complete deployment guide**: **[DEPLOY_TO_PRODUCTION.md](../DEPLOY_TO_PRODUCTION.md)**
 
-**Option A: Direct File Transfer**
+This guide covers the complete production deployment process using Docker Hub with a single private repository.
 
-```bash
-# From development machine
-scp _build/artifacts/*.tar.gz* user@production-server:/tmp/
-```
+**Key steps:**
+1. Push tested images to Docker Hub
+2. Pull images on production server
+3. Tag images for deployment
+4. Deploy using `deploy-tested-images.sh` with `--skip-load` flag
 
-**Option B: Docker Registry (Recommended)**
-
-```bash
-# Tag and push to registry
-docker tag stg_rd-frontend:v<version> your-registry/stg_rd-frontend:v<version>
-docker tag stg_rd-backend:v<version> your-registry/stg_rd-backend:v<version>
-docker push your-registry/stg_rd-frontend:v<version>
-docker push your-registry/stg_rd-backend:v<version>
-
-# On production, pull from registry
-docker pull your-registry/stg_rd-frontend:v<version>
-docker pull your-registry/stg_rd-backend:v<version>
-```
-
-#### Step 2: Backup Production Database
-
-**On production server:**
-
-```bash
-./scripts/backup-prod-db.sh
-```
-
-**What it does:**
-- Creates backup of ArangoDB before deployment
-- Saves to `/backups/arangodb/` (or specified directory)
-- Creates compressed tar.gz file
-
-**Important**: Always backup before migrations!
-
-#### Step 3: Deploy Tested Images
-
-**On production server:**
-
-```bash
-./scripts/deploy-tested-images.sh --version v<version> --image-dir /tmp
-```
-
-**What it does:**
-- Loads tested images from tar.gz files
-- Verifies checksums
-- Stops old containers
-- Starts new containers with tested images
-- Runs migrations (if any)
-- Verifies deployment
-
-**Options:**
-- `--version TAG`: Specify version tag
-- `--image-dir DIR`: Directory with image files (default: /tmp)
-- `--skip-backup`: Skip database backup (not recommended)
-- `--skip-migrations`: Skip running migrations
-
-#### Step 4: Verify Deployment
-
-```bash
-# Check container status
-docker compose --env-file config/.env.production \
-  -f deploy/docker-compose.yaml \
+**Full details**: See `DEPLOY_TO_PRODUCTION.md` in the project root for complete step-by-step instructions, troubleshooting, and rollback procedures.-f deploy/docker-compose.yaml \
   -f deploy/docker-compose.prod.yml ps
 
 # Check logs

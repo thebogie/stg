@@ -12,24 +12,38 @@ docs/
 │   ├── PROJECT_STRUCTURE.md
 │   └── MIGRATION_GUIDE.md
 ├── testing/                     # Testing documentation
-│   ├── TEST_REPORTING_GUIDE.md
-│   ├── TEST_RESULTS_SUMMARY.md
-│   ├── TESTING_TIERS.md
-│   ├── TESTING_STATUS.md
+│   ├── HOW_TO_RUN_TESTS.md
+│   ├── E2E_TESTING_GUIDE.md
 │   ├── TESTING_ARCHITECTURE.md
 │   ├── TESTING_SETUP.md
-│   ├── TESTING.md
-│   ├── ADVANCED_TESTING.md
-│   ├── TESTCONTAINERS_COMPLETE.md
-│   ├── PRODUCTION_READINESS_ASSESSMENT.md
-│   └── PRODUCTION_READINESS_ACTION_PLAN.md
+│   └── [other testing docs]
 ├── api/                         # API documentation
 │   └── AUTHENTICATION_API.md
-├── architecture/                # Architecture documentation
-│   ├── CLIENT_ANALYTICS_ARCHITECTURE.md
-│   └── CLIENT_ANALYTICS_README.md
-└── [other docs]                 # Feature-specific documentation
+└── architecture/                # Architecture documentation
+    ├── CLIENT_ANALYTICS_ARCHITECTURE.md
+    └── CLIENT_ANALYTICS_README.md
 ```
+
+## Root-Level Documentation
+
+Some documentation remains at the project root for easy discovery:
+
+- **README.md** - Main project overview
+- **README_QUICK_START.md** - Quick start guide
+- **DEPLOY_TO_PRODUCTION.md** - Production deployment guide (Docker Hub method)
+
+## Deployment Documentation
+
+**Primary deployment guide**: `DEPLOY_TO_PRODUCTION.md` (project root)
+
+This is the authoritative guide for deploying to production using Docker Hub with a single private repository. All deployment steps are documented here to avoid duplication.
+
+**Workflow documents** (reference the primary guide):
+- `docs/DAILY_WORKFLOW.md` - Daily development workflow → references DEPLOY_TO_PRODUCTION.md for deployment
+- `docs/TEST_THEN_DEPLOY_WORKFLOW.md` - Test-then-deploy workflow → references DEPLOY_TO_PRODUCTION.md for deployment
+- `docs/CI_CD_WORKFLOW.md` - CI/CD pipeline → references DEPLOY_TO_PRODUCTION.md for deployment
+
+This structure eliminates duplication - update deployment steps in one place (DEPLOY_TO_PRODUCTION.md), and all workflow docs stay current.
 
 ## Categories
 
@@ -48,29 +62,13 @@ System design documents and architecture decisions.
 ### Root `docs/`
 Feature-specific documentation that doesn't fit into categories above.
 
-## Root-Level Documentation
-
-Some documentation remains at the project root for easy discovery:
-
-- **README.md** - Main project overview
-- **README_QUICK_START.md** - Quick start guide
-
-## Deployment Documentation
-
-Deployment-specific documentation lives in the `deploy/` directory:
-
-- `deploy/PRODUCTION_DEPLOYMENT.md`
-- `deploy/INDUSTRY_STANDARDS.md`
-
-This keeps deployment docs close to deployment configuration files.
-
 ## Finding Documentation
 
 1. **Start here**: `docs/README.md` - Complete documentation index
 2. **Quick start**: `README_QUICK_START.md` (root)
 3. **Development**: `docs/setup/DEVELOPMENT_SETUP.md`
-4. **Testing**: `docs/testing/TESTING_SETUP.md`
-5. **Deployment**: `deploy/PRODUCTION_DEPLOYMENT.md`
+4. **Testing**: `docs/testing/HOW_TO_RUN_TESTS.md`
+5. **Deployment**: `DEPLOY_TO_PRODUCTION.md` (root) - **Primary deployment guide**
 
 ## Adding New Documentation
 
@@ -82,6 +80,7 @@ When adding new documentation:
    - API docs → `docs/api/`
    - Architecture → `docs/architecture/`
    - Feature-specific → `docs/` root
+   - Deployment → Update `DEPLOY_TO_PRODUCTION.md` (root)
 
 2. **Update the index**: Add a link in `docs/README.md`
 
@@ -89,3 +88,4 @@ When adding new documentation:
 
 4. **Update cross-references**: If you move files, update links in related docs
 
+5. **Avoid duplication**: Check if similar content exists before creating new docs

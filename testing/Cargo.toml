@@ -12,6 +12,7 @@ testcontainers = { workspace = true }
 
 # Async runtime
 tokio = { version = "1.36", features = ["full"] }
+futures = "0.3"
 
 # Database clients
 arangors = "0.6"
@@ -35,6 +36,9 @@ actix-rt = "2.9"
 
 # HTTP client for API tests
 reqwest = { version = "0.11", features = ["json"] }
+
+# Base64 encoding for HTTP auth
+base64 = "0.21"
 
 # Internal dependencies
 shared = { path = "../shared" }

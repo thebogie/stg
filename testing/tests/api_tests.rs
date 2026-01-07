@@ -4,7 +4,7 @@
 //! using ephemeral containers for true isolation.
 
 use anyhow::Result;
-use actix_web::{test, web, App, HttpResponse, error::ResponseError};
+use actix_web::{test, web, App};
 use serde_json::json;
 use testing::{TestEnvironment, app_setup};
 
@@ -342,8 +342,8 @@ async fn test_get_current_player_unauthorized() -> Result<()> {
             );
         }
         Err(e) => {
-            // If it's an ErrorUnauthorized, convert it to a response to check status
-            // In actix-web, service errors can be converted to responses
+            // If it's an ErrorUnauthorized, get the status code directly
+            // In actix-web, Error has status_code() method
             use actix_web::error::ResponseError;
             let status = e.as_response_error().status_code();
             assert_eq!(

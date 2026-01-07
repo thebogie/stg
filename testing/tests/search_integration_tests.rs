@@ -16,7 +16,10 @@ async fn test_search_players() -> Result<()> {
         App::new()
             .wrap(backend::middleware::Logger)
             .wrap(backend::middleware::cors_middleware())
+            .app_data(actix_web::web::JsonConfig::default().limit(64 * 1024))
+            .app_data(app_data.redis_data.clone())
             .app_data(app_data.player_repo.clone())
+            .app_data(app_data.session_store.clone())
             .service(web::scope("/api/players")
                 .service(backend::player::controller::register_handler_prod)
                 .service(backend::player::controller::search_players_handler)
@@ -38,12 +41,20 @@ async fn test_search_players() -> Result<()> {
 
     // Search for players
     let search_req = test::TestRequest::get()
-        .uri("/api/players/search?q=search_user")
+        .uri("/api/players/search?query=search_user")
         .to_request();
 
-    let search_resp = test::call_service(&app, search_req).await;
-    assert!(search_resp.status().is_success());
-    
+    let mut search_resp = test::call_service(&app, search_req).await;
+    let status = search_resp.status();
+    if !status.is_success() {
+        let body_bytes = test::read_body(search_resp).await;
+        let body_text = String::from_utf8_lossy(&body_bytes);
+        panic!(
+            "Search games should succeed, got status: {}, body: {}",
+            status,
+            body_text
+        );
+    }
     let results: serde_json::Value = test::read_body_json(search_resp).await;
     // Results should contain search matches
     assert!(results.is_array() || results.get("results").is_some());
@@ -64,6 +75,8 @@ async fn test_search_venues() -> Result<()> {
             .app_data(actix_web::web::JsonConfig::default().limit(64 * 1024))
             .app_data(app_data.venue_repo.clone())
             .app_data(app_data.redis_data.clone())
+            .app_data(app_data.player_repo.clone())
+            .app_data(app_data.session_store.clone())
             .service(web::scope("/api/players")
                 .service(backend::player::controller::register_handler_prod)
                 .service(backend::player::controller::login_handler_prod)
@@ -86,7 +99,12 @@ async fn test_search_venues() -> Result<()> {
             "password": "password123"
         }))
         .to_request();
-    test::call_service(&app, register_req).await;
+    let register_resp = test::call_service(&app, register_req).await;
+    assert!(
+        register_resp.status().is_success(),
+        "Registration should succeed, got status: {}",
+        register_resp.status()
+    );
     
     let login_req = test::TestRequest::post()
         .uri("/api/players/login")
@@ -96,8 +114,13 @@ async fn test_search_venues() -> Result<()> {
         }))
         .to_request();
     let login_resp = test::call_service(&app, login_req).await;
+    assert!(
+        login_resp.status().is_success(),
+        "Login should succeed, got status: {}",
+        login_resp.status()
+    );
     let login_body: serde_json::Value = test::read_body_json(login_resp).await;
-    let session_id = login_body["session_id"].as_str().unwrap();
+    let session_id = login_body["session_id"].as_str().expect("Login response should contain session_id");
 
     // Create multiple venues
     for i in 0..3 {
@@ -118,13 +141,21 @@ async fn test_search_venues() -> Result<()> {
 
     // Search venues
     let search_req = test::TestRequest::get()
-        .uri("/api/venues/search?q=Search")
+        .uri("/api/venues/search?query=Search")
         .insert_header(("Authorization", format!("Bearer {}", session_id)))
         .to_request();
 
-    let search_resp = test::call_service(&app, search_req).await;
-    assert!(search_resp.status().is_success());
-    
+    let mut search_resp = test::call_service(&app, search_req).await;
+    let status = search_resp.status();
+    if !status.is_success() {
+        let body_bytes = test::read_body(search_resp).await;
+        let body_text = String::from_utf8_lossy(&body_bytes);
+        panic!(
+            "Search games should succeed, got status: {}, body: {}",
+            status,
+            body_text
+        );
+    }
     let results: serde_json::Value = test::read_body_json(search_resp).await;
     assert!(results.is_array() || results.get("results").is_some());
 
@@ -144,6 +175,8 @@ async fn test_search_games() -> Result<()> {
             .app_data(actix_web::web::JsonConfig::default().limit(64 * 1024))
             .app_data(app_data.game_repo.clone())
             .app_data(app_data.redis_data.clone())
+            .app_data(app_data.player_repo.clone())
+            .app_data(app_data.session_store.clone())
             .service(web::scope("/api/players")
                 .service(backend::player::controller::register_handler_prod)
                 .service(backend::player::controller::login_handler_prod)
@@ -166,7 +199,12 @@ async fn test_search_games() -> Result<()> {
             "password": "password123"
         }))
         .to_request();
-    test::call_service(&app, register_req).await;
+    let register_resp = test::call_service(&app, register_req).await;
+    assert!(
+        register_resp.status().is_success(),
+        "Registration should succeed, got status: {}",
+        register_resp.status()
+    );
     
     let login_req = test::TestRequest::post()
         .uri("/api/players/login")
@@ -176,8 +214,13 @@ async fn test_search_games() -> Result<()> {
         }))
         .to_request();
     let login_resp = test::call_service(&app, login_req).await;
+    assert!(
+        login_resp.status().is_success(),
+        "Login should succeed, got status: {}",
+        login_resp.status()
+    );
     let login_body: serde_json::Value = test::read_body_json(login_resp).await;
-    let session_id = login_body["session_id"].as_str().unwrap();
+    let session_id = login_body["session_id"].as_str().expect("Login response should contain session_id");
 
     // Create multiple games
     for i in 0..3 {
@@ -186,21 +229,30 @@ async fn test_search_games() -> Result<()> {
             .insert_header(("Authorization", format!("Bearer {}", session_id)))
             .set_json(&json!({
                 "name": format!("Search Game {}", i),
-                "year_published": 2020 + i
+                "year_published": 2020 + i,
+                "source": "bgg"
             }))
             .to_request();
         test::call_service(&app, create_req).await;
     }
 
-    // Search games
+    // Search games (uses 'query' parameter)
     let search_req = test::TestRequest::get()
-        .uri("/api/games/search?q=Search")
+        .uri("/api/games/search?query=Search")
         .insert_header(("Authorization", format!("Bearer {}", session_id)))
         .to_request();
 
-    let search_resp = test::call_service(&app, search_req).await;
-    assert!(search_resp.status().is_success());
-    
+    let mut search_resp = test::call_service(&app, search_req).await;
+    let status = search_resp.status();
+    if !status.is_success() {
+        let body_bytes = test::read_body(search_resp).await;
+        let body_text = String::from_utf8_lossy(&body_bytes);
+        panic!(
+            "Search games should succeed, got status: {}, body: {}",
+            status,
+            body_text
+        );
+    }
     let results: serde_json::Value = test::read_body_json(search_resp).await;
     assert!(results.is_array() || results.get("results").is_some());
 
@@ -225,7 +277,7 @@ async fn test_search_empty_query() -> Result<()> {
 
     // Search with empty query
     let search_req = test::TestRequest::get()
-        .uri("/api/players/search?q=")
+        .uri("/api/players/search?query=")
         .to_request();
 
     let search_resp = test::call_service(&app, search_req).await;
@@ -253,7 +305,7 @@ async fn test_search_special_characters() -> Result<()> {
 
     // Search with special characters
     let search_req = test::TestRequest::get()
-        .uri("/api/players/search?q=test%26%26user")
+        .uri("/api/players/search?query=test%26%26user")
         .to_request();
 
     let search_resp = test::call_service(&app, search_req).await;
