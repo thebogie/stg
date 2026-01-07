@@ -1,5 +1,32 @@
 # Test-Then-Deploy Workflow Guide
 
+## Production Network Setup (Traefik)
+
+**Your setup:**
+- External: Squarespace DNS → Traefik (Proxmox) → `192.168.1.51:50003` (frontend)
+- Internal: Containers communicate via Docker network on `192.168.1.51`
+
+**Traefik must route:**
+- `/` (and all non-API routes) → `192.168.1.51:50003` (frontend)
+- `/api/*` → `192.168.1.51:50002` (backend)
+
+**Container communication (Docker internal):**
+- Frontend → Backend: Uses relative URLs `/api/...` (Traefik handles routing)
+- Backend → ArangoDB: `http://arangodb:8529` (service name, already configured)
+- Backend → Redis: `redis://redis:6379/` (service name, already configured)
+
+**Port mappings:**
+- ArangoDB: Host `50001` → Container `8529`
+- Backend: Host `50002` → Container `50002`
+- Frontend: Host `50003` → Container `50003`
+- Redis: Host `63791` → Container `6379`
+
+**Why this works:**
+- Frontend uses relative URLs (`/api/...`), so browser sends requests to `https://smacktalkgaming.com/api/...`
+- Traefik routes `/api/*` to backend on port 50002
+- Backend binds to `0.0.0.0:50002` (accessible from host)
+- Backend uses Docker service names for database connections (works inside Docker network)
+
 This guide explains how to test production Docker containers locally and deploy the exact tested artifacts to production, eliminating the need for `git pull` in production.
 
 ## Overview
