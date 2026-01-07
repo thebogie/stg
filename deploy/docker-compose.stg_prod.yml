@@ -21,6 +21,7 @@ services:
     ports:
       - "50002:${BACKEND_PORT:-50002}"  # Host port 50002 -> container port 50002
     environment:
+      - SERVER_HOST=0.0.0.0  # Listen on all interfaces, not just localhost
       - SERVER_PORT=${BACKEND_PORT:-50002}  # Container port
     networks:
       - stg_rd_net
