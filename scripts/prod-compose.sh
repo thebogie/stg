@@ -54,10 +54,16 @@ export ENV_FILE
 # Change to deploy directory so relative paths in compose files work
 cd "$PROJECT_ROOT/deploy"
 
-# Run docker compose with the compose files and pass all arguments
+# Check if stg_prod.yml should be included (for production environment)
+# Include docker-compose.stg_prod.yml if it exists and we're in production mode
+COMPOSE_FILES="-f docker-compose.yaml -f docker-compose.prod.yml"
+if [ -f "docker-compose.stg_prod.yml" ]; then
+    COMPOSE_FILES="$COMPOSE_FILES -f docker-compose.stg_prod.yml"
+fi
+
+# Run docker compose with all necessary compose files and pass all arguments
 docker compose \
     --env-file "$ENV_FILE" \
-    -f docker-compose.yaml \
-    -f docker-compose.prod.yml \
+    $COMPOSE_FILES \
     "$@"
 

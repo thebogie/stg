@@ -49,8 +49,9 @@ services:
       - ${ENV_FILE:-../config/.env.production}
     environment:
       # Override URLs for container-to-container communication
-      - ARANGO_URL=http://arangodb:${ARANGODB_INTERNAL_PORT}
-      - REDIS_URL=redis://redis:${REDIS_INTERNAL_PORT}/
+      # Use explicit port 8529 for ArangoDB and 6379 for Redis (internal container ports)
+      - ARANGO_URL=http://arangodb:8529
+      - REDIS_URL=redis://redis:6379/
       # Override server binding for Docker
       - SERVER_HOST=0.0.0.0
       - SERVER_PORT=${BACKEND_PORT}
@@ -66,8 +67,10 @@ services:
       - REDIS_POOL_SIZE=${REDIS_POOL_SIZE}
       - REDIS_TIMEOUT=${REDIS_TIMEOUT}
     depends_on:
-      - redis
-      - arangodb
+      redis:
+        condition: service_healthy
+      arangodb:
+        condition: service_healthy
     volumes:
       - ${VOLUME_PATH}/backend_data:/app/data
     restart: unless-stopped
@@ -112,10 +115,12 @@ services:
       - ${VOLUME_PATH}/arango_apps_data:/var/lib/arangodb3-apps
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:${ARANGODB_INTERNAL_PORT}/_admin/server/availability"]
+      # Use wget instead of curl (more likely to be available) or check port directly
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8529/_admin/server/availability || exit 1"]
       interval: 30s
       timeout: 10s
-      retries: 3
+      retries: 5
+      start_period: 40s
     networks:
       - stg_rd_net
 
