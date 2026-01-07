@@ -15,7 +15,7 @@ services:
     ports:
       - "${FRONTEND_PORT}:${FRONTEND_PORT}"
     env_file:
-      - ${ENV_FILE}
+      - ${ENV_FILE:-../config/.env.production}
     environment:
       # Flag to indicate we're running in Docker
       - DOCKER_ENV=true
@@ -46,7 +46,7 @@ services:
     ports:
       - "${BACKEND_PORT}:${BACKEND_PORT}"
     env_file:
-      - ${ENV_FILE}
+      - ${ENV_FILE:-../config/.env.production}
     environment:
       # Override URLs for container-to-container communication
       - ARANGO_URL=http://arangodb:${ARANGODB_INTERNAL_PORT}
@@ -85,7 +85,7 @@ services:
     ports:
       - "${REDIS_PORT}:${REDIS_INTERNAL_PORT}"
     env_file:
-      - ${ENV_FILE}
+      - ${ENV_FILE:-../config/.env.production}
     volumes:
       - ${VOLUME_PATH}/redis_data:/data
     command: redis-server --appendonly yes
@@ -104,7 +104,7 @@ services:
     ports:
       - "${ARANGODB_PORT}:${ARANGODB_INTERNAL_PORT}"
     env_file:
-      - ${ENV_FILE}
+      - ${ENV_FILE:-../config/.env.production}
     environment:
       - ARANGO_ROOT_PASSWORD=${ARANGO_ROOT_PASSWORD}
     volumes:
