@@ -187,7 +187,8 @@ impl Config {
                 let (host, port) = Self::parse_backend_url(&backend_url);
                 
                 ServerConfig {
-                    host,
+                    // SERVER_HOST environment variable takes precedence over BACKEND_URL host
+                    host: env::var("SERVER_HOST").unwrap_or_else(|_| host),
                     port: env::var("SERVER_PORT")
                         .unwrap_or_else(|_| port.to_string())
                         .parse()
