@@ -5,6 +5,7 @@ use actix_web::{test, web, App};
 use actix_web::dev::ServiceResponse;
 use serde_json::json;
 use testing::{TestEnvironment, app_setup};
+use testing::create_authenticated_user;
 use shared::dto::game::GameDto;
 
 /// Helper to read response body as text for debugging  

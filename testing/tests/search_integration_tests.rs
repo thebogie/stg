@@ -5,6 +5,7 @@ use anyhow::Result;
 use actix_web::{test, web, App};
 use serde_json::json;
 use testing::{TestEnvironment, app_setup};
+use testing::create_authenticated_user;
 
 #[tokio::test]
 async fn test_search_players() -> Result<()> {

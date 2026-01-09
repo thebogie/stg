@@ -22,6 +22,9 @@ redis = { version = "0.24.0", features = ["tokio-comp", "connection-manager"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 
+# Date/time
+chrono = { workspace = true }
+
 # Error handling
 anyhow = { workspace = true }
 thiserror = { workspace = true }

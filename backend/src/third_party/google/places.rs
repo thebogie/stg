@@ -74,7 +74,8 @@ impl GooglePlacesService {
         ];
 
         log::info!("Making autocomplete request to: {}", self.api_url);
-        log::info!("With params: input={}, types=establishment, key={}...", query, &self.api_key[..10]);
+        let key_prefix = self.api_key.get(..10).unwrap_or(&self.api_key);
+        log::info!("With params: input={}, types=establishment, key={}...", query, key_prefix);
 
         let response = self.client
             .get(&self.api_url)

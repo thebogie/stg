@@ -70,6 +70,9 @@ if [ -f "docker-compose.stg_prod.yml" ]; then
 fi
 
 # Run docker compose with all necessary compose files and pass all arguments
+# Note: All environment variables from $ENV_FILE are automatically passed to containers
+# via the env_file directive in docker-compose.yaml. To pick up env var changes,
+# use: ./scripts/prod-compose.sh up -d --force-recreate [service]
 docker compose \
     --env-file "$ENV_FILE" \
     $COMPOSE_FILES \

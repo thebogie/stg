@@ -167,11 +167,28 @@ while ! curl -f http://localhost:${BACKEND_PORT_E2E}/health > /dev/null 2>&1; do
 done
 
 echo -e "${GREEN}✅ E2E test environment is ready!${NC}"
+
+# Optionally load production backup if available
+if [ "${LOAD_PROD_DATA:-1}" = "1" ]; then
+  echo -e "${BLUE}📦 Checking for production backup to load...${NC}"
+  if [ -f "${SCRIPT_DIR}/load-e2e-data.sh" ]; then
+    "${SCRIPT_DIR}/load-e2e-data.sh" || {
+      echo -e "${YELLOW}⚠️  Failed to load production backup (continuing with empty database)${NC}"
+    }
+  fi
+fi
+
 echo -e "${BLUE}📊 Container status:${NC}"
-docker compose -p "$PROJECT_NAME" -f docker-compose.yaml -f docker-compose.prod.yml -f docker-compose.e2e.yml ps
+docker compose -p "$PROJECT_NAME" -f docker-compose.yaml -f docker-compose.prod.yml -f docker-compose.stg_prod.yml -f docker-compose.e2e.yml ps
 echo ""
 echo -e "${BLUE}💡 To stop E2E containers:${NC}"
-echo -e "   docker compose -p ${PROJECT_NAME} -f docker-compose.yaml -f docker-compose.prod.yml -f docker-compose.e2e.yml down"
+echo -e "   docker compose -p ${PROJECT_NAME} -f docker-compose.yaml -f docker-compose.prod.yml -f docker-compose.stg_prod.yml -f docker-compose.e2e.yml down"
 echo -e "${BLUE}💡 To view logs:${NC}"
-echo -e "   docker compose -p ${PROJECT_NAME} -f docker-compose.yaml -f docker-compose.prod.yml -f docker-compose.e2e.yml logs -f"
+echo -e "   docker compose -p ${PROJECT_NAME} -f docker-compose.yaml -f docker-compose.prod.yml -f docker-compose.stg_prod.yml -f docker-compose.e2e.yml logs -f"
+echo -e "${BLUE}💡 To load production data manually:${NC}"
+echo -e "   ./scripts/load-e2e-data.sh [backup-file]"
+echo -e "${BLUE}💡 To skip loading production data:${NC}"
+echo -e "   LOAD_PROD_DATA=0 ./scripts/start-e2e-docker.sh"
+echo -e "${BLUE}💡 To load production data manually:${NC}"
+echo -e "   ./scripts/load-e2e-data.sh [backup-file]"
 

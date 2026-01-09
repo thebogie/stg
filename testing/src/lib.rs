@@ -48,12 +48,33 @@ impl TestEnvironment {
         }
 
         // Start Docker containers using testcontainers
-        // Start ArangoDB container
-        let arangodb = GenericImage::new("arangodb", "3.12.5")
-            .with_env_var("ARANGO_ROOT_PASSWORD", "test_password")
-            .start()
-            .await
-            .context("Failed to start ArangoDB container")?;
+        // Start ArangoDB container with retry logic for parallel test execution
+        let arangodb = {
+            let mut container_result = None;
+            for attempt in 0..3 {
+                match GenericImage::new("arangodb", "3.12.5")
+                    .with_env_var("ARANGO_ROOT_PASSWORD", "test_password")
+                    .start()
+                    .await
+                {
+                    Ok(container) => {
+                        // Give it a moment to bind ports
+                        tokio::time::sleep(Duration::from_millis(500)).await;
+                        container_result = Some(Ok(container));
+                        break;
+                    }
+                    Err(e) => {
+                        if attempt < 2 {
+                            log::warn!("Failed to start ArangoDB container (attempt {}), retrying...", attempt + 1);
+                            tokio::time::sleep(Duration::from_millis(1000 * (attempt + 1) as u64)).await;
+                        } else {
+                            container_result = Some(Err(anyhow::anyhow!("Failed to start ArangoDB container: {:?}", e)));
+                        }
+                    }
+                }
+            }
+            container_result.expect("Should have container result").context("Failed to start ArangoDB container")?
+        };
         
         let arangodb_port = arangodb
             .get_host_port_ipv4(8529.tcp())
@@ -61,11 +82,33 @@ impl TestEnvironment {
             .context("Failed to get ArangoDB container port")?;
         let arangodb_url = format!("http://localhost:{}", arangodb_port);
 
-        // Start Redis container
-        let redis = GenericImage::new("redis", "7-alpine")
-            .start()
-            .await
-            .context("Failed to start Redis container")?;
+        // Start Redis container with retry logic
+        let redis = {
+            let mut container_result = None;
+            for attempt in 0..3 {
+                match GenericImage::new("redis", "7-alpine")
+                    .start()
+                    .await
+                {
+                    Ok(container) => {
+                        // Give it a moment to bind ports
+                        tokio::time::sleep(Duration::from_millis(500)).await;
+                        container_result = Some(container);
+                        break;
+                    }
+                    Err(e) => {
+                        if attempt < 2 {
+                            log::warn!("Failed to start Redis container (attempt {}), retrying...", attempt + 1);
+                            tokio::time::sleep(Duration::from_millis(1000 * (attempt + 1) as u64)).await;
+                        } else {
+                            return Err(anyhow::anyhow!("Failed to start Redis container after 3 attempts: {:?}", e))
+                                .context("Failed to start Redis container");
+                        }
+                    }
+                }
+            }
+            container_result.expect("Should have container after successful start")
+        };
         
         let redis_port = redis
             .get_host_port_ipv4(6379.tcp())
@@ -137,9 +180,32 @@ impl TestEnvironment {
     /// The WaitFor conditions in the image definitions should handle most of this,
     /// but this provides an additional safety buffer.
     pub async fn wait_for_ready(&self) -> Result<()> {
-        // Wait a bit for services to be fully ready
-        // The WaitFor conditions should have already waited, but this is a safety buffer
-        tokio::time::sleep(Duration::from_secs(2)).await;
+        // Wait for services to be fully ready with retry logic
+        // This is especially important when running tests in parallel
+        let max_attempts = 10;
+        for attempt in 0..max_attempts {
+            // Try to connect to ArangoDB to verify it's ready
+            match arangors::Connection::establish_basic_auth(
+                &self.arangodb_url,
+                "root",
+                "test_password"
+            ).await {
+                Ok(_) => {
+                    log::debug!("ArangoDB is ready after {} attempts", attempt + 1);
+                    break;
+                }
+                Err(e) if attempt < max_attempts - 1 => {
+                    log::debug!("ArangoDB not ready yet (attempt {}): {}, waiting...", attempt + 1, e);
+                    tokio::time::sleep(Duration::from_millis(500 * (attempt + 1) as u64)).await;
+                }
+                Err(e) => {
+                    return Err(anyhow::anyhow!("ArangoDB failed to become ready after {} attempts: {}", max_attempts, e));
+                }
+            }
+        }
+        
+        // Additional safety buffer for Redis and other services
+        tokio::time::sleep(Duration::from_secs(1)).await;
         Ok(())
     }
 
@@ -501,6 +567,47 @@ pub async fn test_env_with_prod_data_and_db(db_name: &str) -> Result<TestEnviron
 
 // Re-export app setup for convenience
 pub mod app_setup;
+
+/// Macro to create an authenticated user and return session token
+/// Usage: let session_id = create_authenticated_user!(app, "email@example.com", "username").await?;
+#[macro_export]
+macro_rules! create_authenticated_user {
+    ($app:expr, $email:expr, $username:expr) => {{
+        // First register the user
+        let register_req = actix_web::test::TestRequest::post()
+            .uri("/api/players/register")
+            .set_json(&serde_json::json!({
+                "username": $username,
+                "email": $email,
+                "password": "password123"
+            }))
+            .to_request();
+        
+        let register_resp = actix_web::test::call_service(&$app, register_req).await;
+        assert!(
+            register_resp.status().is_success(),
+            "User registration should succeed"
+        );
+
+        // Then login to get session
+        let login_req = actix_web::test::TestRequest::post()
+            .uri("/api/players/login")
+            .set_json(&serde_json::json!({
+                "email": $email,
+                "password": "password123"
+            }))
+            .to_request();
+        
+        let login_resp = actix_web::test::call_service(&$app, login_req).await;
+        assert!(
+            login_resp.status().is_success(),
+            "User login should succeed"
+        );
+
+        let login_body: shared::dto::player::LoginResponse = actix_web::test::read_body_json(login_resp).await;
+        login_body.session_id
+    }};
+}
 
 #[cfg(test)]
 mod tests {

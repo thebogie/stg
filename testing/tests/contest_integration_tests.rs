@@ -4,6 +4,7 @@ use anyhow::Result;
 use actix_web::{test, web, App};
 use serde_json::json;
 use testing::{TestEnvironment, app_setup};
+use testing::create_authenticated_user;
 use shared::dto::contest::ContestDto;
 
 #[tokio::test]
