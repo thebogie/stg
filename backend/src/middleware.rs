@@ -7,12 +7,15 @@ use actix_web::{
 use futures_util::future::{ready, LocalBoxFuture, Ready};
 use log::{error, info, warn};
 use std::rc::Rc;
-use std::sync::{Arc, atomic::{AtomicU64, Ordering}};
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Arc,
+};
 use std::task::{Context, Poll};
 use std::time::Instant;
 use uuid::Uuid;
 
-use crate::metrics::{Metrics, record_http_request};
+use crate::metrics::{record_http_request, Metrics};
 
 // Global counter for fast test ID generation
 static REQUEST_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -205,7 +208,7 @@ fn normalize_endpoint(path: &str) -> String {
         })
         .collect::<Vec<_>>()
         .join("/");
-    
+
     // Limit path length to avoid cardinality explosion
     if path.len() > 100 {
         format!("{}...", &path[..97])

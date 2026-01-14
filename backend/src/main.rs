@@ -11,10 +11,10 @@ async fn main() -> std::io::Result<()> {
     // Initialize structured logging
     let env = std::env::var("RUST_ENV").unwrap_or_else(|_| "development".to_string());
     let is_production = env.eq_ignore_ascii_case("production");
-    
+
     // Bridge log crate to tracing (must be done before subscriber init)
     tracing_log::LogTracer::init().expect("Failed to set logger");
-    
+
     // Initialize tracing subscriber
     if is_production {
         // Use JSON logging for production

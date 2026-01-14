@@ -1,6 +1,6 @@
 use prometheus::{
-    register_histogram_vec, register_int_counter_vec, HistogramOpts, HistogramVec,
-    IntCounterVec, IntGauge, Opts, Registry,
+    register_histogram_vec, register_int_counter_vec, HistogramOpts, HistogramVec, IntCounterVec,
+    IntGauge, Opts, Registry,
 };
 use std::sync::Arc;
 use std::time::Duration;
@@ -67,9 +67,12 @@ impl Metrics {
     pub fn new() -> Result<Self, prometheus::Error> {
         // HTTP metrics
         let request_duration = register_histogram_vec!(
-            HistogramOpts::new("http_request_duration_seconds", "HTTP request duration in seconds")
-                .namespace("stg")
-                .subsystem("http"),
+            HistogramOpts::new(
+                "http_request_duration_seconds",
+                "HTTP request duration in seconds"
+            )
+            .namespace("stg")
+            .subsystem("http"),
             &["method", "endpoint", "status_code"]
         )?;
 
@@ -81,17 +84,23 @@ impl Metrics {
         )?;
 
         let requests_in_flight = IntGauge::with_opts(
-            Opts::new("http_requests_in_flight", "Number of HTTP requests currently being processed")
-                .namespace("stg")
-                .subsystem("http")
+            Opts::new(
+                "http_requests_in_flight",
+                "Number of HTTP requests currently being processed",
+            )
+            .namespace("stg")
+            .subsystem("http"),
         )?;
         REGISTRY.register(Box::new(requests_in_flight.clone()))?;
 
         // Database metrics
         let query_duration = register_histogram_vec!(
-            HistogramOpts::new("database_query_duration_seconds", "Database query duration in seconds")
-                .namespace("stg")
-                .subsystem("database"),
+            HistogramOpts::new(
+                "database_query_duration_seconds",
+                "Database query duration in seconds"
+            )
+            .namespace("stg")
+            .subsystem("database"),
             &["operation", "collection"]
         )?;
 
@@ -103,24 +112,33 @@ impl Metrics {
         )?;
 
         let connection_pool_size = IntGauge::with_opts(
-            Opts::new("database_connection_pool_size", "Database connection pool size")
-                .namespace("stg")
-                .subsystem("database")
+            Opts::new(
+                "database_connection_pool_size",
+                "Database connection pool size",
+            )
+            .namespace("stg")
+            .subsystem("database"),
         )?;
         REGISTRY.register(Box::new(connection_pool_size.clone()))?;
 
         let active_connections = IntGauge::with_opts(
-            Opts::new("database_active_connections", "Number of active database connections")
-                .namespace("stg")
-                .subsystem("database")
+            Opts::new(
+                "database_active_connections",
+                "Number of active database connections",
+            )
+            .namespace("stg")
+            .subsystem("database"),
         )?;
         REGISTRY.register(Box::new(active_connections.clone()))?;
 
         // Redis metrics
         let operation_duration = register_histogram_vec!(
-            HistogramOpts::new("redis_operation_duration_seconds", "Redis operation duration in seconds")
-                .namespace("stg")
-                .subsystem("redis"),
+            HistogramOpts::new(
+                "redis_operation_duration_seconds",
+                "Redis operation duration in seconds"
+            )
+            .namespace("stg")
+            .subsystem("redis"),
             &["operation"]
         )?;
 
@@ -134,29 +152,38 @@ impl Metrics {
         let redis_connection_pool_size = IntGauge::with_opts(
             Opts::new("redis_connection_pool_size", "Redis connection pool size")
                 .namespace("stg")
-                .subsystem("redis")
+                .subsystem("redis"),
         )?;
         REGISTRY.register(Box::new(redis_connection_pool_size.clone()))?;
 
         // Scheduler metrics
         let execution_duration = register_histogram_vec!(
-            HistogramOpts::new("scheduler_execution_duration_seconds", "Scheduler execution duration in seconds")
-                .namespace("stg")
-                .subsystem("scheduler"),
+            HistogramOpts::new(
+                "scheduler_execution_duration_seconds",
+                "Scheduler execution duration in seconds"
+            )
+            .namespace("stg")
+            .subsystem("scheduler"),
             &["job_type"]
         )?;
 
         let executions_total = register_int_counter_vec!(
-            Opts::new("scheduler_executions_total", "Total number of scheduler executions")
-                .namespace("stg")
-                .subsystem("scheduler"),
+            Opts::new(
+                "scheduler_executions_total",
+                "Total number of scheduler executions"
+            )
+            .namespace("stg")
+            .subsystem("scheduler"),
             &["job_type", "status"]
         )?;
 
         let scheduler_status = IntGauge::with_opts(
-            Opts::new("scheduler_status", "Scheduler status (1 = running, 0 = stopped)")
-                .namespace("stg")
-                .subsystem("scheduler")
+            Opts::new(
+                "scheduler_status",
+                "Scheduler status (1 = running, 0 = stopped)",
+            )
+            .namespace("stg")
+            .subsystem("scheduler"),
         )?;
         REGISTRY.register(Box::new(scheduler_status.clone()))?;
 

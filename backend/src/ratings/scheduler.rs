@@ -138,7 +138,7 @@ impl<C: ClientExt + Send + Sync + 'static> RatingsScheduler<C> {
 
         let duration = start_time.elapsed();
         let status = if result.is_ok() { "success" } else { "error" };
-        
+
         // Record metrics if available
         if let Some(metrics) = crate::metrics::Metrics::global() {
             crate::metrics::record_scheduler_execution(
@@ -173,7 +173,7 @@ impl<C: ClientExt + Send + Sync + 'static> RatingsScheduler<C> {
 
         let duration = start_time.elapsed();
         let status = if result.is_ok() { "success" } else { "error" };
-        
+
         // Record metrics if available
         if let Some(metrics) = crate::metrics::Metrics::global() {
             crate::metrics::record_scheduler_execution(
