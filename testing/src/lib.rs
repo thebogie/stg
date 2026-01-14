@@ -59,11 +59,14 @@ impl TestEnvironment {
                         // Verify container is actually running before proceeding
                         // Sometimes the container starts but immediately exits
                         tokio::time::sleep(Duration::from_millis(3000)).await;
-                        
+
                         // Try to get the port - if this fails, container might not be ready
                         match container.get_host_port_ipv4(8529.tcp()).await {
                             Ok(_) => {
-                                log::debug!("ArangoDB container started successfully on attempt {}", attempt + 1);
+                                log::debug!(
+                                    "ArangoDB container started successfully on attempt {}",
+                                    attempt + 1
+                                );
                                 container_result = Some(Ok(container));
                                 break;
                             }
@@ -75,7 +78,10 @@ impl TestEnvironment {
                                 );
                                 if attempt < 4 {
                                     // Retry by continuing the loop
-                                    tokio::time::sleep(Duration::from_millis(2000 * (attempt + 1) as u64)).await;
+                                    tokio::time::sleep(Duration::from_millis(
+                                        2000 * (attempt + 1) as u64,
+                                    ))
+                                    .await;
                                     // Don't set container_result, let it retry
                                 } else {
                                     container_result = Some(Err(anyhow::anyhow!(
