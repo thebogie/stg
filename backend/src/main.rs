@@ -178,6 +178,7 @@ async fn main() -> std::io::Result<()> {
             .service(backend::health::health_check)
             .service(backend::health::detailed_health_check)
             .service(backend::health::scheduler_health_check)
+            .service(backend::health::version_info)
             .service(
                 web::scope("/api/players")
                     .service(backend::player::controller::register_handler_prod)

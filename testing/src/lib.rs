@@ -49,30 +49,57 @@ impl TestEnvironment {
         // Start ArangoDB container with retry logic for parallel test execution
         let arangodb = {
             let mut container_result = None;
-            for attempt in 0..3 {
+            for attempt in 0..5 {
                 match GenericImage::new("arangodb", "3.12.5")
                     .with_env_var("ARANGO_ROOT_PASSWORD", "test_password")
                     .start()
                     .await
                 {
                     Ok(container) => {
-                        // Give it more time to bind ports and start services
-                        // ArangoDB needs time to initialize, especially when starting multiple containers
-                        tokio::time::sleep(Duration::from_millis(2000)).await;
-                        container_result = Some(Ok(container));
-                        break;
+                        // Verify container is actually running before proceeding
+                        // Sometimes the container starts but immediately exits
+                        tokio::time::sleep(Duration::from_millis(3000)).await;
+                        
+                        // Try to get the port - if this fails, container might not be ready
+                        match container.get_host_port_ipv4(8529.tcp()).await {
+                            Ok(_) => {
+                                log::debug!("ArangoDB container started successfully on attempt {}", attempt + 1);
+                                container_result = Some(Ok(container));
+                                break;
+                            }
+                            Err(e) => {
+                                log::warn!(
+                                    "ArangoDB container started but port not available (attempt {}): {:?}",
+                                    attempt + 1,
+                                    e
+                                );
+                                if attempt < 4 {
+                                    // Retry by continuing the loop
+                                    tokio::time::sleep(Duration::from_millis(2000 * (attempt + 1) as u64)).await;
+                                    // Don't set container_result, let it retry
+                                } else {
+                                    container_result = Some(Err(anyhow::anyhow!(
+                                        "ArangoDB container port not available after {} attempts: {:?}",
+                                        attempt + 1,
+                                        e
+                                    )));
+                                    break;
+                                }
+                            }
+                        }
                     }
                     Err(e) => {
-                        if attempt < 2 {
+                        if attempt < 4 {
                             log::warn!(
                                 "Failed to start ArangoDB container (attempt {}), retrying...",
                                 attempt + 1
                             );
-                            tokio::time::sleep(Duration::from_millis(1000 * (attempt + 1) as u64))
+                            tokio::time::sleep(Duration::from_millis(2000 * (attempt + 1) as u64))
                                 .await;
                         } else {
                             container_result = Some(Err(anyhow::anyhow!(
-                                "Failed to start ArangoDB container: {:?}",
+                                "Failed to start ArangoDB container after {} attempts: {:?}",
+                                attempt + 1,
                                 e
                             )));
                         }

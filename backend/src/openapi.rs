@@ -6,13 +6,16 @@ use utoipa::OpenApi;
     paths(
         crate::health::health_check,
         crate::health::detailed_health_check,
+        crate::health::version_info,
     ),
     components(schemas(
         crate::health::HealthResponse,
+        crate::health::VersionInfo,
         ApiError,
     )),
     tags(
         (name = "health", description = "Health check endpoints"),
+        (name = "version", description = "Version information endpoints"),
         (name = "players", description = "Player management and authentication"),
         (name = "venues", description = "Venue management"),
         (name = "games", description = "Game management"),

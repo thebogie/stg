@@ -52,6 +52,7 @@ SLOW_TESTS=(
     "venue_api_tests::test_update_venue_not_found"
     "venue_integration_tests::test_delete_venue"
     "search_integration_tests::test_search_games"
+    "search_integration_tests::test_search_venues"
 )
 
 # Extract test file and name from full test path

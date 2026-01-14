@@ -220,6 +220,45 @@ pub async fn scheduler_health_check() -> impl Responder {
     HttpResponse::Ok().json(response)
 }
 
+#[derive(Serialize, utoipa::ToSchema)]
+pub struct VersionInfo {
+    pub version: String,
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub build_date: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub git_commit: Option<String>,
+    pub environment: String,
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/version",
+    tag = "version",
+    responses(
+        (status = 200, description = "Version information", body = VersionInfo)
+    )
+)]
+#[get("/api/version")]
+pub async fn version_info() -> impl Responder {
+    let version = env!("CARGO_PKG_VERSION").to_string();
+    let name = env!("CARGO_PKG_NAME").to_string();
+    let build_date = option_env!("BUILD_DATE").map(|s| s.to_string());
+    let git_commit = option_env!("GIT_COMMIT").map(|s| s.to_string());
+    let environment = std::env::var("ENVIRONMENT")
+        .unwrap_or_else(|_| std::env::var("ENV").unwrap_or_else(|_| "production".to_string()));
+
+    let response = VersionInfo {
+        version,
+        name,
+        build_date,
+        git_commit,
+        environment,
+    };
+
+    HttpResponse::Ok().json(response)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

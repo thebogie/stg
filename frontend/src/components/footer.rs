@@ -1,7 +1,29 @@
+use crate::api::version::{get_version_info, VersionInfo};
 use yew::prelude::*;
 
 #[function_component(Footer)]
 pub fn footer() -> Html {
+    let version_info = use_state(|| None::<VersionInfo>);
+    let error = use_state(|| None::<String>);
+
+    {
+        let version_info = version_info.clone();
+        let error = error.clone();
+        use_effect_with((), move |_| {
+            wasm_bindgen_futures::spawn_local(async move {
+                match get_version_info().await {
+                    Ok(info) => {
+                        version_info.set(Some(info));
+                        error.set(None);
+                    }
+                    Err(e) => {
+                        error.set(Some(e));
+                    }
+                }
+            });
+        });
+    }
+
     html! {
         <footer class="bg-gradient-to-r from-slate-800 to-blue-600 text-white mt-auto">
             <div class="container mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12">
@@ -87,9 +109,22 @@ pub fn footer() -> Html {
                                 {"© 2024 STG. All rights reserved."}
                             </p>
                             <div class="mt-2 text-xs text-blue-200 font-mono">
-                                <div>{"Version: "}{crate::version::Version::current()}</div>
-                                <div>{"Name: "}{crate::version::Version::name()}</div>
-                                <div>{"Build Info: "}{crate::version::Version::build_info()}</div>
+                                if let Some(ref info) = *version_info {
+                                    <div>{"Version: "}{&info.version}</div>
+                                    <div>{"Name: "}{&info.name}</div>
+                                    if let Some(ref build_date) = info.build_date {
+                                        <div>{"Build Date: "}{build_date}</div>
+                                    }
+                                    if let Some(ref git_commit) = info.git_commit {
+                                        <div>{"Commit: "}{git_commit}</div>
+                                    }
+                                    <div>{"Environment: "}{&info.environment}</div>
+                                } else if let Some(ref err) = *error {
+                                    <div class="text-red-300">{"Error loading version: "}{err}</div>
+                                    <div>{"Frontend Version: "}{crate::version::Version::current()}</div>
+                                } else {
+                                    <div>{"Loading version..."}</div>
+                                }
                             </div>
                         </div>
                         <div class="flex space-x-4 sm:space-x-6">

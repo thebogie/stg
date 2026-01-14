@@ -92,6 +92,30 @@ if ! docker pull "$DOCKER_HUB_USER/stg_rd:backend-latest" >/dev/null 2>&1 && \
 fi
 
 # ============================================================================
+# STEP 0: Cleanup Old Testcontainers
+# ============================================================================
+log_step "STEP 0: Cleaning Up Old Testcontainers"
+
+log_info "Stopping and removing old testcontainers..."
+# Stop and remove old ArangoDB testcontainers
+STOPPED=$(docker ps --filter "ancestor=arangodb:3.12.5" --format "{{.ID}}" | wc -l)
+if [ "$STOPPED" -gt 0 ]; then
+    docker ps --filter "ancestor=arangodb:3.12.5" --format "{{.ID}}" | xargs -r docker stop >/dev/null 2>&1 || true
+    docker ps -a --filter "ancestor=arangodb:3.12.5" --format "{{.ID}}" | xargs -r docker rm >/dev/null 2>&1 || true
+    log_info "Cleaned up $STOPPED ArangoDB testcontainers"
+fi
+
+# Stop and remove old Redis testcontainers
+STOPPED=$(docker ps --filter "ancestor=redis:7-alpine" --format "{{.ID}}" | wc -l)
+if [ "$STOPPED" -gt 0 ]; then
+    docker ps --filter "ancestor=redis:7-alpine" --format "{{.ID}}" | xargs -r docker stop >/dev/null 2>&1 || true
+    docker ps -a --filter "ancestor=redis:7-alpine" --format "{{.ID}}" | xargs -r docker rm >/dev/null 2>&1 || true
+    log_info "Cleaned up $STOPPED Redis testcontainers"
+fi
+
+log_success "Cleanup complete"
+
+# ============================================================================
 # STEP 1: Run All Tests
 # ============================================================================
 log_step "STEP 1: Running All Tests"
