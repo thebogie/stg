@@ -1,19 +1,34 @@
-use shared::models::player::PlayerLogin;
-use shared::dto::player::CreatePlayerRequest;
-use crate::player::repository::PlayerRepository;
-use shared::models::player::Player;
 use crate::player::error::PlayerError;
-use chrono::Utc;
+use crate::player::repository::PlayerRepository;
 use argon2::{Argon2, PasswordHasher};
+use chrono::Utc;
+use shared::dto::player::CreatePlayerRequest;
+use shared::models::player::Player;
+use shared::models::player::PlayerLogin;
 
 #[async_trait::async_trait]
 pub trait PlayerUseCase: Send + Sync {
     async fn login(&self, login: PlayerLogin) -> Result<Player, PlayerError>;
     async fn get_player(&self, id: &str) -> Result<Player, String>;
     async fn register(&self, registration: CreatePlayerRequest) -> Result<Player, PlayerError>;
-    async fn update_email(&self, email: &str, new_email: &str, password: &str) -> Result<Player, PlayerError>;
-    async fn update_handle(&self, email: &str, new_handle: &str, password: &str) -> Result<Player, PlayerError>;
-    async fn update_password(&self, email: &str, current_password: &str, new_password: &str) -> Result<Player, PlayerError>;
+    async fn update_email(
+        &self,
+        email: &str,
+        new_email: &str,
+        password: &str,
+    ) -> Result<Player, PlayerError>;
+    async fn update_handle(
+        &self,
+        email: &str,
+        new_handle: &str,
+        password: &str,
+    ) -> Result<Player, PlayerError>;
+    async fn update_password(
+        &self,
+        email: &str,
+        current_password: &str,
+        new_password: &str,
+    ) -> Result<Player, PlayerError>;
 }
 
 pub struct PlayerUseCaseImpl<R: PlayerRepository> {
@@ -39,9 +54,11 @@ impl<R: PlayerRepository> PlayerUseCase for PlayerUseCaseImpl<R> {
         if let Some(player) = self.repo.find_by_id(id).await {
             return Ok(player);
         }
-        
+
         // Fallback to finding by email
-        self.repo.find_by_email(id).await
+        self.repo
+            .find_by_email(id)
+            .await
             .ok_or_else(|| "Player not found".to_string())
     }
 
@@ -52,8 +69,11 @@ impl<R: PlayerRepository> PlayerUseCase for PlayerUseCaseImpl<R> {
         }
 
         // Hash the password
-        let salt_string = argon2::password_hash::SaltString::generate(&mut argon2::password_hash::rand_core::OsRng);
-        let salt = Argon2::default().hash_password(registration.password.as_bytes(), &salt_string)
+        let salt_string = argon2::password_hash::SaltString::generate(
+            &mut argon2::password_hash::rand_core::OsRng,
+        );
+        let salt = Argon2::default()
+            .hash_password(registration.password.as_bytes(), &salt_string)
             .map_err(|e| PlayerError::DatabaseError(format!("Failed to hash password: {}", e)))?;
 
         let hashed_password = salt.to_string();
@@ -66,16 +86,27 @@ impl<R: PlayerRepository> PlayerUseCase for PlayerUseCaseImpl<R> {
             hashed_password,
             Utc::now().fixed_offset(),
             false,
-        ).map_err(|e| PlayerError::DatabaseError(format!("Failed to create player: {}", e)))?;
+        )
+        .map_err(|e| PlayerError::DatabaseError(format!("Failed to create player: {}", e)))?;
 
         // Save to database
-        self.repo.create(player).await
+        self.repo
+            .create(player)
+            .await
             .map_err(|e| PlayerError::DatabaseError(e))
     }
 
-    async fn update_email(&self, email: &str, new_email: &str, password: &str) -> Result<Player, PlayerError> {
+    async fn update_email(
+        &self,
+        email: &str,
+        new_email: &str,
+        password: &str,
+    ) -> Result<Player, PlayerError> {
         // Find the player by current email
-        let mut player = self.repo.find_by_email(email).await
+        let mut player = self
+            .repo
+            .find_by_email(email)
+            .await
             .ok_or(PlayerError::NotFound)?;
 
         // Verify current password
@@ -92,13 +123,23 @@ impl<R: PlayerRepository> PlayerUseCase for PlayerUseCaseImpl<R> {
         player.email = new_email.to_string();
 
         // Save to database
-        self.repo.update(player).await
+        self.repo
+            .update(player)
+            .await
             .map_err(|e| PlayerError::DatabaseError(e))
     }
 
-    async fn update_handle(&self, email: &str, new_handle: &str, password: &str) -> Result<Player, PlayerError> {
+    async fn update_handle(
+        &self,
+        email: &str,
+        new_handle: &str,
+        password: &str,
+    ) -> Result<Player, PlayerError> {
         // Find the player by email
-        let mut player = self.repo.find_by_email(email).await
+        let mut player = self
+            .repo
+            .find_by_email(email)
+            .await
             .ok_or(PlayerError::NotFound)?;
 
         // Verify current password
@@ -115,13 +156,23 @@ impl<R: PlayerRepository> PlayerUseCase for PlayerUseCaseImpl<R> {
         player.handle = new_handle.to_string();
 
         // Save to database
-        self.repo.update(player).await
+        self.repo
+            .update(player)
+            .await
             .map_err(|e| PlayerError::DatabaseError(e))
     }
 
-    async fn update_password(&self, email: &str, current_password: &str, new_password: &str) -> Result<Player, PlayerError> {
+    async fn update_password(
+        &self,
+        email: &str,
+        current_password: &str,
+        new_password: &str,
+    ) -> Result<Player, PlayerError> {
         // Find the player by email
-        let mut player = self.repo.find_by_email(email).await
+        let mut player = self
+            .repo
+            .find_by_email(email)
+            .await
             .ok_or(PlayerError::NotFound)?;
 
         // Verify current password
@@ -130,15 +181,20 @@ impl<R: PlayerRepository> PlayerUseCase for PlayerUseCaseImpl<R> {
         }
 
         // Hash the new password
-        let salt_string = argon2::password_hash::SaltString::generate(&mut argon2::password_hash::rand_core::OsRng);
-        let salt = Argon2::default().hash_password(new_password.as_bytes(), &salt_string)
+        let salt_string = argon2::password_hash::SaltString::generate(
+            &mut argon2::password_hash::rand_core::OsRng,
+        );
+        let salt = Argon2::default()
+            .hash_password(new_password.as_bytes(), &salt_string)
             .map_err(|e| PlayerError::DatabaseError(format!("Failed to hash password: {}", e)))?;
 
         // Update password
         player.password = salt.to_string();
 
         // Save to database
-        self.repo.update(player).await
+        self.repo
+            .update(player)
+            .await
             .map_err(|e| PlayerError::DatabaseError(e))
     }
 }

@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use chrono::{DateTime, FixedOffset};
+use serde::{Deserialize, Serialize};
 
 /// Request for client-side analytics data sync
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -23,19 +23,19 @@ pub struct ClientSyncResponse {
     pub player_id: String,
     pub sync_timestamp: DateTime<FixedOffset>,
     pub data_version: String,
-    
+
     /// Contest data (flattened for client processing)
     pub contests: Vec<ClientContestDto>,
-    
+
     /// Related game data
     pub games: Vec<ClientGameDto>,
-    
+
     /// Related venue data
     pub venues: Vec<ClientVenueDto>,
-    
+
     /// Related player data (opponents)
     pub players: Vec<ClientPlayerDto>,
-    
+
     /// Sync metadata
     pub sync_metadata: ClientSyncMetadata,
 }
@@ -164,19 +164,19 @@ pub struct ClientAnalyticsResponse {
     pub player_id: String,
     pub query: ClientAnalyticsQuery,
     pub computed_at: DateTime<FixedOffset>,
-    
+
     /// Filtered contest data
     pub contests: Vec<ClientContestDto>,
-    
+
     /// Computed statistics
     pub stats: ClientStatsDto,
-    
+
     /// Game performance data
     pub game_performance: Vec<ClientGamePerformanceDto>,
-    
+
     /// Opponent performance data
     pub opponent_performance: Vec<ClientOpponentPerformanceDto>,
-    
+
     /// Performance trends
     pub trends: Vec<ClientTrendDto>,
 }
@@ -261,7 +261,7 @@ pub struct ClientDataValidationResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_client_sync_request_serialization() {
         let request = ClientSyncRequest {
@@ -272,15 +272,15 @@ mod tests {
             limit: Some(100),
             include_related: true,
         };
-        
+
         let json = serde_json::to_string(&request).unwrap();
         let deserialized: ClientSyncRequest = serde_json::from_str(&json).unwrap();
-        
+
         assert_eq!(request.player_id, deserialized.player_id);
         assert_eq!(request.full_sync, deserialized.full_sync);
         assert_eq!(request.limit, deserialized.limit);
     }
-    
+
     #[test]
     fn test_client_analytics_query_serialization() {
         let query = ClientAnalyticsQuery {
@@ -296,10 +296,10 @@ mod tests {
             result_filter: Some(vec!["won".to_string(), "lost".to_string()]),
             placement_range: Some(ClientPlacementRange { min: 1, max: 3 }),
         };
-        
+
         let json = serde_json::to_string(&query).unwrap();
         let deserialized: ClientAnalyticsQuery = serde_json::from_str(&json).unwrap();
-        
+
         assert_eq!(query.games, deserialized.games);
         assert_eq!(query.min_players, deserialized.min_players);
         assert_eq!(query.max_players, deserialized.max_players);

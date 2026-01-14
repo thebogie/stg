@@ -1,7 +1,6 @@
 use gloo_net::http::Request;
 use gloo_storage::Storage;
 
-
 /// Creates a request with Authorization header from localStorage
 pub fn authenticated_request(method: &str, url: &str) -> gloo_net::http::RequestBuilder {
     let mut req = match method.to_uppercase().as_str() {

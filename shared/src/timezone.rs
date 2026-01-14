@@ -5,7 +5,7 @@ use chrono_tz::Tz;
 pub fn convert_to_timezone(utc_dt: DateTime<Utc>, timezone_name: &str) -> Option<DateTime<Tz>> {
     // Parse the timezone name
     let tz: Tz = timezone_name.parse().ok()?;
-    
+
     // Convert UTC to the target timezone
     Some(utc_dt.with_timezone(&tz))
 }
@@ -35,7 +35,11 @@ pub fn get_timezone_abbreviation(timezone_name: &str) -> String {
                 // Get current time in that timezone to determine abbreviation
                 let _now = Utc::now().with_timezone(&tz);
                 // This is a simplified approach - in production you'd want more sophisticated abbreviation detection
-                timezone_name.split('/').last().unwrap_or(timezone_name).to_string()
+                timezone_name
+                    .split('/')
+                    .last()
+                    .unwrap_or(timezone_name)
+                    .to_string()
             } else {
                 timezone_name.to_string()
             }
@@ -47,7 +51,11 @@ pub fn get_timezone_abbreviation(timezone_name: &str) -> String {
 pub fn format_with_timezone(utc_dt: DateTime<Utc>, timezone_name: &str) -> String {
     if let Some(local_dt) = convert_to_timezone(utc_dt, timezone_name) {
         let abbreviation = get_timezone_abbreviation(timezone_name);
-        format!("{} ({})", local_dt.format("%B %d, %Y at %I:%M %p"), abbreviation)
+        format!(
+            "{} ({})",
+            local_dt.format("%B %d, %Y at %I:%M %p"),
+            abbreviation
+        )
     } else {
         // Fallback to UTC if timezone conversion fails
         format!("{} (UTC)", utc_dt.format("%B %d, %Y at %I:%M %p"))
@@ -86,11 +94,11 @@ mod tests {
     #[test]
     fn test_timezone_conversion() {
         let utc_time = Utc.with_ymd_and_hms(2024, 1, 15, 12, 0, 0).unwrap();
-        
+
         // Test Chicago timezone
         let chicago_time = convert_to_timezone(utc_time, "America/Chicago").unwrap();
         assert_eq!(chicago_time.hour(), 6); // UTC-6
-        
+
         // Test New York timezone
         let ny_time = convert_to_timezone(utc_time, "America/New_York").unwrap();
         assert_eq!(ny_time.hour(), 7); // UTC-5
@@ -133,11 +141,11 @@ mod tests {
     #[test]
     fn test_timezone_conversion_edge_cases() {
         let utc_time = Utc.with_ymd_and_hms(2024, 1, 15, 12, 0, 0).unwrap();
-        
+
         // Test UTC conversion
         let utc_result = convert_to_timezone(utc_time, "UTC").unwrap();
         assert_eq!(utc_result.hour(), 12);
-        
+
         // Test extreme timezone
         let tokyo_time = convert_to_timezone(utc_time, "Asia/Tokyo").unwrap();
         assert_eq!(tokyo_time.hour(), 21); // UTC+9
@@ -148,7 +156,7 @@ mod tests {
         // Test unknown timezone
         let unknown_abbrev = get_timezone_abbreviation("Unknown/Timezone");
         assert_eq!(unknown_abbrev, "Unknown/Timezone");
-        
+
         // Test empty string
         let empty_abbrev = get_timezone_abbreviation("");
         assert_eq!(empty_abbrev, "");

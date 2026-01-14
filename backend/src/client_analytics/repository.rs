@@ -1,53 +1,77 @@
+use arangors::{client::ClientExt, AqlQuery, Database};
 use async_trait::async_trait;
+use chrono::{DateTime, FixedOffset};
+use log;
 use shared::dto::client_sync::*;
 use shared::error::SharedError;
-use shared::models::{contest::Contest, game::Game, venue::Venue, player::Player};
-use arangors::{AqlQuery, Database, client::ClientExt};
-use chrono::{DateTime, FixedOffset};
+use shared::models::{contest::Contest, game::Game, player::Player, venue::Venue};
 use std::collections::HashMap;
-use log;
 
 /// Repository trait for client analytics data access
 #[async_trait]
 pub trait ClientAnalyticsRepository: Send + Sync {
     /// Gets all contests for a player
-    async fn get_all_contests_for_player(&self, player_id: &str) -> Result<Vec<Contest>, SharedError>;
-    
+    async fn get_all_contests_for_player(
+        &self,
+        player_id: &str,
+    ) -> Result<Vec<Contest>, SharedError>;
+
     /// Gets contests since a specific timestamp
-    async fn get_contests_since(&self, player_id: &str, since: DateTime<FixedOffset>) -> Result<Vec<Contest>, SharedError>;
-    
+    async fn get_contests_since(
+        &self,
+        player_id: &str,
+        since: DateTime<FixedOffset>,
+    ) -> Result<Vec<Contest>, SharedError>;
+
     /// Gets filtered contests based on query parameters
-    async fn get_filtered_contests(&self, player_id: &str, query: &ClientAnalyticsQuery) -> Result<Vec<Contest>, SharedError>;
-    
+    async fn get_filtered_contests(
+        &self,
+        player_id: &str,
+        query: &ClientAnalyticsQuery,
+    ) -> Result<Vec<Contest>, SharedError>;
+
     /// Gets the game for a specific contest
     async fn get_game_for_contest(&self, contest_id: &str) -> Result<Game, SharedError>;
-    
+
     /// Gets the venue for a specific contest
     async fn get_venue_for_contest(&self, contest_id: &str) -> Result<Venue, SharedError>;
-    
+
     /// Gets all participants for a contest
-    async fn get_contest_participants(&self, contest_id: &str) -> Result<Vec<ContestParticipant>, SharedError>;
-    
+    async fn get_contest_participants(
+        &self,
+        contest_id: &str,
+    ) -> Result<Vec<ContestParticipant>, SharedError>;
+
     /// Gets all games a player has played
     async fn get_games_for_player(&self, player_id: &str) -> Result<Vec<Game>, SharedError>;
-    
+
     /// Gets all venues a player has played at
     async fn get_venues_for_player(&self, player_id: &str) -> Result<Vec<Venue>, SharedError>;
-    
+
     /// Gets all opponents a player has faced
     async fn get_opponents_for_player(&self, player_id: &str) -> Result<Vec<Player>, SharedError>;
-    
+
     /// Gets total contest count for a player
     async fn get_total_contests_for_player(&self, player_id: &str) -> Result<usize, SharedError>;
-    
+
     /// Gets the last contest for a player
-    async fn get_last_contest_for_player(&self, player_id: &str) -> Result<Option<Contest>, SharedError>;
-    
+    async fn get_last_contest_for_player(
+        &self,
+        player_id: &str,
+    ) -> Result<Option<Contest>, SharedError>;
+
     /// Gets gaming communities and regular opponents
-    async fn get_gaming_communities(&self, player_id: &str, min_contests: i32) -> Result<Vec<serde_json::Value>, SharedError>;
-    
+    async fn get_gaming_communities(
+        &self,
+        player_id: &str,
+        min_contests: i32,
+    ) -> Result<Vec<serde_json::Value>, SharedError>;
+
     /// Gets player networking insights (who plays with whom)
-    async fn get_player_networking(&self, player_id: &str) -> Result<serde_json::Value, SharedError>;
+    async fn get_player_networking(
+        &self,
+        player_id: &str,
+    ) -> Result<serde_json::Value, SharedError>;
 }
 
 /// Contest participant with result data
@@ -75,7 +99,10 @@ impl<C: ClientExt> ClientAnalyticsRepositoryImpl<C> {
 
 #[async_trait]
 impl<C: ClientExt + Send + Sync> ClientAnalyticsRepository for ClientAnalyticsRepositoryImpl<C> {
-    async fn get_all_contests_for_player(&self, player_id: &str) -> Result<Vec<Contest>, SharedError> {
+    async fn get_all_contests_for_player(
+        &self,
+        player_id: &str,
+    ) -> Result<Vec<Contest>, SharedError> {
         let query = r#"
             FOR result IN resulted_in
             FILTER result._to == @player_id
@@ -85,7 +112,10 @@ impl<C: ClientExt + Send + Sync> ClientAnalyticsRepository for ClientAnalyticsRe
         "#;
 
         let mut bind_vars = HashMap::new();
-        bind_vars.insert("player_id", serde_json::Value::String(player_id.to_string()));
+        bind_vars.insert(
+            "player_id",
+            serde_json::Value::String(player_id.to_string()),
+        );
 
         let aql = AqlQuery::builder()
             .query(query)
@@ -94,17 +124,28 @@ impl<C: ClientExt + Send + Sync> ClientAnalyticsRepository for ClientAnalyticsRe
 
         match self.db.aql_query::<Contest>(aql).await {
             Ok(contests) => {
-                log::info!("Retrieved {} contests for player: {}", contests.len(), player_id);
+                log::info!(
+                    "Retrieved {} contests for player: {}",
+                    contests.len(),
+                    player_id
+                );
                 Ok(contests)
             }
             Err(e) => {
                 log::error!("Failed to get contests for player {}: {}", player_id, e);
-                Err(SharedError::Database(format!("Failed to query contests: {}", e)))
+                Err(SharedError::Database(format!(
+                    "Failed to query contests: {}",
+                    e
+                )))
             }
         }
     }
 
-    async fn get_contests_since(&self, player_id: &str, since: DateTime<FixedOffset>) -> Result<Vec<Contest>, SharedError> {
+    async fn get_contests_since(
+        &self,
+        player_id: &str,
+        since: DateTime<FixedOffset>,
+    ) -> Result<Vec<Contest>, SharedError> {
         let query = r#"
             FOR result IN resulted_in
             FILTER result._to == @player_id
@@ -115,7 +156,10 @@ impl<C: ClientExt + Send + Sync> ClientAnalyticsRepository for ClientAnalyticsRe
         "#;
 
         let mut bind_vars = HashMap::new();
-        bind_vars.insert("player_id", serde_json::Value::String(player_id.to_string()));
+        bind_vars.insert(
+            "player_id",
+            serde_json::Value::String(player_id.to_string()),
+        );
         bind_vars.insert("since", serde_json::Value::String(since.to_rfc3339()));
 
         let aql = AqlQuery::builder()
@@ -125,43 +169,79 @@ impl<C: ClientExt + Send + Sync> ClientAnalyticsRepository for ClientAnalyticsRe
 
         match self.db.aql_query::<Contest>(aql).await {
             Ok(contests) => {
-                log::info!("Retrieved {} contests since {} for player: {}", contests.len(), since, player_id);
+                log::info!(
+                    "Retrieved {} contests since {} for player: {}",
+                    contests.len(),
+                    since,
+                    player_id
+                );
                 Ok(contests)
             }
             Err(e) => {
-                log::error!("Failed to get contests since {} for player {}: {}", since, player_id, e);
-                Err(SharedError::Database(format!("Failed to query contests since: {}", e)))
+                log::error!(
+                    "Failed to get contests since {} for player {}: {}",
+                    since,
+                    player_id,
+                    e
+                );
+                Err(SharedError::Database(format!(
+                    "Failed to query contests since: {}",
+                    e
+                )))
             }
         }
     }
 
-    async fn get_filtered_contests(&self, player_id: &str, query: &ClientAnalyticsQuery) -> Result<Vec<Contest>, SharedError> {
+    async fn get_filtered_contests(
+        &self,
+        player_id: &str,
+        query: &ClientAnalyticsQuery,
+    ) -> Result<Vec<Contest>, SharedError> {
         let mut query_parts = Vec::new();
         let mut bind_vars = HashMap::new();
-        
+
         // Base query
-        query_parts.push(r#"
+        query_parts.push(
+            r#"
             FOR result IN resulted_in
             FILTER result._to == @player_id
             LET contest = DOCUMENT(result._from)
-        "#.to_string());
-        
-        bind_vars.insert("player_id", serde_json::Value::String(player_id.to_string()));
+        "#
+            .to_string(),
+        );
+
+        bind_vars.insert(
+            "player_id",
+            serde_json::Value::String(player_id.to_string()),
+        );
 
         // Date range filter
         if let Some(date_range) = &query.date_range {
-            query_parts.push(r#"
+            query_parts.push(
+                r#"
                 FILTER contest.start >= @start_date AND contest.start <= @end_date
-            "#.to_string());
-            bind_vars.insert("start_date", serde_json::Value::String(date_range.start.to_rfc3339()));
-            bind_vars.insert("end_date", serde_json::Value::String(date_range.end.to_rfc3339()));
+            "#
+                .to_string(),
+            );
+            bind_vars.insert(
+                "start_date",
+                serde_json::Value::String(date_range.start.to_rfc3339()),
+            );
+            bind_vars.insert(
+                "end_date",
+                serde_json::Value::String(date_range.end.to_rfc3339()),
+            );
         }
 
         // Game filter
         if let Some(games) = &query.games {
             if !games.is_empty() {
-                let game_ids: Vec<serde_json::Value> = games.iter().map(|g| serde_json::Value::String(g.clone())).collect();
-                query_parts.push(r#"
+                let game_ids: Vec<serde_json::Value> = games
+                    .iter()
+                    .map(|g| serde_json::Value::String(g.clone()))
+                    .collect();
+                query_parts.push(
+                    r#"
                     LET game_edge = FIRST(
                         FOR edge IN played_with
                         FILTER edge._from == contest._id
@@ -170,7 +250,9 @@ impl<C: ClientExt + Send + Sync> ClientAnalyticsRepository for ClientAnalyticsRe
                     FILTER game_edge != null
                     LET game = DOCUMENT(game_edge._to)
                     FILTER game._id IN @game_ids
-                "#.to_string());
+                "#
+                    .to_string(),
+                );
                 bind_vars.insert("game_ids", serde_json::Value::Array(game_ids));
             }
         }
@@ -178,8 +260,12 @@ impl<C: ClientExt + Send + Sync> ClientAnalyticsRepository for ClientAnalyticsRe
         // Venue filter
         if let Some(venues) = &query.venues {
             if !venues.is_empty() {
-                let venue_ids: Vec<serde_json::Value> = venues.iter().map(|v| serde_json::Value::String(v.clone())).collect();
-                query_parts.push(r#"
+                let venue_ids: Vec<serde_json::Value> = venues
+                    .iter()
+                    .map(|v| serde_json::Value::String(v.clone()))
+                    .collect();
+                query_parts.push(
+                    r#"
                     LET venue_edge = FIRST(
                         FOR edge IN played_at
                         FILTER edge._from == contest._id
@@ -188,7 +274,9 @@ impl<C: ClientExt + Send + Sync> ClientAnalyticsRepository for ClientAnalyticsRe
                     FILTER venue_edge != null
                     LET venue = DOCUMENT(venue_edge._to)
                     FILTER venue._id IN @venue_ids
-                "#.to_string());
+                "#
+                    .to_string(),
+                );
                 bind_vars.insert("venue_ids", serde_json::Value::Array(venue_ids));
             }
         }
@@ -196,67 +284,97 @@ impl<C: ClientExt + Send + Sync> ClientAnalyticsRepository for ClientAnalyticsRe
         // Opponent filter
         if let Some(opponents) = &query.opponents {
             if !opponents.is_empty() {
-                let opponent_ids: Vec<serde_json::Value> = opponents.iter().map(|o| serde_json::Value::String(o.clone())).collect();
-                query_parts.push(r#"
+                let opponent_ids: Vec<serde_json::Value> = opponents
+                    .iter()
+                    .map(|o| serde_json::Value::String(o.clone()))
+                    .collect();
+                query_parts.push(
+                    r#"
                     FILTER LENGTH(
                         FOR other_result IN resulted_in
                         FILTER other_result._from == contest._id
                         FILTER other_result._to IN @opponent_ids
                         RETURN other_result
                     ) > 0
-                "#.to_string());
+                "#
+                    .to_string(),
+                );
                 bind_vars.insert("opponent_ids", serde_json::Value::Array(opponent_ids));
             }
         }
 
         // Player count filter
         if let Some(min_players) = query.min_players {
-            query_parts.push(r#"
+            query_parts.push(
+                r#"
                 FILTER LENGTH(
                     FOR participant IN resulted_in
                     FILTER participant._from == contest._id
                     RETURN participant
                 ) >= @min_players
-            "#.to_string());
+            "#
+                .to_string(),
+            );
             bind_vars.insert("min_players", serde_json::Value::Number(min_players.into()));
         }
 
         if let Some(max_players) = query.max_players {
-            query_parts.push(r#"
+            query_parts.push(
+                r#"
                 FILTER LENGTH(
                     FOR participant IN resulted_in
                     FILTER participant._from == contest._id
                     RETURN participant
                 ) <= @max_players
-            "#.to_string());
+            "#
+                .to_string(),
+            );
             bind_vars.insert("max_players", serde_json::Value::Number(max_players.into()));
         }
 
         // Result filter
         if let Some(result_filter) = &query.result_filter {
             if !result_filter.is_empty() {
-                let results: Vec<serde_json::Value> = result_filter.iter().map(|r| serde_json::Value::String(r.clone())).collect();
-                query_parts.push(r#"
+                let results: Vec<serde_json::Value> = result_filter
+                    .iter()
+                    .map(|r| serde_json::Value::String(r.clone()))
+                    .collect();
+                query_parts.push(
+                    r#"
                     FILTER result.result IN @results
-                "#.to_string());
+                "#
+                    .to_string(),
+                );
                 bind_vars.insert("results", serde_json::Value::Array(results));
             }
         }
 
         // Placement range filter
         if let Some(placement_range) = &query.placement_range {
-            query_parts.push(r#"
+            query_parts.push(
+                r#"
                 FILTER result.place >= @min_placement AND result.place <= @max_placement
-            "#.to_string());
-            bind_vars.insert("min_placement", serde_json::Value::Number(placement_range.min.into()));
-            bind_vars.insert("max_placement", serde_json::Value::Number(placement_range.max.into()));
+            "#
+                .to_string(),
+            );
+            bind_vars.insert(
+                "min_placement",
+                serde_json::Value::Number(placement_range.min.into()),
+            );
+            bind_vars.insert(
+                "max_placement",
+                serde_json::Value::Number(placement_range.max.into()),
+            );
         }
 
         // Final parts
-        query_parts.push(r#"
+        query_parts.push(
+            r#"
             SORT contest.start DESC
             RETURN contest
-        "#.to_string());
+        "#
+            .to_string(),
+        );
 
         let full_query = query_parts.join("\n");
 
@@ -267,12 +385,23 @@ impl<C: ClientExt + Send + Sync> ClientAnalyticsRepository for ClientAnalyticsRe
 
         match self.db.aql_query::<Contest>(aql).await {
             Ok(contests) => {
-                log::info!("Retrieved {} filtered contests for player: {}", contests.len(), player_id);
+                log::info!(
+                    "Retrieved {} filtered contests for player: {}",
+                    contests.len(),
+                    player_id
+                );
                 Ok(contests)
             }
             Err(e) => {
-                log::error!("Failed to get filtered contests for player {}: {}", player_id, e);
-                Err(SharedError::Database(format!("Failed to query filtered contests: {}", e)))
+                log::error!(
+                    "Failed to get filtered contests for player {}: {}",
+                    player_id,
+                    e
+                );
+                Err(SharedError::Database(format!(
+                    "Failed to query filtered contests: {}",
+                    e
+                )))
             }
         }
     }
@@ -286,7 +415,10 @@ impl<C: ClientExt + Send + Sync> ClientAnalyticsRepository for ClientAnalyticsRe
         "#;
 
         let mut bind_vars = HashMap::new();
-        bind_vars.insert("contest_id", serde_json::Value::String(contest_id.to_string()));
+        bind_vars.insert(
+            "contest_id",
+            serde_json::Value::String(contest_id.to_string()),
+        );
 
         let aql = AqlQuery::builder()
             .query(query)
@@ -298,12 +430,18 @@ impl<C: ClientExt + Send + Sync> ClientAnalyticsRepository for ClientAnalyticsRe
                 if let Some(game) = games.into_iter().next() {
                     Ok(game)
                 } else {
-                    Err(SharedError::NotFound(format!("No game found for contest: {}", contest_id)))
+                    Err(SharedError::NotFound(format!(
+                        "No game found for contest: {}",
+                        contest_id
+                    )))
                 }
             }
             Err(e) => {
                 log::error!("Failed to get game for contest {}: {}", contest_id, e);
-                Err(SharedError::Database(format!("Failed to query game: {}", e)))
+                Err(SharedError::Database(format!(
+                    "Failed to query game: {}",
+                    e
+                )))
             }
         }
     }
@@ -317,7 +455,10 @@ impl<C: ClientExt + Send + Sync> ClientAnalyticsRepository for ClientAnalyticsRe
         "#;
 
         let mut bind_vars = HashMap::new();
-        bind_vars.insert("contest_id", serde_json::Value::String(contest_id.to_string()));
+        bind_vars.insert(
+            "contest_id",
+            serde_json::Value::String(contest_id.to_string()),
+        );
 
         let aql = AqlQuery::builder()
             .query(query)
@@ -329,17 +470,26 @@ impl<C: ClientExt + Send + Sync> ClientAnalyticsRepository for ClientAnalyticsRe
                 if let Some(venue) = venues.into_iter().next() {
                     Ok(venue)
                 } else {
-                    Err(SharedError::NotFound(format!("No venue found for contest: {}", contest_id)))
+                    Err(SharedError::NotFound(format!(
+                        "No venue found for contest: {}",
+                        contest_id
+                    )))
                 }
             }
             Err(e) => {
                 log::error!("Failed to get venue for contest {}: {}", contest_id, e);
-                Err(SharedError::Database(format!("Failed to query venue: {}", e)))
+                Err(SharedError::Database(format!(
+                    "Failed to query venue: {}",
+                    e
+                )))
             }
         }
     }
 
-    async fn get_contest_participants(&self, contest_id: &str) -> Result<Vec<ContestParticipant>, SharedError> {
+    async fn get_contest_participants(
+        &self,
+        contest_id: &str,
+    ) -> Result<Vec<ContestParticipant>, SharedError> {
         let query = r#"
             FOR result IN resulted_in
             FILTER result._from == @contest_id
@@ -356,7 +506,10 @@ impl<C: ClientExt + Send + Sync> ClientAnalyticsRepository for ClientAnalyticsRe
         "#;
 
         let mut bind_vars = HashMap::new();
-        bind_vars.insert("contest_id", serde_json::Value::String(contest_id.to_string()));
+        bind_vars.insert(
+            "contest_id",
+            serde_json::Value::String(contest_id.to_string()),
+        );
 
         let aql = AqlQuery::builder()
             .query(query)
@@ -381,8 +534,15 @@ impl<C: ClientExt + Send + Sync> ClientAnalyticsRepository for ClientAnalyticsRe
                 Ok(result)
             }
             Err(e) => {
-                log::error!("Failed to get participants for contest {}: {}", contest_id, e);
-                Err(SharedError::Database(format!("Failed to query participants: {}", e)))
+                log::error!(
+                    "Failed to get participants for contest {}: {}",
+                    contest_id,
+                    e
+                );
+                Err(SharedError::Database(format!(
+                    "Failed to query participants: {}",
+                    e
+                )))
             }
         }
     }
@@ -400,7 +560,10 @@ impl<C: ClientExt + Send + Sync> ClientAnalyticsRepository for ClientAnalyticsRe
         "#;
 
         let mut bind_vars = HashMap::new();
-        bind_vars.insert("player_id", serde_json::Value::String(player_id.to_string()));
+        bind_vars.insert(
+            "player_id",
+            serde_json::Value::String(player_id.to_string()),
+        );
 
         let aql = AqlQuery::builder()
             .query(query)
@@ -409,12 +572,19 @@ impl<C: ClientExt + Send + Sync> ClientAnalyticsRepository for ClientAnalyticsRe
 
         match self.db.aql_query::<Game>(aql).await {
             Ok(games) => {
-                log::info!("Retrieved {} unique games for player: {}", games.len(), player_id);
+                log::info!(
+                    "Retrieved {} unique games for player: {}",
+                    games.len(),
+                    player_id
+                );
                 Ok(games)
             }
             Err(e) => {
                 log::error!("Failed to get games for player {}: {}", player_id, e);
-                Err(SharedError::Database(format!("Failed to query games: {}", e)))
+                Err(SharedError::Database(format!(
+                    "Failed to query games: {}",
+                    e
+                )))
             }
         }
     }
@@ -432,7 +602,10 @@ impl<C: ClientExt + Send + Sync> ClientAnalyticsRepository for ClientAnalyticsRe
         "#;
 
         let mut bind_vars = HashMap::new();
-        bind_vars.insert("player_id", serde_json::Value::String(player_id.to_string()));
+        bind_vars.insert(
+            "player_id",
+            serde_json::Value::String(player_id.to_string()),
+        );
 
         let aql = AqlQuery::builder()
             .query(query)
@@ -441,12 +614,19 @@ impl<C: ClientExt + Send + Sync> ClientAnalyticsRepository for ClientAnalyticsRe
 
         match self.db.aql_query::<Venue>(aql).await {
             Ok(venues) => {
-                log::info!("Retrieved {} unique venues for player: {}", venues.len(), player_id);
+                log::info!(
+                    "Retrieved {} unique venues for player: {}",
+                    venues.len(),
+                    player_id
+                );
                 Ok(venues)
             }
             Err(e) => {
                 log::error!("Failed to get venues for player {}: {}", player_id, e);
-                Err(SharedError::Database(format!("Failed to query venues: {}", e)))
+                Err(SharedError::Database(format!(
+                    "Failed to query venues: {}",
+                    e
+                )))
             }
         }
     }
@@ -465,7 +645,10 @@ impl<C: ClientExt + Send + Sync> ClientAnalyticsRepository for ClientAnalyticsRe
         "#;
 
         let mut bind_vars = HashMap::new();
-        bind_vars.insert("player_id", serde_json::Value::String(player_id.to_string()));
+        bind_vars.insert(
+            "player_id",
+            serde_json::Value::String(player_id.to_string()),
+        );
 
         let aql = AqlQuery::builder()
             .query(query)
@@ -474,12 +657,19 @@ impl<C: ClientExt + Send + Sync> ClientAnalyticsRepository for ClientAnalyticsRe
 
         match self.db.aql_query::<Player>(aql).await {
             Ok(opponents) => {
-                log::info!("Retrieved {} unique opponents for player: {}", opponents.len(), player_id);
+                log::info!(
+                    "Retrieved {} unique opponents for player: {}",
+                    opponents.len(),
+                    player_id
+                );
                 Ok(opponents)
             }
             Err(e) => {
                 log::error!("Failed to get opponents for player {}: {}", player_id, e);
-                Err(SharedError::Database(format!("Failed to query opponents: {}", e)))
+                Err(SharedError::Database(format!(
+                    "Failed to query opponents: {}",
+                    e
+                )))
             }
         }
     }
@@ -494,7 +684,10 @@ impl<C: ClientExt + Send + Sync> ClientAnalyticsRepository for ClientAnalyticsRe
         "#;
 
         let mut bind_vars = HashMap::new();
-        bind_vars.insert("player_id", serde_json::Value::String(player_id.to_string()));
+        bind_vars.insert(
+            "player_id",
+            serde_json::Value::String(player_id.to_string()),
+        );
 
         let aql = AqlQuery::builder()
             .query(query)
@@ -510,13 +703,23 @@ impl<C: ClientExt + Send + Sync> ClientAnalyticsRepository for ClientAnalyticsRe
                 }
             }
             Err(e) => {
-                log::error!("Failed to get contest count for player {}: {}", player_id, e);
-                Err(SharedError::Database(format!("Failed to query contest count: {}", e)))
+                log::error!(
+                    "Failed to get contest count for player {}: {}",
+                    player_id,
+                    e
+                );
+                Err(SharedError::Database(format!(
+                    "Failed to query contest count: {}",
+                    e
+                )))
             }
         }
     }
 
-    async fn get_last_contest_for_player(&self, player_id: &str) -> Result<Option<Contest>, SharedError> {
+    async fn get_last_contest_for_player(
+        &self,
+        player_id: &str,
+    ) -> Result<Option<Contest>, SharedError> {
         let query = r#"
             FOR result IN resulted_in
             FILTER result._to == @player_id
@@ -527,7 +730,10 @@ impl<C: ClientExt + Send + Sync> ClientAnalyticsRepository for ClientAnalyticsRe
         "#;
 
         let mut bind_vars = HashMap::new();
-        bind_vars.insert("player_id", serde_json::Value::String(player_id.to_string()));
+        bind_vars.insert(
+            "player_id",
+            serde_json::Value::String(player_id.to_string()),
+        );
 
         let aql = AqlQuery::builder()
             .query(query)
@@ -535,19 +741,24 @@ impl<C: ClientExt + Send + Sync> ClientAnalyticsRepository for ClientAnalyticsRe
             .build();
 
         match self.db.aql_query::<Contest>(aql).await {
-            Ok(contests) => {
-                Ok(contests.into_iter().next())
-            }
+            Ok(contests) => Ok(contests.into_iter().next()),
             Err(e) => {
                 log::error!("Failed to get last contest for player {}: {}", player_id, e);
-                Err(SharedError::Database(format!("Failed to query last contest: {}", e)))
+                Err(SharedError::Database(format!(
+                    "Failed to query last contest: {}",
+                    e
+                )))
             }
         }
     }
 
-    async fn get_gaming_communities(&self, player_id: &str, min_contests: i32) -> Result<Vec<serde_json::Value>, SharedError> {
+    async fn get_gaming_communities(
+        &self,
+        player_id: &str,
+        min_contests: i32,
+    ) -> Result<Vec<serde_json::Value>, SharedError> {
         log::info!("🔍 Getting gaming communities for player: {}", player_id);
-        
+
         let query = r#"
             // Graph traversal: player -> contests -> other players -> community analysis
             FOR player IN player
@@ -615,32 +826,51 @@ impl<C: ClientExt + Send + Sync> ClientAnalyticsRepository for ClientAnalyticsRe
                 gaming_communities: communities
               }
         "#;
-        
+
         let mut bind_vars = HashMap::new();
-        bind_vars.insert("player_id", serde_json::Value::String(player_id.to_string()));
-        bind_vars.insert("min_contests", serde_json::Value::Number(min_contests.into()));
-        
+        bind_vars.insert(
+            "player_id",
+            serde_json::Value::String(player_id.to_string()),
+        );
+        bind_vars.insert(
+            "min_contests",
+            serde_json::Value::Number(min_contests.into()),
+        );
+
         let aql = AqlQuery::builder()
             .query(query)
             .bind_vars(bind_vars)
             .build();
-        
+
         match self.db.aql_query::<serde_json::Value>(aql).await {
             Ok(cursor) => {
                 let results: Vec<serde_json::Value> = cursor.into_iter().collect();
-                log::info!("✅ Gaming communities retrieved for player: {} ({} communities)", player_id, results.len());
+                log::info!(
+                    "✅ Gaming communities retrieved for player: {} ({} communities)",
+                    player_id,
+                    results.len()
+                );
                 Ok(results)
             }
             Err(e) => {
                 log::error!("❌ Failed to get gaming communities: {}", e);
-                Err(SharedError::Database(format!("Failed to query gaming communities: {}", e)))
+                Err(SharedError::Database(format!(
+                    "Failed to query gaming communities: {}",
+                    e
+                )))
             }
         }
     }
 
-    async fn get_player_networking(&self, player_id: &str) -> Result<serde_json::Value, SharedError> {
-        log::info!("🔍 Getting player networking insights for player: {}", player_id);
-        
+    async fn get_player_networking(
+        &self,
+        player_id: &str,
+    ) -> Result<serde_json::Value, SharedError> {
+        log::info!(
+            "🔍 Getting player networking insights for player: {}",
+            player_id
+        );
+
         let query = r#"
             // Graph traversal: player -> contests -> opponents -> network analysis
             FOR player IN player
@@ -736,27 +966,38 @@ impl<C: ClientExt + Send + Sync> ClientAnalyticsRepository for ClientAnalyticsRe
                 network_metrics: network_metrics
               }
         "#;
-        
+
         let mut bind_vars = HashMap::new();
-        bind_vars.insert("player_id", serde_json::Value::String(player_id.to_string()));
-        
+        bind_vars.insert(
+            "player_id",
+            serde_json::Value::String(player_id.to_string()),
+        );
+
         let aql = AqlQuery::builder()
             .query(query)
             .bind_vars(bind_vars)
             .build();
-        
+
         match self.db.aql_query::<serde_json::Value>(aql).await {
             Ok(mut cursor) => {
                 if let Some(result) = cursor.pop() {
-                    log::info!("✅ Player networking insights retrieved for player: {}", player_id);
+                    log::info!(
+                        "✅ Player networking insights retrieved for player: {}",
+                        player_id
+                    );
                     Ok(result)
                 } else {
-                    Err(SharedError::NotFound("No networking data found".to_string()))
+                    Err(SharedError::NotFound(
+                        "No networking data found".to_string(),
+                    ))
                 }
             }
             Err(e) => {
                 log::error!("❌ Failed to get player networking: {}", e);
-                Err(SharedError::Database(format!("Failed to query player networking: {}", e)))
+                Err(SharedError::Database(format!(
+                    "Failed to query player networking: {}",
+                    e
+                )))
             }
         }
     }

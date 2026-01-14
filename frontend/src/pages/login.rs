@@ -1,8 +1,8 @@
-use yew::prelude::*;
-use yew::events::SubmitEvent;
-use yew_router::prelude::*;
-use web_sys::HtmlInputElement;
 use log::debug;
+use web_sys::HtmlInputElement;
+use yew::events::SubmitEvent;
+use yew::prelude::*;
+use yew_router::prelude::*;
 
 use crate::auth::AuthContext;
 use crate::Route;
@@ -161,4 +161,4 @@ pub fn login() -> Html {
             </div>
         </div>
     }
-} 
+}

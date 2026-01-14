@@ -1,24 +1,23 @@
 //! Integration tests for Venue API endpoints
-//! 
+//!
 //! Tests complete CRUD operations for venues with real database and Redis
 
 mod test_helpers;
 
-use anyhow::Result;
 use actix_web::{test, web, App};
+use anyhow::Result;
 use serde_json::json;
 use shared::dto::venue::VenueDto;
 use shared::models::venue::VenueSource;
-use testing::{TestEnvironment, app_setup};
 use testing::create_authenticated_user;
-
+use testing::{app_setup, TestEnvironment};
 
 #[tokio::test]
 async fn test_create_venue_success() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
     let app_data = app_setup::setup_test_app_data(&env).await?;
-    
+
     let app = test::init_service(
         App::new()
             .wrap(backend::middleware::Logger)
@@ -31,7 +30,7 @@ async fn test_create_venue_success() -> Result<()> {
             .service(
                 web::scope("/api/players")
                     .service(backend::player::controller::register_handler_prod)
-                    .service(backend::player::controller::login_handler_prod)
+                    .service(backend::player::controller::login_handler_prod),
             )
             .service(
                 web::scope("/api/venues")
@@ -43,10 +42,11 @@ async fn test_create_venue_success() -> Result<()> {
                     .service(backend::venue::controller::get_venue_handler)
                     .service(backend::venue::controller::create_venue_handler)
                     .service(backend::venue::controller::update_venue_handler)
-                    .service(backend::venue::controller::delete_venue_handler)
-            )
-    ).await;
-    
+                    .service(backend::venue::controller::delete_venue_handler),
+            ),
+    )
+    .await;
+
     let session_id = create_authenticated_user!(app, "venue_test@example.com", "venueuser");
 
     let venue_data = json!({
@@ -66,7 +66,7 @@ async fn test_create_venue_success() -> Result<()> {
         .to_request();
 
     let resp = test::call_service(&app, req).await;
-    
+
     assert!(
         resp.status().is_success(),
         "Creating venue should succeed, got status: {}",
@@ -87,7 +87,7 @@ async fn test_create_venue_validation_errors() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
     let app_data = app_setup::setup_test_app_data(&env).await?;
-    
+
     let app = test::init_service(
         App::new()
             .wrap(backend::middleware::Logger)
@@ -100,7 +100,7 @@ async fn test_create_venue_validation_errors() -> Result<()> {
             .service(
                 web::scope("/api/players")
                     .service(backend::player::controller::register_handler_prod)
-                    .service(backend::player::controller::login_handler_prod)
+                    .service(backend::player::controller::login_handler_prod),
             )
             .service(
                 web::scope("/api/venues")
@@ -108,10 +108,11 @@ async fn test_create_venue_validation_errors() -> Result<()> {
                         redis: app_data.redis_arc.clone(),
                     })
                     .app_data(actix_web::web::JsonConfig::default().limit(64 * 1024))
-                    .service(backend::venue::controller::create_venue_handler)
-            )
-    ).await;
-    
+                    .service(backend::venue::controller::create_venue_handler),
+            ),
+    )
+    .await;
+
     let session_id = create_authenticated_user!(app, "venue_val@example.com", "venueval");
 
     // Test empty display name
@@ -166,7 +167,7 @@ async fn test_get_venue_success() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
     let app_data = app_setup::setup_test_app_data(&env).await?;
-    
+
     let app = test::init_service(
         App::new()
             .wrap(backend::middleware::Logger)
@@ -179,7 +180,7 @@ async fn test_get_venue_success() -> Result<()> {
             .service(
                 web::scope("/api/players")
                     .service(backend::player::controller::register_handler_prod)
-                    .service(backend::player::controller::login_handler_prod)
+                    .service(backend::player::controller::login_handler_prod),
             )
             .service(
                 web::scope("/api/venues")
@@ -189,10 +190,11 @@ async fn test_get_venue_success() -> Result<()> {
                     .app_data(actix_web::web::JsonConfig::default().limit(64 * 1024))
                     .service(backend::venue::controller::get_all_venues_handler)
                     .service(backend::venue::controller::get_venue_handler)
-                    .service(backend::venue::controller::create_venue_handler)
-            )
-    ).await;
-    
+                    .service(backend::venue::controller::create_venue_handler),
+            ),
+    )
+    .await;
+
     let session_id = create_authenticated_user!(app, "venue_get@example.com", "venueget");
 
     // First create a venue
@@ -211,10 +213,14 @@ async fn test_get_venue_success() -> Result<()> {
         .to_request();
 
     let create_resp = test::call_service(&app, create_req).await;
-    assert!(create_resp.status().is_success(), "Create should succeed, got: {}", create_resp.status());
+    assert!(
+        create_resp.status().is_success(),
+        "Create should succeed, got: {}",
+        create_resp.status()
+    );
     let created_venue: VenueDto = test::read_body_json(create_resp).await;
     let venue_id = created_venue.id.clone();
-    
+
     // Extract just the ID part if it's in format "venue/123"
     let venue_id_for_url = if venue_id.contains('/') {
         venue_id.split('/').last().unwrap_or(&venue_id).to_string()
@@ -247,7 +253,7 @@ async fn test_get_venue_not_found() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
     let app_data = app_setup::setup_test_app_data(&env).await?;
-    
+
     let app = test::init_service(
         App::new()
             .wrap(backend::middleware::Logger)
@@ -260,7 +266,7 @@ async fn test_get_venue_not_found() -> Result<()> {
             .service(
                 web::scope("/api/players")
                     .service(backend::player::controller::register_handler_prod)
-                    .service(backend::player::controller::login_handler_prod)
+                    .service(backend::player::controller::login_handler_prod),
             )
             .service(
                 web::scope("/api/venues")
@@ -268,10 +274,11 @@ async fn test_get_venue_not_found() -> Result<()> {
                         redis: app_data.redis_arc.clone(),
                     })
                     .app_data(actix_web::web::JsonConfig::default().limit(64 * 1024))
-                    .service(backend::venue::controller::get_venue_handler)
-            )
-    ).await;
-    
+                    .service(backend::venue::controller::get_venue_handler),
+            ),
+    )
+    .await;
+
     let session_id = create_authenticated_user!(app, "venue_nf@example.com", "venuenf");
 
     let req = test::TestRequest::get()
@@ -295,7 +302,7 @@ async fn test_update_venue_success() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
     let app_data = app_setup::setup_test_app_data(&env).await?;
-    
+
     let app = test::init_service(
         App::new()
             .wrap(backend::middleware::Logger)
@@ -308,7 +315,7 @@ async fn test_update_venue_success() -> Result<()> {
             .service(
                 web::scope("/api/players")
                     .service(backend::player::controller::register_handler_prod)
-                    .service(backend::player::controller::login_handler_prod)
+                    .service(backend::player::controller::login_handler_prod),
             )
             .service(
                 web::scope("/api/venues")
@@ -318,10 +325,11 @@ async fn test_update_venue_success() -> Result<()> {
                     .app_data(actix_web::web::JsonConfig::default().limit(64 * 1024))
                     .service(backend::venue::controller::get_venue_handler)
                     .service(backend::venue::controller::create_venue_handler)
-                    .service(backend::venue::controller::update_venue_handler)
-            )
-    ).await;
-    
+                    .service(backend::venue::controller::update_venue_handler),
+            ),
+    )
+    .await;
+
     let session_id = create_authenticated_user!(app, "venue_upd@example.com", "venueupd");
 
     // Create a venue first
@@ -343,7 +351,7 @@ async fn test_update_venue_success() -> Result<()> {
     assert!(create_resp.status().is_success());
     let created_venue: VenueDto = test::read_body_json(create_resp).await;
     let venue_id = created_venue.id.clone();
-    
+
     // Extract just the ID part if it's in format "venue/123"
     let venue_id_for_url = if venue_id.contains('/') {
         venue_id.split('/').last().unwrap_or(&venue_id).to_string()
@@ -385,7 +393,7 @@ async fn test_update_venue_not_found() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
     let app_data = app_setup::setup_test_app_data(&env).await?;
-    
+
     let app = test::init_service(
         App::new()
             .wrap(backend::middleware::Logger)
@@ -398,7 +406,7 @@ async fn test_update_venue_not_found() -> Result<()> {
             .service(
                 web::scope("/api/players")
                     .service(backend::player::controller::register_handler_prod)
-                    .service(backend::player::controller::login_handler_prod)
+                    .service(backend::player::controller::login_handler_prod),
             )
             .service(
                 web::scope("/api/venues")
@@ -406,10 +414,11 @@ async fn test_update_venue_not_found() -> Result<()> {
                         redis: app_data.redis_arc.clone(),
                     })
                     .app_data(actix_web::web::JsonConfig::default().limit(64 * 1024))
-                    .service(backend::venue::controller::update_venue_handler)
-            )
-    ).await;
-    
+                    .service(backend::venue::controller::update_venue_handler),
+            ),
+    )
+    .await;
+
     let session_id = create_authenticated_user!(app, "venue_upd_nf@example.com", "venueupdnf");
 
     let update_data = json!({
@@ -442,7 +451,7 @@ async fn test_delete_venue_success() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
     let app_data = app_setup::setup_test_app_data(&env).await?;
-    
+
     let app = test::init_service(
         App::new()
             .wrap(backend::middleware::Logger)
@@ -455,7 +464,7 @@ async fn test_delete_venue_success() -> Result<()> {
             .service(
                 web::scope("/api/players")
                     .service(backend::player::controller::register_handler_prod)
-                    .service(backend::player::controller::login_handler_prod)
+                    .service(backend::player::controller::login_handler_prod),
             )
             .service(
                 web::scope("/api/venues")
@@ -465,10 +474,11 @@ async fn test_delete_venue_success() -> Result<()> {
                     .app_data(actix_web::web::JsonConfig::default().limit(64 * 1024))
                     .service(backend::venue::controller::get_venue_handler)
                     .service(backend::venue::controller::create_venue_handler)
-                    .service(backend::venue::controller::delete_venue_handler)
-            )
-    ).await;
-    
+                    .service(backend::venue::controller::delete_venue_handler),
+            ),
+    )
+    .await;
+
     let session_id = create_authenticated_user!(app, "venue_del@example.com", "venuedel");
 
     // Create a venue first
@@ -490,7 +500,7 @@ async fn test_delete_venue_success() -> Result<()> {
     assert!(create_resp.status().is_success());
     let created_venue: VenueDto = test::read_body_json(create_resp).await;
     let venue_id = created_venue.id.clone();
-    
+
     // Extract just the ID part if it's in format "venue/123"
     let venue_id_for_url = if venue_id.contains('/') {
         venue_id.split('/').last().unwrap_or(&venue_id).to_string()
@@ -533,7 +543,7 @@ async fn test_delete_venue_not_found() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
     let app_data = app_setup::setup_test_app_data(&env).await?;
-    
+
     let app = test::init_service(
         App::new()
             .wrap(backend::middleware::Logger)
@@ -546,7 +556,7 @@ async fn test_delete_venue_not_found() -> Result<()> {
             .service(
                 web::scope("/api/players")
                     .service(backend::player::controller::register_handler_prod)
-                    .service(backend::player::controller::login_handler_prod)
+                    .service(backend::player::controller::login_handler_prod),
             )
             .service(
                 web::scope("/api/venues")
@@ -554,10 +564,11 @@ async fn test_delete_venue_not_found() -> Result<()> {
                         redis: app_data.redis_arc.clone(),
                     })
                     .app_data(actix_web::web::JsonConfig::default().limit(64 * 1024))
-                    .service(backend::venue::controller::delete_venue_handler)
-            )
-    ).await;
-    
+                    .service(backend::venue::controller::delete_venue_handler),
+            ),
+    )
+    .await;
+
     let session_id = create_authenticated_user!(app, "venue_del_nf@example.com", "venuedelnf");
 
     let req = test::TestRequest::delete()
@@ -581,7 +592,7 @@ async fn test_get_all_venues() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
     let app_data = app_setup::setup_test_app_data(&env).await?;
-    
+
     let app = test::init_service(
         App::new()
             .wrap(backend::middleware::Logger)
@@ -594,7 +605,7 @@ async fn test_get_all_venues() -> Result<()> {
             .service(
                 web::scope("/api/players")
                     .service(backend::player::controller::register_handler_prod)
-                    .service(backend::player::controller::login_handler_prod)
+                    .service(backend::player::controller::login_handler_prod),
             )
             .service(
                 web::scope("/api/venues")
@@ -603,10 +614,11 @@ async fn test_get_all_venues() -> Result<()> {
                     })
                     .app_data(actix_web::web::JsonConfig::default().limit(64 * 1024))
                     .service(backend::venue::controller::get_all_venues_handler)
-                    .service(backend::venue::controller::create_venue_handler)
-            )
-    ).await;
-    
+                    .service(backend::venue::controller::create_venue_handler),
+            ),
+    )
+    .await;
+
     let session_id = create_authenticated_user!(app, "venue_list@example.com", "venuelist");
 
     // Create a couple of venues
@@ -653,7 +665,7 @@ async fn test_venue_unauthorized_access() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
     let app_data = app_setup::setup_test_app_data(&env).await?;
-    
+
     let app = test::init_service(
         App::new()
             .wrap(backend::middleware::Logger)
@@ -669,17 +681,16 @@ async fn test_venue_unauthorized_access() -> Result<()> {
                         redis: app_data.redis_arc.clone(),
                     })
                     .app_data(actix_web::web::JsonConfig::default().limit(64 * 1024))
-                    .service(backend::venue::controller::get_all_venues_handler)
-            )
-    ).await;
+                    .service(backend::venue::controller::get_all_venues_handler),
+            ),
+    )
+    .await;
 
     // Try to access without authentication
-    let req = test::TestRequest::get()
-        .uri("/api/venues")
-        .to_request();
+    let req = test::TestRequest::get().uri("/api/venues").to_request();
 
     let resp = test::try_call_service(&app, req).await;
-    
+
     match resp {
         Ok(resp) => {
             assert_eq!(
@@ -693,8 +704,7 @@ async fn test_venue_unauthorized_access() -> Result<()> {
             use actix_web::error::ResponseError;
             let status = e.as_response_error().status_code();
             assert_eq!(
-                status,
-                401,
+                status, 401,
                 "Should return 401 Unauthorized error, got: {}",
                 status
             );

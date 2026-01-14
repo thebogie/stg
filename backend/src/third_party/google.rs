@@ -1,2 +1,2 @@
 pub mod places;
-pub mod timezone; 
+pub mod timezone;

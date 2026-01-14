@@ -1,11 +1,11 @@
+use crate::api::contests::{search_contests, ContestSearchResponse};
+use crate::api::venues::{get_venue_by_id, update_venue};
+use crate::auth::AuthContext;
+use crate::Route;
+use chrono::DateTime;
+use shared::VenueDto;
 use yew::prelude::*;
 use yew_router::prelude::*;
-use crate::Route;
-use crate::api::venues::{get_venue_by_id, update_venue};
-use crate::api::contests::{search_contests, ContestSearchResponse};
-use crate::auth::AuthContext;
-use shared::VenueDto;
-use chrono::DateTime;
 
 #[derive(Properties, PartialEq)]
 pub struct VenueDetailsProps {
@@ -140,10 +140,10 @@ pub fn venue_details(props: &VenueDetailsProps) -> Html {
             let editing = editing.clone();
             let saving = saving.clone();
             let error = error.clone();
-            
+
             saving.set(true);
             error.set(None);
-            
+
             wasm_bindgen_futures::spawn_local(async move {
                 match update_venue(&venue_id, (*edit_form).clone()).await {
                     Ok(updated_venue) => {
@@ -497,7 +497,7 @@ pub fn venue_details(props: &VenueDetailsProps) -> Html {
                                 {"View All Contests →"}
                             </button>
                         </div>
-                        
+
                         if let Some(contests_data) = &*contests {
                             if contests_data.items.is_empty() {
                                 <div class="text-center py-8">
@@ -532,7 +532,7 @@ pub fn venue_details(props: &VenueDetailsProps) -> Html {
                                                 let contest_id = contest.id.clone();
                                                 let nav_row = navigator.clone();
                                                 html! {
-                                                    <tr 
+                                                    <tr
                                                         class="hover:bg-gray-50 cursor-pointer"
                                                         onclick={Callback::from(move |_| {
                                                             nav_row.push(&Route::ContestDetails { contest_id: contest_id.clone() });

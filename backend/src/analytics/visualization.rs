@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use shared::dto::analytics::*;
 use shared::Result;
+use std::collections::HashMap;
 
 /// Chart configuration options
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -97,16 +97,24 @@ impl AnalyticsVisualization {
     }
 
     /// Generate player performance trend chart
-    pub fn player_performance_trend(&self, player_stats: &[PlayerStatsDto], config: Option<ChartConfig>) -> Result<Chart> {
+    pub fn player_performance_trend(
+        &self,
+        player_stats: &[PlayerStatsDto],
+        config: Option<ChartConfig>,
+    ) -> Result<Chart> {
         let config = config.unwrap_or_default();
-        
-        let data_points: Vec<DataPoint> = player_stats.iter()
+
+        let data_points: Vec<DataPoint> = player_stats
+            .iter()
             .map(|stats| DataPoint {
                 label: stats.player_handle.clone(),
                 value: stats.win_rate,
                 color: None,
                 metadata: Some(HashMap::from([
-                    ("total_contests".to_string(), stats.total_contests.to_string()),
+                    (
+                        "total_contests".to_string(),
+                        stats.total_contests.to_string(),
+                    ),
                     ("total_wins".to_string(), stats.total_wins.to_string()),
                     ("skill_rating".to_string(), stats.skill_rating.to_string()),
                 ])),
@@ -121,7 +129,10 @@ impl AnalyticsVisualization {
             },
             data: ChartData::SingleSeries(data_points),
             metadata: HashMap::from([
-                ("description".to_string(), "Win rate trends across players".to_string()),
+                (
+                    "description".to_string(),
+                    "Win rate trends across players".to_string(),
+                ),
                 ("x_axis".to_string(), "Players".to_string()),
                 ("y_axis".to_string(), "Win Rate (%)".to_string()),
             ]),
@@ -129,16 +140,28 @@ impl AnalyticsVisualization {
     }
 
     /// Generate leaderboard visualization
-    pub fn leaderboard_chart(&self, leaderboard: &LeaderboardResponse, config: Option<ChartConfig>) -> Result<Chart> {
+    pub fn leaderboard_chart(
+        &self,
+        leaderboard: &LeaderboardResponse,
+        config: Option<ChartConfig>,
+    ) -> Result<Chart> {
         let config = config.unwrap_or_default();
-        
-        let data_points: Vec<DataPoint> = leaderboard.entries.iter()
+
+        let data_points: Vec<DataPoint> = leaderboard
+            .entries
+            .iter()
             .take(10) // Top 10 players
             .enumerate()
             .map(|(index, entry)| DataPoint {
                 label: entry.player_handle.clone(),
                 value: entry.value,
-                color: Some(config.colors.get(index % config.colors.len()).unwrap().clone()),
+                color: Some(
+                    config
+                        .colors
+                        .get(index % config.colors.len())
+                        .unwrap()
+                        .clone(),
+                ),
                 metadata: Some(HashMap::from([
                     ("rank".to_string(), entry.rank.to_string()),
                     ("player_id".to_string(), entry.player_id.clone()),
@@ -163,21 +186,32 @@ impl AnalyticsVisualization {
     }
 
     /// Generate achievement distribution pie chart
-    pub fn achievement_distribution(&self, achievements: &PlayerAchievementsDto, config: Option<ChartConfig>) -> Result<Chart> {
+    pub fn achievement_distribution(
+        &self,
+        achievements: &PlayerAchievementsDto,
+        config: Option<ChartConfig>,
+    ) -> Result<Chart> {
         let config = config.unwrap_or_default();
-        
+
         let mut category_counts: HashMap<String, i32> = HashMap::new();
         for achievement in &achievements.achievements {
             let category = achievement.category.to_string();
             *category_counts.entry(category).or_insert(0) += 1;
         }
 
-        let data_points: Vec<DataPoint> = category_counts.iter()
+        let data_points: Vec<DataPoint> = category_counts
+            .iter()
             .enumerate()
             .map(|(index, (category, count))| DataPoint {
                 label: category.clone(),
                 value: *count as f64,
-                color: Some(config.colors.get(index % config.colors.len()).unwrap().clone()),
+                color: Some(
+                    config
+                        .colors
+                        .get(index % config.colors.len())
+                        .unwrap()
+                        .clone(),
+                ),
                 metadata: Some(HashMap::from([
                     ("category".to_string(), category.clone()),
                     ("count".to_string(), count.to_string()),
@@ -193,18 +227,32 @@ impl AnalyticsVisualization {
             },
             data: ChartData::SingleSeries(data_points),
             metadata: HashMap::from([
-                ("description".to_string(), "Achievements by category".to_string()),
-                ("total_achievements".to_string(), achievements.total_achievements.to_string()),
-                ("unlocked_achievements".to_string(), achievements.unlocked_achievements.to_string()),
+                (
+                    "description".to_string(),
+                    "Achievements by category".to_string(),
+                ),
+                (
+                    "total_achievements".to_string(),
+                    achievements.total_achievements.to_string(),
+                ),
+                (
+                    "unlocked_achievements".to_string(),
+                    achievements.unlocked_achievements.to_string(),
+                ),
             ]),
         })
     }
 
     /// Generate contest trends bar chart
-    pub fn contest_trends(&self, trends: &[MonthlyContestsDto], config: Option<ChartConfig>) -> Result<Chart> {
+    pub fn contest_trends(
+        &self,
+        trends: &[MonthlyContestsDto],
+        config: Option<ChartConfig>,
+    ) -> Result<Chart> {
         let config = config.unwrap_or_default();
-        
-        let data_points: Vec<DataPoint> = trends.iter()
+
+        let data_points: Vec<DataPoint> = trends
+            .iter()
             .map(|trend| DataPoint {
                 label: format!("{}-{:02}", trend.year, trend.month),
                 value: trend.contests as f64,
@@ -224,16 +272,27 @@ impl AnalyticsVisualization {
             },
             data: ChartData::SingleSeries(data_points),
             metadata: HashMap::from([
-                ("description".to_string(), "Monthly contest frequency showing activity patterns over time".to_string()),
+                (
+                    "description".to_string(),
+                    "Monthly contest frequency showing activity patterns over time".to_string(),
+                ),
                 ("x_axis".to_string(), "Month".to_string()),
                 ("y_axis".to_string(), "Number of Contests".to_string()),
-                ("insight".to_string(), "Identify peak contest months and seasonal patterns for strategic planning.".to_string()),
+                (
+                    "insight".to_string(),
+                    "Identify peak contest months and seasonal patterns for strategic planning."
+                        .to_string(),
+                ),
             ]),
         })
     }
 
     /// Generate platform statistics dashboard
-    pub fn platform_stats_dashboard(&self, stats: &PlatformStatsDto, config: Option<ChartConfig>) -> Result<Vec<Chart>> {
+    pub fn platform_stats_dashboard(
+        &self,
+        stats: &PlatformStatsDto,
+        config: Option<ChartConfig>,
+    ) -> Result<Vec<Chart>> {
         let config = config.unwrap_or_default();
         let mut charts = Vec::new();
 
@@ -267,7 +326,10 @@ impl AnalyticsVisualization {
             },
             data: ChartData::SingleSeries(activity_data),
             metadata: HashMap::from([
-                ("description".to_string(), "Player activity comparison".to_string()),
+                (
+                    "description".to_string(),
+                    "Player activity comparison".to_string(),
+                ),
                 ("x_axis".to_string(), "Metric".to_string()),
                 ("y_axis".to_string(), "Number of Players".to_string()),
             ]),
@@ -297,7 +359,10 @@ impl AnalyticsVisualization {
             },
             data: ChartData::SingleSeries(contest_data),
             metadata: HashMap::from([
-                ("description".to_string(), "Contest activity comparison".to_string()),
+                (
+                    "description".to_string(),
+                    "Contest activity comparison".to_string(),
+                ),
                 ("x_axis".to_string(), "Metric".to_string()),
                 ("y_axis".to_string(), "Number of Contests".to_string()),
             ]),
@@ -333,8 +398,14 @@ impl AnalyticsVisualization {
             },
             data: ChartData::SingleSeries(overview_data),
             metadata: HashMap::from([
-                ("description".to_string(), "Platform entity distribution".to_string()),
-                ("total_entities".to_string(), (stats.total_players + stats.total_games + stats.total_venues).to_string()),
+                (
+                    "description".to_string(),
+                    "Platform entity distribution".to_string(),
+                ),
+                (
+                    "total_entities".to_string(),
+                    (stats.total_players + stats.total_games + stats.total_venues).to_string(),
+                ),
             ]),
         });
 
@@ -346,10 +417,19 @@ impl AnalyticsVisualization {
             .map(|(index, game)| DataPoint {
                 label: game.game_name.clone(),
                 value: game.plays as f64,
-                color: Some(config.colors.get(index % config.colors.len()).unwrap().clone()),
+                color: Some(
+                    config
+                        .colors
+                        .get(index % config.colors.len())
+                        .unwrap()
+                        .clone(),
+                ),
                 metadata: Some(HashMap::from([
                     ("game_id".to_string(), game.game_id.clone()),
-                    ("popularity_score".to_string(), format!("{:.2}", game.popularity_score)),
+                    (
+                        "popularity_score".to_string(),
+                        format!("{:.2}", game.popularity_score),
+                    ),
                 ])),
             })
             .collect();
@@ -376,10 +456,19 @@ impl AnalyticsVisualization {
             .map(|(index, venue)| DataPoint {
                 label: venue.venue_name.clone(),
                 value: venue.contests_held as f64,
-                color: Some(config.colors.get(index % config.colors.len()).unwrap().clone()),
+                color: Some(
+                    config
+                        .colors
+                        .get(index % config.colors.len())
+                        .unwrap()
+                        .clone(),
+                ),
                 metadata: Some(HashMap::from([
                     ("venue_id".to_string(), venue.venue_id.clone()),
-                    ("total_participants".to_string(), venue.total_participants.to_string()),
+                    (
+                        "total_participants".to_string(),
+                        venue.total_participants.to_string(),
+                    ),
                 ])),
             })
             .collect();
@@ -402,12 +491,17 @@ impl AnalyticsVisualization {
     }
 
     /// Generate player comparison radar chart
-    pub fn player_comparison_radar(&self, players: &[PlayerStatsDto], config: Option<ChartConfig>) -> Result<Chart> {
+    pub fn player_comparison_radar(
+        &self,
+        players: &[PlayerStatsDto],
+        config: Option<ChartConfig>,
+    ) -> Result<Chart> {
         let config = config.unwrap_or_default();
-        
+
         let mut series = Vec::new();
-        
-        for (index, player) in players.iter().take(5).enumerate() { // Compare top 5 players
+
+        for (index, player) in players.iter().take(5).enumerate() {
+            // Compare top 5 players
             let data_points = vec![
                 DataPoint {
                     label: "Win Rate".to_string(),
@@ -444,7 +538,13 @@ impl AnalyticsVisualization {
             series.push(ChartSeries {
                 name: player.player_handle.clone(),
                 data: data_points,
-                color: Some(config.colors.get(index % config.colors.len()).unwrap().clone()),
+                color: Some(
+                    config
+                        .colors
+                        .get(index % config.colors.len())
+                        .unwrap()
+                        .clone(),
+                ),
             });
         }
 
@@ -456,52 +556,69 @@ impl AnalyticsVisualization {
             },
             data: ChartData::MultiSeries(series),
             metadata: HashMap::from([
-                ("description".to_string(), "Multi-dimensional player comparison".to_string()),
-                ("metrics".to_string(), "Win Rate, Skill Rating, Total Contests, Best Placement, Longest Streak".to_string()),
+                (
+                    "description".to_string(),
+                    "Multi-dimensional player comparison".to_string(),
+                ),
+                (
+                    "metrics".to_string(),
+                    "Win Rate, Skill Rating, Total Contests, Best Placement, Longest Streak"
+                        .to_string(),
+                ),
             ]),
         })
     }
 
     /// Generate games by player count distribution chart with individual game breakdowns
-    pub fn game_popularity_heatmap(&self, player_count_data: &[(i32, Vec<(String, i32)>)], config: Option<ChartConfig>) -> Result<Chart> {
+    pub fn game_popularity_heatmap(
+        &self,
+        player_count_data: &[(i32, Vec<(String, i32)>)],
+        config: Option<ChartConfig>,
+    ) -> Result<Chart> {
         let config = config.unwrap_or_default();
-        
+
         // Create a grouped bar chart showing player counts on X-axis and game counts on Y-axis
         // Each bar represents a player count, and we'll show the total games for that count
-        
-        let _data_points: Vec<DataPoint> = player_count_data.iter()
+
+        let _data_points: Vec<DataPoint> = player_count_data
+            .iter()
             .map(|(player_count, games)| {
                 let total_games = games.iter().map(|(_, count)| *count).sum::<i32>();
-                let label = if *player_count == 10 { "10+ Players".to_string() } else { format!("{} Players", player_count) };
-                
+                let label = if *player_count == 10 {
+                    "10+ Players".to_string()
+                } else {
+                    format!("{} Players", player_count)
+                };
+
                 DataPoint {
                     label,
                     value: total_games as f64,
                     color: Some(match player_count {
-                        2 => "#3B82F6".to_string(), // Blue
-                        3 => "#EF4444".to_string(), // Red
-                        4 => "#10B981".to_string(), // Green
-                        5 => "#F59E0B".to_string(), // Yellow
-                        6 => "#8B5CF6".to_string(), // Purple
-                        7 => "#06B6D4".to_string(), // Cyan
-                        8 => "#F97316".to_string(), // Orange
-                        9 => "#EC4899".to_string(), // Pink
+                        2 => "#3B82F6".to_string(),  // Blue
+                        3 => "#EF4444".to_string(),  // Red
+                        4 => "#10B981".to_string(),  // Green
+                        5 => "#F59E0B".to_string(),  // Yellow
+                        6 => "#8B5CF6".to_string(),  // Purple
+                        7 => "#06B6D4".to_string(),  // Cyan
+                        8 => "#F97316".to_string(),  // Orange
+                        9 => "#EC4899".to_string(),  // Pink
                         10 => "#059669".to_string(), // Emerald
-                        _ => "#6B7280".to_string(), // Gray
+                        _ => "#6B7280".to_string(),  // Gray
                     }),
                     metadata: Some({
                         let mut meta = HashMap::new();
                         meta.insert("player_count".to_string(), player_count.to_string());
                         meta.insert("total_games".to_string(), total_games.to_string());
                         meta.insert("unique_games".to_string(), games.len().to_string());
-                        
+
                         // Add top 3 games for this player count
-                        let top_games: Vec<String> = games.iter()
+                        let top_games: Vec<String> = games
+                            .iter()
                             .take(3)
                             .map(|(game_name, count)| format!("{} ({}x)", game_name, count))
                             .collect();
                         meta.insert("top_games".to_string(), top_games.join(", "));
-                        
+
                         meta
                     }),
                 }
@@ -510,20 +627,23 @@ impl AnalyticsVisualization {
 
         // Create a multi-series chart where each series represents a player count
         let mut chart_series = Vec::new();
-        
+
         for (player_count, games) in player_count_data {
             let series = ChartSeries {
                 name: format!("{} Players", player_count),
-                data: games.into_iter().map(|(game_name, count)| DataPoint {
-                    label: game_name.clone(),
-                    value: *count as f64,
-                    color: None, // Will be assigned by the chart renderer
-                    metadata: Some(HashMap::from([
-                        ("player_count".to_string(), player_count.to_string()),
-                        ("game_name".to_string(), game_name.clone()),
-                        ("count".to_string(), count.to_string()),
-                    ])),
-                }).collect(),
+                data: games
+                    .into_iter()
+                    .map(|(game_name, count)| DataPoint {
+                        label: game_name.clone(),
+                        value: *count as f64,
+                        color: None, // Will be assigned by the chart renderer
+                        metadata: Some(HashMap::from([
+                            ("player_count".to_string(), player_count.to_string()),
+                            ("game_name".to_string(), game_name.clone()),
+                            ("count".to_string(), count.to_string()),
+                        ])),
+                    })
+                    .collect(),
                 color: None,
             };
             chart_series.push(series);
@@ -546,10 +666,15 @@ impl AnalyticsVisualization {
     }
 
     /// Generate contest difficulty vs excitement scatter plot
-    pub fn contest_analysis_scatter(&self, contests: &[ContestStatsDto], config: Option<ChartConfig>) -> Result<Chart> {
+    pub fn contest_analysis_scatter(
+        &self,
+        contests: &[ContestStatsDto],
+        config: Option<ChartConfig>,
+    ) -> Result<Chart> {
         let config = config.unwrap_or_default();
-        
-        let data_points: Vec<DataPoint> = contests.iter()
+
+        let data_points: Vec<DataPoint> = contests
+            .iter()
             .map(|contest| DataPoint {
                 label: contest.contest_name.clone(),
                 value: contest.excitement_rating,
@@ -561,10 +686,22 @@ impl AnalyticsVisualization {
                     "#10B981".to_string() // Green for low difficulty
                 }),
                 metadata: Some(HashMap::from([
-                    ("difficulty".to_string(), contest.difficulty_rating.to_string()),
-                    ("excitement".to_string(), contest.excitement_rating.to_string()),
-                    ("participants".to_string(), contest.participant_count.to_string()),
-                    ("completion_rate".to_string(), contest.completion_rate.to_string()),
+                    (
+                        "difficulty".to_string(),
+                        contest.difficulty_rating.to_string(),
+                    ),
+                    (
+                        "excitement".to_string(),
+                        contest.excitement_rating.to_string(),
+                    ),
+                    (
+                        "participants".to_string(),
+                        contest.participant_count.to_string(),
+                    ),
+                    (
+                        "completion_rate".to_string(),
+                        contest.completion_rate.to_string(),
+                    ),
                 ])),
             })
             .collect();
@@ -577,7 +714,10 @@ impl AnalyticsVisualization {
             },
             data: ChartData::SingleSeries(data_points),
             metadata: HashMap::from([
-                ("description".to_string(), "Contest analysis scatter plot".to_string()),
+                (
+                    "description".to_string(),
+                    "Contest analysis scatter plot".to_string(),
+                ),
                 ("x_axis".to_string(), "Difficulty Rating".to_string()),
                 ("y_axis".to_string(), "Excitement Rating".to_string()),
             ]),
@@ -644,4 +784,4 @@ mod tests {
         let _viz = AnalyticsVisualization::new();
         assert!(true); // Just test that it compiles
     }
-} 
+}

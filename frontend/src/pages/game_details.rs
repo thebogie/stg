@@ -1,12 +1,12 @@
-use yew::prelude::*;
-use yew_router::prelude::*;
-use wasm_bindgen_futures::spawn_local;
-use shared::dto::game::GameDto;
-use crate::api::contests::ContestSearchResponse;
-use crate::api::games::{get_game_by_id, update_game, find_similar_games, merge_games};
 use crate::api::contests::search_contests;
+use crate::api::contests::ContestSearchResponse;
+use crate::api::games::{find_similar_games, get_game_by_id, merge_games, update_game};
 use crate::auth::AuthContext;
 use crate::Route;
+use shared::dto::game::GameDto;
+use wasm_bindgen_futures::spawn_local;
+use yew::prelude::*;
+use yew_router::prelude::*;
 
 #[derive(Properties, PartialEq)]
 pub struct GameDetailsProps {
@@ -17,7 +17,7 @@ pub struct GameDetailsProps {
 pub fn game_details(props: &GameDetailsProps) -> Html {
     let auth_context = use_context::<AuthContext>().expect("AuthContext not found");
     let navigator = use_navigator().unwrap();
-    
+
     // State
     let game = use_state(|| None::<GameDto>);
     let contests = use_state(|| None::<ContestSearchResponse>);
@@ -26,7 +26,7 @@ pub fn game_details(props: &GameDetailsProps) -> Html {
     let editing = use_state(|| false);
     let edit_form = use_state(|| None::<GameDto>);
     let saving = use_state(|| false);
-    
+
     // Admin state
     let similar_games = use_state(|| None::<Vec<GameDto>>);
     let similar_loading = use_state(|| false);
@@ -96,14 +96,14 @@ pub fn game_details(props: &GameDetailsProps) -> Html {
             if let Some(form_data) = (*edit_form).clone() {
                 saving.set(true);
                 error.set(None);
-                
+
                 let game_id = game_id.clone();
                 let game = game.clone();
                 let editing = editing.clone();
                 let edit_form = edit_form.clone();
                 let saving = saving.clone();
                 let error = error.clone();
-                
+
                 spawn_local(async move {
                     match update_game(&game_id, form_data).await {
                         Ok(updated_game) => {
@@ -111,7 +111,7 @@ pub fn game_details(props: &GameDetailsProps) -> Html {
                             editing.set(false);
                             edit_form.set(None);
                             error.set(None);
-                        },
+                        }
                         Err(e) => {
                             error.set(Some(e));
                         }
@@ -132,18 +132,18 @@ pub fn game_details(props: &GameDetailsProps) -> Html {
         Callback::from(move |_| {
             let show = !*show_merge;
             show_merge.set(show);
-            
+
             if show && similar_games.is_none() {
                 similar_loading.set(true);
                 let similar_games = similar_games.clone();
                 let similar_loading = similar_loading.clone();
                 let game_id = game_id.clone();
-                
+
                 spawn_local(async move {
                     match find_similar_games(&game_id).await {
                         Ok(games) => {
                             similar_games.set(Some(games));
-                        },
+                        }
                         Err(e) => {
                             log::error!("Failed to find similar games: {}", e);
                         }
@@ -173,13 +173,13 @@ pub fn game_details(props: &GameDetailsProps) -> Html {
                 let target_id = target_id.clone();
                 let merging = merging.clone();
                 let navigator = navigator.clone();
-                
+
                 spawn_local(async move {
                     match merge_games(&game_id, &target_id).await {
                         Ok(_merged_game) => {
                             // Redirect to the target game after successful merge
                             navigator.push(&Route::GameDetails { game_id: target_id });
-                        },
+                        }
                         Err(e) => {
                             log::error!("Failed to merge games: {}", e);
                         }
@@ -250,19 +250,19 @@ pub fn game_details(props: &GameDetailsProps) -> Html {
         let game = game.clone();
         let loading = loading.clone();
         let error = error.clone();
-        
+
         use_effect_with((), move |_| {
             let game_id = game_id.clone();
             let game = game.clone();
             let loading = loading.clone();
             let error = error.clone();
-            
+
             spawn_local(async move {
                 match get_game_by_id(&game_id).await {
                     Ok(game_data) => {
                         game.set(Some(game_data));
                         error.set(None);
-                    },
+                    }
                     Err(e) => {
                         error.set(Some(e));
                         game.set(None);
@@ -277,21 +277,18 @@ pub fn game_details(props: &GameDetailsProps) -> Html {
     {
         let game_id = props.game_id.clone();
         let contests = contests.clone();
-        
+
         use_effect_with((), move |_| {
             let game_id = game_id.clone();
             let contests = contests.clone();
-            
+
             spawn_local(async move {
-                let params = vec![
-                    ("game_ids", game_id.clone()),
-                    ("scope", "all".to_string()),
-                ];
-                
+                let params = vec![("game_ids", game_id.clone()), ("scope", "all".to_string())];
+
                 match search_contests(&params).await {
                     Ok(contest_data) => {
                         contests.set(Some(contest_data));
-                    },
+                    }
                     Err(e) => {
                         log::error!("Failed to load contests for game {}: {}", game_id, e);
                     }
@@ -301,7 +298,10 @@ pub fn game_details(props: &GameDetailsProps) -> Html {
     }
 
     // Check if user is admin
-    let is_admin = auth_context.state.player.as_ref()
+    let is_admin = auth_context
+        .state
+        .player
+        .as_ref()
         .map(|p| p.is_admin)
         .unwrap_or(false);
 
@@ -458,7 +458,7 @@ pub fn game_details(props: &GameDetailsProps) -> Html {
                                     </span>
                                 </div>
                             </div>
-                            
+
                             <div class="mt-6">
                                 <label class="block text-sm font-medium text-gray-700 mb-2">{"Description"}</label>
                                 if *editing {
@@ -531,7 +531,7 @@ pub fn game_details(props: &GameDetailsProps) -> Html {
                                     {"View All Contests"}
                                 </button>
                             </div>
-                            
+
                             if let Some(contest_data) = &*contests {
                                 if contest_data.items.is_empty() {
                                     <div class="text-center py-8">
@@ -576,7 +576,7 @@ pub fn game_details(props: &GameDetailsProps) -> Html {
                                                     let contest_id = contest.id.clone();
                                                     let navigator = navigator.clone();
                                                     html! {
-                                                        <tr 
+                                                        <tr
                                                             class="hover:bg-gray-50 cursor-pointer"
                                                             onclick={Callback::from(move |_| {
                                                                 navigator.push(&Route::ContestDetails { contest_id: contest_id.clone() });
@@ -611,7 +611,7 @@ pub fn game_details(props: &GameDetailsProps) -> Html {
                             }
                         </div>
 
-                        
+
 
                         // Admin Merge Games Section
                         if is_admin && *show_merge {
@@ -625,7 +625,7 @@ pub fn game_details(props: &GameDetailsProps) -> Html {
                                         {"Cancel"}
                                     </button>
                                 </div>
-                                
+
                                 <div class="bg-yellow-50 border border-yellow-200 rounded-md p-4 mb-6">
                                     <div class="flex">
                                         <div class="flex-shrink-0">
@@ -641,7 +641,7 @@ pub fn game_details(props: &GameDetailsProps) -> Html {
                                         </div>
                                     </div>
                                 </div>
-                                
+
                                 if *similar_loading {
                                     <div class="text-center py-8">
                                         <div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
@@ -667,11 +667,11 @@ pub fn game_details(props: &GameDetailsProps) -> Html {
                                                     let is_selected = merge_target.as_ref().map(|target| target == &game_id).unwrap_or(false);
                                                     let value = on_select_merge_target.clone();
                                                     html! {
-                                                        <div 
-                                                            class={if is_selected { 
-                                                                "border-2 border-blue-500 bg-blue-50 rounded-lg p-4 cursor-pointer" 
-                                                            } else { 
-                                                                "border border-gray-200 rounded-lg p-4 cursor-pointer hover:bg-gray-50" 
+                                                        <div
+                                                            class={if is_selected {
+                                                                "border-2 border-blue-500 bg-blue-50 rounded-lg p-4 cursor-pointer"
+                                                            } else {
+                                                                "border border-gray-200 rounded-lg p-4 cursor-pointer hover:bg-gray-50"
                                                             }}
                                                             onclick={Callback::from(move |_| value.emit(game_id.clone()))}
                                                         >
@@ -703,7 +703,7 @@ pub fn game_details(props: &GameDetailsProps) -> Html {
                                                     }
                                                 })}
                                             </div>
-                                            
+
                                             if merge_target.is_some() {
                                                 <div class="flex justify-end space-x-3 pt-4 border-t">
                                                     <button

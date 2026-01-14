@@ -2,7 +2,10 @@
 mod game_controller_tests {
     use crate::game::repository::GameRepository;
     // GameUseCase and GameUseCaseImpl are used implicitly by the handler implementations
-    use crate::game::controller::{get_game_handler_impl, get_all_games_handler_impl, create_game_handler_impl, update_game_handler_impl, delete_game_handler_impl};
+    use crate::game::controller::{
+        create_game_handler_impl, delete_game_handler_impl, get_all_games_handler_impl,
+        get_game_handler_impl, update_game_handler_impl,
+    };
     use actix_web::test;
     use actix_web::web;
     use actix_web::App;
@@ -62,11 +65,19 @@ mod game_controller_tests {
             games.iter().map(|g| GameDto::from(g)).collect()
         }
 
-        async fn get_game_recommendations(&self, _player_id: &str, _limit: i32) -> Result<Vec<serde_json::Value>, String> {
+        async fn get_game_recommendations(
+            &self,
+            _player_id: &str,
+            _limit: i32,
+        ) -> Result<Vec<serde_json::Value>, String> {
             Ok(vec![])
         }
 
-        async fn get_similar_games(&self, _game_id: &str, _limit: i32) -> Result<Vec<serde_json::Value>, String> {
+        async fn get_similar_games(
+            &self,
+            _game_id: &str,
+            _limit: i32,
+        ) -> Result<Vec<serde_json::Value>, String> {
             Ok(vec![])
         }
 
@@ -115,15 +126,15 @@ mod game_controller_tests {
         };
         repo.add_game(test_game.clone()).await;
 
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(repo))
-                .service(web::scope("/games").route("/{id}", web::get().to(get_game_handler_impl::<MockGameRepository>)))
-        ).await;
+        let app = test::init_service(App::new().app_data(web::Data::new(repo)).service(
+            web::scope("/games").route(
+                "/{id}",
+                web::get().to(get_game_handler_impl::<MockGameRepository>),
+            ),
+        ))
+        .await;
 
-        let req = test::TestRequest::get()
-            .uri("/games/test123")
-            .to_request();
+        let req = test::TestRequest::get().uri("/games/test123").to_request();
 
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 200);
@@ -137,11 +148,13 @@ mod game_controller_tests {
     async fn test_get_game_handler_not_found() {
         let repo = MockGameRepository::new();
 
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(repo))
-                .service(web::scope("/games").route("/{id}", web::get().to(get_game_handler_impl::<MockGameRepository>)))
-        ).await;
+        let app = test::init_service(App::new().app_data(web::Data::new(repo)).service(
+            web::scope("/games").route(
+                "/{id}",
+                web::get().to(get_game_handler_impl::<MockGameRepository>),
+            ),
+        ))
+        .await;
 
         let req = test::TestRequest::get()
             .uri("/games/nonexistent")
@@ -175,15 +188,15 @@ mod game_controller_tests {
         repo.add_game(game1).await;
         repo.add_game(game2).await;
 
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(repo))
-                .service(web::scope("/games").route("", web::get().to(get_all_games_handler_impl::<MockGameRepository>)))
-        ).await;
+        let app = test::init_service(App::new().app_data(web::Data::new(repo)).service(
+            web::scope("/games").route(
+                "",
+                web::get().to(get_all_games_handler_impl::<MockGameRepository>),
+            ),
+        ))
+        .await;
 
-        let req = test::TestRequest::get()
-            .uri("/games")
-            .to_request();
+        let req = test::TestRequest::get().uri("/games").to_request();
 
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 200);
@@ -198,11 +211,13 @@ mod game_controller_tests {
     async fn test_create_game_handler() {
         let repo = MockGameRepository::new();
 
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(repo))
-                .service(web::scope("/games").route("", web::post().to(create_game_handler_impl::<MockGameRepository>)))
-        ).await;
+        let app = test::init_service(App::new().app_data(web::Data::new(repo)).service(
+            web::scope("/games").route(
+                "",
+                web::post().to(create_game_handler_impl::<MockGameRepository>),
+            ),
+        ))
+        .await;
 
         let create_request = GameDto {
             id: "".to_string(),
@@ -241,11 +256,13 @@ mod game_controller_tests {
         };
         repo.add_game(existing_game).await;
 
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(repo))
-                .service(web::scope("/games").route("/{id}", web::put().to(update_game_handler_impl::<MockGameRepository>)))
-        ).await;
+        let app = test::init_service(App::new().app_data(web::Data::new(repo)).service(
+            web::scope("/games").route(
+                "/{id}",
+                web::put().to(update_game_handler_impl::<MockGameRepository>),
+            ),
+        ))
+        .await;
 
         let update_request = GameDto {
             id: "game/test123".to_string(),
@@ -285,11 +302,13 @@ mod game_controller_tests {
         };
         repo.add_game(test_game).await;
 
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(repo.clone()))
-                .service(web::scope("/games").route("/{id}", web::delete().to(delete_game_handler_impl::<MockGameRepository>)))
-        ).await;
+        let app = test::init_service(App::new().app_data(web::Data::new(repo.clone())).service(
+            web::scope("/games").route(
+                "/{id}",
+                web::delete().to(delete_game_handler_impl::<MockGameRepository>),
+            ),
+        ))
+        .await;
 
         let req = test::TestRequest::delete()
             .uri("/games/test123")
@@ -307,11 +326,13 @@ mod game_controller_tests {
     async fn test_delete_game_handler_not_found() {
         let repo = MockGameRepository::new();
 
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(repo))
-                .service(web::scope("/games").route("/{id}", web::delete().to(delete_game_handler_impl::<MockGameRepository>)))
-        ).await;
+        let app = test::init_service(App::new().app_data(web::Data::new(repo)).service(
+            web::scope("/games").route(
+                "/{id}",
+                web::delete().to(delete_game_handler_impl::<MockGameRepository>),
+            ),
+        ))
+        .await;
 
         let req = test::TestRequest::delete()
             .uri("/games/nonexistent")
@@ -326,19 +347,19 @@ mod game_controller_tests {
         // Test the ID normalization logic used in handlers
         let param_with_slash = "game/test123";
         let param_without_slash = "test123";
-        
-        let id_with_slash = if param_with_slash.contains('/') { 
-            param_with_slash.to_string() 
-        } else { 
-            format!("game/{}", param_with_slash) 
+
+        let id_with_slash = if param_with_slash.contains('/') {
+            param_with_slash.to_string()
+        } else {
+            format!("game/{}", param_with_slash)
         };
-        
-        let id_without_slash = if param_without_slash.contains('/') { 
-            param_without_slash.to_string() 
-        } else { 
-            format!("game/{}", param_without_slash) 
+
+        let id_without_slash = if param_without_slash.contains('/') {
+            param_without_slash.to_string()
+        } else {
+            format!("game/{}", param_without_slash)
         };
-        
+
         assert_eq!(id_with_slash, "game/test123");
         assert_eq!(id_without_slash, "game/test123");
     }

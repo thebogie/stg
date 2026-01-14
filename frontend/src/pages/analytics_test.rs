@@ -1,5 +1,5 @@
-use yew::prelude::*;
 use crate::components::chart_renderer::ChartRenderer;
+use yew::prelude::*;
 
 #[derive(Properties, PartialEq)]
 pub struct AnalyticsTestProps {}
@@ -59,7 +59,7 @@ pub fn analytics_test(_props: &AnalyticsTestProps) -> Html {
                 <h1>{"Chart Renderer Test"}</h1>
                 <p>{"Testing the chart renderer component with sample data"}</p>
             </div>
-            
+
             <div class="test-content">
                 <div class="chart-test-section">
                     <h2>{"Bar Chart Test"}</h2>
@@ -72,7 +72,7 @@ pub fn analytics_test(_props: &AnalyticsTestProps) -> Html {
                         />
                     </div>
                 </div>
-                
+
                 <div class="test-info">
                     <h3>{"Test Information"}</h3>
                     <ul>
@@ -98,4 +98,4 @@ mod tests {
         // Just test that it compiles and renders
         assert!(true);
     }
-} 
+}

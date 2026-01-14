@@ -1,7 +1,7 @@
-use std::env;
 use dotenv::dotenv;
-use serde::Deserialize;
 use log::{info, warn};
+use serde::Deserialize;
+use std::env;
 
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 pub enum Environment {
@@ -164,10 +164,10 @@ impl Config {
     fn load_server_config(env: &Environment) -> ServerConfig {
         match env {
             Environment::Development => {
-                let backend_url = env::var("BACKEND_URL")
-                    .unwrap_or_else(|_| "http://0.0.0.0:50002".to_string());
+                let backend_url =
+                    env::var("BACKEND_URL").unwrap_or_else(|_| "http://0.0.0.0:50002".to_string());
                 let (host, port) = Self::parse_backend_url(&backend_url);
-                
+
                 ServerConfig {
                     host: env::var("SERVER_HOST").unwrap_or_else(|_| host),
 
@@ -180,12 +180,12 @@ impl Config {
                         .parse()
                         .unwrap_or(1),
                 }
-            },
+            }
             Environment::Production => {
-                let backend_url = env::var("BACKEND_URL")
-                    .unwrap_or_else(|_| "http://0.0.0.0:50002".to_string());
+                let backend_url =
+                    env::var("BACKEND_URL").unwrap_or_else(|_| "http://0.0.0.0:50002".to_string());
                 let (host, port) = Self::parse_backend_url(&backend_url);
-                
+
                 ServerConfig {
                     // SERVER_HOST environment variable takes precedence over BACKEND_URL host
                     host: env::var("SERVER_HOST").unwrap_or_else(|_| host),
@@ -198,12 +198,12 @@ impl Config {
                         .parse()
                         .unwrap_or(8),
                 }
-            },
+            }
             Environment::Test => {
-                let backend_url = env::var("BACKEND_URL")
-                    .unwrap_or_else(|_| "http://0.0.0.0:50002".to_string());
+                let backend_url =
+                    env::var("BACKEND_URL").unwrap_or_else(|_| "http://0.0.0.0:50002".to_string());
                 let (host, port) = Self::parse_backend_url(&backend_url);
-                
+
                 ServerConfig {
                     host: env::var("SERVER_HOST").unwrap_or_else(|_| host),
                     port: env::var("SERVER_PORT")
@@ -215,7 +215,7 @@ impl Config {
                         .parse()
                         .unwrap_or(1),
                 }
-            },
+            }
         }
     }
 
@@ -235,46 +235,64 @@ impl Config {
                     username: env::var("ARANGO_USERNAME").unwrap_or_else(|_| "test".to_string()),
                     password: env::var("ARANGO_PASSWORD").unwrap_or_else(|_| "test".to_string()),
                     root_username: "root".to_string(),
-                    root_password: env::var("ARANGO_ROOT_PASSWORD").unwrap_or_else(|_| "test".to_string()),
+                    root_password: env::var("ARANGO_ROOT_PASSWORD")
+                        .unwrap_or_else(|_| "test".to_string()),
                     pool_size: env::var("DB_POOL_SIZE")
-                        .unwrap_or_else(|_| env::var("REDIS_POOL_SIZE").unwrap_or_else(|_| "5".to_string()))
+                        .unwrap_or_else(|_| {
+                            env::var("REDIS_POOL_SIZE").unwrap_or_else(|_| "5".to_string())
+                        })
                         .parse()
                         .unwrap_or(5),
                     _timeout_seconds: env::var("DB_TIMEOUT")
-                        .unwrap_or_else(|_| env::var("REDIS_TIMEOUT").unwrap_or_else(|_| "30".to_string()))
+                        .unwrap_or_else(|_| {
+                            env::var("REDIS_TIMEOUT").unwrap_or_else(|_| "30".to_string())
+                        })
                         .parse()
                         .unwrap_or(30),
                 }
-            },
+            }
             Environment::Production => DatabaseConfig {
                 url: env::var("ARANGO_URL").expect("ARANGO_URL must be set in production"),
                 name: env::var("ARANGO_DB").expect("ARANGO_DB must be set in production"),
-                username: env::var("ARANGO_USERNAME").expect("ARANGO_USERNAME must be set in production"),
-                password: env::var("ARANGO_PASSWORD").expect("ARANGO_PASSWORD must be set in production"),
+                username: env::var("ARANGO_USERNAME")
+                    .expect("ARANGO_USERNAME must be set in production"),
+                password: env::var("ARANGO_PASSWORD")
+                    .expect("ARANGO_PASSWORD must be set in production"),
                 root_username: "root".to_string(),
-                root_password: env::var("ARANGO_ROOT_PASSWORD").expect("ARANGO_ROOT_PASSWORD must be set in production"),
+                root_password: env::var("ARANGO_ROOT_PASSWORD")
+                    .expect("ARANGO_ROOT_PASSWORD must be set in production"),
                 pool_size: env::var("DB_POOL_SIZE")
-                    .unwrap_or_else(|_| env::var("REDIS_POOL_SIZE").unwrap_or_else(|_| "20".to_string()))
+                    .unwrap_or_else(|_| {
+                        env::var("REDIS_POOL_SIZE").unwrap_or_else(|_| "20".to_string())
+                    })
                     .parse()
                     .unwrap_or(20),
                 _timeout_seconds: env::var("DB_TIMEOUT")
-                    .unwrap_or_else(|_| env::var("REDIS_TIMEOUT").unwrap_or_else(|_| "120".to_string()))
+                    .unwrap_or_else(|_| {
+                        env::var("REDIS_TIMEOUT").unwrap_or_else(|_| "120".to_string())
+                    })
                     .parse()
                     .unwrap_or(120),
             },
             Environment::Test => DatabaseConfig {
-                url: env::var("ARANGO_URL").unwrap_or_else(|_| "http://test-arangodb:8529".to_string()),
+                url: env::var("ARANGO_URL")
+                    .unwrap_or_else(|_| "http://test-arangodb:8529".to_string()),
                 name: env::var("ARANGO_DB").unwrap_or_else(|_| "stg_rd_test".to_string()),
                 username: env::var("ARANGO_USERNAME").unwrap_or_else(|_| "root".to_string()),
                 password: env::var("ARANGO_PASSWORD").unwrap_or_else(|_| "test".to_string()),
                 root_username: "root".to_string(),
-                root_password: env::var("ARANGO_ROOT_PASSWORD").unwrap_or_else(|_| "test".to_string()),
+                root_password: env::var("ARANGO_ROOT_PASSWORD")
+                    .unwrap_or_else(|_| "test".to_string()),
                 pool_size: env::var("DB_POOL_SIZE")
-                    .unwrap_or_else(|_| env::var("REDIS_POOL_SIZE").unwrap_or_else(|_| "5".to_string()))
+                    .unwrap_or_else(|_| {
+                        env::var("REDIS_POOL_SIZE").unwrap_or_else(|_| "5".to_string())
+                    })
                     .parse()
                     .unwrap_or(5),
                 _timeout_seconds: env::var("DB_TIMEOUT")
-                    .unwrap_or_else(|_| env::var("REDIS_TIMEOUT").unwrap_or_else(|_| "30".to_string()))
+                    .unwrap_or_else(|_| {
+                        env::var("REDIS_TIMEOUT").unwrap_or_else(|_| "30".to_string())
+                    })
                     .parse()
                     .unwrap_or(30),
             },
@@ -306,7 +324,8 @@ impl Config {
                     .unwrap_or(120),
             },
             Environment::Test => RedisConfig {
-                url: env::var("REDIS_URL").unwrap_or_else(|_| "redis://test-redis:6379/".to_string()),
+                url: env::var("REDIS_URL")
+                    .unwrap_or_else(|_| "redis://test-redis:6379/".to_string()),
                 pool_size: env::var("REDIS_POOL_SIZE")
                     .unwrap_or_else(|_| "5".to_string())
                     .parse()
@@ -361,7 +380,8 @@ impl Config {
 
     fn load_bgg_config(_env: &Environment) -> BGGConfig {
         BGGConfig {
-            api_url: env::var("BGG_API_URL").unwrap_or_else(|_| "https://api.boardgamegeek.com/".to_string()),
+            api_url: env::var("BGG_API_URL")
+                .unwrap_or_else(|_| "https://api.boardgamegeek.com/".to_string()),
             api_token: env::var("BGG_API_TOKEN").ok(),
         }
     }
@@ -396,8 +416,14 @@ impl Config {
     fn log_configuration(&self) {
         info!("Configuration loaded successfully");
         info!("Environment: {:?}", self.environment);
-        info!("Server: {}:{} (workers: {})", self.server.host, self.server.port, self.server.workers);
-        info!("Database: {} (pool: {})", self.database.name, self.database.pool_size);
+        info!(
+            "Server: {}:{} (workers: {})",
+            self.server.host, self.server.port, self.server.workers
+        );
+        info!(
+            "Database: {} (pool: {})",
+            self.database.name, self.database.pool_size
+        );
         info!("Redis: {} (pool: {})", self.redis.url, self.redis.pool_size);
 
         if self.environment == Environment::Development {
@@ -423,11 +449,23 @@ mod tests {
 
     #[test]
     fn test_environment_parsing() {
-        assert_eq!("development".parse::<Environment>().unwrap(), Environment::Development);
-        assert_eq!("dev".parse::<Environment>().unwrap(), Environment::Development);
+        assert_eq!(
+            "development".parse::<Environment>().unwrap(),
+            Environment::Development
+        );
+        assert_eq!(
+            "dev".parse::<Environment>().unwrap(),
+            Environment::Development
+        );
         assert_eq!("test".parse::<Environment>().unwrap(), Environment::Test);
-        assert_eq!("production".parse::<Environment>().unwrap(), Environment::Production);
-        assert_eq!("prod".parse::<Environment>().unwrap(), Environment::Production);
+        assert_eq!(
+            "production".parse::<Environment>().unwrap(),
+            Environment::Production
+        );
+        assert_eq!(
+            "prod".parse::<Environment>().unwrap(),
+            Environment::Production
+        );
         assert_eq!("test".parse::<Environment>().unwrap(), Environment::Test);
         assert!("unknown".parse::<Environment>().is_err());
     }
@@ -439,11 +477,23 @@ mod tests {
 
     #[test]
     fn test_environment_case_insensitive() {
-        assert_eq!("DEVELOPMENT".parse::<Environment>().unwrap(), Environment::Development);
-        assert_eq!("Dev".parse::<Environment>().unwrap(), Environment::Development);
+        assert_eq!(
+            "DEVELOPMENT".parse::<Environment>().unwrap(),
+            Environment::Development
+        );
+        assert_eq!(
+            "Dev".parse::<Environment>().unwrap(),
+            Environment::Development
+        );
         assert_eq!("TEST".parse::<Environment>().unwrap(), Environment::Test);
-        assert_eq!("Production".parse::<Environment>().unwrap(), Environment::Production);
-        assert_eq!("PRODUCTION".parse::<Environment>().unwrap(), Environment::Production);
+        assert_eq!(
+            "Production".parse::<Environment>().unwrap(),
+            Environment::Production
+        );
+        assert_eq!(
+            "PRODUCTION".parse::<Environment>().unwrap(),
+            Environment::Production
+        );
     }
 
     #[test]
@@ -482,7 +532,7 @@ mod tests {
             _security: SecurityConfig {},
             _logging: LoggingConfig {},
         };
-        
+
         assert_eq!(config.environment, Environment::Development);
         assert_eq!(config.server.host, "127.0.0.1");
         assert_eq!(config.server.port, 50002);
@@ -525,7 +575,7 @@ mod tests {
             _security: SecurityConfig {},
             _logging: LoggingConfig {},
         };
-        
+
         assert_eq!(config.environment, Environment::Production);
         assert_eq!(config.server.host, "0.0.0.0");
         assert_eq!(config.server.port, 8080);
@@ -568,7 +618,7 @@ mod tests {
             _security: SecurityConfig {},
             _logging: LoggingConfig {},
         };
-        
+
         assert_eq!(config.environment, Environment::Production);
         assert_eq!(config.redis.url, "redis://localhost:6379");
         assert_eq!(config.server.workers, 8);
@@ -740,7 +790,7 @@ mod tests {
             _security: SecurityConfig {},
             _logging: LoggingConfig {},
         };
-        
+
         assert_eq!(config.server.host, "0.0.0.0");
         assert_eq!(config.server.port, 8080);
         assert_eq!(config.server.workers, 2);
@@ -770,4 +820,4 @@ mod tests {
         env::remove_var("ARANGO_PASSWORD");
         env::remove_var("BACKEND_WORKERS");
     }
-} 
+}

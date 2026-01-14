@@ -1,5 +1,5 @@
-use std::fmt;
 use crate::error::ApiError;
+use std::fmt;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum PlayerError {

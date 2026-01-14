@@ -1,21 +1,19 @@
-use yew::prelude::*;
-use yew_router::prelude::*;
-use log::{info, debug};
+use crate::auth::{AuthContext, AuthProvider};
+use crate::components::common::toast::{Toast, ToastContext, ToastProvider, ToastType};
+use crate::components::footer::Footer;
+use crate::components::nav::Nav;
+use log::{debug, info};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsValue;
-use crate::auth::{AuthProvider, AuthContext};
-use crate::components::nav::Nav;
-use crate::components::footer::Footer;
-use crate::components::common::toast::{ToastProvider, ToastContext, Toast, ToastType};
-
-
+use yew::prelude::*;
+use yew_router::prelude::*;
 
 pub mod api;
 pub mod auth;
 pub mod components;
 pub mod config;
-pub mod version;
 pub mod flatpickr;
+pub mod version;
 pub mod analytics {
     pub mod client_manager;
     pub mod events;
@@ -23,27 +21,32 @@ pub mod analytics {
     pub use events::*;
 }
 pub mod pages {
-    pub mod home;
-    pub mod login;
-    pub mod venues;
-    pub mod venue_details;
-    pub mod games;
-    pub mod game_details;
+    pub mod admin;
     pub mod analytics;
     pub mod analytics_dashboard;
     pub mod analytics_test;
-    pub mod admin;
+    pub mod game_details;
+    pub mod games;
+    pub mod home;
+    pub mod login;
+    pub mod venue_details;
+    pub mod venues;
 
-    pub mod contests;
     pub mod contest;
     pub mod contest_details;
+    pub mod contests;
     pub mod game_history;
-    pub mod venue_history;
     pub mod not_found;
     pub mod profile;
+    pub mod venue_history;
 }
 
-use pages::{home::Home, login::Login, venues::Venues, venue_details::VenueDetails, games::Games, game_details::GameDetails, analytics::Analytics, analytics_test::AnalyticsTest, admin::AdminPage, contests::Contests, contest::Contest, contest_details::ContestDetails, game_history::GameHistory, venue_history::VenueHistory, not_found::NotFound, profile::ProfilePage};
+use pages::{
+    admin::AdminPage, analytics::Analytics, analytics_test::AnalyticsTest, contest::Contest,
+    contest_details::ContestDetails, contests::Contests, game_details::GameDetails,
+    game_history::GameHistory, games::Games, home::Home, login::Login, not_found::NotFound,
+    profile::ProfilePage, venue_details::VenueDetails, venue_history::VenueHistory, venues::Venues,
+};
 
 // Unit test modules only
 #[cfg(test)]
@@ -111,10 +114,18 @@ fn app() -> Html {
 pub fn protected_route(props: &Props) -> Html {
     let auth = use_context::<AuthContext>().expect("Auth context not found");
     let toast_context = use_context::<ToastContext>().expect("Toast context not found");
-    let is_authenticated = auth.state.player.as_ref()
+    let is_authenticated = auth
+        .state
+        .player
+        .as_ref()
         .map(|player| !player.id.is_empty())
         .unwrap_or(false);
-    let session_expired = auth.state.error.as_ref().map(|e| e.contains("Session expired")).unwrap_or(false);
+    let session_expired = auth
+        .state
+        .error
+        .as_ref()
+        .map(|e| e.contains("Session expired"))
+        .unwrap_or(false);
     let navigator = use_navigator().unwrap();
 
     // Show toast when session expires
@@ -124,8 +135,9 @@ pub fn protected_route(props: &Props) -> Html {
             if *expired {
                 let toast = Toast::new(
                     "Your session has expired. Please log in again.".to_string(),
-                    ToastType::Warning
-                ).with_duration(8000); // Show for 8 seconds
+                    ToastType::Warning,
+                )
+                .with_duration(8000); // Show for 8 seconds
                 toast_context.add_toast.emit(toast);
             }
             || ()
@@ -134,12 +146,15 @@ pub fn protected_route(props: &Props) -> Html {
 
     {
         let navigator = navigator.clone();
-        use_effect_with((is_authenticated, session_expired), move |(is_auth, session_expired)| {
-            if !*is_auth || *session_expired {
-                navigator.push(&Route::Login);
-            }
-            || ()
-        });
+        use_effect_with(
+            (is_authenticated, session_expired),
+            move |(is_auth, session_expired)| {
+                if !*is_auth || *session_expired {
+                    navigator.push(&Route::Login);
+                }
+                || ()
+            },
+        );
     }
 
     if is_authenticated && !session_expired {
@@ -158,8 +173,6 @@ pub struct Props {
     pub children: Children,
 }
 
-
-
 fn switch(routes: Route) -> Html {
     debug!("Route switch: {:?}", routes);
     match routes {
@@ -170,11 +183,11 @@ fn switch(routes: Route) -> Html {
                     <Home />
                 </ProtectedRoute>
             }
-        },
+        }
         Route::Login => {
             debug!("Rendering Login component");
             html! { <Login /> }
-        },
+        }
         Route::Profile => {
             debug!("Rendering Profile component (protected)");
             html! {
@@ -182,7 +195,7 @@ fn switch(routes: Route) -> Html {
                     <ProfilePage />
                 </ProtectedRoute>
             }
-        },
+        }
         Route::Contests => {
             debug!("Rendering Contests component (protected)");
             html! {
@@ -190,7 +203,7 @@ fn switch(routes: Route) -> Html {
                     <Contests />
                 </ProtectedRoute>
             }
-        },
+        }
         Route::Contest => {
             debug!("Rendering Contest creation component (protected)");
             html! {
@@ -198,31 +211,40 @@ fn switch(routes: Route) -> Html {
                     <Contest />
                 </ProtectedRoute>
             }
-        },
+        }
         Route::ContestDetails { contest_id } => {
-            debug!("Rendering Contest details component (protected) with contest_id: {}", contest_id);
+            debug!(
+                "Rendering Contest details component (protected) with contest_id: {}",
+                contest_id
+            );
             html! {
                 <ProtectedRoute>
                     <ContestDetails contest_id={contest_id} />
                 </ProtectedRoute>
             }
-        },
+        }
         Route::GameHistory { game_id } => {
-            debug!("Rendering Game history component (protected) for game: {}", game_id);
+            debug!(
+                "Rendering Game history component (protected) for game: {}",
+                game_id
+            );
             html! {
                 <ProtectedRoute>
                     <GameHistory game_id={game_id} />
                 </ProtectedRoute>
             }
-        },
+        }
         Route::VenueHistory { venue_id } => {
-            debug!("Rendering Venue history component (protected) for venue: {}", venue_id);
+            debug!(
+                "Rendering Venue history component (protected) for venue: {}",
+                venue_id
+            );
             html! {
                 <ProtectedRoute>
                     <VenueHistory venue_id={venue_id} />
                 </ProtectedRoute>
             }
-        },
+        }
 
         Route::Venues => {
             debug!("Rendering Venues component (protected)");
@@ -231,15 +253,18 @@ fn switch(routes: Route) -> Html {
                     <Venues />
                 </ProtectedRoute>
             }
-        },
+        }
         Route::VenueDetails { venue_id } => {
-            debug!("Rendering Venue details component (protected) for venue: {}", venue_id);
+            debug!(
+                "Rendering Venue details component (protected) for venue: {}",
+                venue_id
+            );
             html! {
                 <ProtectedRoute>
                     <VenueDetails venue_id={venue_id} />
                 </ProtectedRoute>
             }
-        },
+        }
         Route::Games => {
             debug!("Rendering Games component (protected)");
             html! {
@@ -247,15 +272,18 @@ fn switch(routes: Route) -> Html {
                     <Games />
                 </ProtectedRoute>
             }
-        },
+        }
         Route::GameDetails { game_id } => {
-            debug!("Rendering Game details component (protected) for game: {}", game_id);
+            debug!(
+                "Rendering Game details component (protected) for game: {}",
+                game_id
+            );
             html! {
                 <ProtectedRoute>
                     <GameDetails game_id={game_id} />
                 </ProtectedRoute>
             }
-        },
+        }
         Route::Analytics => {
             debug!("Rendering Analytics component (protected)");
             html! {
@@ -263,7 +291,7 @@ fn switch(routes: Route) -> Html {
                     <Analytics />
                 </ProtectedRoute>
             }
-        },
+        }
         Route::AnalyticsTest => {
             debug!("Rendering Analytics Test component (protected)");
             html! {
@@ -271,7 +299,7 @@ fn switch(routes: Route) -> Html {
                     <AnalyticsTest />
                 </ProtectedRoute>
             }
-        },
+        }
         Route::Admin => {
             debug!("Rendering Admin component (protected)");
             html! {
@@ -279,12 +307,12 @@ fn switch(routes: Route) -> Html {
                     <AdminPage />
                 </ProtectedRoute>
             }
-        },
+        }
 
         Route::NotFound => {
             debug!("Rendering 404 Not Found");
             html! { <NotFound /> }
-        },
+        }
     }
 }
 

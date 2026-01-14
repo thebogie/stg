@@ -1,6 +1,6 @@
+use crate::api::api_url;
 use gloo_net::http::Request;
 use serde::{Deserialize, Serialize};
-use crate::api::api_url;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct VersionInfo {
@@ -19,11 +19,14 @@ pub async fn get_version_info() -> Result<VersionInfo, String> {
         .map_err(|e| format!("Failed to fetch version info: {}", e))?;
 
     if !response.ok() {
-        return Err(format!("Failed to get version info: HTTP {}", response.status()));
+        return Err(format!(
+            "Failed to get version info: HTTP {}",
+            response.status()
+        ));
     }
 
     response
         .json::<VersionInfo>()
         .await
         .map_err(|e| format!("Failed to parse version info: {}", e))
-} 
+}

@@ -41,4 +41,4 @@ mod tests {
         // Names should be different (though there's a small chance they could be the same)
         assert!(name1 != name2 || name2 != name3 || name1 != name3);
     }
-} 
+}

@@ -1,6 +1,6 @@
+use crate::{models::game::GameSource, Game};
 use serde::{Deserialize, Serialize};
 use validator::Validate;
-use crate::{Game, models::game::GameSource};
 
 /// Data Transfer Object for Game
 #[derive(Debug, Clone, Serialize, Deserialize, Validate, PartialEq)]
@@ -8,15 +8,19 @@ pub struct GameDto {
     /// Game's ID (optional for creation, will be set by ArangoDB if empty)
     #[serde(rename = "_id", default)]
     pub id: String,
-    
+
     /// Game's name
-    #[validate(length(min = 1, max = 200, message = "Name is required and must be at most 200 characters"))]
+    #[validate(length(
+        min = 1,
+        max = 200,
+        message = "Name is required and must be at most 200 characters"
+    ))]
     pub name: String,
-    
+
     /// Year the game was published
     #[serde(rename = "year_published")]
     pub year_published: Option<i32>,
-    
+
     /// BoardGameGeek ID
     #[serde(rename = "bgg_id")]
     pub bgg_id: Option<i32>,
@@ -50,7 +54,8 @@ impl From<GameDto> for Game {
             dto.bgg_id,
             dto.description.clone(),
             dto.source,
-        ).unwrap_or_else(|_| Self {
+        )
+        .unwrap_or_else(|_| Self {
             id: dto.id,
             rev: String::new(), // Let ArangoDB set this
             name: dto.name,
@@ -150,4 +155,4 @@ mod conversion_tests {
         let result = dto.try_into_game();
         assert!(result.is_err());
     }
-} 
+}

@@ -1,5 +1,5 @@
-use utoipa::OpenApi;
 use crate::error::ApiError;
+use utoipa::OpenApi;
 
 #[derive(OpenApi)]
 #[openapi(

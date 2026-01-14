@@ -1,10 +1,10 @@
-use serde::{Deserialize, Serialize};
-use validator::Validate;
-use chrono::{DateTime, FixedOffset};
 use crate::error::{Result, SharedError};
 use argon2::{Argon2, PasswordHash, PasswordVerifier};
+use chrono::{DateTime, FixedOffset};
 use lazy_static::lazy_static;
 use regex::Regex;
+use serde::{Deserialize, Serialize};
+use validator::Validate;
 
 lazy_static! {
     static ref HANDLE_REGEX: Regex = Regex::new(r"^[a-zA-Z0-9_]+$").unwrap();
@@ -83,7 +83,7 @@ impl Player {
         is_admin: bool,
     ) -> Result<Self> {
         let player = Self {
-            id: String::new(), // Will be set by ArangoDB
+            id: String::new(),  // Will be set by ArangoDB
             rev: String::new(), // Will be set by ArangoDB
             firstname,
             handle,
@@ -104,7 +104,9 @@ impl Player {
 
     pub fn verify_password(&self, password: &str) -> bool {
         if let Ok(parsed_hash) = PasswordHash::new(&self.password) {
-            Argon2::default().verify_password(password.as_bytes(), &parsed_hash).is_ok()
+            Argon2::default()
+                .verify_password(password.as_bytes(), &parsed_hash)
+                .is_ok()
         } else {
             false
         }
@@ -168,11 +170,11 @@ impl From<&PlayerSession> for UserSessionDto {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pretty_assertions::assert_eq;
-    use test_log::test;
-    use fake::Fake;
     use fake::faker::internet::raw::SafeEmail;
     use fake::locales::EN;
+    use fake::Fake;
+    use pretty_assertions::assert_eq;
+    use test_log::test;
 
     fn create_test_player() -> Player {
         Player {
@@ -338,4 +340,4 @@ mod tests {
         assert!(player1.validate().is_ok());
         assert!(player2.validate().is_ok());
     }
-} 
+}

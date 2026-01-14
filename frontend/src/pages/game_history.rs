@@ -1,9 +1,9 @@
-use yew::prelude::*;
-use yew_router::prelude::*;
-use serde_json::Value;
-use crate::Route;
 use crate::api::utils::authenticated_get;
 use crate::auth::AuthContext;
+use crate::Route;
+use serde_json::Value;
+use yew::prelude::*;
+use yew_router::prelude::*;
 
 #[derive(Properties, PartialEq)]
 pub struct GameHistoryProps {
@@ -25,7 +25,12 @@ pub fn game_history(props: &GameHistoryProps) -> Html {
         let loading = loading.clone();
         let error = error.clone();
         let game_id = props.game_id.clone();
-        let player_id = auth.state.player.as_ref().map(|p| p.id.clone()).unwrap_or_default();
+        let player_id = auth
+            .state
+            .player
+            .as_ref()
+            .map(|p| p.id.clone())
+            .unwrap_or_default();
 
         use_effect_with((game_id.clone(), player_id.clone()), move |_| {
             let contests = contests.clone();
@@ -47,11 +52,28 @@ pub fn game_history(props: &GameHistoryProps) -> Html {
                 // Clone player_id and game_id early to avoid moves
                 let player_id_str = player_id.as_str();
                 let game_id_str = game_id.as_str();
-                
+
                 // Extract just the key part for player_id and game_id
-                let pid = if player_id_str.starts_with("player/") { player_id.split('/').nth(1).unwrap_or(&player_id).to_string() } else { player_id.clone() };
-                let gid = if game_id_str.starts_with("game/") { game_id.split('/').nth(1).unwrap_or(&game_id).to_string() } else { game_id.clone() };
-                log::info!("Game history: player_id={}, game_id={}, key={}", player_id, game_id, gid);
+                let pid = if player_id_str.starts_with("player/") {
+                    player_id
+                        .split('/')
+                        .nth(1)
+                        .unwrap_or(&player_id)
+                        .to_string()
+                } else {
+                    player_id.clone()
+                };
+                let gid = if game_id_str.starts_with("game/") {
+                    game_id.split('/').nth(1).unwrap_or(&game_id).to_string()
+                } else {
+                    game_id.clone()
+                };
+                log::info!(
+                    "Game history: player_id={}, game_id={}, key={}",
+                    player_id,
+                    game_id,
+                    gid
+                );
                 let url = format!("/api/contests/player/{}/game/{}", pid, gid);
                 log::info!("Game history API call: {}", url);
                 match authenticated_get(&url).send().await {
@@ -64,14 +86,21 @@ pub fn game_history(props: &GameHistoryProps) -> Html {
                                         log::info!("Found {} contests in response", arr.len());
                                         contests.set(Some(arr.clone()));
                                     } else {
-                                        log::info!("Response is not an array, setting empty contests");
+                                        log::info!(
+                                            "Response is not an array, setting empty contests"
+                                        );
                                         contests.set(Some(vec![]));
                                     }
                                 }
-                                Err(e) => error.set(Some(format!("Failed to parse contests: {}", e))),
+                                Err(e) => {
+                                    error.set(Some(format!("Failed to parse contests: {}", e)))
+                                }
                             }
                         } else {
-                            error.set(Some(format!("Failed to fetch contests: {}", response.status())));
+                            error.set(Some(format!(
+                                "Failed to fetch contests: {}",
+                                response.status()
+                            )));
                         }
                     }
                     Err(e) => error.set(Some(format!("Failed to fetch contests: {}", e))),
@@ -85,14 +114,14 @@ pub fn game_history(props: &GameHistoryProps) -> Html {
 
     let on_back = {
         let navigator = navigator.clone();
-        Callback::from(move |_| {
-            navigator.push(&Route::Profile)
-        })
+        Callback::from(move |_| navigator.push(&Route::Profile))
     };
 
     // Extract game name from first contest if available
     let game_name = if let Some(cs) = &*contests {
-        cs.first().and_then(|c| c.get("game_name").and_then(|v| v.as_str())).unwrap_or("Game")
+        cs.first()
+            .and_then(|c| c.get("game_name").and_then(|v| v.as_str()))
+            .unwrap_or("Game")
     } else {
         "Game"
     };
@@ -168,5 +197,3 @@ pub fn game_history(props: &GameHistoryProps) -> Html {
         </div>
     }
 }
-
-

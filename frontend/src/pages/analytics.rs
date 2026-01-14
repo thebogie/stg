@@ -1,5 +1,5 @@
-use yew::prelude::*;
 use crate::pages::analytics_dashboard::AnalyticsDashboard;
+use yew::prelude::*;
 
 #[derive(Properties, PartialEq)]
 pub struct AnalyticsProps {}
@@ -24,4 +24,4 @@ mod tests {
         // Just test that it compiles and renders
         assert!(true);
     }
-} 
+}

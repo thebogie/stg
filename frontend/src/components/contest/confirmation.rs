@@ -1,5 +1,5 @@
-use yew::prelude::*;
 use shared::dto::contest::ContestDto;
+use yew::prelude::*;
 
 use crate::components::contest::form::parse_offset_to_seconds;
 
@@ -20,9 +20,9 @@ pub struct ContestConfirmationProps {
 impl PartialEq for ContestConfirmationProps {
     fn eq(&self, other: &Self) -> bool {
         // Compare the fields we care about for equality
-        self.on_confirm == other.on_confirm && 
-        self.on_cancel == other.on_cancel &&
-        self.on_edit == other.on_edit
+        self.on_confirm == other.on_confirm
+            && self.on_cancel == other.on_cancel
+            && self.on_edit == other.on_edit
         // Note: We're intentionally not comparing contest field
         // since ContestDto doesn't implement PartialEq
     }
@@ -83,20 +83,36 @@ pub fn contest_confirmation(props: &ContestConfirmationProps) -> Html {
     let tz_name = {
         let raw = &props.contest.venue.timezone;
         let normalized = normalizeIanaTimezone(raw);
-        if normalized.is_empty() { raw.clone() } else { normalized }
+        if normalized.is_empty() {
+            raw.clone()
+        } else {
+            normalized
+        }
     };
 
     let start_display = {
         let offset_str = getTimezoneOffsetForInstant(&tz_name, &props.contest.start.to_rfc3339());
         let tz_seconds = parse_offset_to_seconds(&offset_str).unwrap_or(0);
-        let tz = chrono::FixedOffset::east_opt(tz_seconds).unwrap_or(chrono::FixedOffset::east_opt(0).unwrap());
-        props.contest.start.with_timezone(&tz).format("%B %d, %Y at %I:%M %p").to_string()
+        let tz = chrono::FixedOffset::east_opt(tz_seconds)
+            .unwrap_or(chrono::FixedOffset::east_opt(0).unwrap());
+        props
+            .contest
+            .start
+            .with_timezone(&tz)
+            .format("%B %d, %Y at %I:%M %p")
+            .to_string()
     };
     let stop_display = {
         let offset_str = getTimezoneOffsetForInstant(&tz_name, &props.contest.stop.to_rfc3339());
         let tz_seconds = parse_offset_to_seconds(&offset_str).unwrap_or(0);
-        let tz = chrono::FixedOffset::east_opt(tz_seconds).unwrap_or(chrono::FixedOffset::east_opt(0).unwrap());
-        props.contest.stop.with_timezone(&tz).format("%B %d, %Y at %I:%M %p").to_string()
+        let tz = chrono::FixedOffset::east_opt(tz_seconds)
+            .unwrap_or(chrono::FixedOffset::east_opt(0).unwrap());
+        props
+            .contest
+            .stop
+            .with_timezone(&tz)
+            .format("%B %d, %Y at %I:%M %p")
+            .to_string()
     };
     let tz_label = {
         let offset_str = getTimezoneOffsetForInstant(&tz_name, &props.contest.start.to_rfc3339());
@@ -164,7 +180,7 @@ pub fn contest_confirmation(props: &ContestConfirmationProps) -> Html {
                             };
 
                             html! {
-                                <li class="text-gray-900">{format!("Player: {}, Place: {}, Result: {}", 
+                                <li class="text-gray-900">{format!("Player: {}, Place: {}, Result: {}",
                                     player_display, outcome.place, outcome.result)}</li>
                             }
                         }).collect::<Html>()}
@@ -173,7 +189,7 @@ pub fn contest_confirmation(props: &ContestConfirmationProps) -> Html {
             </div>
 
             <div class="flex justify-end space-x-4">
-                <button 
+                <button
                     onclick={on_edit}
                     class="btn-material-secondary flex items-center"
                 >
@@ -182,7 +198,7 @@ pub fn contest_confirmation(props: &ContestConfirmationProps) -> Html {
                     </svg>
                     {"Back to Edit"}
                 </button>
-                <button 
+                <button
                     onclick={on_confirm}
                     class="btn-material-primary"
                 >

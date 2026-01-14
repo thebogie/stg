@@ -1,6 +1,6 @@
+use crate::models::venue::{Venue, VenueSource};
 use serde::{Deserialize, Serialize};
 use validator::Validate;
-use crate::models::venue::{Venue, VenueSource};
 
 /// Data Transfer Object for Venue
 #[derive(Debug, Serialize, Deserialize, Validate, Clone, PartialEq)]
@@ -8,14 +8,26 @@ pub struct VenueDto {
     /// Venue's ID (optional for creation, will be set by ArangoDB if empty)
     #[serde(rename = "_id", default)]
     pub id: String,
-    #[validate(length(min = 1, max = 100, message = "Display name is required and must be at most 100 characters"))]
+    #[validate(length(
+        min = 1,
+        max = 100,
+        message = "Display name is required and must be at most 100 characters"
+    ))]
     #[serde(rename = "displayName")]
     pub display_name: String,
-    #[validate(length(min = 1, max = 200, message = "Formatted address is required and must be at most 200 characters"))]
+    #[validate(length(
+        min = 1,
+        max = 200,
+        message = "Formatted address is required and must be at most 200 characters"
+    ))]
     #[serde(rename = "formattedAddress")]
     pub formatted_address: String,
     // Place ID is required and must meet length constraints
-    #[validate(length(min = 1, max = 128, message = "Place ID is required and must be at most 128 characters"))]
+    #[validate(length(
+        min = 1,
+        max = 128,
+        message = "Place ID is required and must be at most 128 characters"
+    ))]
     pub place_id: String,
     #[validate(range(min = -90.0, max = 90.0, message = "Latitude must be between -90 and 90"))]
     pub lat: f64,
@@ -61,8 +73,9 @@ impl From<VenueDto> for Venue {
             dto.lng,
             dto.timezone.clone(),
             dto.source,
-        ).unwrap_or_else(|_| Self {
-            id: String::new(), // Will be overridden below
+        )
+        .unwrap_or_else(|_| Self {
+            id: String::new(),  // Will be overridden below
             rev: String::new(), // Let ArangoDB set this
             display_name: dto.display_name,
             formatted_address: dto.formatted_address,
@@ -72,7 +85,7 @@ impl From<VenueDto> for Venue {
             timezone: dto.timezone,
             source: dto.source,
         });
-        
+
         // Always use the ID from the DTO
         venue.id = dto.id;
         venue
@@ -102,8 +115,8 @@ impl VenueDto {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use validator::Validate;
     use crate::models::venue::VenueSource;
+    use validator::Validate;
 
     #[test]
     fn test_venue_dto_validation_empty_display_name() {
@@ -171,4 +184,4 @@ mod conversion_tests {
         let result = dto.try_into_venue();
         assert!(result.is_err());
     }
-} 
+}

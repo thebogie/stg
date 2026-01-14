@@ -1,5 +1,5 @@
-use yew::prelude::*;
 use crate::components::profile_editor::ProfileEditor;
+use yew::prelude::*;
 
 #[derive(Properties, PartialEq)]
 pub struct SettingsTabProps {}

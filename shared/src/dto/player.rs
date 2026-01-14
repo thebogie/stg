@@ -1,9 +1,9 @@
-use serde::{Deserialize, Serialize};
-use validator::Validate;
-use chrono::{DateTime, FixedOffset};
 use crate::models::player::Player;
+use chrono::{DateTime, FixedOffset};
 use lazy_static::lazy_static;
 use regex::Regex;
+use serde::{Deserialize, Serialize};
+use validator::Validate;
 
 lazy_static! {
     static ref HANDLE_REGEX: Regex = Regex::new(r"^[a-zA-Z0-9_]+$").unwrap();
@@ -21,7 +21,7 @@ pub struct PlayerDto {
     pub handle: String,
     #[validate(email(message = "Invalid email format"))]
     pub email: String,
-    #[serde(rename = "createdAt")]  // Map to/from "createdAt" in database
+    #[serde(rename = "createdAt")] // Map to/from "createdAt" in database
     pub created_at: DateTime<FixedOffset>,
 
     /// Whether the player has administrative privileges
@@ -37,11 +37,11 @@ pub struct CreatePlayerRequest {
     #[validate(length(min = 3, max = 50))]
     #[validate(regex = "HANDLE_REGEX")]
     pub username: String,
-    
+
     /// User's password
     #[validate(length(min = 8))]
     pub password: String,
-    
+
     /// User's email address
     #[validate(email)]
     pub email: String,
@@ -57,7 +57,7 @@ pub struct LoginRequest {
     /// User's email address
     #[validate(email)]
     pub email: String,
-    
+
     /// User's password
     #[validate(length(min = 8))]
     pub password: String,
@@ -77,8 +77,8 @@ pub struct LoginResponse {
 pub struct StoredPlayer {
     #[serde(flatten)]
     pub player: PlayerDto,
-    #[serde(rename = "password")]  // Map to/from "password" in database
-    pub password_hash: String,      // But use password_hash in code
+    #[serde(rename = "password")] // Map to/from "password" in database
+    pub password_hash: String, // But use password_hash in code
 }
 
 /// Data Transfer Object for Player Profile
@@ -119,7 +119,8 @@ impl From<PlayerDto> for Player {
             String::new(), // Password is handled separately
             dto.created_at,
             false, // Default to non-admin for new players
-        ).unwrap_or_else(|_| Self {
+        )
+        .unwrap_or_else(|_| Self {
             id: dto.id,
             rev: String::new(), // Let ArangoDB set this
             firstname: dto.firstname,
@@ -164,7 +165,7 @@ pub struct UpdateEmailRequest {
     /// New email address
     #[validate(email)]
     pub email: String,
-    
+
     /// Current password for verification
     #[validate(length(min = 1))]
     pub password: String,
@@ -177,7 +178,7 @@ pub struct UpdateHandleRequest {
     #[validate(length(min = 3, max = 50))]
     #[validate(regex = "HANDLE_REGEX")]
     pub handle: String,
-    
+
     /// Current password for verification
     #[validate(length(min = 1))]
     pub password: String,
@@ -189,7 +190,7 @@ pub struct UpdatePasswordRequest {
     /// Current password for verification
     #[validate(length(min = 1))]
     pub current_password: String,
-    
+
     /// New password
     #[validate(length(min = 8))]
     pub new_password: String,
@@ -207,14 +208,14 @@ pub struct UpdateResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pretty_assertions::assert_eq;
-    use test_log::test;
-    use fake::{Fake};
+    use crate::models::player::Player;
     use fake::faker::internet::en::SafeEmail;
     use fake::faker::internet::raw::Username;
     use fake::locales::EN;
+    use fake::Fake;
+    use pretty_assertions::assert_eq;
+    use test_log::test;
     use validator::Validate;
-    use crate::models::player::Player;
 
     fn create_test_player_dto() -> PlayerDto {
         PlayerDto {
@@ -421,7 +422,7 @@ mod tests {
             created_at: chrono::Utc::now().fixed_offset(),
             is_admin: false,
         };
-        
+
         let dto = PlayerDto::from(&player);
         assert_eq!(dto.id, "player/1");
         assert_eq!(dto.firstname, "John");
@@ -441,7 +442,7 @@ mod tests {
             created_at: chrono::Utc::now().fixed_offset(),
             is_admin: false,
         };
-        
+
         // Note: StoredPlayer doesn't have a From implementation, so we'll test manual creation
         let stored = StoredPlayer {
             player: PlayerDto::from(&player),
@@ -464,7 +465,7 @@ mod tests {
             created_at: chrono::Utc::now().fixed_offset(),
             is_admin: false,
         };
-        
+
         let profile = PlayerProfileDto::from(&player);
         assert_eq!(profile.firstname, "John");
         assert_eq!(profile.handle, "john_doe");
@@ -500,7 +501,7 @@ mod tests {
         let mut request = create_test_login_request();
         request.email = "TEST@EXAMPLE.COM".to_string();
         assert!(request.validate().is_ok());
-        
+
         request.email = "test@example.com".to_string();
         assert!(request.validate().is_ok());
     }
@@ -510,7 +511,7 @@ mod tests {
         let mut dto = create_test_player_dto();
         dto.handle = "TestHandle".to_string();
         assert!(dto.validate().is_ok());
-        
+
         dto.handle = "testhandle".to_string();
         assert!(dto.validate().is_ok());
     }
@@ -518,18 +519,18 @@ mod tests {
     #[test]
     fn test_password_validation_edge_cases() {
         let mut request = create_test_login_request();
-        
+
         // Test minimum length (8 characters)
         request.password = "12345678".to_string();
         assert!(request.validate().is_ok());
-        
+
         // Test just below minimum
         request.password = "1234567".to_string();
         let result = request.validate();
         assert!(result.is_err());
         let errors = result.unwrap_err();
         assert!(errors.field_errors().contains_key("password"));
-        
+
         // Test with special characters
         request.password = "pass@word123!".to_string();
         assert!(request.validate().is_ok());
@@ -539,13 +540,13 @@ mod tests {
     fn test_serialization_roundtrip() {
         let request = create_test_login_request();
         let response = create_test_login_response();
-        
+
         // LoginRequest roundtrip
         let request_json = serde_json::to_string(&request).unwrap();
         let request_deserialized: LoginRequest = serde_json::from_str(&request_json).unwrap();
         assert_eq!(request.email, request_deserialized.email);
         assert_eq!(request.password, request_deserialized.password);
-        
+
         // LoginResponse roundtrip
         let response_json = serde_json::to_string(&response).unwrap();
         let response_deserialized: LoginResponse = serde_json::from_str(&response_json).unwrap();
@@ -610,4 +611,4 @@ mod tests {
         let result = dto.try_into_player();
         assert!(result.is_err());
     }
-} 
+}

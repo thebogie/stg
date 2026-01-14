@@ -8,32 +8,35 @@ impl Version {
     pub fn current() -> &'static str {
         env!("CARGO_PKG_VERSION")
     }
-    
+
     /// Returns the application name
     pub fn name() -> &'static str {
         env!("CARGO_PKG_NAME")
     }
-    
+
     /// Returns the full version string with name
     pub fn full() -> String {
         format!("{} v{}", Self::name(), Self::current())
     }
-    
+
     /// Returns a short version string
     pub fn short() -> String {
         format!("v{}", Self::current())
     }
-    
+
     /// Returns build information
     pub fn build_info() -> String {
         let version = Self::current();
         let name = Self::name();
-        
+
         // Try to get build date from environment
         let build_date = option_env!("BUILD_DATE").unwrap_or("unknown");
         let git_commit = option_env!("GIT_COMMIT").unwrap_or("unknown");
-        
-        format!("{} v{} (build: {}, commit: {})", name, version, build_date, git_commit)
+
+        format!(
+            "{} v{} (build: {}, commit: {})",
+            name, version, build_date, git_commit
+        )
     }
 }
 
@@ -90,4 +93,4 @@ mod tests {
         assert!(build_info.contains("frontend"));
         assert!(build_info.contains("v"));
     }
-} 
+}

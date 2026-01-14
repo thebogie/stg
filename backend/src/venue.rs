@@ -1,3 +1,3 @@
 pub mod controller;
 pub mod repository;
-pub mod usecase; 
+pub mod usecase;

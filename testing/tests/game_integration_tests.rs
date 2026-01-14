@@ -1,11 +1,11 @@
 //! Comprehensive integration tests for Game API endpoints
 
-use anyhow::Result;
-use actix_web::{test, web, App};
 use actix_web::dev::ServiceResponse;
+use actix_web::{test, web, App};
+use anyhow::Result;
 use serde_json::json;
-use testing::{TestEnvironment, app_setup};
 use shared::dto::game::GameDto;
+use testing::{app_setup, TestEnvironment};
 
 /// Helper to read response body as text for debugging  
 async fn read_body_text<B: actix_web::body::MessageBody>(resp: ServiceResponse<B>) -> String {
@@ -18,7 +18,7 @@ async fn test_create_game() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
     let app_data = app_setup::setup_test_app_data(&env).await?;
-    
+
     let app = test::init_service(
         App::new()
             .wrap(backend::middleware::Logger)
@@ -28,17 +28,20 @@ async fn test_create_game() -> Result<()> {
             .app_data(app_data.player_repo.clone())
             .app_data(app_data.session_store.clone())
             .app_data(app_data.game_repo.clone())
-            .service(web::scope("/api/players")
-                .service(backend::player::controller::register_handler_prod)
-                .service(backend::player::controller::login_handler_prod)
+            .service(
+                web::scope("/api/players")
+                    .service(backend::player::controller::register_handler_prod)
+                    .service(backend::player::controller::login_handler_prod),
             )
-            .service(web::scope("/api/games")
-                .wrap(backend::auth::AuthMiddleware { 
-                    redis: std::sync::Arc::new(app_data.redis_data.get_ref().clone()) 
-                })
-                .service(backend::game::controller::create_game_handler)
-            )
-    ).await;
+            .service(
+                web::scope("/api/games")
+                    .wrap(backend::auth::AuthMiddleware {
+                        redis: std::sync::Arc::new(app_data.redis_data.get_ref().clone()),
+                    })
+                    .service(backend::game::controller::create_game_handler),
+            ),
+    )
+    .await;
 
     // Register and login
     let register_req = test::TestRequest::post()
@@ -55,7 +58,7 @@ async fn test_create_game() -> Result<()> {
         "Registration should succeed, got status: {}",
         register_resp.status()
     );
-    
+
     let login_req = test::TestRequest::post()
         .uri("/api/players/login")
         .set_json(&json!({
@@ -70,7 +73,9 @@ async fn test_create_game() -> Result<()> {
         login_resp.status()
     );
     let login_body: serde_json::Value = test::read_body_json(login_resp).await;
-    let session_id = login_body["session_id"].as_str().expect("Login response should contain session_id");
+    let session_id = login_body["session_id"]
+        .as_str()
+        .expect("Login response should contain session_id");
 
     // Create game
     let game_data = json!({
@@ -91,8 +96,7 @@ async fn test_create_game() -> Result<()> {
         let body_text = read_body_text(resp).await;
         panic!(
             "Create game should succeed, got status: {}, body: {}",
-            status,
-            body_text
+            status, body_text
         );
     }
     let game: GameDto = test::read_body_json(resp).await;
@@ -108,7 +112,7 @@ async fn test_get_all_games() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
     let app_data = app_setup::setup_test_app_data(&env).await?;
-    
+
     let app = test::init_service(
         App::new()
             .wrap(backend::middleware::Logger)
@@ -118,18 +122,21 @@ async fn test_get_all_games() -> Result<()> {
             .app_data(app_data.player_repo.clone())
             .app_data(app_data.session_store.clone())
             .app_data(app_data.game_repo.clone())
-            .service(web::scope("/api/players")
-                .service(backend::player::controller::register_handler_prod)
-                .service(backend::player::controller::login_handler_prod)
+            .service(
+                web::scope("/api/players")
+                    .service(backend::player::controller::register_handler_prod)
+                    .service(backend::player::controller::login_handler_prod),
             )
-            .service(web::scope("/api/games")
-                .wrap(backend::auth::AuthMiddleware { 
-                    redis: std::sync::Arc::new(app_data.redis_data.get_ref().clone()) 
-                })
-                .service(backend::game::controller::create_game_handler)
-                .service(backend::game::controller::get_all_games_handler)
-            )
-    ).await;
+            .service(
+                web::scope("/api/games")
+                    .wrap(backend::auth::AuthMiddleware {
+                        redis: std::sync::Arc::new(app_data.redis_data.get_ref().clone()),
+                    })
+                    .service(backend::game::controller::create_game_handler)
+                    .service(backend::game::controller::get_all_games_handler),
+            ),
+    )
+    .await;
 
     // Register and login
     let register_req = test::TestRequest::post()
@@ -146,7 +153,7 @@ async fn test_get_all_games() -> Result<()> {
         "Registration should succeed, got status: {}",
         register_resp.status()
     );
-    
+
     let login_req = test::TestRequest::post()
         .uri("/api/players/login")
         .set_json(&json!({
@@ -161,7 +168,9 @@ async fn test_get_all_games() -> Result<()> {
         login_resp.status()
     );
     let login_body: serde_json::Value = test::read_body_json(login_resp).await;
-    let session_id = login_body["session_id"].as_str().expect("Login response should contain session_id");
+    let session_id = login_body["session_id"]
+        .as_str()
+        .expect("Login response should contain session_id");
 
     // Create multiple games
     for i in 0..3 {
@@ -189,8 +198,7 @@ async fn test_get_all_games() -> Result<()> {
         let body_text = read_body_text(get_all_resp).await;
         panic!(
             "Get all games should succeed, got status: {}, body: {}",
-            status,
-            body_text
+            status, body_text
         );
     }
     let games: Vec<GameDto> = test::read_body_json(get_all_resp).await;
@@ -204,7 +212,7 @@ async fn test_update_game() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
     let app_data = app_setup::setup_test_app_data(&env).await?;
-    
+
     let app = test::init_service(
         App::new()
             .wrap(backend::middleware::Logger)
@@ -214,18 +222,21 @@ async fn test_update_game() -> Result<()> {
             .app_data(app_data.player_repo.clone())
             .app_data(app_data.session_store.clone())
             .app_data(app_data.game_repo.clone())
-            .service(web::scope("/api/players")
-                .service(backend::player::controller::register_handler_prod)
-                .service(backend::player::controller::login_handler_prod)
+            .service(
+                web::scope("/api/players")
+                    .service(backend::player::controller::register_handler_prod)
+                    .service(backend::player::controller::login_handler_prod),
             )
-            .service(web::scope("/api/games")
-                .wrap(backend::auth::AuthMiddleware { 
-                    redis: std::sync::Arc::new(app_data.redis_data.get_ref().clone()) 
-                })
-                .service(backend::game::controller::create_game_handler)
-                .service(backend::game::controller::update_game_handler)
-            )
-    ).await;
+            .service(
+                web::scope("/api/games")
+                    .wrap(backend::auth::AuthMiddleware {
+                        redis: std::sync::Arc::new(app_data.redis_data.get_ref().clone()),
+                    })
+                    .service(backend::game::controller::create_game_handler)
+                    .service(backend::game::controller::update_game_handler),
+            ),
+    )
+    .await;
 
     // Register, login, create game
     let register_req = test::TestRequest::post()
@@ -242,7 +253,7 @@ async fn test_update_game() -> Result<()> {
         "Registration should succeed, got status: {}",
         register_resp.status()
     );
-    
+
     let login_req = test::TestRequest::post()
         .uri("/api/players/login")
         .set_json(&json!({
@@ -254,10 +265,15 @@ async fn test_update_game() -> Result<()> {
     let status = login_resp.status();
     if !status.is_success() {
         let body = read_body_text(login_resp).await;
-        panic!("Login should succeed, got status: {}, body: {}", status, body);
+        panic!(
+            "Login should succeed, got status: {}, body: {}",
+            status, body
+        );
     }
     let login_body: serde_json::Value = test::read_body_json(login_resp).await;
-    let session_id = login_body["session_id"].as_str().expect("Login response should contain session_id");
+    let session_id = login_body["session_id"]
+        .as_str()
+        .expect("Login response should contain session_id");
 
     let create_req = test::TestRequest::post()
         .uri("/api/games")
@@ -268,15 +284,14 @@ async fn test_update_game() -> Result<()> {
             "source": "bgg"
         }))
         .to_request();
-    
+
     let create_resp = test::call_service(&app, create_req).await;
     let status = create_resp.status();
     if !status.is_success() {
         let body_text = read_body_text(create_resp).await;
         panic!(
             "Create game should succeed, got status: {}, body: {}",
-            status,
-            body_text
+            status, body_text
         );
     }
     let game: GameDto = test::read_body_json(create_resp).await;
@@ -299,8 +314,7 @@ async fn test_update_game() -> Result<()> {
         let body_text = read_body_text(update_resp).await;
         panic!(
             "Update game should succeed, got status: {}, body: {}",
-            status,
-            body_text
+            status, body_text
         );
     }
     let updated: GameDto = test::read_body_json(update_resp).await;
@@ -316,7 +330,7 @@ async fn test_delete_game() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
     let app_data = app_setup::setup_test_app_data(&env).await?;
-    
+
     let app = test::init_service(
         App::new()
             .wrap(backend::middleware::Logger)
@@ -326,19 +340,22 @@ async fn test_delete_game() -> Result<()> {
             .app_data(app_data.player_repo.clone())
             .app_data(app_data.session_store.clone())
             .app_data(app_data.game_repo.clone())
-            .service(web::scope("/api/players")
-                .service(backend::player::controller::register_handler_prod)
-                .service(backend::player::controller::login_handler_prod)
+            .service(
+                web::scope("/api/players")
+                    .service(backend::player::controller::register_handler_prod)
+                    .service(backend::player::controller::login_handler_prod),
             )
-            .service(web::scope("/api/games")
-                .wrap(backend::auth::AuthMiddleware { 
-                    redis: std::sync::Arc::new(app_data.redis_data.get_ref().clone()) 
-                })
-                .service(backend::game::controller::create_game_handler)
-                .service(backend::game::controller::delete_game_handler)
-                .service(backend::game::controller::get_game_handler)
-            )
-    ).await;
+            .service(
+                web::scope("/api/games")
+                    .wrap(backend::auth::AuthMiddleware {
+                        redis: std::sync::Arc::new(app_data.redis_data.get_ref().clone()),
+                    })
+                    .service(backend::game::controller::create_game_handler)
+                    .service(backend::game::controller::delete_game_handler)
+                    .service(backend::game::controller::get_game_handler),
+            ),
+    )
+    .await;
 
     // Register, login, create game
     let register_req = test::TestRequest::post()
@@ -355,7 +372,7 @@ async fn test_delete_game() -> Result<()> {
         "Registration should succeed, got status: {}",
         register_resp.status()
     );
-    
+
     let login_req = test::TestRequest::post()
         .uri("/api/players/login")
         .set_json(&json!({
@@ -370,7 +387,9 @@ async fn test_delete_game() -> Result<()> {
         login_resp.status()
     );
     let login_body: serde_json::Value = test::read_body_json(login_resp).await;
-    let session_id = login_body["session_id"].as_str().expect("Login response should contain session_id");
+    let session_id = login_body["session_id"]
+        .as_str()
+        .expect("Login response should contain session_id");
 
     let create_req = test::TestRequest::post()
         .uri("/api/games")
@@ -381,7 +400,7 @@ async fn test_delete_game() -> Result<()> {
             "source": "bgg"
         }))
         .to_request();
-    
+
     let create_resp = test::call_service(&app, create_req).await;
     let game: GameDto = test::read_body_json(create_resp).await;
     let game_id = game.id.clone();
@@ -399,8 +418,7 @@ async fn test_delete_game() -> Result<()> {
         let body_text = String::from_utf8_lossy(&body_bytes);
         panic!(
             "Delete game should succeed, got status: {}, body: {}",
-            delete_status,
-            body_text
+            delete_status, body_text
         );
     }
 
@@ -415,4 +433,3 @@ async fn test_delete_game() -> Result<()> {
 
     Ok(())
 }
-

@@ -1,7 +1,7 @@
+use crate::{Result, SharedError};
+use chrono::{DateTime, FixedOffset};
 use serde::{Deserialize, Serialize};
 use validator::Validate;
-use chrono::{DateTime, FixedOffset};
-use crate::{SharedError, Result};
 
 /// Represents a contest in the system
 #[derive(Debug, Serialize, Deserialize, Validate, Clone)]
@@ -15,7 +15,11 @@ pub struct Contest {
     pub rev: String,
 
     /// Name of the contest
-    #[validate(length(min = 1, max = 1000, message = "Name must be between 1 and 1000 characters"))]
+    #[validate(length(
+        min = 1,
+        max = 1000,
+        message = "Name must be between 1 and 1000 characters"
+    ))]
     pub name: String,
 
     /// Contest start time (UTC)
@@ -163,7 +167,7 @@ mod tests {
     fn test_contest_new_with_validation() {
         let start = DateTime::parse_from_rfc3339("2023-07-15T14:00:00Z").unwrap();
         let stop = DateTime::parse_from_rfc3339("2023-07-15T16:00:00Z").unwrap();
-        
+
         let result = Contest::new(
             "contest/test".to_string(),
             "1".to_string(),
@@ -173,7 +177,7 @@ mod tests {
             "player/test-creator".to_string(),
             DateTime::parse_from_rfc3339("2023-07-15T10:00:00Z").unwrap(),
         );
-        
+
         assert!(result.is_ok());
         let contest = result.unwrap();
         assert_eq!(contest.name, "Valid Contest");
@@ -183,7 +187,7 @@ mod tests {
     fn test_contest_new_with_invalid_name() {
         let start = DateTime::parse_from_rfc3339("2023-07-15T14:00:00Z").unwrap();
         let stop = DateTime::parse_from_rfc3339("2023-07-15T16:00:00Z").unwrap();
-        
+
         let result = Contest::new(
             "contest/test".to_string(),
             "1".to_string(),
@@ -193,7 +197,7 @@ mod tests {
             "player/test-creator".to_string(),
             DateTime::parse_from_rfc3339("2023-07-15T10:00:00Z").unwrap(),
         );
-        
+
         assert!(result.is_err());
     }
 
@@ -214,7 +218,10 @@ mod tests {
     fn test_contest_creator_tracking() {
         let contest = create_test_contest();
         assert_eq!(contest.creator_id, "player/test-creator");
-        assert_eq!(contest.created_at, DateTime::parse_from_rfc3339("2023-07-15T10:00:00Z").unwrap());
+        assert_eq!(
+            contest.created_at,
+            DateTime::parse_from_rfc3339("2023-07-15T10:00:00Z").unwrap()
+        );
     }
 
     #[test]
@@ -222,7 +229,7 @@ mod tests {
         let start = DateTime::parse_from_rfc3339("2023-07-15T14:00:00Z").unwrap();
         let stop = DateTime::parse_from_rfc3339("2023-07-15T16:00:00Z").unwrap();
         let created_at = DateTime::parse_from_rfc3339("2023-07-15T10:00:00Z").unwrap();
-        
+
         let result = Contest::new(
             "contest/test".to_string(),
             "1".to_string(),
@@ -232,7 +239,7 @@ mod tests {
             "player/test-creator".to_string(),
             created_at,
         );
-        
+
         assert!(result.is_ok());
         let contest = result.unwrap();
         assert_eq!(contest.name, "Creator Test Contest");
@@ -245,10 +252,10 @@ mod tests {
         let contest = create_test_contest();
         let json = serde_json::to_string(&contest).unwrap();
         let deserialized: Contest = serde_json::from_str(&json).unwrap();
-        
+
         assert_eq!(contest.id, deserialized.id);
         assert_eq!(contest.name, deserialized.name);
         assert_eq!(contest.creator_id, deserialized.creator_id);
         assert_eq!(contest.created_at, deserialized.created_at);
     }
-} 
+}

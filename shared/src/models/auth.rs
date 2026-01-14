@@ -1,6 +1,6 @@
+use crate::error::{Result, SharedError};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-use crate::error::{Result, SharedError};
 use validator::Validate;
 
 /// Request for user registration
@@ -9,19 +9,19 @@ pub struct RegisterRequest {
     /// User's display name
     #[validate(length(min = 3, max = 50))]
     pub username: String,
-    
+
     /// User's password
     #[validate(length(min = 8))]
     pub password: String,
-    
+
     /// User's email address
     #[validate(email)]
     pub email: String,
-    
+
     /// User's full name
     #[validate(length(min = 1, max = 100))]
     pub name: String,
-    
+
     /// User's country code
     #[validate(length(equal = 2))]
     pub country: String,
@@ -33,7 +33,7 @@ pub struct LoginRequest {
     /// User's email address
     #[validate(email)]
     pub email: String,
-    
+
     /// User's password
     #[validate(length(min = 8))]
     pub password: String,
@@ -44,11 +44,11 @@ pub struct LoginRequest {
 pub struct User {
     /// Unique identifier for the user
     pub id: Uuid,
-    
+
     /// User's display name
     #[validate(length(min = 3, max = 50))]
     pub username: String,
-    
+
     /// User's email address
     #[validate(email)]
     pub email: String,
@@ -57,7 +57,11 @@ pub struct User {
 impl User {
     /// Creates a new user with validation
     pub fn new(id: Uuid, username: String, email: String) -> Result<Self> {
-        let user = Self { id, username, email };
+        let user = Self {
+            id,
+            username,
+            email,
+        };
         user.validate_fields()?;
         Ok(user)
     }
@@ -74,7 +78,7 @@ impl User {
 pub struct UserSession {
     /// ID of the user this session belongs to
     pub user_id: Uuid,
-    
+
     /// Unique session identifier
     #[validate(length(min = 32))]
     pub session_id: String,
@@ -83,7 +87,10 @@ pub struct UserSession {
 impl UserSession {
     /// Creates a new user session with validation
     pub fn new(user_id: Uuid, session_id: String) -> Result<Self> {
-        let session = Self { user_id, session_id };
+        let session = Self {
+            user_id,
+            session_id,
+        };
         session.validate_fields()?;
         Ok(session)
     }
@@ -93,4 +100,4 @@ impl UserSession {
         self.validate()
             .map_err(|e| SharedError::Validation(e.to_string()))
     }
-} 
+}

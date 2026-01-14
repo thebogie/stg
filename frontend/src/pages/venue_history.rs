@@ -1,9 +1,9 @@
-use yew::prelude::*;
-use yew_router::prelude::*;
-use serde_json::Value;
-use crate::Route;
 use crate::api::utils::authenticated_get;
 use crate::auth::AuthContext;
+use crate::Route;
+use serde_json::Value;
+use yew::prelude::*;
+use yew_router::prelude::*;
 
 #[derive(Properties, PartialEq)]
 pub struct VenueHistoryProps {
@@ -24,7 +24,12 @@ pub fn venue_history(props: &VenueHistoryProps) -> Html {
         let loading = loading.clone();
         let error = error.clone();
         let venue_id = props.venue_id.clone();
-        let player_id = auth.state.player.as_ref().map(|p| p.id.clone()).unwrap_or_default();
+        let player_id = auth
+            .state
+            .player
+            .as_ref()
+            .map(|p| p.id.clone())
+            .unwrap_or_default();
 
         use_effect_with((venue_id.clone(), player_id.clone()), move |_| {
             let contests = contests.clone();
@@ -45,7 +50,11 @@ pub fn venue_history(props: &VenueHistoryProps) -> Html {
 
                 // For now we’ll use analytics endpoint if exists; if not, fallback to client-side filtering later
                 // Try: /api/analytics/player/contests-by-venue?name=Venue Name
-                let vid = if venue_id.starts_with("venue/") { venue_id.split('/').nth(1).unwrap_or(&venue_id).to_string() } else { venue_id.clone() };
+                let vid = if venue_id.starts_with("venue/") {
+                    venue_id.split('/').nth(1).unwrap_or(&venue_id).to_string()
+                } else {
+                    venue_id.clone()
+                };
                 let url = format!("/api/analytics/player/contests-by-venue?id={}", vid);
                 log::info!("Making venue history API call: {}", url);
                 match authenticated_get(&url).send().await {
@@ -62,10 +71,15 @@ pub fn venue_history(props: &VenueHistoryProps) -> Html {
                                         contests.set(Some(vec![]));
                                     }
                                 }
-                                Err(e) => error.set(Some(format!("Failed to parse contests: {}", e))),
+                                Err(e) => {
+                                    error.set(Some(format!("Failed to parse contests: {}", e)))
+                                }
                             }
                         } else {
-                            error.set(Some(format!("Failed to fetch contests: {}", response.status())));
+                            error.set(Some(format!(
+                                "Failed to fetch contests: {}",
+                                response.status()
+                            )));
                         }
                     }
                     Err(e) => error.set(Some(format!("Failed to fetch contests: {}", e))),
@@ -84,7 +98,9 @@ pub fn venue_history(props: &VenueHistoryProps) -> Html {
 
     // Extract venue name from first contest if available
     let venue_name = if let Some(cs) = &*contests {
-        cs.first().and_then(|c| c.get("venue_display_name").and_then(|v| v.as_str())).unwrap_or("Venue")
+        cs.first()
+            .and_then(|c| c.get("venue_display_name").and_then(|v| v.as_str()))
+            .unwrap_or("Venue")
     } else {
         "Venue"
     };
@@ -159,5 +175,3 @@ pub fn venue_history(props: &VenueHistoryProps) -> Html {
         </div>
     }
 }
-
-

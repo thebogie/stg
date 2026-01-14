@@ -1,9 +1,8 @@
+use crate::auth::AuthContext;
+use crate::components::auth::login_modal::LoginModal;
+use crate::Route;
 use yew::prelude::*;
 use yew_router::prelude::*;
-use crate::auth::AuthContext;
-use crate::Route;
-use crate::components::auth::login_modal::LoginModal;
-
 
 #[function_component(Nav)]
 pub fn nav() -> Html {
@@ -62,7 +61,7 @@ pub fn nav() -> Html {
     html! {
         <>
             <nav class={classes!(
-                "sticky", "top-0", "z-50", "bg-gradient-to-r", "from-slate-800", "to-blue-600", 
+                "sticky", "top-0", "z-50", "bg-gradient-to-r", "from-slate-800", "to-blue-600",
                 "text-white", "shadow-lg", "backdrop-blur-sm"
             )}>
                 <div class={classes!("max-w-7xl", "mx-auto", "px-4", "sm:px-6", "lg:px-8")}>
@@ -70,21 +69,21 @@ pub fn nav() -> Html {
                         // Left side - Logo and main nav
                         <div class={classes!("flex", "items-center", "space-x-4", "sm:space-x-8")}>
                             <Link<Route> to={Route::Home} classes={classes!(
-                                "flex", "items-baseline", "space-x-1", "hover:transform", 
+                                "flex", "items-baseline", "space-x-1", "hover:transform",
                                 "hover:-translate-y-0.5", "transition-transform", "duration-200",
                                 "active:scale-95" // Better touch feedback
                             )}>
-                              
+
                                 <span class={classes!("text-lg", "sm:text-xl", "font-medium", "bg-white", "text-blue-600", "px-2", "py-0.5", "rounded")}>{"STG"}</span>
                             </Link<Route>>
-                            
+
                             // Desktop navigation - hidden on mobile
                             <div class={classes!("hidden", "md:flex", "space-x-6")}>
                                 if let Some(_) = &auth.state.player {
-                                    <Link<Route> 
-                                        to={Route::Profile} 
+                                    <Link<Route>
+                                        to={Route::Profile}
                                         classes={classes!(
-                                            "px-3", "py-2", "rounded-md", "text-sm", "font-medium", 
+                                            "px-3", "py-2", "rounded-md", "text-sm", "font-medium",
                                             "transition-colors", "duration-200", "min-h-[44px]", "flex", "items-center", // Better touch target
                                             if current_route == Route::Profile {
                                                 classes!("bg-white/20", "text-white")
@@ -95,10 +94,10 @@ pub fn nav() -> Html {
                                     >
                                         {"Profile"}
                                     </Link<Route>>
-                                    <Link<Route> 
-                                        to={Route::Contests} 
+                                    <Link<Route>
+                                        to={Route::Contests}
                                         classes={classes!(
-                                            "px-3", "py-2", "rounded-md", "text-sm", "font-medium", 
+                                            "px-3", "py-2", "rounded-md", "text-sm", "font-medium",
                                             "transition-colors", "duration-200", "min-h-[44px]", "flex", "items-center",
                                             if current_route == Route::Contests {
                                                 classes!("bg-white/20", "text-white")
@@ -109,10 +108,10 @@ pub fn nav() -> Html {
                                     >
                                         {"Contests"}
                                     </Link<Route>>
-                                    <Link<Route> 
-                                        to={Route::Venues} 
+                                    <Link<Route>
+                                        to={Route::Venues}
                                         classes={classes!(
-                                            "px-3", "py-2", "rounded-md", "text-sm", "font-medium", 
+                                            "px-3", "py-2", "rounded-md", "text-sm", "font-medium",
                                             "transition-colors", "duration-200", "min-h-[44px]", "flex", "items-center",
                                             if current_route == Route::Venues {
                                                 classes!("bg-white/20", "text-white")
@@ -123,10 +122,10 @@ pub fn nav() -> Html {
                                     >
                                         {"Venues"}
                                     </Link<Route>>
-                                    <Link<Route> 
-                                        to={Route::Games} 
+                                    <Link<Route>
+                                        to={Route::Games}
                                         classes={classes!(
-                                            "px-3", "py-2", "rounded-md", "text-sm", "font-medium", 
+                                            "px-3", "py-2", "rounded-md", "text-sm", "font-medium",
                                             "transition-colors", "duration-200", "min-h-[44px]", "flex", "items-center",
                                             if current_route == Route::Games {
                                                 classes!("bg-white/20", "text-white")
@@ -137,10 +136,10 @@ pub fn nav() -> Html {
                                     >
                                         {"Games"}
                                     </Link<Route>>
-                                    <Link<Route> 
-                                        to={Route::Analytics} 
+                                    <Link<Route>
+                                        to={Route::Analytics}
                                         classes={classes!(
-                                            "px-3", "py-2", "rounded-md", "text-sm", "font-medium", 
+                                            "px-3", "py-2", "rounded-md", "text-sm", "font-medium",
                                             "transition-colors", "duration-200", "min-h-[44px]", "flex", "items-center",
                                             if current_route == Route::Analytics {
                                                 classes!("bg-white/20", "text-white")
@@ -152,10 +151,10 @@ pub fn nav() -> Html {
                                         {"Statistics"}
                                     </Link<Route>>
                                     if auth.state.is_admin() {
-                                        <Link<Route> 
-                                            to={Route::Admin} 
+                                        <Link<Route>
+                                            to={Route::Admin}
                                             classes={classes!(
-                                                "px-3", "py-2", "rounded-md", "text-sm", "font-medium", 
+                                                "px-3", "py-2", "rounded-md", "text-sm", "font-medium",
                                                 "transition-colors", "duration-200", "min-h-[44px]", "flex", "items-center",
                                                 if current_route == Route::Admin {
                                                     classes!("bg-white/20", "text-white")
@@ -201,13 +200,13 @@ pub fn nav() -> Html {
                                         <span class={classes!("mr-2")}>{"➕"}</span>
                                         <span>{"Create"}</span>
                                     </button>
-                                    <button 
+                                    <button
                                         onclick={on_logout_click.clone()}
                                         class={classes!(
-                                            "inline-flex", "items-center", "px-3", "py-1.5", "border", 
-                                            "border-transparent", "text-xs", "font-medium", "rounded-md", 
-                                            "text-blue-600", "bg-white", "hover:bg-blue-50", "focus:outline-none", 
-                                            "focus:ring-2", "focus:ring-offset-2", "focus:ring-blue-500", 
+                                            "inline-flex", "items-center", "px-3", "py-1.5", "border",
+                                            "border-transparent", "text-xs", "font-medium", "rounded-md",
+                                            "text-blue-600", "bg-white", "hover:bg-blue-50", "focus:outline-none",
+                                            "focus:ring-2", "focus:ring-offset-2", "focus:ring-blue-500",
                                             "transition-colors", "duration-200", "min-h-[32px]", "active:scale-95"
                                         )}
                                     >
@@ -216,13 +215,13 @@ pub fn nav() -> Html {
                                     </button>
                                 </div>
                             } else {
-                                <button 
+                                <button
                                     onclick={on_login_click.clone()}
                                     class={classes!(
-                                        "inline-flex", "items-center", "px-3", "sm:px-4", "py-2", "border", 
-                                        "border-transparent", "text-sm", "font-medium", "rounded-md", 
-                                        "text-white", "bg-blue-500", "hover:bg-blue-600", "focus:outline-none", 
-                                        "focus:ring-2", "focus:ring-offset-2", "focus:ring-blue-500", 
+                                        "inline-flex", "items-center", "px-3", "sm:px-4", "py-2", "border",
+                                        "border-transparent", "text-sm", "font-medium", "rounded-md",
+                                        "text-white", "bg-blue-500", "hover:bg-blue-600", "focus:outline-none",
+                                        "focus:ring-2", "focus:ring-offset-2", "focus:ring-blue-500",
                                         "transition-colors", "duration-200", "min-h-[44px]", "active:scale-95"
                                     )}
                                 >
@@ -233,11 +232,11 @@ pub fn nav() -> Html {
                             }
 
                             // Mobile menu button - improved touch target
-                            <button 
+                            <button
                                 onclick={toggle_mobile_menu}
                                 class={classes!(
-                                    "md:hidden", "inline-flex", "items-center", "justify-center", "p-3", 
-                                    "rounded-md", "text-white", "hover:bg-white/10", "focus:outline-none", 
+                                    "md:hidden", "inline-flex", "items-center", "justify-center", "p-3",
+                                    "rounded-md", "text-white", "hover:bg-white/10", "focus:outline-none",
                                     "focus:ring-2", "focus:ring-inset", "focus:ring-white", "min-h-[44px]", "min-w-[44px]",
                                     "active:scale-95", "transition-transform", "duration-150"
                                 )}
@@ -248,7 +247,7 @@ pub fn nav() -> Html {
                                     if *is_mobile_menu_open { classes!("space-y-0") } else { classes!("space-y-1.5") }
                                 )}>
                                     <span class={classes!(
-                                        "block", "w-6", "h-0.5", "bg-white", "transform", 
+                                        "block", "w-6", "h-0.5", "bg-white", "transform",
                                         "transition-all", "duration-300", "origin-center",
                                         if *is_mobile_menu_open { classes!("rotate-45", "translate-y-0.5") } else { classes!() }
                                     )}></span>
@@ -257,7 +256,7 @@ pub fn nav() -> Html {
                                         if *is_mobile_menu_open { classes!("opacity-0") } else { classes!() }
                                     )}></span>
                                     <span class={classes!(
-                                        "block", "w-6", "h-0.5", "bg-white", "transform", 
+                                        "block", "w-6", "h-0.5", "bg-white", "transform",
                                         "transition-all", "duration-300", "origin-center",
                                         if *is_mobile_menu_open { classes!("-rotate-45", "-translate-y-0.5") } else { classes!() }
                                     )}></span>
@@ -270,19 +269,19 @@ pub fn nav() -> Html {
                 // Enhanced mobile menu with better animations and touch targets
                 <div class={classes!(
                     "md:hidden", "transition-all", "duration-300", "ease-in-out", "border-t", "border-white/10",
-                    if *is_mobile_menu_open { 
-                        classes!("max-h-96", "opacity-100", "visible") 
-                    } else { 
-                        classes!("max-h-0", "opacity-0", "invisible", "overflow-hidden") 
+                    if *is_mobile_menu_open {
+                        classes!("max-h-96", "opacity-100", "visible")
+                    } else {
+                        classes!("max-h-0", "opacity-0", "invisible", "overflow-hidden")
                     }
                 )}>
                     <div class={classes!("px-4", "pt-4", "pb-6", "space-y-2", "bg-gradient-to-b", "from-slate-800/95", "to-blue-600/95", "backdrop-blur-sm")}>
                         if let Some(_) = &auth.state.player {
                             <div onclick={close_mobile_menu.clone()}>
-                                <Link<Route> 
-                                    to={Route::Profile} 
+                                <Link<Route>
+                                    to={Route::Profile}
                                     classes={classes!(
-                                        "block", "px-4", "py-3", "rounded-lg", "text-base", "font-medium", 
+                                        "block", "px-4", "py-3", "rounded-lg", "text-base", "font-medium",
                                         "transition-all", "duration-200", "min-h-[48px]", "flex", "items-center",
                                         "active:scale-95", "active:bg-white/20",
                                         if current_route == Route::Profile {
@@ -313,10 +312,10 @@ pub fn nav() -> Html {
                                 </button>
                             </div>
                             <div onclick={close_mobile_menu.clone()}>
-                                <Link<Route> 
-                                    to={Route::Contests} 
+                                <Link<Route>
+                                    to={Route::Contests}
                                     classes={classes!(
-                                        "block", "px-4", "py-3", "rounded-lg", "text-base", "font-medium", 
+                                        "block", "px-4", "py-3", "rounded-lg", "text-base", "font-medium",
                                         "transition-all", "duration-200", "min-h-[48px]", "flex", "items-center",
                                         "active:scale-95", "active:bg-white/20",
                                         if current_route == Route::Contests {
@@ -331,10 +330,10 @@ pub fn nav() -> Html {
                                 </Link<Route>>
                             </div>
                             <div onclick={close_mobile_menu.clone()}>
-                                <Link<Route> 
-                                    to={Route::Venues} 
+                                <Link<Route>
+                                    to={Route::Venues}
                                     classes={classes!(
-                                        "block", "px-4", "py-3", "rounded-lg", "text-base", "font-medium", 
+                                        "block", "px-4", "py-3", "rounded-lg", "text-base", "font-medium",
                                         "transition-all", "duration-200", "min-h-[48px]", "flex", "items-center",
                                         "active:scale-95", "active:bg-white/20",
                                         if current_route == Route::Venues {
@@ -349,10 +348,10 @@ pub fn nav() -> Html {
                                 </Link<Route>>
                             </div>
                             <div onclick={close_mobile_menu.clone()}>
-                                <Link<Route> 
-                                    to={Route::Games} 
+                                <Link<Route>
+                                    to={Route::Games}
                                     classes={classes!(
-                                        "block", "px-4", "py-3", "rounded-lg", "text-base", "font-medium", 
+                                        "block", "px-4", "py-3", "rounded-lg", "text-base", "font-medium",
                                         "transition-all", "duration-200", "min-h-[48px]", "flex", "items-center",
                                         "active:scale-95", "active:bg-white/20",
                                         if current_route == Route::Games {
@@ -367,10 +366,10 @@ pub fn nav() -> Html {
                                 </Link<Route>>
                             </div>
                             <div onclick={close_mobile_menu.clone()}>
-                                <Link<Route> 
-                                    to={Route::Analytics} 
+                                <Link<Route>
+                                    to={Route::Analytics}
                                     classes={classes!(
-                                        "block", "px-4", "py-3", "rounded-lg", "text-base", "font-medium", 
+                                        "block", "px-4", "py-3", "rounded-lg", "text-base", "font-medium",
                                         "transition-all", "duration-200", "min-h-[48px]", "flex", "items-center",
                                         "active:scale-95", "active:bg-white/20",
                                         if current_route == Route::Analytics {
@@ -386,10 +385,10 @@ pub fn nav() -> Html {
                             </div>
                             if auth.state.is_admin() {
                                 <div onclick={close_mobile_menu.clone()}>
-                                    <Link<Route> 
-                                        to={Route::Admin} 
+                                    <Link<Route>
+                                        to={Route::Admin}
                                         classes={classes!(
-                                            "block", "px-4", "py-3", "rounded-lg", "text-base", "font-medium", 
+                                            "block", "px-4", "py-3", "rounded-lg", "text-base", "font-medium",
                                             "transition-all", "duration-200", "min-h-[48px]", "flex", "items-center",
                                             "active:scale-95", "active:bg-white/20",
                                             if current_route == Route::Admin {
@@ -405,7 +404,7 @@ pub fn nav() -> Html {
                                 </div>
                             }
                         }
-                        
+
                         // User info and logout section
                         if let Some(player) = &auth.state.player {
                             <div class={classes!("mt-6", "pt-4", "border-t", "border-white/10")}>
@@ -420,13 +419,13 @@ pub fn nav() -> Html {
                                             </span>
                                         }
                                     </span>
-                                    <button 
+                                    <button
                                         onclick={on_logout_click.clone()}
                                         class={classes!(
-                                            "w-full", "inline-flex", "justify-center", "items-center", 
-                                            "px-3", "py-2", "border", "border-transparent", "text-xs", "font-medium", 
-                                            "rounded-lg", "text-blue-600", "bg-white", "hover:bg-blue-50", 
-                                            "focus:outline-none", "focus:ring-2", "focus:ring-offset-2", 
+                                            "w-full", "inline-flex", "justify-center", "items-center",
+                                            "px-3", "py-2", "border", "border-transparent", "text-xs", "font-medium",
+                                            "rounded-lg", "text-blue-600", "bg-white", "hover:bg-blue-50",
+                                            "focus:outline-none", "focus:ring-2", "focus:ring-offset-2",
                                             "focus:ring-blue-500", "transition-all", "duration-200", "min-h-[36px]",
                                             "active:scale-95", "shadow-lg"
                                         )}
@@ -438,13 +437,13 @@ pub fn nav() -> Html {
                             </div>
                         } else {
                             <div class={classes!("mt-6", "pt-4", "border-t", "border-white/10")}>
-                                <button 
+                                <button
                                     onclick={on_login_click.clone()}
                                     class={classes!(
-                                        "w-full", "inline-flex", "justify-center", "items-center", "px-4", 
-                                        "py-3", "border", "border-transparent", "text-sm", "font-medium", 
-                                        "rounded-lg", "text-white", "bg-blue-500", "hover:bg-blue-600", 
-                                        "focus:outline-none", "focus:ring-2", "focus:ring-offset-2", 
+                                        "w-full", "inline-flex", "justify-center", "items-center", "px-4",
+                                        "py-3", "border", "border-transparent", "text-sm", "font-medium",
+                                        "rounded-lg", "text-white", "bg-blue-500", "hover:bg-blue-600",
+                                        "focus:outline-none", "focus:ring-2", "focus:ring-offset-2",
                                         "focus:ring-blue-500", "transition-all", "duration-200", "min-h-[48px]",
                                         "active:scale-95", "shadow-lg"
                                     )}
@@ -458,10 +457,10 @@ pub fn nav() -> Html {
                 </div>
             </nav>
 
-            <LoginModal 
-                show={*show_login_modal} 
+            <LoginModal
+                show={*show_login_modal}
                 on_close={on_modal_close}
             />
         </>
     }
-} 
+}

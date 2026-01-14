@@ -1,6 +1,6 @@
-use yew::prelude::*;
 use gloo_timers::callback::Timeout;
 use uuid::Uuid;
+use yew::prelude::*;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ToastType {
@@ -220,4 +220,4 @@ pub fn show_toast(message: &str, _toast_type: ToastType) {
             }
         }
     }
-} 
+}

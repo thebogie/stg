@@ -52,35 +52,31 @@ async fn main() -> Result<()> {
     let args = Args::parse();
 
     info!("Reading dump from {}", args.input.display());
-    let file = File::open(&args.input)
-        .context("Failed to open input file")?;
+    let file = File::open(&args.input).context("Failed to open input file")?;
     let reader = BufReader::new(file);
-    
-    let mut dump: Value = serde_json::from_reader(reader)
-        .context("Failed to parse JSON")?;
+
+    let mut dump: Value = serde_json::from_reader(reader).context("Failed to parse JSON")?;
 
     info!("Sanitizing PII...");
     sanitize_dump(&mut dump, &args)?;
 
-    let is_gzipped = args.output.extension()
+    let is_gzipped = args
+        .output
+        .extension()
         .and_then(|ext| ext.to_str())
         .map(|ext| ext == "gz")
         .unwrap_or(false);
 
     if is_gzipped {
         info!("Writing gzipped output to {}", args.output.display());
-        let file = File::create(&args.output)
-            .context("Failed to create output file")?;
+        let file = File::create(&args.output).context("Failed to create output file")?;
         let encoder = GzEncoder::new(BufWriter::new(file), Compression::default());
-        serde_json::to_writer(encoder, &dump)
-            .context("Failed to write JSON")?;
+        serde_json::to_writer(encoder, &dump).context("Failed to write JSON")?;
     } else {
         info!("Writing output to {}", args.output.display());
-        let file = File::create(&args.output)
-            .context("Failed to create output file")?;
+        let file = File::create(&args.output).context("Failed to create output file")?;
         let mut writer = BufWriter::new(file);
-        serde_json::to_writer_pretty(&mut writer, &dump)
-            .context("Failed to write JSON")?;
+        serde_json::to_writer_pretty(&mut writer, &dump).context("Failed to write JSON")?;
         writer.flush()?;
     }
 
@@ -95,7 +91,7 @@ fn sanitize_dump(dump: &mut Value, args: &Args) -> Result<()> {
     if let Some(collections) = dump.get_mut("collections").and_then(|c| c.as_object_mut()) {
         for (collection_name, documents) in collections {
             info!("Sanitizing collection: {}", collection_name);
-            
+
             if let Some(docs_array) = documents.as_array_mut() {
                 for (idx, doc) in docs_array.iter_mut().enumerate() {
                     sanitize_document(doc, collection_name, idx, args);
@@ -175,4 +171,3 @@ fn sanitize_document(doc: &mut Value, collection_name: &str, idx: usize, args: &
         }
     }
 }
-

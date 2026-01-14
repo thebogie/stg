@@ -1,6 +1,6 @@
-use shared::models::venue::Venue;
-use shared::dto::venue::VenueDto;
 use crate::venue::repository::VenueRepository;
+use shared::dto::venue::VenueDto;
+use shared::models::venue::Venue;
 use validator::Validate;
 
 #[async_trait::async_trait]
@@ -11,7 +11,10 @@ pub trait VenueUseCase: Send + Sync {
     async fn search_venues_dto(&self, query: &str) -> Result<Vec<VenueDto>, String>;
     async fn search_venues_dto_with_external(&self, query: &str) -> Result<Vec<VenueDto>, String>;
     async fn get_venue_performance(&self, venue_id: &str) -> Result<serde_json::Value, String>;
-    async fn get_player_venue_stats(&self, player_id: &str) -> Result<Vec<serde_json::Value>, String>;
+    async fn get_player_venue_stats(
+        &self,
+        player_id: &str,
+    ) -> Result<Vec<serde_json::Value>, String>;
     async fn create_venue(&self, venue_dto: VenueDto) -> Result<Venue, String>;
     async fn update_venue(&self, id: &str, venue_dto: VenueDto) -> Result<Venue, String>;
     async fn delete_venue(&self, id: &str) -> Result<(), String>;
@@ -24,7 +27,9 @@ pub struct VenueUseCaseImpl<R: VenueRepository> {
 #[async_trait::async_trait]
 impl<R: VenueRepository> VenueUseCase for VenueUseCaseImpl<R> {
     async fn get_venue(&self, id: &str) -> Result<Venue, String> {
-        self.repo.find_by_id(id).await
+        self.repo
+            .find_by_id(id)
+            .await
             .ok_or_else(|| "Venue not found".to_string())
     }
 
@@ -46,7 +51,8 @@ impl<R: VenueRepository> VenueUseCase for VenueUseCaseImpl<R> {
 
     async fn create_venue(&self, venue_dto: VenueDto) -> Result<Venue, String> {
         // Validate the DTO
-        venue_dto.validate()
+        venue_dto
+            .validate()
             .map_err(|e| format!("Validation error: {}", e))?;
 
         let venue = Venue::from(venue_dto);
@@ -55,11 +61,15 @@ impl<R: VenueRepository> VenueUseCase for VenueUseCaseImpl<R> {
 
     async fn update_venue(&self, id: &str, venue_dto: VenueDto) -> Result<Venue, String> {
         // Validate the DTO
-        venue_dto.validate()
+        venue_dto
+            .validate()
             .map_err(|e| format!("Validation error: {}", e))?;
 
         // Check if venue exists
-        let existing_venue = self.repo.find_by_id(id).await
+        let existing_venue = self
+            .repo
+            .find_by_id(id)
+            .await
             .ok_or_else(|| "Venue not found".to_string())?;
 
         // Create updated venue with existing ID and rev
@@ -72,7 +82,9 @@ impl<R: VenueRepository> VenueUseCase for VenueUseCaseImpl<R> {
 
     async fn delete_venue(&self, id: &str) -> Result<(), String> {
         // Check if venue exists
-        self.repo.find_by_id(id).await
+        self.repo
+            .find_by_id(id)
+            .await
             .ok_or_else(|| "Venue not found".to_string())?;
 
         self.repo.delete(id).await
@@ -82,7 +94,10 @@ impl<R: VenueRepository> VenueUseCase for VenueUseCaseImpl<R> {
         self.repo.get_venue_performance(venue_id).await
     }
 
-    async fn get_player_venue_stats(&self, player_id: &str) -> Result<Vec<serde_json::Value>, String> {
+    async fn get_player_venue_stats(
+        &self,
+        player_id: &str,
+    ) -> Result<Vec<serde_json::Value>, String> {
         self.repo.get_player_venue_stats(player_id).await
     }
 }

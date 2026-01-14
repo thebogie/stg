@@ -11,7 +11,7 @@ mod component_tests {
             "active": true,
             "tags": ["test", "component", "frontend"]
         });
-        
+
         assert_eq!(test_data["title"], "Test Component");
         assert_eq!(test_data["count"], 42);
         assert_eq!(test_data["active"], true);
@@ -23,7 +23,7 @@ mod component_tests {
         let title = "Test Component Title";
         let count = 42;
         let description = format!("Component {}: {}", count, title);
-        
+
         assert_eq!(description, "Component 42: Test Component Title");
         assert!(description.contains("Test"));
         assert!(description.contains("42"));
@@ -36,18 +36,14 @@ mod component_tests {
             ("count", "42"),
             ("active", "true"),
         ];
-        
+
         for (key, value) in valid_data {
             assert!(!key.is_empty());
             assert!(!value.is_empty());
         }
-        
-        let invalid_data = vec![
-            ("", "Empty Key"),
-            ("key", ""),
-            ("", ""),
-        ];
-        
+
+        let invalid_data = vec![("", "Empty Key"), ("key", ""), ("", "")];
+
         for (key, value) in invalid_data {
             let is_valid = !key.is_empty() && !value.is_empty();
             assert!(!is_valid);
@@ -59,7 +55,7 @@ mod component_tests {
         let base_url = "https://example.com";
         let endpoint = "/api/components";
         let full_url = format!("{}{}", base_url, endpoint);
-        
+
         assert!(full_url.starts_with("https://"));
         assert!(full_url.contains("example.com"));
         assert!(full_url.ends_with("/api/components"));
@@ -76,7 +72,7 @@ mod component_tests {
             },
             "created_at": "2024-01-01T00:00:00Z"
         });
-        
+
         let json_string = serde_json::to_string(&component_data).unwrap();
         assert!(json_string.contains("TestComponent"));
         assert!(json_string.contains("42"));
@@ -93,9 +89,9 @@ mod component_tests {
                 "count": 100
             }
         }"#;
-        
+
         let component_data: serde_json::Value = serde_json::from_str(json_string).unwrap();
-        
+
         assert_eq!(component_data["id"], "comp_456");
         assert_eq!(component_data["name"], "AnotherComponent");
         assert_eq!(component_data["props"]["title"], "Another Title");
@@ -106,9 +102,9 @@ mod component_tests {
     fn test_error_handling() {
         let invalid_json = "{ invalid json }";
         let result: Result<serde_json::Value, _> = serde_json::from_str(invalid_json);
-        
+
         assert!(result.is_err());
-        
+
         let error = result.unwrap_err();
         let msg = error.to_string();
         assert!(msg.contains("expected") || msg.contains("at line") || !msg.is_empty());
@@ -121,12 +117,12 @@ mod component_tests {
             ("title", "Component 2"),
             ("title", "Component 3"),
         ];
-        
+
         let transformed: Vec<String> = input_data
             .iter()
             .map(|(_, value)| value.to_string())
             .collect();
-        
+
         assert_eq!(transformed.len(), 3);
         assert_eq!(transformed[0], "Component 1");
         assert_eq!(transformed[1], "Component 2");
@@ -140,12 +136,12 @@ mod component_tests {
             json!({"name": "Component B", "active": false}),
             json!({"name": "Component C", "active": true}),
         ];
-        
+
         let active_components: Vec<&serde_json::Value> = components
             .iter()
             .filter(|comp| comp["active"] == true)
             .collect();
-        
+
         assert_eq!(active_components.len(), 2);
         assert_eq!(active_components[0]["name"], "Component A");
         assert_eq!(active_components[1]["name"], "Component C");
@@ -158,9 +154,14 @@ mod component_tests {
             json!({"name": "Component A", "priority": 1}),
             json!({"name": "Component B", "priority": 2}),
         ];
-        
-        components.sort_by(|a, b| a["priority"].as_u64().unwrap().cmp(&b["priority"].as_u64().unwrap()));
-        
+
+        components.sort_by(|a, b| {
+            a["priority"]
+                .as_u64()
+                .unwrap()
+                .cmp(&b["priority"].as_u64().unwrap())
+        });
+
         assert_eq!(components[0]["name"], "Component A");
         assert_eq!(components[1]["name"], "Component B");
         assert_eq!(components[2]["name"], "Component C");
@@ -173,14 +174,14 @@ mod component_tests {
             json!({"name": "Component B", "size": 200}),
             json!({"name": "Component C", "size": 300}),
         ];
-        
+
         let total_size: u64 = components
             .iter()
             .map(|comp| comp["size"].as_u64().unwrap())
             .sum();
-        
+
         assert_eq!(total_size, 600);
-        
+
         let avg_size = total_size as f64 / components.len() as f64;
         assert_eq!(avg_size, 200.0);
     }
@@ -189,19 +190,19 @@ mod component_tests {
     fn test_unicode_handling() {
         let unicode_title = "🎮 Game Component 🎯";
         let unicode_description = "Component with emoji and special characters: 🚀✨🎨";
-        
+
         assert!(unicode_title.contains("🎮"));
         assert!(unicode_title.contains("🎯"));
         assert!(unicode_description.contains("🚀"));
         assert!(unicode_description.contains("✨"));
         assert!(unicode_description.contains("🎨"));
-        
+
         // Test JSON with unicode
         let unicode_data = json!({
             "title": unicode_title,
             "description": unicode_description
         });
-        
+
         let json_string = serde_json::to_string(&unicode_data).unwrap();
         assert!(json_string.contains("🎮"));
         assert!(json_string.contains("🎯"));
@@ -210,13 +211,15 @@ mod component_tests {
     #[test]
     fn test_performance_optimization() {
         let large_dataset: Vec<serde_json::Value> = (0..1000)
-            .map(|i| json!({
-                "id": format!("comp_{}", i),
-                "name": format!("Component {}", i),
-                "data": format!("Data for component {}", i)
-            }))
+            .map(|i| {
+                json!({
+                    "id": format!("comp_{}", i),
+                    "name": format!("Component {}", i),
+                    "data": format!("Data for component {}", i)
+                })
+            })
             .collect();
-        
+
         // Test filtering performance
         let start_time = std::time::Instant::now();
         let filtered: Vec<&serde_json::Value> = large_dataset
@@ -224,18 +227,16 @@ mod component_tests {
             .filter(|comp| comp["id"].as_str().unwrap().contains("5"))
             .collect();
         let filter_time = start_time.elapsed();
-        
+
         // Filtering should be fast (under 10ms for 1000 items)
         assert!(filter_time.as_micros() < 10000);
         assert!(filtered.len() > 0);
-        
+
         // Test search performance
         let start_time = std::time::Instant::now();
-        let found = large_dataset
-            .iter()
-            .find(|comp| comp["id"] == "comp_500");
+        let found = large_dataset.iter().find(|comp| comp["id"] == "comp_500");
         let search_time = start_time.elapsed();
-        
+
         // Search should be fast (under 1ms for 1000 items)
         assert!(search_time.as_micros() < 1000);
         assert!(found.is_some());
@@ -245,7 +246,7 @@ mod component_tests {
     #[test]
     fn test_memory_efficiency() {
         let mut components = Vec::new();
-        
+
         // Create many components
         for i in 0..1000 {
             components.push(json!({
@@ -254,15 +255,15 @@ mod component_tests {
                 "data": format!("Data for component {}", i)
             }));
         }
-        
+
         let initial_capacity = components.capacity();
-        
+
         // Remove some components
         components.retain(|comp| {
             let id = comp["id"].as_str().unwrap();
             !id.contains("5") // Remove components with "5" in ID
         });
-        
+
         // Capacity should be reasonable
         assert!(components.capacity() <= initial_capacity * 2);
         assert!(components.len() < 1000);
@@ -274,7 +275,7 @@ mod component_tests {
         let empty_data = json!({});
         assert!(empty_data.is_object());
         assert_eq!(empty_data.as_object().unwrap().len(), 0);
-        
+
         // Test with null values
         let null_data = json!({
             "title": null,
@@ -284,14 +285,14 @@ mod component_tests {
         assert!(null_data["title"].is_null());
         assert!(null_data["count"].is_null());
         assert!(null_data["active"].is_null());
-        
+
         // Test with very long strings
         let long_string = "x".repeat(10000);
         let long_data = json!({
             "title": long_string.clone()
         });
         assert_eq!(long_data["title"], long_string);
-        
+
         // Test with special characters
         let special_chars = "!@#$%^&*()_+-=[]{}|;':\",./<>?";
         let special_data = json!({
@@ -324,7 +325,7 @@ mod component_tests {
         assert_eq!(contests.len(), 1);
 
         let contest = &contests[0];
-        
+
         // Test required fields
         assert!(contest["contest_id"].is_string());
         assert!(contest["contest_name"].is_string());
@@ -358,7 +359,7 @@ mod component_tests {
         assert_eq!(contests.len(), 1);
 
         let contest = &contests[0];
-        
+
         // Test venue-specific fields
         assert!(contest["venue_id"].is_string());
         assert!(contest["venue_name"].is_string());
@@ -412,9 +413,15 @@ mod component_tests {
 
         // Test field extraction with fallbacks
         let contest_id = valid_contest["contest_id"].as_str().unwrap_or("");
-        let contest_name = valid_contest["contest_name"].as_str().unwrap_or("Unknown Contest");
-        let game_name = valid_contest["game_name"].as_str().unwrap_or("Unknown Game");
-        let venue_name = valid_contest["venue_name"].as_str().unwrap_or("Unknown Venue");
+        let contest_name = valid_contest["contest_name"]
+            .as_str()
+            .unwrap_or("Unknown Contest");
+        let game_name = valid_contest["game_name"]
+            .as_str()
+            .unwrap_or("Unknown Game");
+        let venue_name = valid_contest["venue_name"]
+            .as_str()
+            .unwrap_or("Unknown Venue");
         let my_placement = valid_contest["my_placement"].as_i64().unwrap_or(0);
         let total_players = valid_contest["total_players"].as_i64().unwrap_or(0);
 
@@ -438,12 +445,16 @@ mod component_tests {
         });
 
         // Test graceful handling of missing data
-        let contest_name = incomplete_contest["contest_name"].as_str().unwrap_or("Unknown Contest");
+        let contest_name = incomplete_contest["contest_name"]
+            .as_str()
+            .unwrap_or("Unknown Contest");
         let game_name = match incomplete_contest["game_name"].as_str() {
             Some(s) if !s.is_empty() => s,
             _ => "Unknown Game",
         };
-        let venue_name = incomplete_contest["venue_name"].as_str().unwrap_or("Unknown Venue");
+        let venue_name = incomplete_contest["venue_name"]
+            .as_str()
+            .unwrap_or("Unknown Venue");
         let my_placement = incomplete_contest["my_placement"].as_i64().unwrap_or(0);
         let total_players = incomplete_contest["total_players"].as_i64().unwrap_or(0);
 
@@ -461,9 +472,21 @@ mod component_tests {
         let placement_2 = 2;
         let placement_invalid = 0;
 
-        let formatted_1 = if placement_1 > 0 { format!("#{}", placement_1) } else { "N/A".to_string() };
-        let formatted_2 = if placement_2 > 0 { format!("#{}", placement_2) } else { "N/A".to_string() };
-        let formatted_invalid = if placement_invalid > 0 { format!("#{}", placement_invalid) } else { "N/A".to_string() };
+        let formatted_1 = if placement_1 > 0 {
+            format!("#{}", placement_1)
+        } else {
+            "N/A".to_string()
+        };
+        let formatted_2 = if placement_2 > 0 {
+            format!("#{}", placement_2)
+        } else {
+            "N/A".to_string()
+        };
+        let formatted_invalid = if placement_invalid > 0 {
+            format!("#{}", placement_invalid)
+        } else {
+            "N/A".to_string()
+        };
 
         assert_eq!(formatted_1, "#1");
         assert_eq!(formatted_2, "#2");
@@ -473,8 +496,16 @@ mod component_tests {
         let my_result = "Winner";
         let empty_result = "";
 
-        let formatted_with_result = if !my_result.is_empty() { format!(" ({})", my_result) } else { "".to_string() };
-        let formatted_empty = if !empty_result.is_empty() { format!(" ({})", empty_result) } else { "".to_string() };
+        let formatted_with_result = if !my_result.is_empty() {
+            format!(" ({})", my_result)
+        } else {
+            "".to_string()
+        };
+        let formatted_empty = if !empty_result.is_empty() {
+            format!(" ({})", empty_result)
+        } else {
+            "".to_string()
+        };
 
         assert_eq!(formatted_with_result, " (Winner)");
         assert_eq!(formatted_empty, "");

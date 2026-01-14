@@ -1,6 +1,6 @@
-use shared::models::game::Game;
-use shared::dto::game::GameDto;
 use crate::game::repository::GameRepository;
+use shared::dto::game::GameDto;
+use shared::models::game::Game;
 use validator::Validate;
 
 #[async_trait::async_trait]
@@ -9,8 +9,16 @@ pub trait GameUseCase: Send + Sync {
     async fn get_all_games(&self) -> Result<Vec<Game>, String>;
     async fn search_games(&self, query: &str) -> Result<Vec<Game>, String>;
     async fn search_games_dto(&self, query: &str) -> Result<Vec<GameDto>, String>;
-    async fn get_game_recommendations(&self, player_id: &str, limit: i32) -> Result<Vec<serde_json::Value>, String>;
-    async fn get_similar_games(&self, game_id: &str, limit: i32) -> Result<Vec<serde_json::Value>, String>;
+    async fn get_game_recommendations(
+        &self,
+        player_id: &str,
+        limit: i32,
+    ) -> Result<Vec<serde_json::Value>, String>;
+    async fn get_similar_games(
+        &self,
+        game_id: &str,
+        limit: i32,
+    ) -> Result<Vec<serde_json::Value>, String>;
     async fn get_popular_games(&self, limit: i32) -> Result<Vec<serde_json::Value>, String>;
     async fn create_game(&self, game_dto: GameDto) -> Result<Game, String>;
     async fn update_game(&self, id: &str, game_dto: GameDto) -> Result<Game, String>;
@@ -24,7 +32,9 @@ pub struct GameUseCaseImpl<R: GameRepository> {
 #[async_trait::async_trait]
 impl<R: GameRepository> GameUseCase for GameUseCaseImpl<R> {
     async fn get_game(&self, id: &str) -> Result<Game, String> {
-        self.repo.find_by_id(id).await
+        self.repo
+            .find_by_id(id)
+            .await
             .ok_or_else(|| "Game not found".to_string())
     }
 
@@ -42,7 +52,8 @@ impl<R: GameRepository> GameUseCase for GameUseCaseImpl<R> {
 
     async fn create_game(&self, game_dto: GameDto) -> Result<Game, String> {
         // Validate the DTO
-        game_dto.validate()
+        game_dto
+            .validate()
             .map_err(|e| format!("Validation error: {}", e))?;
 
         let game = Game::from(game_dto);
@@ -51,11 +62,15 @@ impl<R: GameRepository> GameUseCase for GameUseCaseImpl<R> {
 
     async fn update_game(&self, id: &str, game_dto: GameDto) -> Result<Game, String> {
         // Validate the DTO
-        game_dto.validate()
+        game_dto
+            .validate()
             .map_err(|e| format!("Validation error: {}", e))?;
 
         // Check if game exists
-        let existing_game = self.repo.find_by_id(id).await
+        let existing_game = self
+            .repo
+            .find_by_id(id)
+            .await
             .ok_or_else(|| "Game not found".to_string())?;
 
         // Create updated game with existing ID and rev
@@ -68,17 +83,27 @@ impl<R: GameRepository> GameUseCase for GameUseCaseImpl<R> {
 
     async fn delete_game(&self, id: &str) -> Result<(), String> {
         // Check if game exists
-        self.repo.find_by_id(id).await
+        self.repo
+            .find_by_id(id)
+            .await
             .ok_or_else(|| "Game not found".to_string())?;
 
         self.repo.delete(id).await
     }
 
-    async fn get_game_recommendations(&self, player_id: &str, limit: i32) -> Result<Vec<serde_json::Value>, String> {
+    async fn get_game_recommendations(
+        &self,
+        player_id: &str,
+        limit: i32,
+    ) -> Result<Vec<serde_json::Value>, String> {
         self.repo.get_game_recommendations(player_id, limit).await
     }
 
-    async fn get_similar_games(&self, game_id: &str, limit: i32) -> Result<Vec<serde_json::Value>, String> {
+    async fn get_similar_games(
+        &self,
+        game_id: &str,
+        limit: i32,
+    ) -> Result<Vec<serde_json::Value>, String> {
         self.repo.get_similar_games(game_id, limit).await
     }
 

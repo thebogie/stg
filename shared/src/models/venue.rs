@@ -1,12 +1,18 @@
-use serde::{Deserialize, Serialize};
-use validator::{Validate, ValidationError};
 use crate::error::Result;
 use lazy_static::lazy_static;
 use regex::Regex;
+use serde::{Deserialize, Serialize};
+use validator::{Validate, ValidationError};
 // Provide a wrapper for the custom validator to be used in attribute
 pub fn validate_place_id_optional(val: &str) -> std::result::Result<(), ValidationError> {
-    if val.is_empty() { return Ok(()); }
-    if PLACE_ID_REGEX.is_match(val) { Ok(()) } else { Err(ValidationError::new("invalid_place_id")) }
+    if val.is_empty() {
+        return Ok(());
+    }
+    if PLACE_ID_REGEX.is_match(val) {
+        Ok(())
+    } else {
+        Err(ValidationError::new("invalid_place_id"))
+    }
 }
 
 lazy_static! {
@@ -39,17 +45,29 @@ pub struct Venue {
     pub rev: String,
 
     /// Venue's display name
-    #[validate(length(min = 1, max = 100, message = "Display name is required and must be at most 100 characters"))]
+    #[validate(length(
+        min = 1,
+        max = 100,
+        message = "Display name is required and must be at most 100 characters"
+    ))]
     #[serde(rename = "displayName")]
     pub display_name: String,
 
     /// Venue's formatted address
-    #[validate(length(min = 1, max = 200, message = "Formatted address is required and must be at most 200 characters"))]
+    #[validate(length(
+        min = 1,
+        max = 200,
+        message = "Formatted address is required and must be at most 200 characters"
+    ))]
     #[serde(rename = "formattedAddress")]
     pub formatted_address: String,
 
     /// Google Places API place ID (required). Must match regex and length.
-    #[validate(length(min = 1, max = 128, message = "Place ID is required and must be at most 128 characters"))]
+    #[validate(length(
+        min = 1,
+        max = 128,
+        message = "Place ID is required and must be at most 128 characters"
+    ))]
     #[validate(custom = "validate_place_id_optional")]
     pub place_id: String,
 
@@ -72,8 +90,14 @@ pub struct Venue {
 impl Venue {
     /// Custom validator: allow empty place_id; when non-empty, enforce regex
     fn validate_place_id_optional_str(value: &str) -> std::result::Result<(), ValidationError> {
-        if value.is_empty() { return Ok(()); }
-        if PLACE_ID_REGEX.is_match(value) { Ok(()) } else { Err(ValidationError::new("invalid_place_id")) }
+        if value.is_empty() {
+            return Ok(());
+        }
+        if PLACE_ID_REGEX.is_match(value) {
+            Ok(())
+        } else {
+            Err(ValidationError::new("invalid_place_id"))
+        }
     }
     /// Creates a new venue with validation
     pub fn new(
@@ -113,7 +137,7 @@ impl Venue {
         source: VenueSource,
     ) -> Result<Self> {
         let venue = Self {
-            id: String::new(), // Will be set by ArangoDB
+            id: String::new(),  // Will be set by ArangoDB
             rev: String::new(), // Will be set by ArangoDB
             display_name,
             formatted_address,
@@ -274,7 +298,7 @@ mod tests {
         venue.lat = 40.7128;
         venue.lng = -74.0060;
         assert!(venue.validate().is_ok());
-        
+
         // Test with more decimal places
         venue.lat = 40.7128123;
         venue.lng = -74.0060123;
@@ -286,7 +310,7 @@ mod tests {
         let mut venue = create_test_venue();
         venue.display_name = "A".repeat(100);
         assert!(venue.validate().is_ok());
-        
+
         venue.display_name = "A".repeat(101);
         let result = venue.validate();
         assert!(result.is_err());
@@ -299,7 +323,7 @@ mod tests {
         let mut venue = create_test_venue();
         venue.formatted_address = "A".repeat(200);
         assert!(venue.validate().is_ok());
-        
+
         venue.formatted_address = "A".repeat(201);
         let result = venue.validate();
         assert!(result.is_err());
@@ -312,7 +336,7 @@ mod tests {
         let mut venue = create_test_venue();
         venue.place_id = "ChIJN1t_tDeuEmsRUsoyG83frY4".to_string();
         assert!(venue.validate().is_ok());
-        
+
         venue.place_id = "invalid place id with spaces".to_string();
         let result = venue.validate();
         assert!(result.is_err());
@@ -331,18 +355,18 @@ mod tests {
     #[test]
     fn test_venue_coordinates_edge_cases() {
         let mut venue = create_test_venue();
-        
+
         // Test exact boundary values
         venue.lat = 0.0;
         venue.lng = 0.0;
         assert!(venue.validate().is_ok());
-        
+
         venue.lat = 90.0;
         venue.lng = 180.0;
         assert!(venue.validate().is_ok());
-        
+
         venue.lat = -90.0;
         venue.lng = -180.0;
         assert!(venue.validate().is_ok());
     }
-} 
+}

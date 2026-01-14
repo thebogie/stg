@@ -1,18 +1,18 @@
 //! Integration tests for search functionality
 //! Tests search endpoints for players, venues, games, and contests
 
-use anyhow::Result;
 use actix_web::{test, web, App};
+use anyhow::Result;
 use serde_json::json;
-use testing::{TestEnvironment, app_setup};
 use testing::create_authenticated_user;
+use testing::{app_setup, TestEnvironment};
 
 #[tokio::test]
 async fn test_search_players() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
     let app_data = app_setup::setup_test_app_data(&env).await?;
-    
+
     let app = test::init_service(
         App::new()
             .wrap(backend::middleware::Logger)
@@ -21,11 +21,13 @@ async fn test_search_players() -> Result<()> {
             .app_data(app_data.redis_data.clone())
             .app_data(app_data.player_repo.clone())
             .app_data(app_data.session_store.clone())
-            .service(web::scope("/api/players")
-                .service(backend::player::controller::register_handler_prod)
-                .service(backend::player::controller::search_players_handler)
-            )
-    ).await;
+            .service(
+                web::scope("/api/players")
+                    .service(backend::player::controller::register_handler_prod)
+                    .service(backend::player::controller::search_players_handler),
+            ),
+    )
+    .await;
 
     // Create multiple players
     for i in 0..5 {
@@ -52,8 +54,7 @@ async fn test_search_players() -> Result<()> {
         let body_text = String::from_utf8_lossy(&body_bytes);
         panic!(
             "Search games should succeed, got status: {}, body: {}",
-            status,
-            body_text
+            status, body_text
         );
     }
     let results: serde_json::Value = test::read_body_json(search_resp).await;
@@ -68,7 +69,7 @@ async fn test_search_venues() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
     let app_data = app_setup::setup_test_app_data(&env).await?;
-    
+
     let app = test::init_service(
         App::new()
             .wrap(backend::middleware::Logger)
@@ -78,18 +79,21 @@ async fn test_search_venues() -> Result<()> {
             .app_data(app_data.redis_data.clone())
             .app_data(app_data.player_repo.clone())
             .app_data(app_data.session_store.clone())
-            .service(web::scope("/api/players")
-                .service(backend::player::controller::register_handler_prod)
-                .service(backend::player::controller::login_handler_prod)
+            .service(
+                web::scope("/api/players")
+                    .service(backend::player::controller::register_handler_prod)
+                    .service(backend::player::controller::login_handler_prod),
             )
-            .service(web::scope("/api/venues")
-                .wrap(backend::auth::AuthMiddleware { 
-                    redis: std::sync::Arc::new(app_data.redis_data.get_ref().clone()) 
-                })
-                .service(backend::venue::controller::create_venue_handler)
-                .service(backend::venue::controller::search_venues_handler)
-            )
-    ).await;
+            .service(
+                web::scope("/api/venues")
+                    .wrap(backend::auth::AuthMiddleware {
+                        redis: std::sync::Arc::new(app_data.redis_data.get_ref().clone()),
+                    })
+                    .service(backend::venue::controller::create_venue_handler)
+                    .service(backend::venue::controller::search_venues_handler),
+            ),
+    )
+    .await;
 
     // Register and login
     let register_req = test::TestRequest::post()
@@ -106,7 +110,7 @@ async fn test_search_venues() -> Result<()> {
         "Registration should succeed, got status: {}",
         register_resp.status()
     );
-    
+
     let login_req = test::TestRequest::post()
         .uri("/api/players/login")
         .set_json(&json!({
@@ -121,7 +125,9 @@ async fn test_search_venues() -> Result<()> {
         login_resp.status()
     );
     let login_body: serde_json::Value = test::read_body_json(login_resp).await;
-    let session_id = login_body["session_id"].as_str().expect("Login response should contain session_id");
+    let session_id = login_body["session_id"]
+        .as_str()
+        .expect("Login response should contain session_id");
 
     // Create multiple venues
     for i in 0..3 {
@@ -153,8 +159,7 @@ async fn test_search_venues() -> Result<()> {
         let body_text = String::from_utf8_lossy(&body_bytes);
         panic!(
             "Search games should succeed, got status: {}, body: {}",
-            status,
-            body_text
+            status, body_text
         );
     }
     let results: serde_json::Value = test::read_body_json(search_resp).await;
@@ -168,7 +173,7 @@ async fn test_search_games() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
     let app_data = app_setup::setup_test_app_data(&env).await?;
-    
+
     let app = test::init_service(
         App::new()
             .wrap(backend::middleware::Logger)
@@ -178,18 +183,21 @@ async fn test_search_games() -> Result<()> {
             .app_data(app_data.redis_data.clone())
             .app_data(app_data.player_repo.clone())
             .app_data(app_data.session_store.clone())
-            .service(web::scope("/api/players")
-                .service(backend::player::controller::register_handler_prod)
-                .service(backend::player::controller::login_handler_prod)
+            .service(
+                web::scope("/api/players")
+                    .service(backend::player::controller::register_handler_prod)
+                    .service(backend::player::controller::login_handler_prod),
             )
-            .service(web::scope("/api/games")
-                .wrap(backend::auth::AuthMiddleware { 
-                    redis: std::sync::Arc::new(app_data.redis_data.get_ref().clone()) 
-                })
-                .service(backend::game::controller::create_game_handler)
-                .service(backend::game::controller::search_games_handler)
-            )
-    ).await;
+            .service(
+                web::scope("/api/games")
+                    .wrap(backend::auth::AuthMiddleware {
+                        redis: std::sync::Arc::new(app_data.redis_data.get_ref().clone()),
+                    })
+                    .service(backend::game::controller::create_game_handler)
+                    .service(backend::game::controller::search_games_handler),
+            ),
+    )
+    .await;
 
     // Register and login
     let register_req = test::TestRequest::post()
@@ -206,7 +214,7 @@ async fn test_search_games() -> Result<()> {
         "Registration should succeed, got status: {}",
         register_resp.status()
     );
-    
+
     let login_req = test::TestRequest::post()
         .uri("/api/players/login")
         .set_json(&json!({
@@ -221,7 +229,9 @@ async fn test_search_games() -> Result<()> {
         login_resp.status()
     );
     let login_body: serde_json::Value = test::read_body_json(login_resp).await;
-    let session_id = login_body["session_id"].as_str().expect("Login response should contain session_id");
+    let session_id = login_body["session_id"]
+        .as_str()
+        .expect("Login response should contain session_id");
 
     // Create multiple games
     for i in 0..3 {
@@ -250,8 +260,7 @@ async fn test_search_games() -> Result<()> {
         let body_text = String::from_utf8_lossy(&body_bytes);
         panic!(
             "Search games should succeed, got status: {}, body: {}",
-            status,
-            body_text
+            status, body_text
         );
     }
     let results: serde_json::Value = test::read_body_json(search_resp).await;
@@ -265,16 +274,18 @@ async fn test_search_empty_query() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
     let app_data = app_setup::setup_test_app_data(&env).await?;
-    
+
     let app = test::init_service(
         App::new()
             .wrap(backend::middleware::Logger)
             .wrap(backend::middleware::cors_middleware())
             .app_data(app_data.player_repo.clone())
-            .service(web::scope("/api/players")
-                .service(backend::player::controller::search_players_handler)
-            )
-    ).await;
+            .service(
+                web::scope("/api/players")
+                    .service(backend::player::controller::search_players_handler),
+            ),
+    )
+    .await;
 
     // Search with empty query
     let search_req = test::TestRequest::get()
@@ -293,16 +304,18 @@ async fn test_search_special_characters() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
     let app_data = app_setup::setup_test_app_data(&env).await?;
-    
+
     let app = test::init_service(
         App::new()
             .wrap(backend::middleware::Logger)
             .wrap(backend::middleware::cors_middleware())
             .app_data(app_data.player_repo.clone())
-            .service(web::scope("/api/players")
-                .service(backend::player::controller::search_players_handler)
-            )
-    ).await;
+            .service(
+                web::scope("/api/players")
+                    .service(backend::player::controller::search_players_handler),
+            ),
+    )
+    .await;
 
     // Search with special characters
     let search_req = test::TestRequest::get()
@@ -315,4 +328,3 @@ async fn test_search_special_characters() -> Result<()> {
 
     Ok(())
 }
-

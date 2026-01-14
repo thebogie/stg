@@ -1,11 +1,11 @@
-use yew::prelude::*;
+use crate::api::players;
+use crate::components::common::modal::Modal;
+use regex;
 use shared::dto::contest::OutcomeDto;
 use shared::dto::player::PlayerDto;
 use wasm_bindgen_futures::spawn_local;
 use web_sys::{HtmlInputElement, HtmlSelectElement};
-use crate::api::players;
-use crate::components::common::modal::Modal;
-use regex;
+use yew::prelude::*;
 
 #[derive(Properties, PartialEq, Clone)]
 pub struct OutcomeSelectorProps {
@@ -42,7 +42,8 @@ pub fn outcome_selector(props: &OutcomeSelectorProps) -> Html {
     let search_error = use_state(|| None::<String>);
 
     // Email validation pattern
-    let email_pattern = regex::Regex::new(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$").unwrap();
+    let email_pattern =
+        regex::Regex::new(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$").unwrap();
     let is_valid_email = email_pattern.is_match(&*search_query);
     let is_valid_handle = !search_query.is_empty() && search_query.len() >= 3;
     let show_invalid_email = !search_query.is_empty() && !is_valid_email && !is_valid_handle;
@@ -86,17 +87,24 @@ pub fn outcome_selector(props: &OutcomeSelectorProps) -> Html {
             spawn_local(async move {
                 match players::search_players(&query).await {
                     Ok(players) => {
-                        gloo::console::log!(format!("DEBUG: search_players response for query '{}': {:?}", query, players));
+                        gloo::console::log!(format!(
+                            "DEBUG: search_players response for query '{}': {:?}",
+                            query, players
+                        ));
                         let lc_query = query.to_lowercase();
-                        let results: Vec<PlayerSearchResult> = players.into_iter().map(|player| {
-                            // Check if this result matches the query (by handle or email)
-                            let exists = player.handle.to_lowercase() == lc_query || player.email.to_lowercase() == lc_query;
-                            PlayerSearchResult {
-                                player,
-                                exists,
-                            }
-                        }).collect();
-                        gloo::console::log!(format!("DEBUG: computed search_results for query '{}': {:?}", query, results));
+                        let results: Vec<PlayerSearchResult> = players
+                            .into_iter()
+                            .map(|player| {
+                                // Check if this result matches the query (by handle or email)
+                                let exists = player.handle.to_lowercase() == lc_query
+                                    || player.email.to_lowercase() == lc_query;
+                                PlayerSearchResult { player, exists }
+                            })
+                            .collect();
+                        gloo::console::log!(format!(
+                            "DEBUG: computed search_results for query '{}': {:?}",
+                            query, results
+                        ));
                         search_results.set(results);
                         search_error.set(None);
                     }
@@ -119,17 +127,24 @@ pub fn outcome_selector(props: &OutcomeSelectorProps) -> Html {
             for (index, outcome) in current_outcomes.iter_mut().enumerate() {
                 outcome.place = (index + 1).to_string();
                 // Set first row to "won", others to "lost" as default
-                outcome.result = if index == 0 { "won".to_string() } else { "lost".to_string() };
+                outcome.result = if index == 0 {
+                    "won".to_string()
+                } else {
+                    "lost".to_string()
+                };
             }
             outcomes.set(current_outcomes.clone());
             // Convert to OutcomeDto for the parent component
-            let outcome_dtos: Vec<OutcomeDto> = current_outcomes.iter().map(|o| OutcomeDto {
-                player_id: o.player_id.clone(),
-                place: o.place.clone(),
-                result: o.result.clone(),
-                email: o.email.clone(),
-                handle: o.handle.clone(),
-            }).collect();
+            let outcome_dtos: Vec<OutcomeDto> = current_outcomes
+                .iter()
+                .map(|o| OutcomeDto {
+                    player_id: o.player_id.clone(),
+                    place: o.place.clone(),
+                    result: o.result.clone(),
+                    email: o.email.clone(),
+                    handle: o.handle.clone(),
+                })
+                .collect();
             props.on_outcomes_change.emit(outcome_dtos);
         })
     };
@@ -149,11 +164,13 @@ pub fn outcome_selector(props: &OutcomeSelectorProps) -> Html {
             let current_outcomes = (*outcomes).clone();
 
             // Check if player is already added (by ID or email)
-            if current_outcomes.iter().any(|o| 
-                o.player_id == player.id || 
-                o.email.to_lowercase() == player.email.to_lowercase()
-            ) {
-                modal_message.set(format!("Player with email {} is already in the contest", player.email));
+            if current_outcomes.iter().any(|o| {
+                o.player_id == player.id || o.email.to_lowercase() == player.email.to_lowercase()
+            }) {
+                modal_message.set(format!(
+                    "Player with email {} is already in the contest",
+                    player.email
+                ));
                 show_modal.set(true);
                 return;
             }
@@ -239,8 +256,14 @@ pub fn outcome_selector(props: &OutcomeSelectorProps) -> Html {
                 let current_outcomes = (*outcomes).clone();
 
                 // Check if a player with this email already exists in the contest
-                if current_outcomes.iter().any(|o| o.email.to_lowercase() == query.to_lowercase()) {
-                    modal_message.set(format!("A player with email '{}' is already in the contest", query));
+                if current_outcomes
+                    .iter()
+                    .any(|o| o.email.to_lowercase() == query.to_lowercase())
+                {
+                    modal_message.set(format!(
+                        "A player with email '{}' is already in the contest",
+                        query
+                    ));
                     show_modal.set(true);
                     return;
                 }
@@ -287,13 +310,16 @@ pub fn outcome_selector(props: &OutcomeSelectorProps) -> Html {
                 outcome.place = place;
                 outcomes.set(new_outcomes.clone());
                 // Convert to OutcomeDto for the parent component
-                let outcome_dtos: Vec<OutcomeDto> = new_outcomes.iter().map(|o| OutcomeDto {
-                    player_id: o.player_id.clone(),
-                    place: o.place.clone(),
-                    result: o.result.clone(),
-                    email: o.email.clone(),
-                    handle: o.handle.clone(),
-                }).collect();
+                let outcome_dtos: Vec<OutcomeDto> = new_outcomes
+                    .iter()
+                    .map(|o| OutcomeDto {
+                        player_id: o.player_id.clone(),
+                        place: o.place.clone(),
+                        result: o.result.clone(),
+                        email: o.email.clone(),
+                        handle: o.handle.clone(),
+                    })
+                    .collect();
                 props.on_outcomes_change.emit(outcome_dtos);
             }
         })
@@ -311,13 +337,16 @@ pub fn outcome_selector(props: &OutcomeSelectorProps) -> Html {
                 outcome.result = value;
                 outcomes.set(new_outcomes.clone());
                 // Convert to OutcomeDto for the parent component
-                let outcome_dtos: Vec<OutcomeDto> = new_outcomes.iter().map(|o| OutcomeDto {
-                    player_id: o.player_id.clone(),
-                    place: o.place.clone(),
-                    result: o.result.clone(),
-                    email: o.email.clone(),
-                    handle: o.handle.clone(),
-                }).collect();
+                let outcome_dtos: Vec<OutcomeDto> = new_outcomes
+                    .iter()
+                    .map(|o| OutcomeDto {
+                        player_id: o.player_id.clone(),
+                        place: o.place.clone(),
+                        result: o.result.clone(),
+                        email: o.email.clone(),
+                        handle: o.handle.clone(),
+                    })
+                    .collect();
                 props.on_outcomes_change.emit(outcome_dtos);
             }
         })
@@ -387,13 +416,13 @@ pub fn outcome_selector(props: &OutcomeSelectorProps) -> Html {
                                     Callback::from(move |_| on_player_select.emit(player.clone()))
                                 };
                                 html! {
-                                    <div 
+                                    <div
                                         class={classes!(
                                             "px-3", "py-2", "cursor-pointer", "hover:bg-gray-100",
-                                            if !result.exists { 
-                                                classes!("bg-yellow-50", "border-l-4", "border-yellow-400", "border-r", "border-yellow-200") 
-                                            } else { 
-                                                classes!("bg-green-50", "border-l-4", "border-green-400", "border-r", "border-green-200") 
+                                            if !result.exists {
+                                                classes!("bg-yellow-50", "border-l-4", "border-yellow-400", "border-r", "border-yellow-200")
+                                            } else {
+                                                classes!("bg-green-50", "border-l-4", "border-green-400", "border-r", "border-green-200")
                                             }
                                         )}
                                         onclick={on_click}
@@ -415,10 +444,10 @@ pub fn outcome_selector(props: &OutcomeSelectorProps) -> Html {
                                             </div>
                                             <div class={classes!(
                                                 "text-xs", "px-2", "py-1", "rounded", "font-medium",
-                                                if !result.exists { 
-                                                    classes!("text-yellow-800", "bg-yellow-200") 
-                                                } else { 
-                                                    classes!("text-green-800", "bg-green-200") 
+                                                if !result.exists {
+                                                    classes!("text-yellow-800", "bg-yellow-200")
+                                                } else {
+                                                    classes!("text-green-800", "bg-green-200")
                                                 }
                                             )}>
                                                 if !result.exists {
@@ -473,10 +502,10 @@ pub fn outcome_selector(props: &OutcomeSelectorProps) -> Html {
                             html! {
                                 <div class={classes!(
                                     "flex", "items-center", "space-x-4", "p-3", "rounded-md",
-                                    if is_new_player { 
-                                        classes!("bg-yellow-50", "border", "border-yellow-200") 
-                                    } else { 
-                                        classes!("bg-green-50", "border", "border-green-200") 
+                                    if is_new_player {
+                                        classes!("bg-yellow-50", "border", "border-yellow-200")
+                                    } else {
+                                        classes!("bg-green-50", "border", "border-green-200")
                                     }
                                 )}>
                                     <div class="flex-1">
@@ -534,7 +563,7 @@ pub fn outcome_selector(props: &OutcomeSelectorProps) -> Html {
                 </div>
             }
 
-            <Modal 
+            <Modal
                 is_open={*show_modal}
                 title={"Duplicate Player".to_string()}
                 message={(*modal_message).clone()}
@@ -543,7 +572,7 @@ pub fn outcome_selector(props: &OutcomeSelectorProps) -> Html {
                 button_text={"OK".to_string()}
             />
 
-            <Modal 
+            <Modal
                 is_open={*show_new_player_confirm}
                 title={"Confirm New Player".to_string()}
                 message={if let Some(player) = (*pending_new_player).as_ref() {
@@ -557,4 +586,4 @@ pub fn outcome_selector(props: &OutcomeSelectorProps) -> Html {
             />
         </div>
     }
-} 
+}

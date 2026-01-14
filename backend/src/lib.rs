@@ -1,13 +1,13 @@
-pub mod player;
-pub mod venue;
-pub mod game;
-pub mod contest;
+pub mod auth;
 pub mod config;
+pub mod contest;
 pub mod error;
+pub mod game;
 pub mod health;
 pub mod middleware;
-pub mod auth;
+pub mod player;
 pub mod third_party;
+pub mod venue;
 pub mod timezone {
     pub mod controller;
 }
@@ -19,30 +19,33 @@ pub mod analytics {
     pub mod usecase;
     pub mod visualization;
 
-    pub use cache::{AnalyticsCache, CacheKeys, CacheTTL, CacheStats};
+    pub use cache::{AnalyticsCache, CacheKeys, CacheStats, CacheTTL};
     pub use controller::AnalyticsController;
     pub use engine::AnalyticsEngine;
     pub use repository::AnalyticsRepository;
     pub use usecase::AnalyticsUseCase;
-    pub use visualization::{AnalyticsVisualization, Chart, ChartConfig, ChartType, DataPoint, ChartSeries, ChartData, ExportOptions, ChartFormat};
+    pub use visualization::{
+        AnalyticsVisualization, Chart, ChartConfig, ChartData, ChartFormat, ChartSeries, ChartType,
+        DataPoint, ExportOptions,
+    };
 }
 
 pub mod client_analytics {
     pub mod controller;
-    pub mod usecase;
     pub mod repository;
-    
+    pub mod usecase;
+
     pub use controller::ClientAnalyticsController;
-    pub use usecase::{ClientAnalyticsUseCase, ClientAnalyticsUseCaseImpl};
     pub use repository::{ClientAnalyticsRepository, ClientAnalyticsRepositoryImpl};
+    pub use usecase::{ClientAnalyticsUseCase, ClientAnalyticsUseCaseImpl};
 }
 
 pub mod ratings {
+    pub mod controller;
     pub mod glicko;
     pub mod repository;
-    pub mod usecase;
-    pub mod controller;
     pub mod scheduler;
+    pub mod usecase;
 }
 
 pub mod migration {

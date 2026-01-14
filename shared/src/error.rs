@@ -1,8 +1,8 @@
-use thiserror::Error;
 use chrono::{DateTime, Utc};
-use validator::ValidationErrors;
-use serde_json::Error as JsonError;
 use serde::{Deserialize, Serialize};
+use serde_json::Error as JsonError;
+use thiserror::Error;
+use validator::ValidationErrors;
 
 #[derive(Debug, Error, Serialize, Deserialize)]
 pub enum SharedError {
@@ -68,9 +68,13 @@ impl actix_web::ResponseError for SharedError {
             SharedError::Database(_) => actix_web::HttpResponse::InternalServerError().json(self),
             SharedError::Conversion(_) => actix_web::HttpResponse::BadRequest().json(self),
             SharedError::Internal(_) => actix_web::HttpResponse::InternalServerError().json(self),
-            SharedError::InternalServerError(_) => actix_web::HttpResponse::InternalServerError().json(self),
+            SharedError::InternalServerError(_) => {
+                actix_web::HttpResponse::InternalServerError().json(self)
+            }
             SharedError::NotImplemented(_) => actix_web::HttpResponse::NotImplemented().json(self),
-            SharedError::InvalidDateRange { .. } => actix_web::HttpResponse::BadRequest().json(self),
+            SharedError::InvalidDateRange { .. } => {
+                actix_web::HttpResponse::BadRequest().json(self)
+            }
             SharedError::InvalidEmail(_) => actix_web::HttpResponse::BadRequest().json(self),
             SharedError::InvalidUuid(_) => actix_web::HttpResponse::BadRequest().json(self),
             SharedError::MissingField(_) => actix_web::HttpResponse::BadRequest().json(self),
@@ -90,4 +94,4 @@ impl From<JsonError> for SharedError {
     }
 }
 
-pub type Result<T> = std::result::Result<T, SharedError>; 
+pub type Result<T> = std::result::Result<T, SharedError>;

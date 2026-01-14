@@ -1,5 +1,5 @@
-use yew::prelude::*;
 use crate::pages::profile::ProfileTab;
+use yew::prelude::*;
 
 #[derive(Properties, PartialEq)]
 pub struct ProfileTabsProps {
@@ -26,7 +26,7 @@ pub fn profile_tabs(props: &ProfileTabsProps) -> Html {
                 {tabs.iter().map(|(tab, icon, label)| {
                     let is_active = props.current_tab == *tab;
                     let tab_click = props.on_tab_click.clone();
-                    
+
                     html! {
                         <button
                             class={classes!(

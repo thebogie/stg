@@ -1,8 +1,8 @@
-use yew::prelude::*;
-use serde::{Deserialize, Serialize};
-use chrono::{DateTime, Utc};
-use web_sys::console;
 use crate::api::utils::{authenticated_get, authenticated_post};
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+use web_sys::console;
+use yew::prelude::*;
 
 #[derive(Properties, PartialEq)]
 pub struct SchedulerMonitorProps {}
@@ -36,13 +36,13 @@ pub fn scheduler_monitor(_props: &SchedulerMonitorProps) -> Html {
         let status = status.clone();
         let loading = loading.clone();
         let error = error.clone();
-        
+
         use_effect_with((), move |_| {
             loading.set(true);
             error.set(None);
-            
+
             console::log_1(&"SchedulerMonitor: Starting to load scheduler status".into());
-            
+
             wasm_bindgen_futures::spawn_local(async move {
                 console::log_1(&"SchedulerMonitor: Making authenticated request to /api/ratings/scheduler/status".into());
                 let request = authenticated_get("/api/ratings/scheduler/status");
@@ -50,20 +50,34 @@ pub fn scheduler_monitor(_props: &SchedulerMonitorProps) -> Html {
                     Ok(response) => {
                         if response.ok() {
                             if let Ok(scheduler_status) = response.json::<SchedulerStatus>().await {
-                                console::log_1(&format!("Scheduler status received: {:?}", scheduler_status).into());
+                                console::log_1(
+                                    &format!("Scheduler status received: {:?}", scheduler_status)
+                                        .into(),
+                                );
                                 status.set(Some(scheduler_status));
                             } else {
                                 error.set(Some("Failed to parse scheduler status".to_string()));
                             }
                         } else {
                             let status_code = response.status();
-                            let text = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
-                            console::error_1(&format!("Scheduler status request failed: {} - {}", status_code, text).into());
+                            let text = response
+                                .text()
+                                .await
+                                .unwrap_or_else(|_| "Unknown error".to_string());
+                            console::error_1(
+                                &format!(
+                                    "Scheduler status request failed: {} - {}",
+                                    status_code, text
+                                )
+                                .into(),
+                            );
                             error.set(Some(format!("Request failed: {} - {}", status_code, text)));
                         }
                     }
                     Err(e) => {
-                        console::error_1(&format!("Failed to fetch scheduler status: {}", e).into());
+                        console::error_1(
+                            &format!("Failed to fetch scheduler status: {}", e).into(),
+                        );
                         error.set(Some(format!("Failed to fetch scheduler status: {}", e)));
                     }
                 }
@@ -77,24 +91,24 @@ pub fn scheduler_monitor(_props: &SchedulerMonitorProps) -> Html {
         let trigger_message = trigger_message.clone();
         let error = error.clone();
         let period_input = period_input.clone();
-        
+
         Callback::from(move |_| {
             let period_clone = (*period_input).clone();
             trigger_loading.set(true);
             trigger_message.set(None);
             error.set(None);
-            
+
             let trigger_loading = trigger_loading.clone();
             let trigger_message = trigger_message.clone();
             let error = error.clone();
-            
+
             wasm_bindgen_futures::spawn_local(async move {
                 let url = if !period_clone.is_empty() {
                     format!("/api/ratings/scheduler/trigger?period={}", period_clone)
                 } else {
                     "/api/ratings/scheduler/trigger".to_string()
                 };
-                
+
                 let request = authenticated_post(&url);
                 match request.send().await {
                     Ok(response) => {
@@ -111,8 +125,14 @@ pub fn scheduler_monitor(_props: &SchedulerMonitorProps) -> Html {
                             }
                         } else {
                             let status_code = response.status();
-                            let text = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
-                            error.set(Some(format!("Trigger request failed: {} - {}", status_code, text)));
+                            let text = response
+                                .text()
+                                .await
+                                .unwrap_or_else(|_| "Unknown error".to_string());
+                            error.set(Some(format!(
+                                "Trigger request failed: {} - {}",
+                                status_code, text
+                            )));
                         }
                     }
                     Err(e) => {
@@ -128,39 +148,53 @@ pub fn scheduler_monitor(_props: &SchedulerMonitorProps) -> Html {
         let historical_loading = historical_loading.clone();
         let historical_message = historical_message.clone();
         let error = error.clone();
-        
+
         Callback::from(move |_| {
             historical_loading.set(true);
             historical_message.set(None);
             error.set(None);
-            
+
             let historical_loading = historical_loading.clone();
             let historical_message = historical_message.clone();
             let error = error.clone();
-            
+
             wasm_bindgen_futures::spawn_local(async move {
                 let request = authenticated_post("/api/ratings/recalculate/historical");
                 match request.send().await {
                     Ok(response) => {
                         if response.ok() {
-                            if let Ok(historical_resp) = response.json::<serde_json::Value>().await {
-                                let message = if let Some(msg) = historical_resp.get("message").and_then(|v| v.as_str()) {
+                            if let Ok(historical_resp) = response.json::<serde_json::Value>().await
+                            {
+                                let message = if let Some(msg) =
+                                    historical_resp.get("message").and_then(|v| v.as_str())
+                                {
                                     msg.to_string()
                                 } else {
                                     "Historical recalculation completed successfully".to_string()
                                 };
                                 historical_message.set(Some(message));
                             } else {
-                                error.set(Some("Failed to parse historical recalculation response".to_string()));
+                                error.set(Some(
+                                    "Failed to parse historical recalculation response".to_string(),
+                                ));
                             }
                         } else {
                             let status_code = response.status();
-                            let text = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
-                            error.set(Some(format!("Historical recalculation failed: {} - {}", status_code, text)));
+                            let text = response
+                                .text()
+                                .await
+                                .unwrap_or_else(|_| "Unknown error".to_string());
+                            error.set(Some(format!(
+                                "Historical recalculation failed: {} - {}",
+                                status_code, text
+                            )));
                         }
                     }
                     Err(e) => {
-                        error.set(Some(format!("Failed to start historical recalculation: {}", e)));
+                        error.set(Some(format!(
+                            "Failed to start historical recalculation: {}",
+                            e
+                        )));
                     }
                 }
                 historical_loading.set(false);
@@ -180,15 +214,15 @@ pub fn scheduler_monitor(_props: &SchedulerMonitorProps) -> Html {
         let status = status.clone();
         let loading = loading.clone();
         let error = error.clone();
-        
+
         Callback::from(move |_| {
             loading.set(true);
             error.set(None);
-            
+
             let status = status.clone();
             let loading = loading.clone();
             let error = error.clone();
-            
+
             wasm_bindgen_futures::spawn_local(async move {
                 let request = authenticated_get("/api/ratings/scheduler/status");
                 match request.send().await {
@@ -201,7 +235,10 @@ pub fn scheduler_monitor(_props: &SchedulerMonitorProps) -> Html {
                             }
                         } else {
                             let status_code = response.status();
-                            let text = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
+                            let text = response
+                                .text()
+                                .await
+                                .unwrap_or_else(|_| "Unknown error".to_string());
                             error.set(Some(format!("Request failed: {} - {}", status_code, text)));
                         }
                     }
@@ -267,19 +304,19 @@ pub fn scheduler_monitor(_props: &SchedulerMonitorProps) -> Html {
                         <div class="control-grid">
                             <div class="control-item">
                                 <label for="period-input">{"Period (YYYY-MM, optional):"}</label>
-                                <input 
+                                <input
                                     id="period-input"
-                                    type="text" 
-                                    placeholder="e.g., 2024-01" 
+                                    type="text"
+                                    placeholder="e.g., 2024-01"
                                     value={(*period_input).clone()}
                                     onchange={on_period_input_change}
                                     class="period-input"
                                 />
                                 <small>{"Leave empty for previous month"}</small>
                             </div>
-                            
+
                             <div class="control-item">
-                                <button 
+                                <button
                                     onclick={on_trigger_click}
                                     disabled={*trigger_loading}
                                     class="trigger-btn"
@@ -314,9 +351,9 @@ pub fn scheduler_monitor(_props: &SchedulerMonitorProps) -> Html {
                                 <p>{"⚠️ This operation may take several minutes and should only be run once during initial setup or after major data changes."}</p>
                             </div>
                         </div>
-                        
+
                         <div class="historical-controls">
-                            <button 
+                            <button
                                 onclick={on_historical_recalc_click}
                                 disabled={*historical_loading}
                                 class="historical-btn"

@@ -1,8 +1,8 @@
-use yew::prelude::*;
-use yew_router::prelude::*;
+use crate::analytics::events::{track_cta_create_contest_click, track_login_click};
 use crate::auth::AuthContext;
 use crate::Route;
-use crate::analytics::events::{track_login_click, track_cta_create_contest_click};
+use yew::prelude::*;
+use yew_router::prelude::*;
 
 #[function_component(Home)]
 pub fn home() -> Html {
@@ -44,24 +44,24 @@ pub fn home() -> Html {
                                 {"Welcome to STG"}
                             </span>
                         </h1>
-                        
+
                         // Subtitle with better mobile spacing
                         <p class="text-lg sm:text-xl lg:text-2xl text-gray-600 mb-8 sm:mb-12 leading-relaxed max-w-3xl mx-auto">
                             {"Create and manage your contests with ease. "}
                             <span class="font-medium text-gray-800">{"Professional tournament management made simple."}</span>
                         </p>
-                        
+
                         // Action buttons with mobile-optimized layout
                         if auth.state.player.is_some() {
                             <div class="flex flex-col sm:flex-row gap-4 sm:gap-6 justify-center items-center">
-                                <button 
+                                <button
                                     onclick={on_get_started.clone()}
                                     class="w-full sm:w-auto inline-flex items-center justify-center px-8 py-4 text-lg font-semibold text-white bg-gradient-to-r from-blue-600 to-indigo-600 rounded-xl shadow-lg hover:shadow-xl transform hover:-translate-y-1 transition-all duration-200 active:scale-95 min-h-[56px]"
                                 >
                                     <span class="mr-2 text-xl">{"🏆"}</span>
                                     {"Add Contest"}
                                 </button>
-                                <button 
+                                <button
                                     onclick={on_view_profile.clone()}
                                     class="w-full sm:w-auto inline-flex items-center justify-center px-8 py-4 text-lg font-semibold text-blue-600 bg-white border-2 border-blue-200 rounded-xl shadow-lg hover:shadow-xl hover:bg-blue-50 transform hover:-translate-y-1 transition-all duration-200 active:scale-95 min-h-[56px]"
                                 >
@@ -71,7 +71,7 @@ pub fn home() -> Html {
                             </div>
                         } else {
                             <div class="flex flex-col sm:flex-row gap-4 sm:gap-6 justify-center items-center">
-                                <button 
+                                <button
                                     onclick={on_login.clone()}
                                     class="w-full sm:w-auto inline-flex items-center justify-center px-8 py-4 text-lg font-semibold text-white bg-gradient-to-r from-blue-600 to-indigo-600 rounded-xl shadow-lg hover:shadow-xl transform hover:-translate-y-1 transition-all duration-200 active:scale-95 min-h-[56px]"
                                 >
@@ -111,7 +111,7 @@ pub fn home() -> Html {
                             {"Everything you need to run successful tournaments and contests"}
                         </p>
                     </div>
-                    
+
                     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-8">
                         // Feature Card 1
                         <div class="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-2xl p-6 sm:p-8 text-center hover:shadow-lg transition-all duration-200 transform hover:-translate-y-1">
@@ -199,7 +199,7 @@ pub fn home() -> Html {
                 </div>
             </div>
 
-            
+
 
             // Call to Action Section
             <div class="py-12 sm:py-16 bg-gray-50">
@@ -211,7 +211,7 @@ pub fn home() -> Html {
                         {"Join thousands of organizers who trust STG for their tournament management needs"}
                     </p>
                     if auth.state.player.is_some() {
-                        <button 
+                        <button
                             onclick={on_get_started.clone()}
                             class="inline-flex items-center justify-center px-8 py-4 text-lg font-semibold text-white bg-gradient-to-r from-blue-600 to-indigo-600 rounded-xl shadow-lg hover:shadow-xl transform hover:-translate-y-1 transition-all duration-200 active:scale-95 min-h-[56px]"
                         >
@@ -219,7 +219,7 @@ pub fn home() -> Html {
                             {"Create Your First Contest"}
                         </button>
                     } else {
-                        <button 
+                        <button
                             onclick={on_login.clone()}
                             class="inline-flex items-center justify-center px-8 py-4 text-lg font-semibold text-white bg-gradient-to-r from-blue-600 to-indigo-600 rounded-xl shadow-lg hover:shadow-xl transform hover:-translate-y-1 transition-all duration-200 active:scale-95 min-h-[56px]"
                         >
@@ -231,4 +231,4 @@ pub fn home() -> Html {
             </div>
         </div>
     }
-} 
+}

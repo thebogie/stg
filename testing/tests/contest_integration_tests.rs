@@ -1,18 +1,18 @@
 //! Comprehensive integration tests for Contest API endpoints
 
-use anyhow::Result;
 use actix_web::{test, web, App};
+use anyhow::Result;
 use serde_json::json;
-use testing::{TestEnvironment, app_setup};
-use testing::create_authenticated_user;
 use shared::dto::contest::ContestDto;
+use testing::create_authenticated_user;
+use testing::{app_setup, TestEnvironment};
 
 #[tokio::test]
 async fn test_create_contest() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
     let app_data = app_setup::setup_test_app_data(&env).await?;
-    
+
     // First create a venue and game
     let venue_app = test::init_service(
         App::new()
@@ -23,17 +23,20 @@ async fn test_create_contest() -> Result<()> {
             .app_data(app_data.redis_data.clone())
             .app_data(app_data.player_repo.clone())
             .app_data(app_data.session_store.clone())
-            .service(web::scope("/api/players")
-                .service(backend::player::controller::register_handler_prod)
-                .service(backend::player::controller::login_handler_prod)
+            .service(
+                web::scope("/api/players")
+                    .service(backend::player::controller::register_handler_prod)
+                    .service(backend::player::controller::login_handler_prod),
             )
-            .service(web::scope("/api/venues")
-                .wrap(backend::auth::AuthMiddleware { 
-                    redis: std::sync::Arc::new(app_data.redis_data.get_ref().clone()) 
-                })
-                .service(backend::venue::controller::create_venue_handler)
-            )
-    ).await;
+            .service(
+                web::scope("/api/venues")
+                    .wrap(backend::auth::AuthMiddleware {
+                        redis: std::sync::Arc::new(app_data.redis_data.get_ref().clone()),
+                    })
+                    .service(backend::venue::controller::create_venue_handler),
+            ),
+    )
+    .await;
 
     // Register and login
     let register_req = test::TestRequest::post()
@@ -50,7 +53,7 @@ async fn test_create_contest() -> Result<()> {
         "Registration should succeed, got status: {}",
         register_resp.status()
     );
-    
+
     let login_req = test::TestRequest::post()
         .uri("/api/players/login")
         .set_json(&json!({
@@ -65,7 +68,9 @@ async fn test_create_contest() -> Result<()> {
         login_resp.status()
     );
     let login_body: serde_json::Value = test::read_body_json(login_resp).await;
-    let session_id = login_body["session_id"].as_str().expect("Login response should contain session_id");
+    let session_id = login_body["session_id"]
+        .as_str()
+        .expect("Login response should contain session_id");
 
     // Create venue
     let venue_req = test::TestRequest::post()
@@ -87,8 +92,7 @@ async fn test_create_contest() -> Result<()> {
         let body_text = String::from_utf8_lossy(&body_bytes);
         panic!(
             "Venue creation should succeed, got status: {}, body: {}",
-            venue_status,
-            body_text
+            venue_status, body_text
         );
     }
     let venue: shared::dto::venue::VenueDto = test::read_body_json(venue_resp).await;
@@ -103,13 +107,15 @@ async fn test_create_contest() -> Result<()> {
             .app_data(app_data.game_repo.clone())
             .app_data(app_data.redis_data.clone())
             .app_data(app_data.session_store.clone())
-            .service(web::scope("/api/games")
-                .wrap(backend::auth::AuthMiddleware { 
-                    redis: std::sync::Arc::new(app_data.redis_data.get_ref().clone()) 
-                })
-                .service(backend::game::controller::create_game_handler)
-            )
-    ).await;
+            .service(
+                web::scope("/api/games")
+                    .wrap(backend::auth::AuthMiddleware {
+                        redis: std::sync::Arc::new(app_data.redis_data.get_ref().clone()),
+                    })
+                    .service(backend::game::controller::create_game_handler),
+            ),
+    )
+    .await;
 
     let game_req = test::TestRequest::post()
         .uri("/api/games")
@@ -127,8 +133,7 @@ async fn test_create_contest() -> Result<()> {
         let body_text = String::from_utf8_lossy(&body_bytes);
         panic!(
             "Game creation should succeed, got status: {}, body: {}",
-            game_status,
-            body_text
+            game_status, body_text
         );
     }
     let game: shared::dto::game::GameDto = test::read_body_json(game_resp).await;
@@ -143,14 +148,16 @@ async fn test_create_contest() -> Result<()> {
             .app_data(app_data.contest_repo.clone())
             .app_data(app_data.player_repo.clone())
             .app_data(app_data.redis_data.clone())
-            .service(web::scope("/api/contests")
-                .wrap(backend::auth::AuthMiddleware { 
-                    redis: std::sync::Arc::new(app_data.redis_data.get_ref().clone()) 
-                })
-                .app_data(app_data.player_repo.clone())
-                .service(backend::contest::controller::create_contest_handler)
-            )
-    ).await;
+            .service(
+                web::scope("/api/contests")
+                    .wrap(backend::auth::AuthMiddleware {
+                        redis: std::sync::Arc::new(app_data.redis_data.get_ref().clone()),
+                    })
+                    .app_data(app_data.player_repo.clone())
+                    .service(backend::contest::controller::create_contest_handler),
+            ),
+    )
+    .await;
 
     // ContestDto requires nested venue and games objects
     let contest_data = json!({
@@ -190,14 +197,19 @@ async fn test_create_contest() -> Result<()> {
         let body_text = String::from_utf8_lossy(&body_bytes);
         panic!(
             "Contest creation should succeed, got status: {}, body: {}",
-            contest_status,
-            body_text
+            contest_status, body_text
         );
     }
     let contest: ContestDto = test::read_body_json(contest_resp).await;
     // The venue ID might be normalized, so just check that it's not empty
-    assert!(!contest.venue.id.is_empty(), "Contest venue should have an ID");
-    assert!(!contest.games[0].id.is_empty(), "Contest game should have an ID");
+    assert!(
+        !contest.venue.id.is_empty(),
+        "Contest venue should have an ID"
+    );
+    assert!(
+        !contest.games[0].id.is_empty(),
+        "Contest game should have an ID"
+    );
     assert!(!contest.id.is_empty());
 
     Ok(())
@@ -208,13 +220,13 @@ async fn test_get_contest() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
     let _app_data = app_setup::setup_test_app_data(&env).await?;
-    
+
     // Setup similar to create test
     // ... (similar setup code)
-    
+
     // This test would verify getting a contest by ID
     // Implementation similar to venue/game get tests
-    
+
     Ok(())
 }
 
@@ -223,10 +235,9 @@ async fn test_get_player_game_contests() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
     let _app_data = app_setup::setup_test_app_data(&env).await?;
-    
+
     // Test getting all contests for a player and game combination
     // This tests the /api/contests/player/{player_id}/game/{game_id} endpoint
-    
+
     Ok(())
 }
-

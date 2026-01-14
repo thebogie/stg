@@ -1,14 +1,17 @@
-use actix_web::{post, web, HttpResponse, HttpRequest, get, HttpMessage, put};
+use actix_web::{get, post, put, web, HttpMessage, HttpRequest, HttpResponse};
 
-use shared::models::player::PlayerLogin;
-use crate::player::usecase::{PlayerUseCase, PlayerUseCaseImpl};
-use crate::player::repository::{PlayerRepositoryImpl, PlayerRepository};
-use crate::player::error::PlayerError;
 use crate::error::ApiError;
-use uuid::Uuid;
-use shared::dto::player::{LoginResponse, PlayerDto, CreatePlayerRequest, UpdateEmailRequest, UpdateHandleRequest, UpdatePasswordRequest, UpdateResponse};
-use log::{info, error, warn};
+use crate::player::error::PlayerError;
+use crate::player::repository::{PlayerRepository, PlayerRepositoryImpl};
 use crate::player::session::SessionStore;
+use crate::player::usecase::{PlayerUseCase, PlayerUseCaseImpl};
+use log::{error, info, warn};
+use shared::dto::player::{
+    CreatePlayerRequest, LoginResponse, PlayerDto, UpdateEmailRequest, UpdateHandleRequest,
+    UpdatePasswordRequest, UpdateResponse,
+};
+use shared::models::player::PlayerLogin;
+use uuid::Uuid;
 
 pub async fn login_handler_impl<R, S>(
     login: web::Json<PlayerLogin>,
@@ -20,7 +23,9 @@ where
     S: SessionStore + 'static,
 {
     let email = login.email.clone();
-    let usecase = PlayerUseCaseImpl { repo: repo.get_ref().clone() };
+    let usecase = PlayerUseCaseImpl {
+        repo: repo.get_ref().clone(),
+    };
 
     match usecase.login(login.into_inner()).await {
         Ok(player) => {
@@ -28,32 +33,38 @@ where
             match session_store.set_session(&session_id, &player.email).await {
                 Ok(_) => {
                     let player_dto = PlayerDto::from(&player);
-                    let response = LoginResponse { 
+                    let response = LoginResponse {
                         player: player_dto,
                         session_id: session_id.clone(),
                     };
-                    info!("Player {} logged in successfully, session {} created", player.email, session_id);
+                    info!(
+                        "Player {} logged in successfully, session {} created",
+                        player.email, session_id
+                    );
                     Ok(HttpResponse::Ok().json(response))
-                },
+                }
                 Err(e) => {
                     let err_msg = format!("Session store error: {}", e);
-                    error!("Session store error during login for {}: {}", player.email, e);
+                    error!(
+                        "Session store error during login for {}: {}",
+                        player.email, e
+                    );
                     Err(PlayerError::SessionError(err_msg).into())
-                },
+                }
             }
-        },
+        }
         Err(PlayerError::NotFound) => {
             info!("Login attempt for non-existent player: {}", email);
             Err(PlayerError::NotFound.into())
-        },
+        }
         Err(PlayerError::InvalidPassword) => {
             info!("Invalid password attempt for player: {}", email);
             Err(PlayerError::InvalidPassword.into())
-        },
+        }
         Err(e) => {
             error!("Unexpected login error for {}: {}", email, e);
             Err(e.into())
-        },
+        }
     }
 }
 
@@ -70,10 +81,29 @@ pub async fn login_handler_prod(
         let ip = peer.ip().to_string();
         let key = format!("login:{}:{}", ip, login.email);
         if let Ok(mut conn) = redis_client.get_async_connection().await {
-            let _: () = redis::cmd("INCR").arg(&key).query_async(&mut conn).await.unwrap_or(());
-            let ttl: i64 = redis::cmd("TTL").arg(&key).query_async(&mut conn).await.unwrap_or(-1);
-            if ttl < 0 { let _: () = redis::cmd("EXPIRE").arg(&key).arg(300).query_async(&mut conn).await.unwrap_or(()); }
-            let count: i64 = redis::cmd("GET").arg(&key).query_async(&mut conn).await.unwrap_or(0);
+            let _: () = redis::cmd("INCR")
+                .arg(&key)
+                .query_async(&mut conn)
+                .await
+                .unwrap_or(());
+            let ttl: i64 = redis::cmd("TTL")
+                .arg(&key)
+                .query_async(&mut conn)
+                .await
+                .unwrap_or(-1);
+            if ttl < 0 {
+                let _: () = redis::cmd("EXPIRE")
+                    .arg(&key)
+                    .arg(300)
+                    .query_async(&mut conn)
+                    .await
+                    .unwrap_or(());
+            }
+            let count: i64 = redis::cmd("GET")
+                .arg(&key)
+                .query_async(&mut conn)
+                .await
+                .unwrap_or(0);
             if count > 10 {
                 return Ok(HttpResponse::TooManyRequests().json(serde_json::json!({
                     "error": "Too Many Requests",
@@ -85,36 +115,44 @@ pub async fn login_handler_prod(
 
     // Inline the login_impl logic so we can set cookies
     let email = login.email.clone();
-    let usecase = PlayerUseCaseImpl { repo: repo.get_ref().clone() };
+    let usecase = PlayerUseCaseImpl {
+        repo: repo.get_ref().clone(),
+    };
     match usecase.login(login.into_inner()).await {
         Ok(player) => {
             let session_id = uuid::Uuid::new_v4().to_string();
-                            match session_store.set_session(&session_id, &player.email).await {
-                    Ok(_) => {
-                        let player_dto = PlayerDto::from(&player);
-                        let response = LoginResponse { player: player_dto, session_id: session_id.clone() };
-                        // No cookies - frontend will use Authorization header
-                        Ok(HttpResponse::Ok().json(response))
-                    },
+            match session_store.set_session(&session_id, &player.email).await {
+                Ok(_) => {
+                    let player_dto = PlayerDto::from(&player);
+                    let response = LoginResponse {
+                        player: player_dto,
+                        session_id: session_id.clone(),
+                    };
+                    // No cookies - frontend will use Authorization header
+                    Ok(HttpResponse::Ok().json(response))
+                }
                 Err(e) => {
                     let err_msg = format!("Session store error: {}", e);
-                    error!("Session store error during login for {}: {}", player.email, e);
+                    error!(
+                        "Session store error during login for {}: {}",
+                        player.email, e
+                    );
                     Err(PlayerError::SessionError(err_msg).into())
                 }
             }
-        },
+        }
         Err(PlayerError::NotFound) => {
             info!("Login attempt for non-existent player: {}", email);
             Err(PlayerError::NotFound.into())
-        },
+        }
         Err(PlayerError::InvalidPassword) => {
             info!("Invalid password attempt for player: {}", email);
             Err(PlayerError::InvalidPassword.into())
-        },
+        }
         Err(e) => {
             error!("Unexpected login error for {}: {}", email, e);
             Err(e.into())
-        },
+        }
     }
 }
 
@@ -126,22 +164,24 @@ where
     R: PlayerRepository + Clone + 'static,
 {
     let email = registration.email.clone();
-    let usecase = PlayerUseCaseImpl { repo: repo.get_ref().clone() };
+    let usecase = PlayerUseCaseImpl {
+        repo: repo.get_ref().clone(),
+    };
 
     match usecase.register(registration.into_inner()).await {
         Ok(player) => {
             let player_dto = PlayerDto::from(&player);
             info!("Player {} registered successfully", email);
             Ok(HttpResponse::Created().json(player_dto))
-        },
+        }
         Err(PlayerError::AlreadyExists) => {
             info!("Registration attempt for existing email: {}", email);
             Err(PlayerError::AlreadyExists.into())
-        },
+        }
         Err(e) => {
             error!("Unexpected registration error for {}: {}", email, e);
             Err(e.into())
-        },
+        }
     }
 }
 
@@ -158,48 +198,60 @@ pub async fn logout_handler<S: SessionStore + 'static>(
     session_store: web::Data<S>,
 ) -> Result<HttpResponse, ApiError> {
     // Get session ID from Authorization header
-    let session_id = req.headers().get("Authorization")
-        .and_then(|auth_header| {
-            auth_header.to_str().ok()
-                .and_then(|header_str| {
-                    if header_str.starts_with("Bearer ") {
-                        Some(header_str[7..].trim().to_string())
-                    } else {
-                        None
-                    }
-                })
-        });
+    let session_id = req.headers().get("Authorization").and_then(|auth_header| {
+        auth_header.to_str().ok().and_then(|header_str| {
+            if header_str.starts_with("Bearer ") {
+                Some(header_str[7..].trim().to_string())
+            } else {
+                None
+            }
+        })
+    });
 
     let session_id = match session_id {
         Some(sid) => sid,
         None => {
-            warn!("Logout attempt without Authorization header from IP: {}", 
-                req.peer_addr().map(|addr| addr.ip().to_string()).unwrap_or_else(|| "unknown".to_string()));
+            warn!(
+                "Logout attempt without Authorization header from IP: {}",
+                req.peer_addr()
+                    .map(|addr| addr.ip().to_string())
+                    .unwrap_or_else(|| "unknown".to_string())
+            );
             return Err(ApiError::bad_request("Missing Authorization header"));
-        },
+        }
     };
 
     // Log logout attempt with session ID, IP, and user agent
-    let peer_ip = req.peer_addr().map(|addr| addr.ip().to_string()).unwrap_or_else(|| "unknown".to_string());
-    let user_agent = req.headers()
+    let peer_ip = req
+        .peer_addr()
+        .map(|addr| addr.ip().to_string())
+        .unwrap_or_else(|| "unknown".to_string());
+    let user_agent = req
+        .headers()
         .get("User-Agent")
         .and_then(|ua| ua.to_str().ok())
         .unwrap_or("unknown");
-    info!("Logout attempt for session {} from IP: {} with User-Agent: {}", session_id, peer_ip, user_agent);
+    info!(
+        "Logout attempt for session {} from IP: {} with User-Agent: {}",
+        session_id, peer_ip, user_agent
+    );
 
-            match session_store.delete_session(&session_id).await {
-            Ok(_) => {
-                info!("Player logged out successfully, session {} terminated from IP: {} with User-Agent: {}", session_id, peer_ip, user_agent);
-                Ok(HttpResponse::Ok().json(serde_json::json!({
-                    "message": "Logged out successfully",
-                    "timestamp": chrono::Utc::now().to_rfc3339()
-                })))
-            },
+    match session_store.delete_session(&session_id).await {
+        Ok(_) => {
+            info!("Player logged out successfully, session {} terminated from IP: {} with User-Agent: {}", session_id, peer_ip, user_agent);
+            Ok(HttpResponse::Ok().json(serde_json::json!({
+                "message": "Logged out successfully",
+                "timestamp": chrono::Utc::now().to_rfc3339()
+            })))
+        }
         Err(e) => {
             let err_msg = format!("Session store error: {}", e);
-            error!("Session store error during logout for session {}: {}", session_id, e);
+            error!(
+                "Session store error during logout for session {}: {}",
+                session_id, e
+            );
             Err(PlayerError::SessionError(err_msg).into())
-        },
+        }
     }
 }
 
@@ -290,9 +342,14 @@ where
         None => return Err(ApiError::unauthorized("Not authenticated")),
     };
 
-    let usecase = PlayerUseCaseImpl { repo: repo.get_ref().clone() };
-    
-    match usecase.update_email(&email, &update_request.email, &update_request.password).await {
+    let usecase = PlayerUseCaseImpl {
+        repo: repo.get_ref().clone(),
+    };
+
+    match usecase
+        .update_email(&email, &update_request.email, &update_request.password)
+        .await
+    {
         Ok(player) => {
             let player_dto = PlayerDto::from(&player);
             let response = UpdateResponse {
@@ -301,19 +358,22 @@ where
             };
             info!("Player {} updated email to {}", email, update_request.email);
             Ok(HttpResponse::Ok().json(response))
-        },
+        }
         Err(PlayerError::InvalidPassword) => {
             info!("Invalid password for email update attempt by {}", email);
             Err(PlayerError::InvalidPassword.into())
-        },
+        }
         Err(PlayerError::AlreadyExists) => {
-            info!("Email update attempt with existing email {} by {}", update_request.email, email);
+            info!(
+                "Email update attempt with existing email {} by {}",
+                update_request.email, email
+            );
             Err(PlayerError::AlreadyExists.into())
-        },
+        }
         Err(e) => {
             error!("Unexpected error updating email for {}: {}", email, e);
             Err(e.into())
-        },
+        }
     }
 }
 
@@ -339,30 +399,41 @@ where
         None => return Err(ApiError::unauthorized("Not authenticated")),
     };
 
-    let usecase = PlayerUseCaseImpl { repo: repo.get_ref().clone() };
-    
-    match usecase.update_handle(&email, &update_request.handle, &update_request.password).await {
+    let usecase = PlayerUseCaseImpl {
+        repo: repo.get_ref().clone(),
+    };
+
+    match usecase
+        .update_handle(&email, &update_request.handle, &update_request.password)
+        .await
+    {
         Ok(player) => {
             let player_dto = PlayerDto::from(&player);
             let response = UpdateResponse {
                 message: "Handle updated successfully".to_string(),
                 player: player_dto,
             };
-            info!("Player {} updated handle to {}", email, update_request.handle);
+            info!(
+                "Player {} updated handle to {}",
+                email, update_request.handle
+            );
             Ok(HttpResponse::Ok().json(response))
-        },
+        }
         Err(PlayerError::InvalidPassword) => {
             info!("Invalid password for handle update attempt by {}", email);
             Err(PlayerError::InvalidPassword.into())
-        },
+        }
         Err(PlayerError::AlreadyExists) => {
-            info!("Handle update attempt with existing handle {} by {}", update_request.handle, email);
+            info!(
+                "Handle update attempt with existing handle {} by {}",
+                update_request.handle, email
+            );
             Err(PlayerError::AlreadyExists.into())
-        },
+        }
         Err(e) => {
             error!("Unexpected error updating handle for {}: {}", email, e);
             Err(e.into())
-        },
+        }
     }
 }
 
@@ -388,9 +459,18 @@ where
         None => return Err(ApiError::unauthorized("Not authenticated")),
     };
 
-    let usecase = PlayerUseCaseImpl { repo: repo.get_ref().clone() };
-    
-    match usecase.update_password(&email, &update_request.current_password, &update_request.new_password).await {
+    let usecase = PlayerUseCaseImpl {
+        repo: repo.get_ref().clone(),
+    };
+
+    match usecase
+        .update_password(
+            &email,
+            &update_request.current_password,
+            &update_request.new_password,
+        )
+        .await
+    {
         Ok(player) => {
             let player_dto = PlayerDto::from(&player);
             let response = UpdateResponse {
@@ -399,15 +479,18 @@ where
             };
             info!("Player {} updated password", email);
             Ok(HttpResponse::Ok().json(response))
-        },
+        }
         Err(PlayerError::InvalidPassword) => {
-            info!("Invalid current password for password update attempt by {}", email);
+            info!(
+                "Invalid current password for password update attempt by {}",
+                email
+            );
             Err(PlayerError::InvalidPassword.into())
-        },
+        }
         Err(e) => {
             error!("Unexpected error updating password for {}: {}", email, e);
             Err(e.into())
-        },
+        }
     }
 }
 

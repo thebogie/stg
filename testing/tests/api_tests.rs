@@ -3,13 +3,13 @@
 //! These tests exercise the complete backend API with real database and Redis,
 //! using ephemeral containers for true isolation.
 
-use anyhow::Result;
 use actix_web::{test, web, App};
+use anyhow::Result;
 use serde_json::json;
-use testing::{TestEnvironment, app_setup};
+use testing::{app_setup, TestEnvironment};
 
 // Use the actual DTOs from shared
-use shared::dto::player::{PlayerDto, LoginResponse};
+use shared::dto::player::{LoginResponse, PlayerDto};
 
 // Note: The backend returns session_id in the JSON response body.
 // We extract it and use it in the Cookie header for authenticated requests.
@@ -17,12 +17,10 @@ use shared::dto::player::{PlayerDto, LoginResponse};
 #[tokio::test]
 async fn test_player_registration() -> Result<()> {
     // Set explicit timeout for test environment setup
-    let env = tokio::time::timeout(
-        std::time::Duration::from_secs(120),
-        TestEnvironment::new()
-    ).await
-    .map_err(|_| anyhow::anyhow!("Test environment setup timed out after 120s"))??;
-    
+    let env = tokio::time::timeout(std::time::Duration::from_secs(120), TestEnvironment::new())
+        .await
+        .map_err(|_| anyhow::anyhow!("Test environment setup timed out after 120s"))??;
+
     env.wait_for_ready().await?;
 
     let app_data = app_setup::setup_test_app_data(&env).await?;
@@ -36,9 +34,10 @@ async fn test_player_registration() -> Result<()> {
             .app_data(app_data.session_store.clone())
             .service(
                 web::scope("/api/players")
-                    .service(backend::player::controller::register_handler_prod)
-            )
-    ).await;
+                    .service(backend::player::controller::register_handler_prod),
+            ),
+    )
+    .await;
 
     // Test successful registration
     let req = test::TestRequest::post()
@@ -51,7 +50,7 @@ async fn test_player_registration() -> Result<()> {
         .to_request();
 
     let resp = test::call_service(&app, req).await;
-    
+
     assert!(
         resp.status().is_success(),
         "Registration should succeed, got status: {}",
@@ -83,9 +82,10 @@ async fn test_player_registration_duplicate_email() -> Result<()> {
             .app_data(app_data.session_store.clone())
             .service(
                 web::scope("/api/players")
-                    .service(backend::player::controller::register_handler_prod)
-            )
-    ).await;
+                    .service(backend::player::controller::register_handler_prod),
+            ),
+    )
+    .await;
 
     // Register first user
     let req1 = test::TestRequest::post()
@@ -109,7 +109,7 @@ async fn test_player_registration_duplicate_email() -> Result<()> {
         }))
         .to_request();
     let resp2 = test::call_service(&app, req2).await;
-    
+
     assert!(
         resp2.status().is_client_error(),
         "Duplicate email should fail, got status: {}",
@@ -136,9 +136,10 @@ async fn test_player_login() -> Result<()> {
             .service(
                 web::scope("/api/players")
                     .service(backend::player::controller::register_handler_prod)
-                    .service(backend::player::controller::login_handler_prod)
-            )
-    ).await;
+                    .service(backend::player::controller::login_handler_prod),
+            ),
+    )
+    .await;
 
     // First, register a user
     let register_req = test::TestRequest::post()
@@ -162,7 +163,7 @@ async fn test_player_login() -> Result<()> {
         .to_request();
 
     let login_resp = test::call_service(&app, login_req).await;
-    
+
     assert!(
         login_resp.status().is_success(),
         "Login should succeed, got status: {}",
@@ -192,10 +193,10 @@ async fn test_player_login_invalid_credentials() -> Result<()> {
             .app_data(app_data.player_repo.clone())
             .app_data(app_data.session_store.clone())
             .service(
-                web::scope("/api/players")
-                    .service(backend::player::controller::login_handler_prod)
-            )
-    ).await;
+                web::scope("/api/players").service(backend::player::controller::login_handler_prod),
+            ),
+    )
+    .await;
 
     // Try to login with non-existent user
     let req = test::TestRequest::post()
@@ -207,7 +208,7 @@ async fn test_player_login_invalid_credentials() -> Result<()> {
         .to_request();
 
     let resp = test::call_service(&app, req).await;
-    
+
     assert!(
         resp.status().is_client_error(),
         "Invalid credentials should fail, got status: {}",
@@ -240,10 +241,11 @@ async fn test_get_current_player() -> Result<()> {
                             .wrap(backend::auth::AuthMiddleware {
                                 redis: app_data.redis_arc.clone(),
                             })
-                            .service(backend::player::controller::me_handler_prod)
-                    )
-            )
-    ).await;
+                            .service(backend::player::controller::me_handler_prod),
+                    ),
+            ),
+    )
+    .await;
 
     // Register and login to get session
     let register_req = test::TestRequest::post()
@@ -278,7 +280,7 @@ async fn test_get_current_player() -> Result<()> {
         .to_request();
 
     let me_resp = test::call_service(&app, me_req).await;
-    
+
     assert!(
         me_resp.status().is_success(),
         "Get current player should succeed, got status: {}",
@@ -307,25 +309,23 @@ async fn test_get_current_player_unauthorized() -> Result<()> {
             .app_data(app_data.player_repo.clone())
             .app_data(app_data.session_store.clone())
             .service(
-                web::scope("/api/players")
-                    .service(
-                        web::scope("/me")
-                            .wrap(backend::auth::AuthMiddleware {
-                                redis: app_data.redis_arc.clone(),
-                            })
-                            .service(backend::player::controller::me_handler_prod)
-                    )
-            )
-    ).await;
+                web::scope("/api/players").service(
+                    web::scope("/me")
+                        .wrap(backend::auth::AuthMiddleware {
+                            redis: app_data.redis_arc.clone(),
+                        })
+                        .service(backend::player::controller::me_handler_prod),
+                ),
+            ),
+    )
+    .await;
 
     // Try to get current player without authentication
-    let req = test::TestRequest::get()
-        .uri("/api/players/me")
-        .to_request();
+    let req = test::TestRequest::get().uri("/api/players/me").to_request();
 
     // Use try_call_service to handle error responses properly
     let resp = test::try_call_service(&app, req).await;
-    
+
     // The middleware returns 401 Unauthorized for missing auth
     match resp {
         Ok(resp) => {
@@ -347,8 +347,7 @@ async fn test_get_current_player_unauthorized() -> Result<()> {
             use actix_web::error::ResponseError;
             let status = e.as_response_error().status_code();
             assert_eq!(
-                status,
-                401,
+                status, 401,
                 "Should return 401 Unauthorized error, got: {}",
                 status
             );
@@ -382,10 +381,11 @@ async fn test_player_logout() -> Result<()> {
                             .wrap(backend::auth::AuthMiddleware {
                                 redis: app_data.redis_arc.clone(),
                             })
-                            .service(backend::player::controller::me_handler_prod)
-                    )
-            )
-    ).await;
+                            .service(backend::player::controller::me_handler_prod),
+                    ),
+            ),
+    )
+    .await;
 
     // Register and login
     let register_req = test::TestRequest::post()
@@ -411,10 +411,13 @@ async fn test_player_logout() -> Result<()> {
         "Login should succeed, got status: {}",
         login_resp.status()
     );
-    
+
     let login_body: LoginResponse = test::read_body_json(login_resp).await;
     let session_id = login_body.session_id;
-    assert!(!session_id.is_empty(), "Session ID should not be empty after login");
+    assert!(
+        !session_id.is_empty(),
+        "Session ID should not be empty after login"
+    );
 
     // Give Redis a moment to ensure session is stored
     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
@@ -457,8 +460,7 @@ async fn test_player_logout() -> Result<()> {
             // ErrorUnauthorized is expected after logout
             let status = e.as_response_error().status_code();
             assert_eq!(
-                status,
-                401,
+                status, 401,
                 "Session should be invalidated after logout, got error status: {}",
                 status
             );

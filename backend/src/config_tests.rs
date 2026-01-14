@@ -16,12 +16,12 @@ mod config_tests {
             Environment::Development => assert!(true),
             _ => assert!(false),
         }
-        
+
         match Environment::Production {
             Environment::Production => assert!(true),
             _ => assert!(false),
         }
-        
+
         match Environment::Test {
             Environment::Test => assert!(true),
             _ => assert!(false),

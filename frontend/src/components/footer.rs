@@ -111,4 +111,4 @@ pub fn footer() -> Html {
             </div>
         </footer>
     }
-} 
+}

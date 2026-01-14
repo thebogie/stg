@@ -1,9 +1,9 @@
 #[cfg(test)]
 mod contest_tests {
     // use super::*;
+    use chrono::{Duration, Utc};
     use shared::dto::contest::{ContestDto, OutcomeDto};
     use shared::models::contest::Contest;
-    use chrono::{Utc, Duration};
 
     #[test]
     fn test_contest_dto_creation() {
@@ -27,7 +27,7 @@ mod contest_tests {
             creator_id: String::new(),
             created_at: None,
         };
-        
+
         assert_eq!(contest_dto.name, "Test Contest");
         assert!(contest_dto.stop > contest_dto.start);
     }
@@ -41,7 +41,7 @@ mod contest_tests {
             email: "test@example.com".to_string(),
             handle: "testplayer".to_string(),
         };
-        
+
         assert_eq!(outcome.player_id, "player/test");
         assert_eq!(outcome.place, "1");
         assert_eq!(outcome.result, "won");
@@ -58,7 +58,7 @@ mod contest_tests {
             creator_id: "player/test-creator".to_string(),
             created_at: Utc::now().fixed_offset(),
         };
-        
+
         assert_eq!(contest.name, "Test Contest");
         assert!(contest.stop > contest.start);
     }
@@ -74,10 +74,10 @@ mod contest_tests {
             creator_id: "player/test-creator".to_string(),
             created_at: Utc::now().fixed_offset(),
         };
-        
+
         let json = serde_json::to_string(&contest).unwrap();
         let deserialized: Contest = serde_json::from_str(&json).unwrap();
-        
+
         assert_eq!(contest.id, deserialized.id);
         assert_eq!(contest.name, deserialized.name);
     }
@@ -85,9 +85,9 @@ mod contest_tests {
 
 #[cfg(test)]
 mod contest_integration_like_tests {
+    use chrono::{Duration, FixedOffset, Utc};
     use shared::dto::contest::ContestDto;
     use shared::models::venue::VenueSource;
-    use chrono::{Utc, Duration, FixedOffset};
 
     #[test]
     fn test_utc_and_timezone_fields_present() {
@@ -117,6 +117,8 @@ mod contest_integration_like_tests {
         assert!(contest_dto.stop > contest_dto.start);
         assert_eq!(contest_dto.venue.timezone, "Europe/Paris");
         // Ensure UTC instant is usable
-        let _ = contest_dto.start.with_timezone(&FixedOffset::east_opt(0).unwrap());
+        let _ = contest_dto
+            .start
+            .with_timezone(&FixedOffset::east_opt(0).unwrap());
     }
 }

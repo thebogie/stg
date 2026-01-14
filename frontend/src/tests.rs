@@ -71,15 +71,10 @@ mod tests {
         let valid_emails = vec![
             "test@example.com",
             "user.name@domain.co.uk",
-            "user+tag@example.org"
+            "user+tag@example.org",
         ];
 
-        let invalid_emails = vec![
-            "invalid-email",
-            "@example.com",
-            "user@",
-            "user@.com"
-        ];
+        let invalid_emails = vec!["invalid-email", "@example.com", "user@", "user@.com"];
 
         for email in valid_emails {
             assert!(email.contains("@") && email.contains("."));
@@ -92,41 +87,39 @@ mod tests {
             let not_start_with_at = !email.starts_with("@");
             let not_end_with_at = !email.ends_with("@");
             let not_end_with_dot = !email.ends_with(".");
-            
+
             // Additional check: if it has @ and ., the . should come after the @
             let dot_after_at = if has_at && has_dot {
                 email.find("@").unwrap() < email.find(".").unwrap()
             } else {
                 false
             };
-            
+
             // Check that there's a domain part between @ and .
             let has_domain_part = if has_at && has_dot {
                 let at_pos = email.find("@").unwrap();
                 let dot_pos = email.find(".").unwrap();
-                dot_pos > at_pos + 1  // There should be at least one character between @ and .
+                dot_pos > at_pos + 1 // There should be at least one character between @ and .
             } else {
                 false
             };
-            
-            let is_valid = has_at && has_dot && not_start_with_at && not_end_with_at && not_end_with_dot && dot_after_at && has_domain_part;
+
+            let is_valid = has_at
+                && has_dot
+                && not_start_with_at
+                && not_end_with_at
+                && not_end_with_dot
+                && dot_after_at
+                && has_domain_part;
             assert!(!is_valid, "Email '{}' should be invalid", email);
         }
     }
 
     #[test]
     fn test_password_validation() {
-        let valid_passwords = vec![
-            "password123",
-            "SecurePass!",
-            "MyP@ssw0rd"
-        ];
+        let valid_passwords = vec!["password123", "SecurePass!", "MyP@ssw0rd"];
 
-        let invalid_passwords = vec![
-            "123",
-            "short",
-            ""
-        ];
+        let invalid_passwords = vec!["123", "short", ""];
 
         for password in valid_passwords {
             assert!(password.len() >= 8);
@@ -141,15 +134,15 @@ mod tests {
     #[test]
     fn test_vector_operations() {
         let mut vec = vec![1, 2, 3, 4, 5];
-        
+
         assert_eq!(vec.len(), 5);
         assert_eq!(vec[0], 1);
         assert_eq!(vec[4], 5);
-        
+
         vec.push(6);
         assert_eq!(vec.len(), 6);
         assert_eq!(vec[5], 6);
-        
+
         let popped = vec.pop();
         assert_eq!(popped, Some(6));
         assert_eq!(vec.len(), 5);
@@ -158,11 +151,11 @@ mod tests {
     #[test]
     fn test_hashmap_operations() {
         use std::collections::HashMap;
-        
+
         let mut map = HashMap::new();
         map.insert("key1", "value1");
         map.insert("key2", "value2");
-        
+
         assert_eq!(map.len(), 2);
         assert_eq!(map.get("key1"), Some(&"value1"));
         assert_eq!(map.get("key2"), Some(&"value2"));
@@ -177,7 +170,7 @@ mod tests {
 
         assert!(success_result.is_ok());
         assert!(error_result.is_err());
-        
+
         assert_eq!(success_result.unwrap(), 42);
         assert_eq!(error_result.unwrap_err(), "Something went wrong");
     }
@@ -189,7 +182,7 @@ mod tests {
 
         assert!(some_value.is_some());
         assert!(none_value.is_none());
-        
+
         assert_eq!(some_value.unwrap(), 42);
         assert_eq!(some_value.unwrap_or(0), 42);
         assert_eq!(none_value.unwrap_or(0), 0);
@@ -199,12 +192,12 @@ mod tests {
     #[test]
     fn test_string_concatenation_performance() {
         let start = std::time::Instant::now();
-        
+
         let mut result = String::new();
         for i in 0..1000 {
             result.push_str(&format!("item{}", i));
         }
-        
+
         let duration = start.elapsed();
         assert!(duration.as_millis() < 100); // Should complete in under 100ms
         assert_eq!(result.len(), 6890); // Expected length: 1000 * 4 ("item") + sum of digit lengths
@@ -213,13 +206,13 @@ mod tests {
     #[test]
     fn test_json_parsing_performance() {
         let json_data = r#"{"name":"Test","items":[1,2,3,4,5]}"#;
-        
+
         let start = std::time::Instant::now();
-        
+
         for _ in 0..100 {
             let _: serde_json::Value = serde_json::from_str(json_data).unwrap();
         }
-        
+
         let duration = start.elapsed();
         assert!(duration.as_millis() < 50); // Should complete in under 50ms
     }
@@ -227,4 +220,4 @@ mod tests {
     // Async tests removed - tokio is not available for WASM builds
     // If you need async testing, use integration tests in the testing crate
     // or E2E tests with Playwright
-} 
+}

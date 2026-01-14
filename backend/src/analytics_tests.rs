@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod analytics_tests {
-    use shared::dto::analytics::*;
     use chrono::Utc;
+    use shared::dto::analytics::*;
 
     #[test]
     fn test_leaderboard_response_creation() {
@@ -12,7 +12,7 @@ mod analytics_tests {
             total_entries: 0,
             last_updated: Utc::now().fixed_offset(),
         };
-        
+
         assert!(matches!(response.category, LeaderboardCategory::WinRate));
         assert!(matches!(response.time_period, TimePeriod::Last30Days));
         assert_eq!(response.total_entries, 0);
@@ -28,7 +28,7 @@ mod analytics_tests {
             unlocked_achievements: 5,
             completion_percentage: 50.0,
         };
-        
+
         assert_eq!(achievements.player_id, "player/test");
         assert_eq!(achievements.player_handle, "testuser");
         assert_eq!(achievements.total_achievements, 10);
@@ -43,7 +43,7 @@ mod analytics_tests {
             month: 1,
             contests: 5,
         };
-        
+
         assert_eq!(contests.year, 2024);
         assert_eq!(contests.month, 1);
         assert_eq!(contests.contests, 5);
@@ -64,7 +64,7 @@ mod analytics_tests {
             top_venues: vec![],
             last_updated: Utc::now().fixed_offset(),
         };
-        
+
         assert_eq!(stats.total_games, 100);
         assert_eq!(stats.total_venues, 10);
         assert_eq!(stats.total_contests, 50);
@@ -78,12 +78,12 @@ mod analytics_tests {
             LeaderboardCategory::WinRate => assert!(true),
             _ => assert!(false),
         }
-        
+
         match LeaderboardCategory::TotalWins {
             LeaderboardCategory::TotalWins => assert!(true),
             _ => assert!(false),
         }
-        
+
         match LeaderboardCategory::SkillRating {
             LeaderboardCategory::SkillRating => assert!(true),
             _ => assert!(false),
@@ -97,7 +97,7 @@ mod analytics_tests {
             TimePeriod::AllTime => assert!(true),
             _ => assert!(false),
         }
-        
+
         match TimePeriod::Last30Days {
             TimePeriod::Last30Days => assert!(true),
             _ => assert!(false),
@@ -114,23 +114,26 @@ mod analytics_tests {
             unlocked_achievements: 5,
             completion_percentage: 50.0,
         };
-        
+
         let json = serde_json::to_string(&achievements).unwrap();
         let deserialized: PlayerAchievementsDto = serde_json::from_str(&json).unwrap();
-        
+
         assert_eq!(achievements.player_id, deserialized.player_id);
         assert_eq!(achievements.player_handle, deserialized.player_handle);
-        assert_eq!(achievements.total_achievements, deserialized.total_achievements);
+        assert_eq!(
+            achievements.total_achievements,
+            deserialized.total_achievements
+        );
     }
 
     #[test]
     fn test_analytics_basic_operations() {
         // Test basic analytics operations without complex dependencies
         let data: Vec<i32> = vec![1, 2, 3, 4, 5];
-        
+
         let sum: i32 = data.iter().sum();
         let avg = sum as f64 / data.len() as f64;
-        
+
         assert_eq!(sum, 15);
         assert_eq!(avg, 3.0);
     }

@@ -1,11 +1,11 @@
-use actix_web::{web, HttpRequest, HttpResponse, HttpMessage};
-use serde::Deserialize;
+use actix_web::{web, HttpMessage, HttpRequest, HttpResponse};
 use arangors::client::ClientExt;
-use shared::dto::ratings::{RatingScope};
+use serde::Deserialize;
+use shared::dto::ratings::RatingScope;
 
-use super::usecase::RatingsUsecase;
 use super::repository::RatingsRepository;
 use super::scheduler::RatingsScheduler;
+use super::usecase::RatingsUsecase;
 
 #[derive(Clone)]
 pub struct RatingsController<C: ClientExt + Send + Sync + 'static> {
@@ -14,18 +14,32 @@ pub struct RatingsController<C: ClientExt + Send + Sync + 'static> {
 }
 
 impl<C: ClientExt + Send + Sync + 'static> RatingsController<C> {
-    pub fn new(usecase: RatingsUsecase<C>, scheduler: RatingsScheduler<C>) -> Self { 
-        Self { usecase, scheduler: web::Data::new(scheduler) } 
+    pub fn new(usecase: RatingsUsecase<C>, scheduler: RatingsScheduler<C>) -> Self {
+        Self {
+            usecase,
+            scheduler: web::Data::new(scheduler),
+        }
     }
 
     #[cfg(test)]
-    fn normalize_id(collection: &str, key_or_id: &str) -> String { if key_or_id.contains('/') { key_or_id.to_string() } else { format!("{}/{}", collection, key_or_id) } }
+    fn normalize_id(collection: &str, key_or_id: &str) -> String {
+        if key_or_id.contains('/') {
+            key_or_id.to_string()
+        } else {
+            format!("{}/{}", collection, key_or_id)
+        }
+    }
 
-    pub fn configure_routes(cfg: &mut web::ServiceConfig, db: arangors::Database<C>, scheduler: RatingsScheduler<C>, redis: redis::Client) {
+    pub fn configure_routes(
+        cfg: &mut web::ServiceConfig,
+        db: arangors::Database<C>,
+        scheduler: RatingsScheduler<C>,
+        redis: redis::Client,
+    ) {
         let repo = RatingsRepository::new(db.clone());
-        let controller = web::Data::new(RatingsController { 
+        let controller = web::Data::new(RatingsController {
             usecase: RatingsUsecase::new(repo),
-            scheduler: web::Data::new(scheduler)
+            scheduler: web::Data::new(scheduler),
         });
 
         cfg.service(
@@ -91,14 +105,14 @@ impl<C: ClientExt + Send + Sync + 'static> RatingsController<C> {
                         Some(email) => email.clone(),
                         None => return Ok(HttpResponse::Unauthorized().json(serde_json::json!({"error": "Not authenticated"})))
                     };
-                    
+
                     // Get player ID from email
                     let player_id = match ctrl.usecase.get_player_id_by_email(&email).await {
                         Ok(Some(pid)) => pid,
                         Ok(None) => return Ok(HttpResponse::NotFound().json(serde_json::json!({"error": "Player not found"}))),
                         Err(e) => return Ok(HttpResponse::InternalServerError().json(serde_json::json!({"error": e.to_string()})))
                     };
-                    
+
                     // Get current player's ratings
                     match ctrl.usecase.get_player_ratings(&player_id).await {
                         Ok(rows) => Ok::<HttpResponse, actix_web::Error>(HttpResponse::Ok().json(rows)),
@@ -167,7 +181,11 @@ impl<C: ClientExt + Send + Sync + 'static> RatingsController<C> {
         );
     }
 
-    async fn recompute(&self, _req: HttpRequest, query: RecomputeQuery) -> shared::Result<HttpResponse> {
+    async fn recompute(
+        &self,
+        _req: HttpRequest,
+        query: RecomputeQuery,
+    ) -> shared::Result<HttpResponse> {
         let period = query.period.clone();
         self.usecase.recompute_month(period).await?;
         Ok(HttpResponse::Accepted().json(serde_json::json!({"status":"started"})))
@@ -175,10 +193,14 @@ impl<C: ClientExt + Send + Sync + 'static> RatingsController<C> {
 }
 
 #[derive(Deserialize)]
-struct RecomputeQuery { period: Option<String> }
+struct RecomputeQuery {
+    period: Option<String>,
+}
 
 #[derive(Deserialize)]
-struct TriggerQuery { period: Option<String> }
+struct TriggerQuery {
+    period: Option<String>,
+}
 
 #[derive(Deserialize)]
 #[allow(dead_code)]
@@ -198,7 +220,6 @@ struct DebugPlayerPeriodQuery {
     email: String,
     period: String, // YYYY-MM
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -267,5 +288,3 @@ mod tests {
         assert_eq!(lim, 5);
     }
 }
-
-

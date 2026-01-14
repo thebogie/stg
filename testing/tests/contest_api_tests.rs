@@ -1,25 +1,24 @@
 //! Integration tests for Contest API endpoints
-//! 
+//!
 //! Tests complete CRUD operations for contests with real database and Redis
 
 //! Integration tests for Contest API endpoints
-//! 
+//!
 //! Tests complete CRUD operations for contests with real database and Redis
 
 mod test_helpers;
 
-use anyhow::Result;
 use actix_web::{test, web, App};
+use anyhow::Result;
 use chrono::{DateTime, FixedOffset, Utc};
 use serde_json::json;
 use shared::dto::contest::ContestDto;
-use shared::dto::venue::VenueDto;
 use shared::dto::game::GameDto;
-use shared::models::venue::VenueSource;
+use shared::dto::venue::VenueDto;
 use shared::models::game::GameSource;
-use testing::{TestEnvironment, app_setup};
+use shared::models::venue::VenueSource;
 use testing::create_authenticated_user;
-
+use testing::{app_setup, TestEnvironment};
 
 fn create_test_venue_dto() -> VenueDto {
     VenueDto {
@@ -50,7 +49,7 @@ async fn test_create_contest_success() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
     let app_data = app_setup::setup_test_app_data(&env).await?;
-    
+
     let app = test::init_service(
         App::new()
             .wrap(backend::middleware::Logger)
@@ -65,7 +64,7 @@ async fn test_create_contest_success() -> Result<()> {
             .service(
                 web::scope("/api/players")
                     .service(backend::player::controller::register_handler_prod)
-                    .service(backend::player::controller::login_handler_prod)
+                    .service(backend::player::controller::login_handler_prod),
             )
             .service(
                 web::scope("/api/contests")
@@ -76,10 +75,11 @@ async fn test_create_contest_success() -> Result<()> {
                     .app_data(app_data.player_repo.clone())
                     .service(backend::contest::controller::create_contest_handler)
                     .service(backend::contest::controller::search_contests_handler)
-                    .service(backend::contest::controller::get_contest_handler)
-            )
-    ).await;
-    
+                    .service(backend::contest::controller::get_contest_handler),
+            ),
+    )
+    .await;
+
     let session_id = create_authenticated_user!(app, "contest_test@example.com", "contestuser");
 
     let start: DateTime<FixedOffset> = Utc::now().into();
@@ -113,7 +113,7 @@ async fn test_create_contest_success() -> Result<()> {
         .to_request();
 
     let resp = test::call_service(&app, req).await;
-    
+
     assert!(
         resp.status().is_success(),
         "Creating contest should succeed, got status: {}",
@@ -133,7 +133,7 @@ async fn test_create_contest_validation_errors() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
     let app_data = app_setup::setup_test_app_data(&env).await?;
-    
+
     let app = test::init_service(
         App::new()
             .wrap(backend::middleware::Logger)
@@ -148,7 +148,7 @@ async fn test_create_contest_validation_errors() -> Result<()> {
             .service(
                 web::scope("/api/players")
                     .service(backend::player::controller::register_handler_prod)
-                    .service(backend::player::controller::login_handler_prod)
+                    .service(backend::player::controller::login_handler_prod),
             )
             .service(
                 web::scope("/api/contests")
@@ -159,10 +159,11 @@ async fn test_create_contest_validation_errors() -> Result<()> {
                     .app_data(app_data.player_repo.clone())
                     .service(backend::contest::controller::create_contest_handler)
                     .service(backend::contest::controller::search_contests_handler)
-                    .service(backend::contest::controller::get_contest_handler)
-            )
-    ).await;
-    
+                    .service(backend::contest::controller::get_contest_handler),
+            ),
+    )
+    .await;
+
     let session_id = create_authenticated_user!(app, "contest_val@example.com", "contestval");
 
     let start: DateTime<FixedOffset> = Utc::now().into();
@@ -207,7 +208,7 @@ async fn test_get_contest_success() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
     let app_data = app_setup::setup_test_app_data(&env).await?;
-    
+
     let app = test::init_service(
         App::new()
             .wrap(backend::middleware::Logger)
@@ -222,7 +223,7 @@ async fn test_get_contest_success() -> Result<()> {
             .service(
                 web::scope("/api/players")
                     .service(backend::player::controller::register_handler_prod)
-                    .service(backend::player::controller::login_handler_prod)
+                    .service(backend::player::controller::login_handler_prod),
             )
             .service(
                 web::scope("/api/contests")
@@ -233,10 +234,11 @@ async fn test_get_contest_success() -> Result<()> {
                     .app_data(app_data.player_repo.clone())
                     .service(backend::contest::controller::create_contest_handler)
                     .service(backend::contest::controller::search_contests_handler)
-                    .service(backend::contest::controller::get_contest_handler)
-            )
-    ).await;
-    
+                    .service(backend::contest::controller::get_contest_handler),
+            ),
+    )
+    .await;
+
     let session_id = create_authenticated_user!(app, "contest_get@example.com", "contestget");
 
     // First create a contest
@@ -270,10 +272,14 @@ async fn test_get_contest_success() -> Result<()> {
     assert!(create_resp.status().is_success());
     let created_contest: ContestDto = test::read_body_json(create_resp).await;
     let contest_id = created_contest.id.clone();
-    
+
     // Extract just the ID part if it's in format "contest/123"
     let contest_id_for_url = if contest_id.contains('/') {
-        contest_id.split('/').last().unwrap_or(&contest_id).to_string()
+        contest_id
+            .split('/')
+            .last()
+            .unwrap_or(&contest_id)
+            .to_string()
     } else {
         contest_id.clone()
     };
@@ -303,7 +309,7 @@ async fn test_get_contest_not_found() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
     let app_data = app_setup::setup_test_app_data(&env).await?;
-    
+
     let app = test::init_service(
         App::new()
             .wrap(backend::middleware::Logger)
@@ -318,7 +324,7 @@ async fn test_get_contest_not_found() -> Result<()> {
             .service(
                 web::scope("/api/players")
                     .service(backend::player::controller::register_handler_prod)
-                    .service(backend::player::controller::login_handler_prod)
+                    .service(backend::player::controller::login_handler_prod),
             )
             .service(
                 web::scope("/api/contests")
@@ -329,10 +335,11 @@ async fn test_get_contest_not_found() -> Result<()> {
                     .app_data(app_data.player_repo.clone())
                     .service(backend::contest::controller::create_contest_handler)
                     .service(backend::contest::controller::search_contests_handler)
-                    .service(backend::contest::controller::get_contest_handler)
-            )
-    ).await;
-    
+                    .service(backend::contest::controller::get_contest_handler),
+            ),
+    )
+    .await;
+
     let session_id = create_authenticated_user!(app, "contest_nf@example.com", "contestnf");
 
     let req = test::TestRequest::get()
@@ -356,7 +363,7 @@ async fn test_search_contests() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
     let app_data = app_setup::setup_test_app_data(&env).await?;
-    
+
     let app = test::init_service(
         App::new()
             .wrap(backend::middleware::Logger)
@@ -371,7 +378,7 @@ async fn test_search_contests() -> Result<()> {
             .service(
                 web::scope("/api/players")
                     .service(backend::player::controller::register_handler_prod)
-                    .service(backend::player::controller::login_handler_prod)
+                    .service(backend::player::controller::login_handler_prod),
             )
             .service(
                 web::scope("/api/venues")
@@ -379,7 +386,7 @@ async fn test_search_contests() -> Result<()> {
                         redis: app_data.redis_arc.clone(),
                     })
                     .app_data(actix_web::web::JsonConfig::default().limit(64 * 1024))
-                    .service(backend::venue::controller::create_venue_handler)
+                    .service(backend::venue::controller::create_venue_handler),
             )
             .service(
                 web::scope("/api/games")
@@ -387,7 +394,7 @@ async fn test_search_contests() -> Result<()> {
                         redis: app_data.redis_arc.clone(),
                     })
                     .app_data(actix_web::web::JsonConfig::default().limit(64 * 1024))
-                    .service(backend::game::controller::create_game_handler)
+                    .service(backend::game::controller::create_game_handler),
             )
             .service(
                 web::scope("/api/contests")
@@ -398,10 +405,11 @@ async fn test_search_contests() -> Result<()> {
                     .app_data(app_data.player_repo.clone())
                     .service(backend::contest::controller::create_contest_handler)
                     .service(backend::contest::controller::search_contests_handler)
-                    .service(backend::contest::controller::get_contest_handler)
-            )
-    ).await;
-    
+                    .service(backend::contest::controller::get_contest_handler),
+            ),
+    )
+    .await;
+
     let session_id = create_authenticated_user!(app, "contest_search@example.com", "contestsearch");
 
     // First create a venue and game that we'll reuse
@@ -414,29 +422,29 @@ async fn test_search_contests() -> Result<()> {
         "timezone": "America/New_York",
         "source": "database"
     });
-    
+
     let create_venue_req = test::TestRequest::post()
         .uri("/api/venues")
         .insert_header(("Authorization", format!("Bearer {}", session_id)))
         .set_json(&venue_data)
         .to_request();
-    
+
     let create_venue_resp = test::call_service(&app, create_venue_req).await;
     assert!(create_venue_resp.status().is_success());
     let created_venue: shared::dto::venue::VenueDto = test::read_body_json(create_venue_resp).await;
-    
+
     let game_data = json!({
         "name": "Search Test Game",
         "year_published": 2020,
         "source": "database"
     });
-    
+
     let create_game_req = test::TestRequest::post()
         .uri("/api/games")
         .insert_header(("Authorization", format!("Bearer {}", session_id)))
         .set_json(&game_data)
         .to_request();
-    
+
     let create_game_resp = test::call_service(&app, create_game_req).await;
     assert!(create_game_resp.status().is_success());
     let created_game: shared::dto::game::GameDto = test::read_body_json(create_game_resp).await;
@@ -494,13 +502,15 @@ async fn test_search_contests() -> Result<()> {
 
     // Search returns a paginated response with items, total, page, page_size
     let search_result: serde_json::Value = test::read_body_json(resp).await;
-    let items = search_result.get("items")
+    let items = search_result
+        .get("items")
         .and_then(|v| v.as_array())
         .expect("Response should have 'items' array");
-    let total = search_result.get("total")
+    let total = search_result
+        .get("total")
         .and_then(|v| v.as_u64())
         .unwrap_or(0);
-    
+
     // We created 2 contests, so we should see at least 2 (or more if there's existing data)
     assert!(
         total >= 2 || items.len() >= 2,
@@ -517,7 +527,7 @@ async fn test_contest_unauthorized_access() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
     let app_data = app_setup::setup_test_app_data(&env).await?;
-    
+
     let app = test::init_service(
         App::new()
             .wrap(backend::middleware::Logger)
@@ -532,7 +542,7 @@ async fn test_contest_unauthorized_access() -> Result<()> {
             .service(
                 web::scope("/api/players")
                     .service(backend::player::controller::register_handler_prod)
-                    .service(backend::player::controller::login_handler_prod)
+                    .service(backend::player::controller::login_handler_prod),
             )
             .service(
                 web::scope("/api/contests")
@@ -543,9 +553,10 @@ async fn test_contest_unauthorized_access() -> Result<()> {
                     .app_data(app_data.player_repo.clone())
                     .service(backend::contest::controller::create_contest_handler)
                     .service(backend::contest::controller::search_contests_handler)
-                    .service(backend::contest::controller::get_contest_handler)
-            )
-    ).await;
+                    .service(backend::contest::controller::get_contest_handler),
+            ),
+    )
+    .await;
 
     // Try to access without authentication
     let req = test::TestRequest::get()
@@ -553,7 +564,7 @@ async fn test_contest_unauthorized_access() -> Result<()> {
         .to_request();
 
     let resp = test::try_call_service(&app, req).await;
-    
+
     match resp {
         Ok(resp) => {
             assert_eq!(
@@ -567,8 +578,7 @@ async fn test_contest_unauthorized_access() -> Result<()> {
             use actix_web::error::ResponseError;
             let status = e.as_response_error().status_code();
             assert_eq!(
-                status,
-                401,
+                status, 401,
                 "Should return 401 Unauthorized error, got: {}",
                 status
             );

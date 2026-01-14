@@ -1,5 +1,5 @@
-use yew::prelude::*;
 use shared::models::client_analytics::PerformanceTrend;
+use yew::prelude::*;
 
 #[derive(Properties, PartialEq)]
 pub struct TrendsTabProps {
@@ -18,7 +18,7 @@ pub fn trends_tab(props: &TrendsTabProps) -> Html {
                         <strong>{"Performance Analysis:"}</strong> {"Track your gaming performance trends over time to identify patterns and areas for improvement."}
                     </p>
                 </div>
-                
+
                 {if let Some(trends) = &props.performance_trends {
                     if trends.is_empty() {
                         html! {
@@ -72,7 +72,7 @@ pub fn trends_tab(props: &TrendsTabProps) -> Html {
                                     <div class="h-64 flex items-end justify-between space-x-2">
                                         {trends.iter().map(|trend| {
                                             // Use a better scaling: minimum 8px for any non-zero value, then scale from there
-                                            let height_percent = if trend.win_rate > 0.0 { 
+                                            let height_percent = if trend.win_rate > 0.0 {
                                                 // Start with 8px minimum, then scale the remaining 56px (64-8) by win rate
                                                 let min_height_px = 8;
                                                 let remaining_height_px = 64 - min_height_px;
@@ -81,7 +81,7 @@ pub fn trends_tab(props: &TrendsTabProps) -> Html {
                                             } else { 0 };
                                             html! {
                                                 <div class="flex flex-col items-center flex-1">
-                                                    <div 
+                                                    <div
                                                         class="w-full bg-blue-500 rounded-t border border-blue-600"
                                                         style={format!("height: {}px", height_percent)}
                                                     ></div>
@@ -102,7 +102,7 @@ pub fn trends_tab(props: &TrendsTabProps) -> Html {
                                         {trends.iter().map(|trend| {
                                             let max_contests = trends.iter().map(|t| t.contests_played).max().unwrap_or(1);
                                             // Use a better scaling: minimum 8px for any non-zero value, then scale from there
-                                            let height_px = if trend.contests_played > 0 { 
+                                            let height_px = if trend.contests_played > 0 {
                                                 // Start with 8px minimum, then scale the remaining 56px (64-8) by contest ratio
                                                 let min_height_px = 8;
                                                 let remaining_height_px = 64 - min_height_px;
@@ -112,7 +112,7 @@ pub fn trends_tab(props: &TrendsTabProps) -> Html {
                                             } else { 0 };
                                             html! {
                                                 <div class="flex flex-col items-center flex-1">
-                                                    <div 
+                                                    <div
                                                         class="w-full bg-green-500 rounded-t border border-green-600"
                                                         style={format!("height: {}px", height_px)}
                                                     ></div>
@@ -132,7 +132,7 @@ pub fn trends_tab(props: &TrendsTabProps) -> Html {
                                     <div class="space-y-4">
                                         {(|| {
                                             let mut insights = Vec::new();
-                                            
+
                                             // Find best and worst periods
                                             if let (Some(best), Some(worst)) = (
                                                 trends.iter().max_by(|a, b| a.win_rate.partial_cmp(&b.win_rate).unwrap_or(std::cmp::Ordering::Equal)),
@@ -143,7 +143,7 @@ pub fn trends_tab(props: &TrendsTabProps) -> Html {
                                                     insights.push(format!("📉 Your lowest performance was in {} with a {:.1}% win rate", worst.period, worst.win_rate));
                                                 }
                                             }
-                                            
+
                                             // Activity patterns
                                             if let (Some(most_active), Some(least_active)) = (
                                                 trends.iter().max_by_key(|t| t.contests_played),
@@ -154,7 +154,7 @@ pub fn trends_tab(props: &TrendsTabProps) -> Html {
                                                     insights.push(format!("😴 Least active month: {} with {} contests", least_active.period, least_active.contests_played));
                                                 }
                                             }
-                                            
+
                                             // Trend analysis
                                             if trends.len() >= 2 {
                                                 let recent_trends: Vec<_> = trends.iter().rev().take(3).collect();
@@ -162,7 +162,7 @@ pub fn trends_tab(props: &TrendsTabProps) -> Html {
                                                     let first = recent_trends[0];
                                                     let last = recent_trends[recent_trends.len() - 1];
                                                     let win_rate_change = last.win_rate - first.win_rate;
-                                                    
+
                                                     if win_rate_change > 5.0 {
                                                         insights.push("📈 You're showing strong improvement in recent months!".to_string());
                                                     } else if win_rate_change < -5.0 {
@@ -172,7 +172,7 @@ pub fn trends_tab(props: &TrendsTabProps) -> Html {
                                                     }
                                                 }
                                             }
-                                            
+
                                             insights
                                         })().iter().map(|insight| {
                                             html! {
@@ -184,7 +184,7 @@ pub fn trends_tab(props: &TrendsTabProps) -> Html {
                                         }).collect::<Html>()}
                                     </div>
                                 </div>
-                                
+
                                 // Detailed Trends Table
                                 <div class="bg-white border rounded-lg p-6">
                                     <h3 class="text-lg font-semibold text-gray-900 mb-4">{"Detailed Monthly Breakdown"}</h3>

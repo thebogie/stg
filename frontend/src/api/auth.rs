@@ -1,16 +1,25 @@
+use crate::api::api_url;
+use gloo_net::http::Request;
 use gloo_storage::Storage;
-use shared::dto::player::{LoginRequest, LoginResponse, PlayerDto, CreatePlayerRequest, UpdateEmailRequest, UpdateHandleRequest, UpdatePasswordRequest, UpdateResponse};
 use log::debug;
 use serde::Deserialize;
-use gloo_net::http::Request;
-use crate::api::api_url;
+use shared::dto::player::{
+    CreatePlayerRequest, LoginRequest, LoginResponse, PlayerDto, UpdateEmailRequest,
+    UpdateHandleRequest, UpdatePasswordRequest, UpdateResponse,
+};
 
 #[derive(Deserialize)]
 struct ErrorResponse {
     error: String,
 }
 
-pub async fn register(username: &str, email: &str, password: &str, _name: &str, _country: &str) -> Result<PlayerDto, String> {
+pub async fn register(
+    username: &str,
+    email: &str,
+    password: &str,
+    _name: &str,
+    _country: &str,
+) -> Result<PlayerDto, String> {
     debug!("Registering new player: {}", email);
 
     let register_request = CreatePlayerRequest {
@@ -156,7 +165,10 @@ pub async fn update_profile(profile: PlayerDto) -> Result<PlayerDto, String> {
         .await
         .map_err(|e| format!("Failed to parse profile update response: {}", e))?;
 
-    debug!("Successfully updated player profile: {}", updated_player.email);
+    debug!(
+        "Successfully updated player profile: {}",
+        updated_player.email
+    );
     Ok(updated_player)
 }
 
@@ -182,11 +194,17 @@ pub async fn refresh_token(refresh_token: &str) -> Result<LoginResponse, String>
         .await
         .map_err(|e| format!("Failed to parse refresh response: {}", e))?;
 
-    debug!("Token refresh successful for user: {}", login_response.player.email);
+    debug!(
+        "Token refresh successful for user: {}",
+        login_response.player.email
+    );
     Ok(login_response)
 }
 
-pub async fn update_email(new_email: &str, current_password: &str) -> Result<UpdateResponse, String> {
+pub async fn update_email(
+    new_email: &str,
+    current_password: &str,
+) -> Result<UpdateResponse, String> {
     debug!("Attempting to update email to: {}", new_email);
 
     let update_request = UpdateEmailRequest {
@@ -218,7 +236,10 @@ pub async fn update_email(new_email: &str, current_password: &str) -> Result<Upd
     Ok(update_response)
 }
 
-pub async fn update_handle(new_handle: &str, current_password: &str) -> Result<UpdateResponse, String> {
+pub async fn update_handle(
+    new_handle: &str,
+    current_password: &str,
+) -> Result<UpdateResponse, String> {
     debug!("Attempting to update handle to: {}", new_handle);
 
     let update_request = UpdateHandleRequest {
@@ -250,7 +271,10 @@ pub async fn update_handle(new_handle: &str, current_password: &str) -> Result<U
     Ok(update_response)
 }
 
-pub async fn update_password(current_password: &str, new_password: &str) -> Result<UpdateResponse, String> {
+pub async fn update_password(
+    current_password: &str,
+    new_password: &str,
+) -> Result<UpdateResponse, String> {
     debug!("Attempting to update password");
 
     let update_request = UpdatePasswordRequest {
@@ -285,8 +309,8 @@ pub async fn update_password(current_password: &str, new_password: &str) -> Resu
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wasm_bindgen_test::*;
     use validator::Validate;
+    use wasm_bindgen_test::*;
 
     wasm_bindgen_test_configure!(run_in_browser);
 
@@ -538,4 +562,4 @@ mod tests {
         };
         assert!(request.validate().is_ok());
     }
-} 
+}

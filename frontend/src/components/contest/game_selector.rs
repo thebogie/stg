@@ -1,9 +1,9 @@
-use yew::prelude::*;
-use gloo_storage::Storage;
-use gloo_storage::LocalStorage;
-use wasm_bindgen_futures::spawn_local;
-use shared::dto::game::GameDto;
 use gloo::timers::callback::Timeout;
+use gloo_storage::LocalStorage;
+use gloo_storage::Storage;
+use shared::dto::game::GameDto;
+use wasm_bindgen_futures::spawn_local;
+use yew::prelude::*;
 
 #[derive(Properties, PartialEq, Clone)]
 pub struct GameSelectorProps {
@@ -47,45 +47,47 @@ pub fn game_selector(props: &GameSelectorProps) -> Html {
             let game_suggestions = game_suggestions.clone();
             let is_searching = _is_searching.clone();
             let query_clone = query.clone();
-            debounce_handle.borrow_mut().replace(Timeout::new(700, move || {
-                is_searching.set(true);
-                spawn_local(async move {
-                    let url = format!("/api/games/search?query={}", query_clone);
-                    match crate::api::utils::authenticated_get(&url).send().await {
-                        Ok(resp) => {
-                            if let Ok(games) = resp.json::<Vec<GameDto>>().await {
-                                // Filter: if a DB game exists for a given bgg_id, hide the BGG version(s)
-                                let db_bgg_ids: std::collections::HashSet<i32> = games
-                                    .iter()
-                                    .filter(|g| g.id.starts_with("game/"))
-                                    .filter_map(|g| g.bgg_id)
-                                    .collect();
+            debounce_handle
+                .borrow_mut()
+                .replace(Timeout::new(700, move || {
+                    is_searching.set(true);
+                    spawn_local(async move {
+                        let url = format!("/api/games/search?query={}", query_clone);
+                        match crate::api::utils::authenticated_get(&url).send().await {
+                            Ok(resp) => {
+                                if let Ok(games) = resp.json::<Vec<GameDto>>().await {
+                                    // Filter: if a DB game exists for a given bgg_id, hide the BGG version(s)
+                                    let db_bgg_ids: std::collections::HashSet<i32> = games
+                                        .iter()
+                                        .filter(|g| g.id.starts_with("game/"))
+                                        .filter_map(|g| g.bgg_id)
+                                        .collect();
 
-                                let filtered: Vec<GameDto> = games
-                                    .into_iter()
-                                    .filter(|g| {
-                                        let is_bgg = g.id.starts_with("bgg_");
-                                        if !is_bgg {
-                                            return true; // always keep DB games
-                                        }
-                                        // For BGG items, keep only if we do NOT have a DB game with the same bgg_id
-                                        match g.bgg_id {
-                                            Some(id) => !db_bgg_ids.contains(&id),
-                                            None => true, // no bgg_id to match on; keep
-                                        }
-                                    })
-                                    .collect();
+                                    let filtered: Vec<GameDto> = games
+                                        .into_iter()
+                                        .filter(|g| {
+                                            let is_bgg = g.id.starts_with("bgg_");
+                                            if !is_bgg {
+                                                return true; // always keep DB games
+                                            }
+                                            // For BGG items, keep only if we do NOT have a DB game with the same bgg_id
+                                            match g.bgg_id {
+                                                Some(id) => !db_bgg_ids.contains(&id),
+                                                None => true, // no bgg_id to match on; keep
+                                            }
+                                        })
+                                        .collect();
 
-                                game_suggestions.set(filtered);
+                                    game_suggestions.set(filtered);
+                                }
+                            }
+                            Err(e) => {
+                                gloo::console::error!("Failed to fetch games:", e.to_string());
                             }
                         }
-                        Err(e) => {
-                            gloo::console::error!("Failed to fetch games:", e.to_string());
-                        }
-                    }
-                    is_searching.set(false);
-                });
-            }));
+                        is_searching.set(false);
+                    });
+                }));
         })
     };
 
@@ -102,7 +104,9 @@ pub fn game_selector(props: &GameSelectorProps) -> Html {
                             let mut games = Vec::new();
                             for id in stored {
                                 let url = format!("/api/games/{}", id);
-                                if let Ok(resp) = crate::api::utils::authenticated_get(&url).send().await {
+                                if let Ok(resp) =
+                                    crate::api::utils::authenticated_get(&url).send().await
+                                {
                                     if resp.ok() {
                                         if let Ok(game) = resp.json::<GameDto>().await {
                                             games.push(game);
@@ -149,7 +153,7 @@ pub fn game_selector(props: &GameSelectorProps) -> Html {
             // Persist last selected game ids
             let _ = LocalStorage::set(
                 "last_selected_game_ids",
-                games.iter().map(|g| g.id.clone()).collect::<Vec<_>>()
+                games.iter().map(|g| g.id.clone()).collect::<Vec<_>>(),
             );
         })
     };
@@ -163,7 +167,7 @@ pub fn game_selector(props: &GameSelectorProps) -> Html {
             props.on_games_change.emit(updated.clone());
             let _ = LocalStorage::set(
                 "last_selected_game_ids",
-                updated.iter().map(|g| g.id.clone()).collect::<Vec<_>>()
+                updated.iter().map(|g| g.id.clone()).collect::<Vec<_>>(),
             );
         })
     };
@@ -424,4 +428,4 @@ pub fn game_selector(props: &GameSelectorProps) -> Html {
             }
         </div>
     }
-} 
+}

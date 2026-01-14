@@ -1,11 +1,11 @@
-use actix_web::{post, get, web, HttpResponse, Responder, HttpRequest};
-use actix_web::HttpMessage;
-use validator::Validate;
-use shared::dto::contest::ContestDto;
-use crate::contest::repository::{ContestRepositoryImpl, ContestRepository};
+use crate::contest::repository::{ContestRepository, ContestRepositoryImpl};
 use crate::player::repository::PlayerRepository;
-use serde_json::json;
+use actix_web::HttpMessage;
+use actix_web::{get, post, web, HttpRequest, HttpResponse, Responder};
 use serde::Deserialize;
+use serde_json::json;
+use shared::dto::contest::ContestDto;
+use validator::Validate;
 
 #[post("")]
 pub async fn create_contest_handler(
@@ -20,7 +20,7 @@ pub async fn create_contest_handler(
             "details": e.to_string(),
         }));
     }
-    
+
     // Extract creator information from authenticated user
     let creator_id = match req.extensions().get::<String>() {
         Some(email) => {
@@ -35,7 +35,7 @@ pub async fn create_contest_handler(
                     }));
                 }
             }
-        },
+        }
         None => {
             log::error!("No authenticated user found for contest creation");
             return HttpResponse::Unauthorized().json(serde_json::json!({
@@ -44,13 +44,13 @@ pub async fn create_contest_handler(
             }));
         }
     };
-    
+
     log::info!("Contest creation requested by player: {}", creator_id);
     match repo.create_contest(contest.into_inner(), creator_id).await {
         Ok(created) => {
             log::info!("Contest created successfully");
             HttpResponse::Ok().json(created)
-        },
+        }
         Err(e) => {
             log::error!("Contest creation failed: {}", e);
             HttpResponse::InternalServerError().body(e)
@@ -64,21 +64,21 @@ pub async fn get_contest_handler(
     repo: web::Data<ContestRepositoryImpl>,
 ) -> impl Responder {
     let contest_param = path.into_inner();
-    
+
     // Normalize contest_id to full ID if it's just a key
-    let contest_id = if contest_param.contains('/') { 
-        contest_param 
-    } else { 
-        format!("contest/{}", contest_param) 
+    let contest_id = if contest_param.contains('/') {
+        contest_param
+    } else {
+        format!("contest/{}", contest_param)
     };
-    
+
     log::info!("Fetching contest details for ID: {}", contest_id);
-    
+
     match repo.find_details_by_id(&contest_id).await {
         Some(contest_details) => {
             log::info!("Contest details found");
             HttpResponse::Ok().json(contest_details)
-        },
+        }
         None => {
             log::warn!("Contest not found");
             HttpResponse::NotFound().json(serde_json::json!({
@@ -94,34 +94,51 @@ pub async fn get_player_game_contests_handler(
     repo: web::Data<ContestRepositoryImpl>,
 ) -> impl Responder {
     let (player_param, game_id) = path.into_inner();
-    
+
     // Convert keys to full ArangoDB IDs for internal use
-    let player_id = if player_param.contains('/') { 
-        player_param 
-    } else { 
-        format!("player/{}", player_param) 
+    let player_id = if player_param.contains('/') {
+        player_param
+    } else {
+        format!("player/{}", player_param)
     };
-    
-    let game_id = if game_id.contains('/') { 
-        game_id 
-    } else { 
-        format!("game/{}", game_id) 
+
+    let game_id = if game_id.contains('/') {
+        game_id
+    } else {
+        format!("game/{}", game_id)
     };
-    
-    log::info!("Fetching contests for player {} and game {}", player_id, game_id);
-    
-            match repo.find_contests_by_player_and_game(&player_id, &game_id).await {
-            Ok(contests) => {
-                log::info!("Found {} contests for player {} and game {}", contests.len(), player_id, game_id);
-                HttpResponse::Ok().json(contests)
-            },
-            Err(e) => {
-                log::error!("Failed to fetch contests for player {} and game {}: {}", player_id, game_id, e);
-                HttpResponse::InternalServerError().json(json!({
-                    "error": "Failed to fetch contests"
-                }))
-            }
+
+    log::info!(
+        "Fetching contests for player {} and game {}",
+        player_id,
+        game_id
+    );
+
+    match repo
+        .find_contests_by_player_and_game(&player_id, &game_id)
+        .await
+    {
+        Ok(contests) => {
+            log::info!(
+                "Found {} contests for player {} and game {}",
+                contests.len(),
+                player_id,
+                game_id
+            );
+            HttpResponse::Ok().json(contests)
         }
+        Err(e) => {
+            log::error!(
+                "Failed to fetch contests for player {} and game {}: {}",
+                player_id,
+                game_id,
+                e
+            );
+            HttpResponse::InternalServerError().json(json!({
+                "error": "Failed to fetch contests"
+            }))
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -133,8 +150,8 @@ pub struct ContestSearchQuery {
     pub stop_to: Option<String>,
     pub venue_id: Option<String>,
     pub game_ids: Option<String>, // csv
-    pub sort_by: Option<String>,   // start|stop|created_at
-    pub sort_dir: Option<String>,  // asc|desc
+    pub sort_by: Option<String>,  // start|stop|created_at
+    pub sort_dir: Option<String>, // asc|desc
     pub page: Option<u32>,
     pub page_size: Option<u32>,
     pub scope: Option<String>,     // mine|my_venues|my_games|all
@@ -153,7 +170,7 @@ pub async fn search_contests_handler_impl(
     let page = query.page.unwrap_or(1);
     let page_size = query.page_size.unwrap_or(20).min(100);
     let requested_scope = query.scope.clone().unwrap_or_else(|| "mine".into());
-    
+
     // Extract player ID from authenticated user
     let player_id = if let Some(email) = req.extensions().get::<String>() {
         // Look up the player by email to get the actual player ID
@@ -170,12 +187,21 @@ pub async fn search_contests_handler_impl(
         String::new()
     };
     // If there's no player context, force scope to 'all' to avoid 400s and allow browsing
-    let effective_scope = if player_id.is_empty() { "all".to_string() } else { requested_scope };
+    let effective_scope = if player_id.is_empty() {
+        "all".to_string()
+    } else {
+        requested_scope
+    };
     let venue_id = query.venue_id.clone();
     let game_ids: Vec<String> = query
         .game_ids
         .as_ref()
-        .map(|s| s.split(',').map(|x| x.trim().to_string()).filter(|x| !x.is_empty()).collect())
+        .map(|s| {
+            s.split(',')
+                .map(|x| x.trim().to_string())
+                .filter(|x| !x.is_empty())
+                .collect()
+        })
         .unwrap_or_else(|| vec![]);
 
     match repo
@@ -205,7 +231,7 @@ pub async fn search_contests_handler_impl(
                 "page": page,
                 "page_size": page_size
             }))
-        },
+        }
     }
 }
 

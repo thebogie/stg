@@ -1,8 +1,8 @@
-use yew::prelude::*;
-use wasm_bindgen_futures::spawn_local;
-use wasm_bindgen::JsCast;
 use crate::api::auth::{update_handle, update_password};
 use crate::auth::AuthContext;
+use wasm_bindgen::JsCast;
+use wasm_bindgen_futures::spawn_local;
+use yew::prelude::*;
 
 #[derive(Properties, PartialEq)]
 pub struct ProfileEditorProps {
@@ -19,12 +19,12 @@ pub enum EditMode {
 #[function_component(ProfileEditor)]
 pub fn profile_editor(props: &ProfileEditorProps) -> Html {
     let auth_context = use_context::<AuthContext>().expect("AuthContext not found");
-    
+
     let edit_mode = use_state(|| EditMode::None);
     let loading = use_state(|| false);
     let error = use_state(|| None::<String>);
     let success = use_state(|| None::<String>);
-    
+
     let new_handle = use_state(|| String::new());
     let current_password = use_state(|| String::new());
     let new_password = use_state(|| String::new());
@@ -38,7 +38,7 @@ pub fn profile_editor(props: &ProfileEditorProps) -> Html {
         let confirm_password = confirm_password.clone();
         let error = error.clone();
         let success = success.clone();
-        
+
         Callback::from(move |mode: EditMode| {
             edit_mode.set(mode.clone());
             match mode {
@@ -62,15 +62,13 @@ pub fn profile_editor(props: &ProfileEditorProps) -> Html {
         let edit_mode = edit_mode.clone();
         let error = error.clone();
         let success = success.clone();
-        
+
         Callback::from(move |_| {
             edit_mode.set(EditMode::None);
             error.set(None);
             success.set(None);
         })
     };
-
-
 
     let on_handle_update = {
         let edit_mode = edit_mode.clone();
@@ -90,7 +88,7 @@ pub fn profile_editor(props: &ProfileEditorProps) -> Html {
 
             let new_handle_val = new_handle.to_string();
             let current_password_val = current_password.to_string();
-            
+
             loading.set(true);
             error.set(None);
             success.set(None);
@@ -104,16 +102,20 @@ pub fn profile_editor(props: &ProfileEditorProps) -> Html {
             spawn_local(async move {
                 match update_handle(&new_handle_val, &current_password_val).await {
                     Ok(response) => {
-                        success_clone.set(Some(format!("Handle updated successfully to: {}", response.player.handle)));
+                        success_clone.set(Some(format!(
+                            "Handle updated successfully to: {}",
+                            response.player.handle
+                        )));
                         on_update_clone.emit(());
-                        
+
                         // Update the auth context with the new player data
                         auth_context_clone.refresh.emit(());
-                        
+
                         // Close the form after a delay
                         gloo_timers::callback::Timeout::new(2000, move || {
                             edit_mode_clone.set(EditMode::None);
-                        }).forget();
+                        })
+                        .forget();
                     }
                     Err(e) => {
                         error_clone.set(Some(format!("Failed to update handle: {}", e)));
@@ -136,7 +138,8 @@ pub fn profile_editor(props: &ProfileEditorProps) -> Html {
         let auth_context = auth_context.clone();
 
         Callback::from(move |_| {
-            if current_password.is_empty() || new_password.is_empty() || confirm_password.is_empty() {
+            if current_password.is_empty() || new_password.is_empty() || confirm_password.is_empty()
+            {
                 error.set(Some("Please fill in all fields".to_string()));
                 return;
             }
@@ -147,13 +150,15 @@ pub fn profile_editor(props: &ProfileEditorProps) -> Html {
             }
 
             if new_password.len() < 8 {
-                error.set(Some("New password must be at least 8 characters".to_string()));
+                error.set(Some(
+                    "New password must be at least 8 characters".to_string(),
+                ));
                 return;
             }
 
             let current_password_val = current_password.to_string();
             let new_password_val = new_password.to_string();
-            
+
             loading.set(true);
             error.set(None);
             success.set(None);
@@ -169,14 +174,15 @@ pub fn profile_editor(props: &ProfileEditorProps) -> Html {
                     Ok(_) => {
                         success_clone.set(Some("Password updated successfully".to_string()));
                         on_update_clone.emit(());
-                        
+
                         // Update the auth context with the new player data
                         auth_context_clone.refresh.emit(());
-                        
+
                         // Close the form after a delay
                         gloo_timers::callback::Timeout::new(2000, move || {
                             edit_mode_clone.set(EditMode::None);
-                        }).forget();
+                        })
+                        .forget();
                     }
                     Err(e) => {
                         error_clone.set(Some(format!("Failed to update password: {}", e)));
@@ -203,7 +209,7 @@ pub fn profile_editor(props: &ProfileEditorProps) -> Html {
     html! {
         <div class="bg-white shadow rounded-lg p-6">
             <h2 class="text-2xl font-bold text-gray-900 mb-6">{"Profile Settings"}</h2>
-            
+
             // Current Profile Display
             <div class="mb-6 p-4 bg-gray-50 rounded-lg">
                 <h3 class="text-lg font-semibold text-gray-700 mb-3">{"Current Profile"}</h3>
@@ -226,7 +232,7 @@ pub fn profile_editor(props: &ProfileEditorProps) -> Html {
                     {error_msg}
                 </div>
             }
-            
+
             if let Some(success_msg) = (*success).as_ref() {
                 <div class="mb-4 p-4 bg-green-100 border border-green-400 text-green-700 rounded">
                     {success_msg}
@@ -238,13 +244,13 @@ pub fn profile_editor(props: &ProfileEditorProps) -> Html {
                 EditMode::None => {
                     html! {
                         <div class="space-y-4">
-                            <button 
+                            <button
                                 onclick={on_edit_click.reform(|_| EditMode::Handle)}
                                 class="w-full md:w-auto px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
                             >
                                 {"Update Handle"}
                             </button>
-                            <button 
+                            <button
                                 onclick={on_edit_click.reform(|_| EditMode::Password)}
                                 class="w-full md:w-auto px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
                             >
@@ -284,14 +290,14 @@ pub fn profile_editor(props: &ProfileEditorProps) -> Html {
                                 />
                             </div>
                             <div class="flex space-x-3">
-                                <button 
+                                <button
                                     onclick={on_handle_update}
                                     disabled={*loading}
                                     class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50 transition-colors"
                                 >
                                     {if *loading { "Updating..." } else { "Update Handle" }}
                                 </button>
-                                <button 
+                                <button
                                     onclick={on_cancel}
                                     class="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700 transition-colors"
                                 >
@@ -345,14 +351,14 @@ pub fn profile_editor(props: &ProfileEditorProps) -> Html {
                                 />
                             </div>
                             <div class="flex space-x-3">
-                                <button 
+                                <button
                                     onclick={on_password_update}
                                     disabled={*loading}
                                     class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50 transition-colors"
                                 >
                                     {if *loading { "Updating..." } else { "Update Password" }}
                                 </button>
-                                <button 
+                                <button
                                     onclick={on_cancel}
                                     class="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700 transition-colors"
                                 >

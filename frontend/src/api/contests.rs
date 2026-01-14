@@ -1,23 +1,24 @@
-use serde::Deserialize;
 use crate::api::api_url;
+use serde::Deserialize;
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct ContestSearchItem {
-	#[serde(rename = "_id")] pub id: String,
-	pub name: String,
-	pub start: String,
-	pub stop: String,
-	pub venue: Option<serde_json::Value>,
-	pub games: Vec<serde_json::Value>,
-	pub outcomes: Vec<serde_json::Value>,
+    #[serde(rename = "_id")]
+    pub id: String,
+    pub name: String,
+    pub start: String,
+    pub stop: String,
+    pub venue: Option<serde_json::Value>,
+    pub games: Vec<serde_json::Value>,
+    pub outcomes: Vec<serde_json::Value>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct ContestSearchResponse {
-	pub items: Vec<ContestSearchItem>,
-	pub total: u64,
-	pub page: u32,
-	pub page_size: u32,
+    pub items: Vec<ContestSearchItem>,
+    pub total: u64,
+    pub page: u32,
+    pub page_size: u32,
 }
 
 pub async fn search_contests(params: &[(&str, String)]) -> Result<ContestSearchResponse, String> {
@@ -26,7 +27,9 @@ pub async fn search_contests(params: &[(&str, String)]) -> Result<ContestSearchR
     if !params.is_empty() {
         qs.push('?');
         for (i, (k, v)) in params.iter().enumerate() {
-            if i > 0 { qs.push('&'); }
+            if i > 0 {
+                qs.push('&');
+            }
             let encoded_key = js_sys::encode_uri_component(k);
             let encoded_val = js_sys::encode_uri_component(v);
             qs.push_str(&encoded_key.as_string().unwrap_or_else(|| k.to_string()));
@@ -34,16 +37,24 @@ pub async fn search_contests(params: &[(&str, String)]) -> Result<ContestSearchR
             qs.push_str(&encoded_val.as_string().unwrap_or_else(|| v.to_string()));
         }
     }
-	let url = format!("{}{}", api_url("/api/contests/search"), qs);
-	let resp = authenticated_get(&url).send().await.map_err(|e| e.to_string())?;
-	if !resp.ok() { return Err(format!("HTTP {}", resp.status())); }
-	resp.json::<ContestSearchResponse>().await.map_err(|e| e.to_string())
+    let url = format!("{}{}", api_url("/api/contests/search"), qs);
+    let resp = authenticated_get(&url)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    if !resp.ok() {
+        return Err(format!("HTTP {}", resp.status()));
+    }
+    resp.json::<ContestSearchResponse>()
+        .await
+        .map_err(|e| e.to_string())
 }
 
-
-use shared::{ContestDto, ErrorResponse};
+use crate::api::utils::{
+    authenticated_delete, authenticated_get, authenticated_post, authenticated_put,
+};
 use log::debug;
-use crate::api::utils::{authenticated_post, authenticated_get, authenticated_put, authenticated_delete};
+use shared::{ContestDto, ErrorResponse};
 
 pub async fn submit_contest(contest: ContestDto) -> Result<ContestDto, String> {
     debug!("Submitting contest with ID: {}", contest.id);
@@ -61,7 +72,7 @@ pub async fn submit_contest(contest: ContestDto) -> Result<ContestDto, String> {
             gloo::console::log!("API: Request sent successfully");
             gloo::console::log!("API: Response status code:", resp.status());
             resp
-        },
+        }
         Err(e) => {
             let err_msg = format!("Failed to send contest: {}", e);
             gloo::console::error!("API:", &err_msg);
@@ -77,7 +88,7 @@ pub async fn submit_contest(contest: ContestDto) -> Result<ContestDto, String> {
             Ok(err) => {
                 gloo::console::error!("API: Error response:", &err.error);
                 err.error
-            },
+            }
             Err(_) => {
                 let msg = "Unknown error occurred".to_string();
                 gloo::console::error!("API:", &msg);
@@ -92,7 +103,7 @@ pub async fn submit_contest(contest: ContestDto) -> Result<ContestDto, String> {
         Ok(contest) => {
             gloo::console::log!("API: Response parsed successfully");
             contest
-        },
+        }
         Err(e) => {
             let err_msg = format!("Failed to parse contest response: {}", e);
             gloo::console::error!("API:", &err_msg);
@@ -100,7 +111,10 @@ pub async fn submit_contest(contest: ContestDto) -> Result<ContestDto, String> {
         }
     };
 
-    gloo::console::log!("API: Successfully submitted contest:", saved_contest.name.clone());
+    gloo::console::log!(
+        "API: Successfully submitted contest:",
+        saved_contest.name.clone()
+    );
     debug!("Successfully submitted contest: {}", saved_contest.name);
     Ok(saved_contest)
 }
@@ -178,7 +192,10 @@ pub async fn update_contest(id: &str, contest: ContestDto) -> Result<ContestDto,
         .await
         .map_err(|e| format!("Failed to parse contest update response: {}", e))?;
 
-    debug!("Successfully updated contest with ID: {}", updated_contest.id);
+    debug!(
+        "Successfully updated contest with ID: {}",
+        updated_contest.id
+    );
     Ok(updated_contest)
 }
 
@@ -200,4 +217,4 @@ pub async fn delete_contest(id: &str) -> Result<(), String> {
 
     debug!("Successfully deleted contest with ID: {}", id);
     Ok(())
-} 
+}

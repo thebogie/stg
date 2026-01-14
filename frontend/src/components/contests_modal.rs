@@ -1,7 +1,7 @@
-use yew::prelude::*;
-use serde_json::Value;
-use yew_router::prelude::*;
 use crate::Route;
+use serde_json::Value;
+use yew::prelude::*;
+use yew_router::prelude::*;
 
 fn format_friendly_date(date_str: &str) -> String {
     if date_str.is_empty() {
@@ -42,7 +42,9 @@ pub fn contests_modal(props: &ContestsModalProps) -> Html {
         let on_close = props.on_close.clone();
         Callback::from(move |contest_key: String| {
             on_close.emit(());
-            navigator.push(&Route::ContestDetails { contest_id: contest_key });
+            navigator.push(&Route::ContestDetails {
+                contest_id: contest_key,
+            });
         })
     };
 
@@ -61,7 +63,7 @@ pub fn contests_modal(props: &ContestsModalProps) -> Html {
                             {if let Some(bgg_id) = &props.show_bgg_link {
                                 html! {
                                     <div class="mt-2">
-                                        <a 
+                                        <a
                                             href={format!("https://boardgamegeek.com/boardgame/{}", bgg_id)}
                                             target="_blank"
                                             rel="noopener noreferrer"
@@ -85,7 +87,7 @@ pub fn contests_modal(props: &ContestsModalProps) -> Html {
                             </svg>
                         </button>
                     </div>
-                    
+
                     {if props.loading {
                         html! {
                             <div class="text-center py-8">
@@ -123,13 +125,13 @@ pub fn contests_modal(props: &ContestsModalProps) -> Html {
                                                 let contest_date = contest.get("contest_date").and_then(|v| v.as_str()).unwrap_or("");
                                                 let formatted_date = format_friendly_date(contest_date);
                                                 let contest_name = contest.get("contest_name").and_then(|v| v.as_str()).unwrap_or("Contest");
-                                                
+
                                                 let game_id_full = contest.get("game_id").and_then(|v| v.as_str()).unwrap_or("");
                                                 let game_id = if game_id_full.contains('/') { game_id_full.split('/').nth(1).unwrap_or(game_id_full) } else { game_id_full };
                                                 let game_name = contest.get("game_name").and_then(|v| v.as_str()).unwrap_or("Unknown Game");
                                                 let venue_id_full = contest.get("venue_id").and_then(|v| v.as_str()).unwrap_or("");
                                                 let venue_id = if venue_id_full.contains('/') { venue_id_full.split('/').nth(1).unwrap_or(venue_id_full) } else { venue_id_full };
-                                                
+
                                                 // Debug logging
                                                 if !game_id.is_empty() {
                                                     log::info!("Game ID: full={}, extracted={}", game_id_full, game_id);
@@ -143,11 +145,11 @@ pub fn contests_modal(props: &ContestsModalProps) -> Html {
                                                 let my_place = contest.get("my_placement").and_then(|v| v.as_i64()).unwrap_or(0);
                                                 let opponent_place = contest.get("opponent_placement").and_then(|v| v.as_i64()).unwrap_or(0);
                                                 let i_won = contest.get("i_won").and_then(|b| b.as_bool()).unwrap_or(false);
-                                                
+
                                                 let result = if i_won { ("Won", "text-green-600", "🏆") } else if my_place > opponent_place { ("Lost", "text-red-600", "💔") } else { ("Tied", "text-yellow-600", "🤝") };
-                                                
+
                                                 html! {
-                                                    <div 
+                                                    <div
                                                         class="p-3 bg-gray-50 rounded-lg hover:bg-gray-100 cursor-pointer border border-gray-200"
                                                         onclick={let contest_key = contest_key.to_string(); let on_contest_click = on_contest_click.clone(); yew::Callback::from(move |_| on_contest_click.emit(contest_key.clone()))}
                                                     >
@@ -157,20 +159,20 @@ pub fn contests_modal(props: &ContestsModalProps) -> Html {
                                                                     <span class="text-sm font-medium text-gray-900">{contest_name}</span>
                                                                     <span class="text-sm text-gray-600">{"•"}</span>
                                                                     <a href={format!("/game/{}/history", game_id)}
-                                                                       onclick={let nav = navigator.clone(); let g = game_id.to_string(); yew::Callback::from(move |e: yew::MouseEvent| { 
+                                                                       onclick={let nav = navigator.clone(); let g = game_id.to_string(); yew::Callback::from(move |e: yew::MouseEvent| {
                                                                            log::info!("Navigating to game history with game_id: {}", g);
-                                                                           e.prevent_default(); 
-                                                                           e.stop_propagation(); 
-                                                                           nav.push(&Route::GameHistory { game_id: g.clone() }); 
+                                                                           e.prevent_default();
+                                                                           e.stop_propagation();
+                                                                           nav.push(&Route::GameHistory { game_id: g.clone() });
                                                                        })}
                                                                        class="text-sm font-medium text-blue-600 hover:underline">{game_name}</a>
                                                                     <span class="text-sm text-gray-600">{"•"}</span>
                                                                     <a href={format!("/venue/{}/history", venue_id)}
-                                                                       onclick={let nav = navigator.clone(); let v = venue_id.to_string(); yew::Callback::from(move |e: yew::MouseEvent| { 
+                                                                       onclick={let nav = navigator.clone(); let v = venue_id.to_string(); yew::Callback::from(move |e: yew::MouseEvent| {
                                                                            log::info!("Navigating to venue history with venue_id: {}", v);
-                                                                           e.prevent_default(); 
-                                                                           e.stop_propagation(); 
-                                                                           nav.push(&Route::VenueHistory { venue_id: v.clone() }); 
+                                                                           e.prevent_default();
+                                                                           e.stop_propagation();
+                                                                           nav.push(&Route::VenueHistory { venue_id: v.clone() });
                                                                        })}
                                                                        class="text-sm font-medium text-gray-900 hover:underline">{venue_name}</a>
                                                                     <span class="text-sm text-gray-600">{"•"}</span>

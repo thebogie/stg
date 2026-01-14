@@ -1,12 +1,12 @@
-use shared::PlayerDto;
-use log::error;
-use yew::prelude::*;
-use yew::functional::use_reducer_eq;
-use gloo_storage::{LocalStorage, Storage};
-use wasm_bindgen_futures::spawn_local;
 use crate::api::auth;
-use std::rc::Rc;
+use gloo_storage::{LocalStorage, Storage};
 use gloo_timers::callback::Interval;
+use log::error;
+use shared::PlayerDto;
+use std::rc::Rc;
+use wasm_bindgen_futures::spawn_local;
+use yew::functional::use_reducer_eq;
+use yew::prelude::*;
 
 #[derive(Clone, Debug)]
 pub struct AuthState {
@@ -18,14 +18,14 @@ pub struct AuthState {
 
 impl PartialEq for AuthState {
     fn eq(&self, other: &Self) -> bool {
-        self.loading == other.loading && 
-        self.error == other.error && 
-        self.heartbeat_active == other.heartbeat_active &&
-        match (&self.player, &other.player) {
-            (Some(a), Some(b)) => a.id == b.id,
-            (None, None) => true,
-            _ => false,
-        }
+        self.loading == other.loading
+            && self.error == other.error
+            && self.heartbeat_active == other.heartbeat_active
+            && match (&self.player, &other.player) {
+                (Some(a), Some(b)) => a.id == b.id,
+                (None, None) => true,
+                _ => false,
+            }
     }
 }
 
@@ -49,8 +49,14 @@ impl AuthState {
 
 #[derive(Clone, Debug)]
 pub enum AuthAction {
-    Login { email: String, password: String },
-    LoginSuccess { player: PlayerDto, session_id: String },
+    Login {
+        email: String,
+        password: String,
+    },
+    LoginSuccess {
+        player: PlayerDto,
+        session_id: String,
+    },
     LoginError(String),
     Logout,
     LogoutSuccess,
@@ -68,27 +74,37 @@ pub enum AuthAction {
 impl PartialEq for AuthAction {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (AuthAction::Login { email: a, password: b }, AuthAction::Login { email: c, password: d }) => 
-                a == c && b == d,
-            (AuthAction::LoginSuccess { player: a, session_id: sa }, AuthAction::LoginSuccess { player: b, session_id: sb }) => 
-                a.id == b.id && sa == sb,
-            (AuthAction::LoginError(a), AuthAction::LoginError(b)) => 
-                a == b,
+            (
+                AuthAction::Login {
+                    email: a,
+                    password: b,
+                },
+                AuthAction::Login {
+                    email: c,
+                    password: d,
+                },
+            ) => a == c && b == d,
+            (
+                AuthAction::LoginSuccess {
+                    player: a,
+                    session_id: sa,
+                },
+                AuthAction::LoginSuccess {
+                    player: b,
+                    session_id: sb,
+                },
+            ) => a.id == b.id && sa == sb,
+            (AuthAction::LoginError(a), AuthAction::LoginError(b)) => a == b,
             (AuthAction::Logout, AuthAction::Logout) => true,
             (AuthAction::LogoutSuccess, AuthAction::LogoutSuccess) => true,
-            (AuthAction::LogoutError(a), AuthAction::LogoutError(b)) => 
-                a == b,
-            (AuthAction::SetLoading(a), AuthAction::SetLoading(b)) => 
-                a == b,
-            (AuthAction::SetError(a), AuthAction::SetError(b)) => 
-                a == b,
+            (AuthAction::LogoutError(a), AuthAction::LogoutError(b)) => a == b,
+            (AuthAction::SetLoading(a), AuthAction::SetLoading(b)) => a == b,
+            (AuthAction::SetError(a), AuthAction::SetError(b)) => a == b,
             (AuthAction::StartHeartbeat, AuthAction::StartHeartbeat) => true,
             (AuthAction::StopHeartbeat, AuthAction::StopHeartbeat) => true,
             (AuthAction::HeartbeatCheck, AuthAction::HeartbeatCheck) => true,
-            (AuthAction::HeartbeatSuccess(a), AuthAction::HeartbeatSuccess(b)) => 
-                a.id == b.id,
-            (AuthAction::HeartbeatError(a), AuthAction::HeartbeatError(b)) => 
-                a == b,
+            (AuthAction::HeartbeatSuccess(a), AuthAction::HeartbeatSuccess(b)) => a.id == b.id,
+            (AuthAction::HeartbeatError(a), AuthAction::HeartbeatError(b)) => a == b,
             _ => false,
         }
     }
@@ -99,13 +115,11 @@ impl Reducible for AuthState {
 
     fn reduce(self: Rc<Self>, action: Self::Action) -> Rc<Self> {
         match action {
-            AuthAction::Login { .. } => {
-                Rc::new(Self {
-                    loading: true,
-                    error: None,
-                    ..(*self).clone()
-                })
-            }
+            AuthAction::Login { .. } => Rc::new(Self {
+                loading: true,
+                error: None,
+                ..(*self).clone()
+            }),
             AuthAction::LoginSuccess { player, session_id } => {
                 // Store player in local storage
                 if let Err(e) = LocalStorage::set("player", &player) {
@@ -124,22 +138,18 @@ impl Reducible for AuthState {
                     heartbeat_active: true,
                 })
             }
-            AuthAction::LoginError(error) => {
-                Rc::new(Self {
-                    player: None,
-                    loading: false,
-                    error: Some(error),
-                    heartbeat_active: false,
-                })
-            }
-            AuthAction::Logout => {
-                Rc::new(Self {
-                    loading: true,
-                    error: None,
-                    heartbeat_active: false,
-                    ..(*self).clone()
-                })
-            }
+            AuthAction::LoginError(error) => Rc::new(Self {
+                player: None,
+                loading: false,
+                error: Some(error),
+                heartbeat_active: false,
+            }),
+            AuthAction::Logout => Rc::new(Self {
+                loading: true,
+                error: None,
+                heartbeat_active: false,
+                ..(*self).clone()
+            }),
             AuthAction::LogoutSuccess => {
                 // Clear player and session_id from local storage
                 let _ = LocalStorage::delete("player");
@@ -151,38 +161,28 @@ impl Reducible for AuthState {
                     heartbeat_active: false,
                 })
             }
-            AuthAction::LogoutError(error) => {
-                Rc::new(Self {
-                    loading: false,
-                    error: Some(error),
-                    heartbeat_active: false,
-                    ..(*self).clone()
-                })
-            }
-            AuthAction::SetLoading(loading) => {
-                Rc::new(Self {
-                    loading,
-                    ..(*self).clone()
-                })
-            }
-            AuthAction::SetError(error) => {
-                Rc::new(Self {
-                    error,
-                    ..(*self).clone()
-                })
-            }
-            AuthAction::StartHeartbeat => {
-                Rc::new(Self {
-                    heartbeat_active: true,
-                    ..(*self).clone()
-                })
-            }
-            AuthAction::StopHeartbeat => {
-                Rc::new(Self {
-                    heartbeat_active: false,
-                    ..(*self).clone()
-                })
-            }
+            AuthAction::LogoutError(error) => Rc::new(Self {
+                loading: false,
+                error: Some(error),
+                heartbeat_active: false,
+                ..(*self).clone()
+            }),
+            AuthAction::SetLoading(loading) => Rc::new(Self {
+                loading,
+                ..(*self).clone()
+            }),
+            AuthAction::SetError(error) => Rc::new(Self {
+                error,
+                ..(*self).clone()
+            }),
+            AuthAction::StartHeartbeat => Rc::new(Self {
+                heartbeat_active: true,
+                ..(*self).clone()
+            }),
+            AuthAction::StopHeartbeat => Rc::new(Self {
+                heartbeat_active: false,
+                ..(*self).clone()
+            }),
             AuthAction::HeartbeatCheck => {
                 // Don't change state, just trigger the check
                 self
@@ -202,7 +202,7 @@ impl Reducible for AuthState {
                 // Session expired, logout and redirect
                 let _ = LocalStorage::delete("player");
                 let _ = LocalStorage::delete("session_id");
-                
+
                 Rc::new(Self {
                     player: None,
                     loading: false,
@@ -254,18 +254,20 @@ pub fn auth_provider(props: &AuthProviderProps) -> Html {
                     let auth = auth.clone();
                     spawn_local(async move {
                         auth.dispatch(AuthAction::HeartbeatCheck);
-                        
+
                         match auth::get_current_player().await {
                             Ok(player) => {
                                 auth.dispatch(AuthAction::HeartbeatSuccess(player));
                             }
                             Err(_) => {
-                                auth.dispatch(AuthAction::HeartbeatError("Session expired".to_string()));
+                                auth.dispatch(AuthAction::HeartbeatError(
+                                    "Session expired".to_string(),
+                                ));
                             }
                         }
                     });
                 });
-                
+
                 Box::new(move || {
                     interval.cancel();
                 }) as Box<dyn FnOnce()>
@@ -286,10 +288,10 @@ pub fn auth_provider(props: &AuthProviderProps) -> Html {
 
                 match auth::login(&email, &password).await {
                     Ok(response) => {
-                        auth.dispatch(AuthAction::LoginSuccess { 
-                    player: response.player, 
-                    session_id: response.session_id 
-                });
+                        auth.dispatch(AuthAction::LoginSuccess {
+                            player: response.player,
+                            session_id: response.session_id,
+                        });
                         auth.dispatch(AuthAction::StartHeartbeat);
                     }
                     Err(e) => {
@@ -329,7 +331,7 @@ pub fn auth_provider(props: &AuthProviderProps) -> Html {
             let auth = auth.clone();
             spawn_local(async move {
                 auth.dispatch(AuthAction::RefreshPlayer);
-                
+
                 match auth::get_current_player().await {
                     Ok(player) => {
                         auth.dispatch(AuthAction::HeartbeatSuccess(player));
@@ -357,4 +359,4 @@ pub fn auth_provider(props: &AuthProviderProps) -> Html {
             {props.children.clone()}
         </ContextProvider<AuthContext>>
     }
-} 
+}

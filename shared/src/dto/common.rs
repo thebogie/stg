@@ -23,4 +23,4 @@ pub struct AuthResponse {
     pub player: crate::dto::player::PlayerDto,
     /// The session data
     pub session: crate::dto::auth::UserSessionDto,
-} 
+}

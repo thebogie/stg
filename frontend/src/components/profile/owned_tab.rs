@@ -1,5 +1,5 @@
-use yew::prelude::*;
 use shared::dto::analytics::HeadToHeadRecordDto;
+use yew::prelude::*;
 
 #[derive(Properties, PartialEq)]
 pub struct OwnedTabProps {

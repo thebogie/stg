@@ -1,14 +1,14 @@
-use yew::prelude::*;
-use yew_router::prelude::*;
-use wasm_bindgen_futures::spawn_local;
-use shared::dto::game::GameDto;
 use crate::api::games::{get_all_games, search_games};
 use crate::Route;
+use shared::dto::game::GameDto;
+use wasm_bindgen_futures::spawn_local;
+use yew::prelude::*;
+use yew_router::prelude::*;
 
 #[function_component(Games)]
 pub fn games() -> Html {
     let navigator = use_navigator().unwrap();
-    
+
     // Search state
     let draft_query = use_state(|| String::new());
     let query = use_state(|| String::new());
@@ -32,32 +32,32 @@ pub fn games() -> Html {
         let error = error.clone();
         let games = games.clone();
         let navigator = navigator.clone();
-        
+
         Callback::from(move |_| {
             let search_query = (*draft_query).clone();
             query.set(search_query.clone());
-            
+
             loading.set(true);
             error.set(None);
-            
+
             let loading = loading.clone();
             let error = error.clone();
             let games = games.clone();
             let _navigator = navigator.clone();
-            
+
             spawn_local(async move {
                 let result = if search_query.is_empty() {
                     get_all_games().await
                 } else {
                     search_games(&search_query).await
                 };
-                
+
                 loading.set(false);
                 match result {
                     Ok(game_list) => {
                         games.set(Some(game_list));
                         error.set(None);
-                    },
+                    }
                     Err(e) => {
                         error.set(Some(e));
                         games.set(None);
@@ -72,7 +72,7 @@ pub fn games() -> Html {
         let query = query.clone();
         let games = games.clone();
         let error = error.clone();
-        
+
         Callback::from(move |_| {
             draft_query.set(String::new());
             query.set(String::new());
@@ -86,21 +86,21 @@ pub fn games() -> Html {
         let loading = loading.clone();
         let games = games.clone();
         let error = error.clone();
-        
+
         use_effect_with((), move |_| {
             loading.set(true);
             error.set(None);
-            
+
             let loading = loading.clone();
             let games = games.clone();
             let error = error.clone();
-            
+
             spawn_local(async move {
                 match get_all_games().await {
                     Ok(game_list) => {
                         games.set(Some(game_list));
                         error.set(None);
-                    },
+                    }
                     Err(e) => {
                         error.set(Some(e));
                         games.set(None);
@@ -131,7 +131,7 @@ pub fn games() -> Html {
                     <h1 class="text-3xl font-bold text-gray-900">{"🎮 Games"}</h1>
                     <p class="mt-2 text-gray-600">{"Browse and search games in your collection"}</p>
                 </div>
-                
+
                 // Search and filters
                 <div class="bg-white shadow rounded-lg p-6 mb-6">
                     <div class="flex flex-col sm:flex-row gap-4">
@@ -163,7 +163,7 @@ pub fn games() -> Html {
                             </button>
                         </div>
                     </div>
-                    
+
                     {filter_chips}
                 </div>
 
@@ -219,7 +219,7 @@ pub fn games() -> Html {
                                             let game_id = game.id.clone();
                                             let navigator = navigator.clone();
                                             html! {
-                                                <tr 
+                                                <tr
                                                     class="hover:bg-gray-50 cursor-pointer"
                                                     onclick={Callback::from(move |_| {
                                                         navigator.push(&Route::GameDetails { game_id: game_id.clone() });
@@ -268,4 +268,4 @@ pub fn games() -> Html {
             </div>
         </div>
     }
-} 
+}

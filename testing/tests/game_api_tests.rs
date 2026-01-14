@@ -1,28 +1,27 @@
 //! Integration tests for Game API endpoints
-//! 
+//!
 //! Tests complete CRUD operations for games with real database and Redis
 
 //! Integration tests for Game API endpoints
-//! 
+//!
 //! Tests complete CRUD operations for games with real database and Redis
 
 mod test_helpers;
 
-use anyhow::Result;
 use actix_web::{test, web, App};
+use anyhow::Result;
 use serde_json::json;
 use shared::dto::game::GameDto;
 use shared::models::game::GameSource;
-use testing::{TestEnvironment, app_setup};
 use testing::create_authenticated_user;
-
+use testing::{app_setup, TestEnvironment};
 
 #[tokio::test]
 async fn test_create_game_success() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
     let app_data = app_setup::setup_test_app_data(&env).await?;
-    
+
     let app = test::init_service(
         App::new()
             .wrap(backend::middleware::Logger)
@@ -37,7 +36,7 @@ async fn test_create_game_success() -> Result<()> {
             .service(
                 web::scope("/api/players")
                     .service(backend::player::controller::register_handler_prod)
-                    .service(backend::player::controller::login_handler_prod)
+                    .service(backend::player::controller::login_handler_prod),
             )
             .service(
                 web::scope("/api/games")
@@ -49,10 +48,11 @@ async fn test_create_game_success() -> Result<()> {
                     .service(backend::game::controller::get_game_handler)
                     .service(backend::game::controller::create_game_handler)
                     .service(backend::game::controller::update_game_handler)
-                    .service(backend::game::controller::delete_game_handler)
-            )
-    ).await;
-    
+                    .service(backend::game::controller::delete_game_handler),
+            ),
+    )
+    .await;
+
     let session_id = create_authenticated_user!(app, "game_test@example.com", "gameuser");
 
     let game_data = json!({
@@ -70,7 +70,7 @@ async fn test_create_game_success() -> Result<()> {
         .to_request();
 
     let resp = test::call_service(&app, req).await;
-    
+
     assert!(
         resp.status().is_success(),
         "Creating game should succeed, got status: {}",
@@ -91,7 +91,7 @@ async fn test_create_game_validation_errors() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
     let app_data = app_setup::setup_test_app_data(&env).await?;
-    
+
     let app = test::init_service(
         App::new()
             .wrap(backend::middleware::Logger)
@@ -106,7 +106,7 @@ async fn test_create_game_validation_errors() -> Result<()> {
             .service(
                 web::scope("/api/players")
                     .service(backend::player::controller::register_handler_prod)
-                    .service(backend::player::controller::login_handler_prod)
+                    .service(backend::player::controller::login_handler_prod),
             )
             .service(
                 web::scope("/api/games")
@@ -118,10 +118,11 @@ async fn test_create_game_validation_errors() -> Result<()> {
                     .service(backend::game::controller::get_game_handler)
                     .service(backend::game::controller::create_game_handler)
                     .service(backend::game::controller::update_game_handler)
-                    .service(backend::game::controller::delete_game_handler)
-            )
-    ).await;
-    
+                    .service(backend::game::controller::delete_game_handler),
+            ),
+    )
+    .await;
+
     let session_id = create_authenticated_user!(app, "game_val@example.com", "gameval");
 
     // Test empty name
@@ -151,7 +152,7 @@ async fn test_get_game_success() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
     let app_data = app_setup::setup_test_app_data(&env).await?;
-    
+
     let app = test::init_service(
         App::new()
             .wrap(backend::middleware::Logger)
@@ -166,7 +167,7 @@ async fn test_get_game_success() -> Result<()> {
             .service(
                 web::scope("/api/players")
                     .service(backend::player::controller::register_handler_prod)
-                    .service(backend::player::controller::login_handler_prod)
+                    .service(backend::player::controller::login_handler_prod),
             )
             .service(
                 web::scope("/api/games")
@@ -178,10 +179,11 @@ async fn test_get_game_success() -> Result<()> {
                     .service(backend::game::controller::get_game_handler)
                     .service(backend::game::controller::create_game_handler)
                     .service(backend::game::controller::update_game_handler)
-                    .service(backend::game::controller::delete_game_handler)
-            )
-    ).await;
-    
+                    .service(backend::game::controller::delete_game_handler),
+            ),
+    )
+    .await;
+
     let session_id = create_authenticated_user!(app, "game_get@example.com", "gameget");
 
     // First create a game
@@ -227,7 +229,7 @@ async fn test_get_game_not_found() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
     let app_data = app_setup::setup_test_app_data(&env).await?;
-    
+
     let app = test::init_service(
         App::new()
             .wrap(backend::middleware::Logger)
@@ -242,7 +244,7 @@ async fn test_get_game_not_found() -> Result<()> {
             .service(
                 web::scope("/api/players")
                     .service(backend::player::controller::register_handler_prod)
-                    .service(backend::player::controller::login_handler_prod)
+                    .service(backend::player::controller::login_handler_prod),
             )
             .service(
                 web::scope("/api/games")
@@ -254,10 +256,11 @@ async fn test_get_game_not_found() -> Result<()> {
                     .service(backend::game::controller::get_game_handler)
                     .service(backend::game::controller::create_game_handler)
                     .service(backend::game::controller::update_game_handler)
-                    .service(backend::game::controller::delete_game_handler)
-            )
-    ).await;
-    
+                    .service(backend::game::controller::delete_game_handler),
+            ),
+    )
+    .await;
+
     let session_id = create_authenticated_user!(app, "game_nf@example.com", "gamenf");
 
     let req = test::TestRequest::get()
@@ -281,7 +284,7 @@ async fn test_update_game_success() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
     let app_data = app_setup::setup_test_app_data(&env).await?;
-    
+
     let app = test::init_service(
         App::new()
             .wrap(backend::middleware::Logger)
@@ -296,7 +299,7 @@ async fn test_update_game_success() -> Result<()> {
             .service(
                 web::scope("/api/players")
                     .service(backend::player::controller::register_handler_prod)
-                    .service(backend::player::controller::login_handler_prod)
+                    .service(backend::player::controller::login_handler_prod),
             )
             .service(
                 web::scope("/api/games")
@@ -308,10 +311,11 @@ async fn test_update_game_success() -> Result<()> {
                     .service(backend::game::controller::get_game_handler)
                     .service(backend::game::controller::create_game_handler)
                     .service(backend::game::controller::update_game_handler)
-                    .service(backend::game::controller::delete_game_handler)
-            )
-    ).await;
-    
+                    .service(backend::game::controller::delete_game_handler),
+            ),
+    )
+    .await;
+
     let session_id = create_authenticated_user!(app, "game_upd@example.com", "gameupd");
 
     // Create a game first
@@ -365,7 +369,7 @@ async fn test_update_game_not_found() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
     let app_data = app_setup::setup_test_app_data(&env).await?;
-    
+
     let app = test::init_service(
         App::new()
             .wrap(backend::middleware::Logger)
@@ -380,7 +384,7 @@ async fn test_update_game_not_found() -> Result<()> {
             .service(
                 web::scope("/api/players")
                     .service(backend::player::controller::register_handler_prod)
-                    .service(backend::player::controller::login_handler_prod)
+                    .service(backend::player::controller::login_handler_prod),
             )
             .service(
                 web::scope("/api/games")
@@ -392,10 +396,11 @@ async fn test_update_game_not_found() -> Result<()> {
                     .service(backend::game::controller::get_game_handler)
                     .service(backend::game::controller::create_game_handler)
                     .service(backend::game::controller::update_game_handler)
-                    .service(backend::game::controller::delete_game_handler)
-            )
-    ).await;
-    
+                    .service(backend::game::controller::delete_game_handler),
+            ),
+    )
+    .await;
+
     let session_id = create_authenticated_user!(app, "game_upd_nf@example.com", "gameupdnf");
 
     let update_data = json!({
@@ -425,7 +430,7 @@ async fn test_delete_game_success() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
     let app_data = app_setup::setup_test_app_data(&env).await?;
-    
+
     let app = test::init_service(
         App::new()
             .wrap(backend::middleware::Logger)
@@ -440,7 +445,7 @@ async fn test_delete_game_success() -> Result<()> {
             .service(
                 web::scope("/api/players")
                     .service(backend::player::controller::register_handler_prod)
-                    .service(backend::player::controller::login_handler_prod)
+                    .service(backend::player::controller::login_handler_prod),
             )
             .service(
                 web::scope("/api/games")
@@ -452,10 +457,11 @@ async fn test_delete_game_success() -> Result<()> {
                     .service(backend::game::controller::get_game_handler)
                     .service(backend::game::controller::create_game_handler)
                     .service(backend::game::controller::update_game_handler)
-                    .service(backend::game::controller::delete_game_handler)
-            )
-    ).await;
-    
+                    .service(backend::game::controller::delete_game_handler),
+            ),
+    )
+    .await;
+
     let session_id = create_authenticated_user!(app, "game_del@example.com", "gamedel");
 
     // Create a game first
@@ -510,7 +516,7 @@ async fn test_delete_game_not_found() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
     let app_data = app_setup::setup_test_app_data(&env).await?;
-    
+
     let app = test::init_service(
         App::new()
             .wrap(backend::middleware::Logger)
@@ -525,7 +531,7 @@ async fn test_delete_game_not_found() -> Result<()> {
             .service(
                 web::scope("/api/players")
                     .service(backend::player::controller::register_handler_prod)
-                    .service(backend::player::controller::login_handler_prod)
+                    .service(backend::player::controller::login_handler_prod),
             )
             .service(
                 web::scope("/api/games")
@@ -537,10 +543,11 @@ async fn test_delete_game_not_found() -> Result<()> {
                     .service(backend::game::controller::get_game_handler)
                     .service(backend::game::controller::create_game_handler)
                     .service(backend::game::controller::update_game_handler)
-                    .service(backend::game::controller::delete_game_handler)
-            )
-    ).await;
-    
+                    .service(backend::game::controller::delete_game_handler),
+            ),
+    )
+    .await;
+
     let session_id = create_authenticated_user!(app, "game_del_nf@example.com", "gamedelnf");
 
     let req = test::TestRequest::delete()
@@ -564,7 +571,7 @@ async fn test_get_all_games() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
     let app_data = app_setup::setup_test_app_data(&env).await?;
-    
+
     let app = test::init_service(
         App::new()
             .wrap(backend::middleware::Logger)
@@ -579,7 +586,7 @@ async fn test_get_all_games() -> Result<()> {
             .service(
                 web::scope("/api/players")
                     .service(backend::player::controller::register_handler_prod)
-                    .service(backend::player::controller::login_handler_prod)
+                    .service(backend::player::controller::login_handler_prod),
             )
             .service(
                 web::scope("/api/games")
@@ -591,10 +598,11 @@ async fn test_get_all_games() -> Result<()> {
                     .service(backend::game::controller::get_game_handler)
                     .service(backend::game::controller::create_game_handler)
                     .service(backend::game::controller::update_game_handler)
-                    .service(backend::game::controller::delete_game_handler)
-            )
-    ).await;
-    
+                    .service(backend::game::controller::delete_game_handler),
+            ),
+    )
+    .await;
+
     let session_id = create_authenticated_user!(app, "game_list@example.com", "gamelist");
 
     // Create a couple of games
@@ -639,7 +647,7 @@ async fn test_game_unauthorized_access() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
     let app_data = app_setup::setup_test_app_data(&env).await?;
-    
+
     let app = test::init_service(
         App::new()
             .wrap(backend::middleware::Logger)
@@ -654,7 +662,7 @@ async fn test_game_unauthorized_access() -> Result<()> {
             .service(
                 web::scope("/api/players")
                     .service(backend::player::controller::register_handler_prod)
-                    .service(backend::player::controller::login_handler_prod)
+                    .service(backend::player::controller::login_handler_prod),
             )
             .service(
                 web::scope("/api/games")
@@ -666,17 +674,16 @@ async fn test_game_unauthorized_access() -> Result<()> {
                     .service(backend::game::controller::get_game_handler)
                     .service(backend::game::controller::create_game_handler)
                     .service(backend::game::controller::update_game_handler)
-                    .service(backend::game::controller::delete_game_handler)
-            )
-    ).await;
+                    .service(backend::game::controller::delete_game_handler),
+            ),
+    )
+    .await;
 
     // Try to access without authentication
-    let req = test::TestRequest::get()
-        .uri("/api/games")
-        .to_request();
+    let req = test::TestRequest::get().uri("/api/games").to_request();
 
     let resp = test::try_call_service(&app, req).await;
-    
+
     match resp {
         Ok(resp) => {
             assert_eq!(
@@ -690,8 +697,7 @@ async fn test_game_unauthorized_access() -> Result<()> {
             use actix_web::error::ResponseError;
             let status = e.as_response_error().status_code();
             assert_eq!(
-                status,
-                401,
+                status, 401,
                 "Should return 401 Unauthorized error, got: {}",
                 status
             );

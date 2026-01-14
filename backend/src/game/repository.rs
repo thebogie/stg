@@ -1,10 +1,10 @@
-use shared::models::game::Game;
-use shared::dto::game::GameDto;
-use arangors::Database;
-use arangors::client::reqwest::ReqwestClient;
-use arangors::document::options::{InsertOptions, UpdateOptions, RemoveOptions};
 use crate::third_party::BGGService;
+use arangors::client::reqwest::ReqwestClient;
+use arangors::document::options::{InsertOptions, RemoveOptions, UpdateOptions};
+use arangors::Database;
 use serde::{Deserialize, Serialize};
+use shared::dto::game::GameDto;
+use shared::models::game::Game;
 
 // Database-only game model (without source field)
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -49,8 +49,16 @@ pub trait GameRepository: Send + Sync {
     async fn search_dto(&self, query: &str) -> Vec<GameDto>;
     async fn search_db_only(&self, query: &str) -> Vec<Game>;
     async fn search_db_only_dto(&self, query: &str) -> Vec<GameDto>;
-    async fn get_game_recommendations(&self, player_id: &str, limit: i32) -> Result<Vec<serde_json::Value>, String>;
-    async fn get_similar_games(&self, game_id: &str, limit: i32) -> Result<Vec<serde_json::Value>, String>;
+    async fn get_game_recommendations(
+        &self,
+        player_id: &str,
+        limit: i32,
+    ) -> Result<Vec<serde_json::Value>, String>;
+    async fn get_similar_games(
+        &self,
+        game_id: &str,
+        limit: i32,
+    ) -> Result<Vec<serde_json::Value>, String>;
     async fn get_popular_games(&self, limit: i32) -> Result<Vec<serde_json::Value>, String>;
     async fn create(&self, game: Game) -> Result<Game, String>;
     async fn update(&self, game: Game) -> Result<Game, String>;
@@ -59,14 +67,14 @@ pub trait GameRepository: Send + Sync {
 
 impl GameRepositoryImpl {
     pub fn new(db: Database<ReqwestClient>) -> Self {
-        Self { 
+        Self {
             db,
             bgg_service: None,
         }
     }
 
     pub fn new_with_bgg(db: Database<ReqwestClient>, bgg_service: BGGService) -> Self {
-        Self { 
+        Self {
             db,
             bgg_service: Some(bgg_service),
         }
@@ -94,8 +102,11 @@ impl GameRepository for GameRepositoryImpl {
             Ok(cursor) => {
                 let db_games: Vec<GameDb> = cursor.into_iter().collect();
                 // Convert database games to full Game models with source field
-                db_games.into_iter().map(|db_game| Game::from(db_game)).collect()
-            },
+                db_games
+                    .into_iter()
+                    .map(|db_game| Game::from(db_game))
+                    .collect()
+            }
             Err(_) => Vec::new(),
         }
     }
@@ -105,16 +116,16 @@ impl GameRepository for GameRepositoryImpl {
         let mut results = Vec::new();
 
         log::info!("=== Starting game search for query: '{}' ===", query);
-        
+
         // Debug: Check database connection and collection
         log::info!("Database name: {}", self.db.name());
         log::info!("Database URL: {:?}", self.db.url());
-        
+
         // Check if games collection exists
         match self.db.collection("game").await {
             Ok(collection) => {
                 log::info!("Games collection found: {}", collection.name());
-            },
+            }
             Err(e) => {
                 log::warn!("Games collection not found or error: {}", e);
             }
@@ -124,7 +135,7 @@ impl GameRepository for GameRepositoryImpl {
         let count_query = arangors::AqlQuery::builder()
             .query("RETURN LENGTH(FOR g IN game RETURN g)")
             .build();
-        
+
         match self.db.aql_query::<i32>(count_query).await {
             Ok(mut cursor) => {
                 if let Some(count) = cursor.pop() {
@@ -133,7 +144,7 @@ impl GameRepository for GameRepositoryImpl {
                         log::warn!("Database is empty! No games found in database.");
                     }
                 }
-            },
+            }
             Err(e) => {
                 log::warn!("Failed to count games in database: {}", e);
             }
@@ -141,25 +152,35 @@ impl GameRepository for GameRepositoryImpl {
 
         // Search by name
         let name_query = arangors::AqlQuery::builder()
-            .query("FOR g IN game FILTER CONTAINS(LOWER(g.name), LOWER(@query)) LIMIT @limit RETURN g")
+            .query(
+                "FOR g IN game FILTER CONTAINS(LOWER(g.name), LOWER(@query)) LIMIT @limit RETURN g",
+            )
             .bind_var("query", query)
             .bind_var("limit", max_results)
             .build();
-        
+
         match self.db.aql_query::<GameDb>(name_query).await {
             Ok(cursor) => {
                 let db_games: Vec<GameDb> = cursor.into_iter().collect();
                 log::info!("Name search returned {} games", db_games.len());
-                
+
                 // Convert database games to full Game models with source field
-                let games: Vec<Game> = db_games.into_iter().map(|db_game| {
-                    log::info!("  Game: ID={}, Name='{}', Year={:?}, BGG={:?}", 
-                              db_game.id, db_game.name, db_game.year_published, db_game.bgg_id);
-                    Game::from(db_game)
-                }).collect();
-                
+                let games: Vec<Game> = db_games
+                    .into_iter()
+                    .map(|db_game| {
+                        log::info!(
+                            "  Game: ID={}, Name='{}', Year={:?}, BGG={:?}",
+                            db_game.id,
+                            db_game.name,
+                            db_game.year_published,
+                            db_game.bgg_id
+                        );
+                        Game::from(db_game)
+                    })
+                    .collect();
+
                 results.extend(games);
-            },
+            }
             Err(e) => {
                 log::error!("Failed to search games by name: {}", e);
             }
@@ -173,21 +194,29 @@ impl GameRepository for GameRepositoryImpl {
                 .bind_var("query", query)
                 .bind_var("limit", remaining_limit)
                 .build();
-            
+
             match self.db.aql_query::<GameDb>(desc_query).await {
                 Ok(cursor) => {
                     let db_games: Vec<GameDb> = cursor.into_iter().collect();
                     log::info!("Description search returned {} games", db_games.len());
-                    
+
                     // Convert database games to full Game models with source field
-                    let games: Vec<Game> = db_games.into_iter().map(|db_game| {
-                        log::info!("  Game from description: ID={}, Name='{}', Year={:?}, BGG={:?}", 
-                                  db_game.id, db_game.name, db_game.year_published, db_game.bgg_id);
-                        Game::from(db_game)
-                    }).collect();
-                    
+                    let games: Vec<Game> = db_games
+                        .into_iter()
+                        .map(|db_game| {
+                            log::info!(
+                                "  Game from description: ID={}, Name='{}', Year={:?}, BGG={:?}",
+                                db_game.id,
+                                db_game.name,
+                                db_game.year_published,
+                                db_game.bgg_id
+                            );
+                            Game::from(db_game)
+                        })
+                        .collect();
+
                     results.extend(games);
-                },
+                }
                 Err(e) => {
                     log::error!("Failed to search games by description: {}", e);
                 }
@@ -196,14 +225,20 @@ impl GameRepository for GameRepositoryImpl {
 
         // Always try to fill remaining slots with BGG API results (if available)
         if results.len() < max_results && self.bgg_service.is_some() {
-            log::info!("BGG API is available, attempting to fill {} remaining slots", max_results - results.len());
+            log::info!(
+                "BGG API is available, attempting to fill {} remaining slots",
+                max_results - results.len()
+            );
             if let Some(ref bgg_service) = self.bgg_service {
                 match bgg_service.search_games(query).await {
                     Ok(bgg_results) => {
                         let remaining_limit = max_results - results.len();
-                        log::info!("BGG API returned {} results, adding {} to fill remaining slots", 
-                                  bgg_results.len(), std::cmp::min(remaining_limit, bgg_results.len()));
-                        
+                        log::info!(
+                            "BGG API returned {} results, adding {} to fill remaining slots",
+                            bgg_results.len(),
+                            std::cmp::min(remaining_limit, bgg_results.len())
+                        );
+
                         for game in bgg_results.into_iter().take(remaining_limit) {
                             // Convert BGG game to Game model with BGG source
                             results.push(Game {
@@ -223,21 +258,32 @@ impl GameRepository for GameRepositoryImpl {
                 }
             }
         } else if results.len() < max_results {
-            log::info!("BGG API not available, cannot fill remaining {} slots", max_results - results.len());
+            log::info!(
+                "BGG API not available, cannot fill remaining {} slots",
+                max_results - results.len()
+            );
         }
 
         log::info!("Total search results: {} games", results.len());
         for game in &results {
-            log::info!("Final game result: ID={}, Name={}, Source={:?}", 
-                      game.id, game.name, game.source);
+            log::info!(
+                "Final game result: ID={}, Name={}, Source={:?}",
+                game.id,
+                game.name,
+                game.source
+            );
         }
 
         results
     }
 
-    async fn get_game_recommendations(&self, player_id: &str, limit: i32) -> Result<Vec<serde_json::Value>, String> {
+    async fn get_game_recommendations(
+        &self,
+        player_id: &str,
+        limit: i32,
+    ) -> Result<Vec<serde_json::Value>, String> {
         log::info!("🔍 Getting game recommendations for player: {}", player_id);
-        
+
         let query = arangors::AqlQuery::builder()
             .query(r#"
                 // Graph traversal: player -> games -> similar players -> new games
@@ -331,11 +377,15 @@ impl GameRepository for GameRepositoryImpl {
             .bind_var("player_id", player_id)
             .bind_var("limit", limit)
             .build();
-        
+
         match self.db.aql_query::<serde_json::Value>(query).await {
             Ok(cursor) => {
                 let results: Vec<serde_json::Value> = cursor.into_iter().collect();
-                log::info!("✅ Game recommendations retrieved for player: {} ({} games)", player_id, results.len());
+                log::info!(
+                    "✅ Game recommendations retrieved for player: {} ({} games)",
+                    player_id,
+                    results.len()
+                );
                 Ok(results)
             }
             Err(e) => {
@@ -345,9 +395,13 @@ impl GameRepository for GameRepositoryImpl {
         }
     }
 
-    async fn get_similar_games(&self, game_id: &str, limit: i32) -> Result<Vec<serde_json::Value>, String> {
+    async fn get_similar_games(
+        &self,
+        game_id: &str,
+        limit: i32,
+    ) -> Result<Vec<serde_json::Value>, String> {
         log::info!("🔍 Getting similar games for game: {}", game_id);
-        
+
         let query = arangors::AqlQuery::builder()
             .query(r#"
                 // Graph traversal: game -> players -> other games
@@ -402,11 +456,15 @@ impl GameRepository for GameRepositoryImpl {
             .bind_var("game_id", game_id)
             .bind_var("limit", limit)
             .build();
-        
+
         match self.db.aql_query::<serde_json::Value>(query).await {
             Ok(cursor) => {
                 let results: Vec<serde_json::Value> = cursor.into_iter().collect();
-                log::info!("✅ Similar games retrieved for game: {} ({} games)", game_id, results.len());
+                log::info!(
+                    "✅ Similar games retrieved for game: {} ({} games)",
+                    game_id,
+                    results.len()
+                );
                 Ok(results)
             }
             Err(e) => {
@@ -418,9 +476,10 @@ impl GameRepository for GameRepositoryImpl {
 
     async fn get_popular_games(&self, limit: i32) -> Result<Vec<serde_json::Value>, String> {
         log::info!("🔍 Getting popular games (limit: {})", limit);
-        
+
         let query = arangors::AqlQuery::builder()
-            .query(r#"
+            .query(
+                r#"
                 // Graph traversal: games -> contests -> players
                 FOR game IN game
                   
@@ -457,21 +516,24 @@ impl GameRepository for GameRepositoryImpl {
                     unique_players: unique_players,
                     popularity_score: popularity_score
                   }
-            "#)
+            "#,
+            )
             .bind_var("limit", limit)
             .build();
-        
+
         match self.db.aql_query::<serde_json::Value>(query).await {
             Ok(cursor) => {
                 let mut results: Vec<serde_json::Value> = cursor.into_iter().collect();
-                
+
                 // Sort by popularity score and limit results
                 results.sort_by(|a, b| {
                     let score_a = a["popularity_score"].as_f64().unwrap_or(0.0);
                     let score_b = b["popularity_score"].as_f64().unwrap_or(0.0);
-                    score_b.partial_cmp(&score_a).unwrap_or(std::cmp::Ordering::Equal)
+                    score_b
+                        .partial_cmp(&score_a)
+                        .unwrap_or(std::cmp::Ordering::Equal)
                 });
-                
+
                 results.truncate(limit as usize);
                 log::info!("✅ Popular games retrieved ({} games)", results.len());
                 Ok(results)
@@ -494,7 +556,9 @@ impl GameRepository for GameRepositoryImpl {
 
         // Search by name in DB
         let name_query = arangors::AqlQuery::builder()
-            .query("FOR g IN game FILTER CONTAINS(LOWER(g.name), LOWER(@query)) LIMIT @limit RETURN g")
+            .query(
+                "FOR g IN game FILTER CONTAINS(LOWER(g.name), LOWER(@query)) LIMIT @limit RETURN g",
+            )
             .bind_var("query", query)
             .bind_var("limit", max_results)
             .build();
@@ -526,7 +590,10 @@ impl GameRepository for GameRepositoryImpl {
     }
 
     async fn create(&self, game: Game) -> Result<Game, String> {
-        let collection = self.db.collection("game").await
+        let collection = self
+            .db
+            .collection("game")
+            .await
             .map_err(|e| format!("Failed to get collection: {}", e))?;
 
         // If bgg_id is present, check for existing game with same bgg_id
@@ -543,7 +610,10 @@ impl GameRepository for GameRepositoryImpl {
             }
         }
 
-        match collection.create_document(game.clone(), InsertOptions::default()).await {
+        match collection
+            .create_document(game.clone(), InsertOptions::default())
+            .await
+        {
             Ok(created_doc) => {
                 let header = created_doc.header().unwrap();
                 Ok(Game {
@@ -555,18 +625,24 @@ impl GameRepository for GameRepositoryImpl {
                     description: game.description,
                     source: game.source,
                 })
-            },
+            }
             Err(e) => Err(format!("Failed to create game: {}", e)),
         }
     }
 
     async fn update(&self, game: Game) -> Result<Game, String> {
-        let collection = self.db.collection("game").await
+        let collection = self
+            .db
+            .collection("game")
+            .await
             .map_err(|e| format!("Failed to get collection: {}", e))?;
-        
+
         // Arango expects document key, not full _id
         let key = game.id.split_once('/').map(|(_, k)| k).unwrap_or(&game.id);
-        match collection.update_document(key, game.clone(), UpdateOptions::default()).await {
+        match collection
+            .update_document(key, game.clone(), UpdateOptions::default())
+            .await
+        {
             Ok(_updated_doc) => {
                 // Fetch the latest doc to return consistent data
                 let aql = arangors::AqlQuery::builder()
@@ -583,20 +659,26 @@ impl GameRepository for GameRepositoryImpl {
                     }
                     Err(e) => Err(format!("Failed to fetch updated game: {}", e)),
                 }
-            },
+            }
             Err(e) => Err(format!("Failed to update game: {}", e)),
         }
     }
 
     async fn delete(&self, id: &str) -> Result<(), String> {
-        let collection = self.db.collection("game").await
+        let collection = self
+            .db
+            .collection("game")
+            .await
             .map_err(|e| format!("Failed to get collection: {}", e))?;
-        
+
         // Arango expects document key, not full _id
         let key = id.split_once('/').map(|(_, k)| k).unwrap_or(id);
-        match collection.remove_document::<serde_json::Value>(key, RemoveOptions::default(), None).await {
+        match collection
+            .remove_document::<serde_json::Value>(key, RemoveOptions::default(), None)
+            .await
+        {
             Ok(_) => Ok(()),
             Err(e) => Err(format!("Failed to delete game: {}", e)),
         }
     }
-} 
+}

@@ -1,26 +1,25 @@
 //! Integration tests for Error Handling
-//! 
+//!
 //! Tests various error scenarios (400, 401, 403, 404, 500)
 
 //! Integration tests for Error Handling
-//! 
+//!
 //! Tests various error scenarios (400, 401, 403, 404, 500)
 
 mod test_helpers;
 
-use anyhow::Result;
 use actix_web::{test, web, App};
+use anyhow::Result;
 use serde_json::json;
-use testing::{TestEnvironment, app_setup};
 use testing::create_authenticated_user;
-
+use testing::{app_setup, TestEnvironment};
 
 #[tokio::test]
 async fn test_400_bad_request_validation_errors() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
     let app_data = app_setup::setup_test_app_data(&env).await?;
-    
+
     let app = test::init_service(
         App::new()
             .wrap(backend::middleware::Logger)
@@ -35,7 +34,7 @@ async fn test_400_bad_request_validation_errors() -> Result<()> {
             .service(
                 web::scope("/api/players")
                     .service(backend::player::controller::register_handler_prod)
-                    .service(backend::player::controller::login_handler_prod)
+                    .service(backend::player::controller::login_handler_prod),
             )
             .service(
                 web::scope("/api/venues")
@@ -43,7 +42,7 @@ async fn test_400_bad_request_validation_errors() -> Result<()> {
                         redis: app_data.redis_arc.clone(),
                     })
                     .app_data(actix_web::web::JsonConfig::default().limit(64 * 1024))
-                    .service(backend::venue::controller::create_venue_handler)
+                    .service(backend::venue::controller::create_venue_handler),
             )
             .service(
                 web::scope("/api/games")
@@ -51,10 +50,11 @@ async fn test_400_bad_request_validation_errors() -> Result<()> {
                         redis: app_data.redis_arc.clone(),
                     })
                     .app_data(actix_web::web::JsonConfig::default().limit(64 * 1024))
-                    .service(backend::game::controller::create_game_handler)
-            )
-    ).await;
-    
+                    .service(backend::game::controller::create_game_handler),
+            ),
+    )
+    .await;
+
     let session_id = create_authenticated_user!(app, "error_test@example.com", "errortest");
 
     // Test invalid venue data (empty display name)
@@ -88,7 +88,7 @@ async fn test_401_unauthorized_missing_auth() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
     let app_data = app_setup::setup_test_app_data(&env).await?;
-    
+
     let app = test::init_service(
         App::new()
             .wrap(backend::middleware::Logger)
@@ -103,7 +103,7 @@ async fn test_401_unauthorized_missing_auth() -> Result<()> {
             .service(
                 web::scope("/api/players")
                     .service(backend::player::controller::register_handler_prod)
-                    .service(backend::player::controller::login_handler_prod)
+                    .service(backend::player::controller::login_handler_prod),
             )
             .service(
                 web::scope("/api/venues")
@@ -111,7 +111,7 @@ async fn test_401_unauthorized_missing_auth() -> Result<()> {
                         redis: app_data.redis_arc.clone(),
                     })
                     .app_data(actix_web::web::JsonConfig::default().limit(64 * 1024))
-                    .service(backend::venue::controller::create_venue_handler)
+                    .service(backend::venue::controller::create_venue_handler),
             )
             .service(
                 web::scope("/api/games")
@@ -119,17 +119,16 @@ async fn test_401_unauthorized_missing_auth() -> Result<()> {
                         redis: app_data.redis_arc.clone(),
                     })
                     .app_data(actix_web::web::JsonConfig::default().limit(64 * 1024))
-                    .service(backend::game::controller::create_game_handler)
-            )
-    ).await;
+                    .service(backend::game::controller::create_game_handler),
+            ),
+    )
+    .await;
 
     // Try to access protected endpoint without auth
-    let req = test::TestRequest::get()
-        .uri("/api/venues")
-        .to_request();
+    let req = test::TestRequest::get().uri("/api/venues").to_request();
 
     let resp = test::try_call_service(&app, req).await;
-    
+
     match resp {
         Ok(resp) => {
             assert_eq!(
@@ -143,8 +142,7 @@ async fn test_401_unauthorized_missing_auth() -> Result<()> {
             use actix_web::error::ResponseError;
             let status = e.as_response_error().status_code();
             assert_eq!(
-                status,
-                401,
+                status, 401,
                 "Should return 401 Unauthorized error, got: {}",
                 status
             );
@@ -159,7 +157,7 @@ async fn test_401_unauthorized_invalid_session() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
     let app_data = app_setup::setup_test_app_data(&env).await?;
-    
+
     let app = test::init_service(
         App::new()
             .wrap(backend::middleware::Logger)
@@ -174,7 +172,7 @@ async fn test_401_unauthorized_invalid_session() -> Result<()> {
             .service(
                 web::scope("/api/players")
                     .service(backend::player::controller::register_handler_prod)
-                    .service(backend::player::controller::login_handler_prod)
+                    .service(backend::player::controller::login_handler_prod),
             )
             .service(
                 web::scope("/api/venues")
@@ -182,7 +180,7 @@ async fn test_401_unauthorized_invalid_session() -> Result<()> {
                         redis: app_data.redis_arc.clone(),
                     })
                     .app_data(actix_web::web::JsonConfig::default().limit(64 * 1024))
-                    .service(backend::venue::controller::create_venue_handler)
+                    .service(backend::venue::controller::create_venue_handler),
             )
             .service(
                 web::scope("/api/games")
@@ -190,9 +188,10 @@ async fn test_401_unauthorized_invalid_session() -> Result<()> {
                         redis: app_data.redis_arc.clone(),
                     })
                     .app_data(actix_web::web::JsonConfig::default().limit(64 * 1024))
-                    .service(backend::game::controller::create_game_handler)
-            )
-    ).await;
+                    .service(backend::game::controller::create_game_handler),
+            ),
+    )
+    .await;
 
     // Try to access with invalid session
     let req = test::TestRequest::get()
@@ -201,7 +200,7 @@ async fn test_401_unauthorized_invalid_session() -> Result<()> {
         .to_request();
 
     let resp = test::try_call_service(&app, req).await;
-    
+
     match resp {
         Ok(resp) => {
             assert_eq!(
@@ -215,8 +214,7 @@ async fn test_401_unauthorized_invalid_session() -> Result<()> {
             use actix_web::error::ResponseError;
             let status = e.as_response_error().status_code();
             assert_eq!(
-                status,
-                401,
+                status, 401,
                 "Should return 401 Unauthorized error, got: {}",
                 status
             );
@@ -231,7 +229,7 @@ async fn test_404_not_found_resources() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
     let app_data = app_setup::setup_test_app_data(&env).await?;
-    
+
     let app = test::init_service(
         App::new()
             .wrap(backend::middleware::Logger)
@@ -246,7 +244,7 @@ async fn test_404_not_found_resources() -> Result<()> {
             .service(
                 web::scope("/api/players")
                     .service(backend::player::controller::register_handler_prod)
-                    .service(backend::player::controller::login_handler_prod)
+                    .service(backend::player::controller::login_handler_prod),
             )
             .service(
                 web::scope("/api/venues")
@@ -254,7 +252,7 @@ async fn test_404_not_found_resources() -> Result<()> {
                         redis: app_data.redis_arc.clone(),
                     })
                     .app_data(actix_web::web::JsonConfig::default().limit(64 * 1024))
-                    .service(backend::venue::controller::create_venue_handler)
+                    .service(backend::venue::controller::create_venue_handler),
             )
             .service(
                 web::scope("/api/games")
@@ -262,10 +260,11 @@ async fn test_404_not_found_resources() -> Result<()> {
                         redis: app_data.redis_arc.clone(),
                     })
                     .app_data(actix_web::web::JsonConfig::default().limit(64 * 1024))
-                    .service(backend::game::controller::create_game_handler)
-            )
-    ).await;
-    
+                    .service(backend::game::controller::create_game_handler),
+            ),
+    )
+    .await;
+
     let session_id = create_authenticated_user!(app, "error_404@example.com", "error404");
 
     // Test non-existent venue
@@ -318,7 +317,7 @@ async fn test_malformed_json_request() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
     let app_data = app_setup::setup_test_app_data(&env).await?;
-    
+
     let app = test::init_service(
         App::new()
             .wrap(backend::middleware::Logger)
@@ -333,7 +332,7 @@ async fn test_malformed_json_request() -> Result<()> {
             .service(
                 web::scope("/api/players")
                     .service(backend::player::controller::register_handler_prod)
-                    .service(backend::player::controller::login_handler_prod)
+                    .service(backend::player::controller::login_handler_prod),
             )
             .service(
                 web::scope("/api/venues")
@@ -341,7 +340,7 @@ async fn test_malformed_json_request() -> Result<()> {
                         redis: app_data.redis_arc.clone(),
                     })
                     .app_data(actix_web::web::JsonConfig::default().limit(64 * 1024))
-                    .service(backend::venue::controller::create_venue_handler)
+                    .service(backend::venue::controller::create_venue_handler),
             )
             .service(
                 web::scope("/api/games")
@@ -349,10 +348,11 @@ async fn test_malformed_json_request() -> Result<()> {
                         redis: app_data.redis_arc.clone(),
                     })
                     .app_data(actix_web::web::JsonConfig::default().limit(64 * 1024))
-                    .service(backend::game::controller::create_game_handler)
-            )
-    ).await;
-    
+                    .service(backend::game::controller::create_game_handler),
+            ),
+    )
+    .await;
+
     let session_id = create_authenticated_user!(app, "error_json@example.com", "errorjson");
 
     // Send malformed JSON
@@ -378,7 +378,7 @@ async fn test_missing_required_fields() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
     let app_data = app_setup::setup_test_app_data(&env).await?;
-    
+
     let app = test::init_service(
         App::new()
             .wrap(backend::middleware::Logger)
@@ -393,7 +393,7 @@ async fn test_missing_required_fields() -> Result<()> {
             .service(
                 web::scope("/api/players")
                     .service(backend::player::controller::register_handler_prod)
-                    .service(backend::player::controller::login_handler_prod)
+                    .service(backend::player::controller::login_handler_prod),
             )
             .service(
                 web::scope("/api/venues")
@@ -401,7 +401,7 @@ async fn test_missing_required_fields() -> Result<()> {
                         redis: app_data.redis_arc.clone(),
                     })
                     .app_data(actix_web::web::JsonConfig::default().limit(64 * 1024))
-                    .service(backend::venue::controller::create_venue_handler)
+                    .service(backend::venue::controller::create_venue_handler),
             )
             .service(
                 web::scope("/api/games")
@@ -409,10 +409,11 @@ async fn test_missing_required_fields() -> Result<()> {
                         redis: app_data.redis_arc.clone(),
                     })
                     .app_data(actix_web::web::JsonConfig::default().limit(64 * 1024))
-                    .service(backend::game::controller::create_game_handler)
-            )
-    ).await;
-    
+                    .service(backend::game::controller::create_game_handler),
+            ),
+    )
+    .await;
+
     let session_id = create_authenticated_user!(app, "error_fields@example.com", "errorfields");
 
     // Create venue with missing required fields
@@ -442,7 +443,7 @@ async fn test_invalid_field_types() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
     let app_data = app_setup::setup_test_app_data(&env).await?;
-    
+
     let app = test::init_service(
         App::new()
             .wrap(backend::middleware::Logger)
@@ -457,7 +458,7 @@ async fn test_invalid_field_types() -> Result<()> {
             .service(
                 web::scope("/api/players")
                     .service(backend::player::controller::register_handler_prod)
-                    .service(backend::player::controller::login_handler_prod)
+                    .service(backend::player::controller::login_handler_prod),
             )
             .service(
                 web::scope("/api/venues")
@@ -465,7 +466,7 @@ async fn test_invalid_field_types() -> Result<()> {
                         redis: app_data.redis_arc.clone(),
                     })
                     .app_data(actix_web::web::JsonConfig::default().limit(64 * 1024))
-                    .service(backend::venue::controller::create_venue_handler)
+                    .service(backend::venue::controller::create_venue_handler),
             )
             .service(
                 web::scope("/api/games")
@@ -473,10 +474,11 @@ async fn test_invalid_field_types() -> Result<()> {
                         redis: app_data.redis_arc.clone(),
                     })
                     .app_data(actix_web::web::JsonConfig::default().limit(64 * 1024))
-                    .service(backend::game::controller::create_game_handler)
-            )
-    ).await;
-    
+                    .service(backend::game::controller::create_game_handler),
+            ),
+    )
+    .await;
+
     let session_id = create_authenticated_user!(app, "error_types@example.com", "errortypes");
 
     // Create venue with wrong type for lat (string instead of number)
@@ -509,7 +511,7 @@ async fn test_oversized_request_body() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
     let app_data = app_setup::setup_test_app_data(&env).await?;
-    
+
     let app = test::init_service(
         App::new()
             .wrap(backend::middleware::Logger)
@@ -524,7 +526,7 @@ async fn test_oversized_request_body() -> Result<()> {
             .service(
                 web::scope("/api/players")
                     .service(backend::player::controller::register_handler_prod)
-                    .service(backend::player::controller::login_handler_prod)
+                    .service(backend::player::controller::login_handler_prod),
             )
             .service(
                 web::scope("/api/venues")
@@ -532,7 +534,7 @@ async fn test_oversized_request_body() -> Result<()> {
                         redis: app_data.redis_arc.clone(),
                     })
                     .app_data(actix_web::web::JsonConfig::default().limit(64 * 1024))
-                    .service(backend::venue::controller::create_venue_handler)
+                    .service(backend::venue::controller::create_venue_handler),
             )
             .service(
                 web::scope("/api/games")
@@ -540,10 +542,11 @@ async fn test_oversized_request_body() -> Result<()> {
                         redis: app_data.redis_arc.clone(),
                     })
                     .app_data(actix_web::web::JsonConfig::default().limit(64 * 1024))
-                    .service(backend::game::controller::create_game_handler)
-            )
-    ).await;
-    
+                    .service(backend::game::controller::create_game_handler),
+            ),
+    )
+    .await;
+
     let session_id = create_authenticated_user!(app, "error_size@example.com", "errorsize");
 
     // Create a very large description (over 4000 chars for game)
@@ -576,7 +579,7 @@ async fn test_invalid_content_type() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
     let app_data = app_setup::setup_test_app_data(&env).await?;
-    
+
     let app = test::init_service(
         App::new()
             .wrap(backend::middleware::Logger)
@@ -591,7 +594,7 @@ async fn test_invalid_content_type() -> Result<()> {
             .service(
                 web::scope("/api/players")
                     .service(backend::player::controller::register_handler_prod)
-                    .service(backend::player::controller::login_handler_prod)
+                    .service(backend::player::controller::login_handler_prod),
             )
             .service(
                 web::scope("/api/venues")
@@ -599,7 +602,7 @@ async fn test_invalid_content_type() -> Result<()> {
                         redis: app_data.redis_arc.clone(),
                     })
                     .app_data(actix_web::web::JsonConfig::default().limit(64 * 1024))
-                    .service(backend::venue::controller::create_venue_handler)
+                    .service(backend::venue::controller::create_venue_handler),
             )
             .service(
                 web::scope("/api/games")
@@ -607,10 +610,11 @@ async fn test_invalid_content_type() -> Result<()> {
                         redis: app_data.redis_arc.clone(),
                     })
                     .app_data(actix_web::web::JsonConfig::default().limit(64 * 1024))
-                    .service(backend::game::controller::create_game_handler)
-            )
-    ).await;
-    
+                    .service(backend::game::controller::create_game_handler),
+            ),
+    )
+    .await;
+
     let session_id = create_authenticated_user!(app, "error_content@example.com", "errorcontent");
 
     // Send JSON with wrong content type

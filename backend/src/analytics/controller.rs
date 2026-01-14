@@ -1,13 +1,12 @@
-use actix_web::{web, HttpResponse, HttpRequest, HttpMessage};
-use serde_json::json;
-use shared::dto::analytics::*;
 use crate::analytics::repository::AnalyticsRepository;
 use crate::analytics::usecase::AnalyticsUseCase;
 use crate::analytics::visualization::ChartConfig;
-use crate::config::DatabaseConfig;
 use crate::auth::AuthMiddleware;
+use crate::config::DatabaseConfig;
+use actix_web::{web, HttpMessage, HttpRequest, HttpResponse};
 use arangors::client::ClientExt;
-
+use serde_json::json;
+use shared::dto::analytics::*;
 
 /// Analytics controller for handling HTTP requests
 pub struct AnalyticsController<C: ClientExt> {
@@ -58,20 +57,28 @@ impl<C: ClientExt> AnalyticsController<C> {
         _req: HttpRequest,
         query: web::Query<std::collections::HashMap<String, String>>,
     ) -> Result<HttpResponse, actix_web::Error> {
-        let weeks = query.get("weeks").and_then(|w| w.parse::<i32>().ok()).unwrap_or(8);
+        let weeks = query
+            .get("weeks")
+            .and_then(|w| w.parse::<i32>().ok())
+            .unwrap_or(8);
         let game_id = query.get("game_id").map(|s| s.as_str());
         match self.usecase.get_contest_heatmap(weeks, game_id).await {
             Ok(payload) => Ok(HttpResponse::Ok().json(payload)),
             Err(e) => {
                 log::error!("Failed to get contest heatmap: {}", e);
-                Ok(HttpResponse::InternalServerError().json(json!({"error":"Failed to get contest heatmap"})))
+                Ok(HttpResponse::InternalServerError()
+                    .json(json!({"error":"Failed to get contest heatmap"})))
             }
         }
     }
 
     #[cfg(test)]
     fn normalize_id(collection: &str, key_or_id: &str) -> String {
-        if key_or_id.contains('/') { key_or_id.to_string() } else { format!("{}/{}", collection, key_or_id) }
+        if key_or_id.contains('/') {
+            key_or_id.to_string()
+        } else {
+            format!("{}/{}", collection, key_or_id)
+        }
     }
 
     /// Helper method to get player ID from email
@@ -82,7 +89,9 @@ impl<C: ClientExt> AnalyticsController<C> {
             Ok(None) => Err(actix_web::error::ErrorNotFound("Player not found")),
             Err(e) => {
                 log::error!("Failed to query player ID from email: {}", e);
-                Err(actix_web::error::ErrorInternalServerError("Database query failed"))
+                Err(actix_web::error::ErrorInternalServerError(
+                    "Database query failed",
+                ))
             }
         }
     }
@@ -95,16 +104,16 @@ impl<C: ClientExt> AnalyticsController<C> {
         query: web::Query<PlayerStatsRequest>,
     ) -> Result<HttpResponse, actix_web::Error> {
         let player_param = path.into_inner();
-        
+
         // Normalize player_id to full ID if it's just a key
-        let player_id = if player_param.contains('/') { 
-            player_param 
-        } else { 
-            format!("player/{}", player_param) 
+        let player_id = if player_param.contains('/') {
+            player_param
+        } else {
+            format!("player/{}", player_param)
         };
-        
+
         let request = query.into_inner();
-        
+
         match self.usecase.get_player_stats(&player_id, &request).await {
             Ok(stats) => Ok(HttpResponse::Ok().json(stats)),
             Err(e) => {
@@ -117,7 +126,10 @@ impl<C: ClientExt> AnalyticsController<C> {
     }
 
     /// Get platform statistics
-    pub async fn get_platform_stats(&self, _req: HttpRequest) -> Result<HttpResponse, actix_web::Error> {
+    pub async fn get_platform_stats(
+        &self,
+        _req: HttpRequest,
+    ) -> Result<HttpResponse, actix_web::Error> {
         match self.usecase.get_platform_stats().await {
             Ok(stats) => Ok(HttpResponse::Ok().json(stats)),
             Err(e) => {
@@ -130,7 +142,10 @@ impl<C: ClientExt> AnalyticsController<C> {
     }
 
     /// Get enhanced platform insights
-    pub async fn get_platform_insights(&self, _req: HttpRequest) -> Result<HttpResponse, actix_web::Error> {
+    pub async fn get_platform_insights(
+        &self,
+        _req: HttpRequest,
+    ) -> Result<HttpResponse, actix_web::Error> {
         match self.usecase.get_platform_insights().await {
             Ok(insights) => Ok(HttpResponse::Ok().json(insights)),
             Err(e) => {
@@ -149,7 +164,7 @@ impl<C: ClientExt> AnalyticsController<C> {
         query: web::Query<LeaderboardRequest>,
     ) -> Result<HttpResponse, actix_web::Error> {
         let request = query.into_inner();
-        
+
         match self.usecase.get_leaderboard(&request).await {
             Ok(leaderboard) => Ok(HttpResponse::Ok().json(leaderboard)),
             Err(e) => {
@@ -168,14 +183,14 @@ impl<C: ClientExt> AnalyticsController<C> {
         path: web::Path<String>,
     ) -> Result<HttpResponse, actix_web::Error> {
         let player_param = path.into_inner();
-        
+
         // Normalize player_id to full ID if it's just a key
-        let player_id = if player_param.contains('/') { 
-            player_param 
-        } else { 
-            format!("player/{}", player_param) 
+        let player_id = if player_param.contains('/') {
+            player_param
+        } else {
+            format!("player/{}", player_param)
         };
-        
+
         match self.usecase.get_player_achievements(&player_id).await {
             Ok(achievements) => Ok(HttpResponse::Ok().json(achievements)),
             Err(e) => {
@@ -194,14 +209,14 @@ impl<C: ClientExt> AnalyticsController<C> {
         path: web::Path<String>,
     ) -> Result<HttpResponse, actix_web::Error> {
         let player_param = path.into_inner();
-        
+
         // Normalize player_id to full ID if it's just a key
-        let player_id = if player_param.contains('/') { 
-            player_param 
-        } else { 
-            format!("player/{}", player_param) 
+        let player_id = if player_param.contains('/') {
+            player_param
+        } else {
+            format!("player/{}", player_param)
         };
-        
+
         match self.usecase.get_player_rankings(&player_id).await {
             Ok(rankings) => Ok(HttpResponse::Ok().json(rankings)),
             Err(e) => {
@@ -220,16 +235,20 @@ impl<C: ClientExt> AnalyticsController<C> {
         path: web::Path<String>,
     ) -> Result<HttpResponse, actix_web::Error> {
         let contest_param = path.into_inner();
-        
+
         // Normalize contest_id to full ID if it's just a key
-        let contest_id = if contest_param.contains('/') { 
-            contest_param.clone() 
-        } else { 
-            format!("contest/{}", contest_param) 
+        let contest_id = if contest_param.contains('/') {
+            contest_param.clone()
+        } else {
+            format!("contest/{}", contest_param)
         };
-        
-        log::debug!("Getting contest stats for contest_id: {} (normalized from: {})", contest_id, contest_param);
-        
+
+        log::debug!(
+            "Getting contest stats for contest_id: {} (normalized from: {})",
+            contest_id,
+            contest_param
+        );
+
         match self.usecase.get_contest_stats(&contest_id).await {
             Ok(stats) => Ok(HttpResponse::Ok().json(stats)),
             Err(e) => {
@@ -247,10 +266,11 @@ impl<C: ClientExt> AnalyticsController<C> {
         _req: HttpRequest,
         query: web::Query<std::collections::HashMap<String, String>>,
     ) -> Result<HttpResponse, actix_web::Error> {
-        let months = query.get("months")
+        let months = query
+            .get("months")
             .and_then(|m| m.parse::<i32>().ok())
             .unwrap_or(12);
-        
+
         match self.usecase.get_contest_trends(months).await {
             Ok(trends) => Ok(HttpResponse::Ok().json(trends)),
             Err(e) => {
@@ -269,14 +289,14 @@ impl<C: ClientExt> AnalyticsController<C> {
         path: web::Path<String>,
     ) -> Result<HttpResponse, actix_web::Error> {
         let contest_param = path.into_inner();
-        
+
         // Normalize contest_id to full ID if it's just a key
-        let contest_id = if contest_param.contains('/') { 
-            contest_param 
-        } else { 
-            format!("contest/{}", contest_param) 
+        let contest_id = if contest_param.contains('/') {
+            contest_param
+        } else {
+            format!("contest/{}", contest_param)
         };
-        
+
         match self.usecase.get_contest_difficulty(&contest_id).await {
             Ok(difficulty) => Ok(HttpResponse::Ok().json(json!({
                 "contest_id": contest_id,
@@ -298,14 +318,14 @@ impl<C: ClientExt> AnalyticsController<C> {
         path: web::Path<String>,
     ) -> Result<HttpResponse, actix_web::Error> {
         let contest_param = path.into_inner();
-        
+
         // Normalize contest_id to full ID if it's just a key
-        let contest_id = if contest_param.contains('/') { 
-            contest_param 
-        } else { 
-            format!("contest/{}", contest_param) 
+        let contest_id = if contest_param.contains('/') {
+            contest_param
+        } else {
+            format!("contest/{}", contest_param)
         };
-        
+
         match self.usecase.get_contest_excitement(&contest_id).await {
             Ok(excitement) => Ok(HttpResponse::Ok().json(json!({
                 "contest_id": contest_id,
@@ -326,10 +346,11 @@ impl<C: ClientExt> AnalyticsController<C> {
         _req: HttpRequest,
         query: web::Query<std::collections::HashMap<String, String>>,
     ) -> Result<HttpResponse, actix_web::Error> {
-        let limit = query.get("limit")
+        let limit = query
+            .get("limit")
             .and_then(|l| l.parse::<i32>().ok())
             .unwrap_or(10);
-        
+
         match self.usecase.get_recent_contests(limit).await {
             Ok(contests) => Ok(HttpResponse::Ok().json(contests)),
             Err(e) => {
@@ -342,7 +363,10 @@ impl<C: ClientExt> AnalyticsController<C> {
     }
 
     /// Get cache statistics
-    pub async fn get_cache_stats(&self, _req: HttpRequest) -> Result<HttpResponse, actix_web::Error> {
+    pub async fn get_cache_stats(
+        &self,
+        _req: HttpRequest,
+    ) -> Result<HttpResponse, actix_web::Error> {
         let stats = self.usecase.get_cache_stats().await;
         Ok(HttpResponse::Ok().json(stats))
     }
@@ -354,16 +378,16 @@ impl<C: ClientExt> AnalyticsController<C> {
         path: web::Path<String>,
     ) -> Result<HttpResponse, actix_web::Error> {
         let player_param = path.into_inner();
-        
+
         // Normalize player_id to full ID if it's just a key
-        let player_id = if player_param.contains('/') { 
-            player_param 
-        } else { 
-            format!("player/{}", player_param) 
+        let player_id = if player_param.contains('/') {
+            player_param
+        } else {
+            format!("player/{}", player_param)
         };
-        
+
         self.usecase.invalidate_player_cache(&player_id).await;
-        
+
         Ok(HttpResponse::Ok().json(json!({
             "message": "Player cache invalidated",
             "player_id": player_id
@@ -377,16 +401,16 @@ impl<C: ClientExt> AnalyticsController<C> {
         path: web::Path<String>,
     ) -> Result<HttpResponse, actix_web::Error> {
         let contest_param = path.into_inner();
-        
+
         // Normalize contest_id to full ID if it's just a key
-        let contest_id = if contest_param.contains('/') { 
-            contest_param 
-        } else { 
-            format!("contest/{}", contest_param) 
+        let contest_id = if contest_param.contains('/') {
+            contest_param
+        } else {
+            format!("contest/{}", contest_param)
         };
-        
+
         self.usecase.invalidate_contest_cache(&contest_id).await;
-        
+
         Ok(HttpResponse::Ok().json(json!({
             "message": "Contest cache invalidated",
             "contest_id": contest_id
@@ -394,9 +418,12 @@ impl<C: ClientExt> AnalyticsController<C> {
     }
 
     /// Invalidate all cache
-    pub async fn invalidate_all_cache(&self, _req: HttpRequest) -> Result<HttpResponse, actix_web::Error> {
+    pub async fn invalidate_all_cache(
+        &self,
+        _req: HttpRequest,
+    ) -> Result<HttpResponse, actix_web::Error> {
         self.usecase.invalidate_all_cache().await;
-        
+
         Ok(HttpResponse::Ok().json(json!({
             "message": "All analytics cache invalidated"
         })))
@@ -410,13 +437,18 @@ impl<C: ClientExt> AnalyticsController<C> {
         _req: HttpRequest,
         query: web::Query<std::collections::HashMap<String, String>>,
     ) -> Result<HttpResponse, actix_web::Error> {
-        let limit = query.get("limit")
+        let limit = query
+            .get("limit")
             .and_then(|l| l.parse::<i32>().ok())
             .unwrap_or(10);
-        
+
         let config = self.parse_chart_config(&query);
-        
-        match self.usecase.get_player_performance_chart(limit, Some(config)).await {
+
+        match self
+            .usecase
+            .get_player_performance_chart(limit, Some(config))
+            .await
+        {
             Ok(chart) => Ok(HttpResponse::Ok().json(chart)),
             Err(e) => {
                 log::error!("Failed to generate player performance chart: {}", e);
@@ -433,14 +465,22 @@ impl<C: ClientExt> AnalyticsController<C> {
         _req: HttpRequest,
         query: web::Query<std::collections::HashMap<String, String>>,
     ) -> Result<HttpResponse, actix_web::Error> {
-        let category = query.get("category").unwrap_or(&"win_rate".to_string()).clone();
-        let limit = query.get("limit")
+        let category = query
+            .get("category")
+            .unwrap_or(&"win_rate".to_string())
+            .clone();
+        let limit = query
+            .get("limit")
             .and_then(|l| l.parse::<i32>().ok())
             .unwrap_or(10);
-        
+
         let config = self.parse_chart_config(&query);
-        
-        match self.usecase.get_leaderboard_chart(&category, limit, Some(config)).await {
+
+        match self
+            .usecase
+            .get_leaderboard_chart(&category, limit, Some(config))
+            .await
+        {
             Ok(chart) => Ok(HttpResponse::Ok().json(chart)),
             Err(e) => {
                 log::error!("Failed to generate leaderboard chart: {}", e);
@@ -459,17 +499,21 @@ impl<C: ClientExt> AnalyticsController<C> {
         query: web::Query<std::collections::HashMap<String, String>>,
     ) -> Result<HttpResponse, actix_web::Error> {
         let player_param = path.into_inner();
-        
+
         // Normalize player_id to full ID if it's just a key
-        let player_id = if player_param.contains('/') { 
-            player_param 
-        } else { 
-            format!("player/{}", player_param) 
+        let player_id = if player_param.contains('/') {
+            player_param
+        } else {
+            format!("player/{}", player_param)
         };
-        
+
         let config = self.parse_chart_config(&query);
-        
-        match self.usecase.get_achievement_distribution_chart(&player_id, Some(config)).await {
+
+        match self
+            .usecase
+            .get_achievement_distribution_chart(&player_id, Some(config))
+            .await
+        {
             Ok(chart) => Ok(HttpResponse::Ok().json(chart)),
             Err(e) => {
                 log::error!("Failed to generate achievement distribution chart: {}", e);
@@ -486,13 +530,18 @@ impl<C: ClientExt> AnalyticsController<C> {
         _req: HttpRequest,
         query: web::Query<std::collections::HashMap<String, String>>,
     ) -> Result<HttpResponse, actix_web::Error> {
-        let months = query.get("months")
+        let months = query
+            .get("months")
             .and_then(|m| m.parse::<i32>().ok())
             .unwrap_or(12);
-        
+
         let config = self.parse_chart_config(&query);
-        
-        match self.usecase.get_contest_trends_chart(months, Some(config)).await {
+
+        match self
+            .usecase
+            .get_contest_trends_chart(months, Some(config))
+            .await
+        {
             Ok(chart) => Ok(HttpResponse::Ok().json(chart)),
             Err(e) => {
                 log::error!("Failed to generate contest trends chart: {}", e);
@@ -509,9 +558,16 @@ impl<C: ClientExt> AnalyticsController<C> {
         _req: HttpRequest,
         query: web::Query<std::collections::HashMap<String, String>>,
     ) -> Result<HttpResponse, actix_web::Error> {
-        let days = query.get("days").and_then(|d| d.parse::<i32>().ok()).unwrap_or(30);
+        let days = query
+            .get("days")
+            .and_then(|d| d.parse::<i32>().ok())
+            .unwrap_or(30);
         let config = self.parse_chart_config(&query);
-        match self.usecase.get_activity_metrics_chart(days, Some(config)).await {
+        match self
+            .usecase
+            .get_activity_metrics_chart(days, Some(config))
+            .await
+        {
             Ok(chart) => Ok(HttpResponse::Ok().json(chart)),
             Err(e) => {
                 log::error!("Failed to generate activity metrics chart: {}", e);
@@ -529,7 +585,7 @@ impl<C: ClientExt> AnalyticsController<C> {
         query: web::Query<std::collections::HashMap<String, String>>,
     ) -> Result<HttpResponse, actix_web::Error> {
         let config = self.parse_chart_config(&query);
-        
+
         match self.usecase.get_platform_dashboard(Some(config)).await {
             Ok(charts) => Ok(HttpResponse::Ok().json(charts)),
             Err(e) => {
@@ -547,12 +603,22 @@ impl<C: ClientExt> AnalyticsController<C> {
         _req: HttpRequest,
         query: web::Query<std::collections::HashMap<String, String>>,
     ) -> Result<HttpResponse, actix_web::Error> {
-        let player_ids_str = query.get("player_ids").unwrap_or(&"player/1,player/2,player/3".to_string()).clone();
-        let player_ids: Vec<String> = player_ids_str.split(',').map(|s| s.trim().to_string()).collect();
-        
+        let player_ids_str = query
+            .get("player_ids")
+            .unwrap_or(&"player/1,player/2,player/3".to_string())
+            .clone();
+        let player_ids: Vec<String> = player_ids_str
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .collect();
+
         let config = self.parse_chart_config(&query);
-        
-        match self.usecase.get_player_comparison_chart(&player_ids, Some(config)).await {
+
+        match self
+            .usecase
+            .get_player_comparison_chart(&player_ids, Some(config))
+            .await
+        {
             Ok(chart) => Ok(HttpResponse::Ok().json(chart)),
             Err(e) => {
                 log::error!("Failed to generate player comparison chart: {}", e);
@@ -569,13 +635,18 @@ impl<C: ClientExt> AnalyticsController<C> {
         _req: HttpRequest,
         query: web::Query<std::collections::HashMap<String, String>>,
     ) -> Result<HttpResponse, actix_web::Error> {
-        let limit = query.get("limit")
+        let limit = query
+            .get("limit")
             .and_then(|l| l.parse::<i32>().ok())
             .unwrap_or(20);
-        
+
         let config = self.parse_chart_config(&query);
-        
-        match self.usecase.get_contest_analysis_chart(limit, Some(config)).await {
+
+        match self
+            .usecase
+            .get_contest_analysis_chart(limit, Some(config))
+            .await
+        {
             Ok(chart) => Ok(HttpResponse::Ok().json(chart)),
             Err(e) => {
                 log::error!("Failed to generate contest analysis chart: {}", e);
@@ -592,13 +663,18 @@ impl<C: ClientExt> AnalyticsController<C> {
         _req: HttpRequest,
         query: web::Query<std::collections::HashMap<String, String>>,
     ) -> Result<HttpResponse, actix_web::Error> {
-        let limit = query.get("limit")
+        let limit = query
+            .get("limit")
             .and_then(|l| l.parse::<i32>().ok())
             .unwrap_or(10);
 
         let config = self.parse_chart_config(&query);
 
-        match self.usecase.get_game_popularity_heatmap(limit, Some(config)).await {
+        match self
+            .usecase
+            .get_game_popularity_heatmap(limit, Some(config))
+            .await
+        {
             Ok(chart) => Ok(HttpResponse::Ok().json(chart)),
             Err(e) => {
                 log::error!("Failed to generate game popularity heatmap: {}", e);
@@ -616,10 +692,17 @@ impl<C: ClientExt> AnalyticsController<C> {
         query: web::Query<std::collections::HashMap<String, String>>,
     ) -> Result<HttpResponse, actix_web::Error> {
         let config = self.parse_chart_config(&query);
-        match self.usecase.get_player_performance_distribution_chart(Some(config)).await {
+        match self
+            .usecase
+            .get_player_performance_distribution_chart(Some(config))
+            .await
+        {
             Ok(chart) => Ok(HttpResponse::Ok().json(chart)),
             Err(e) => {
-                log::error!("Failed to generate player performance distribution chart: {}", e);
+                log::error!(
+                    "Failed to generate player performance distribution chart: {}",
+                    e
+                );
                 Ok(HttpResponse::InternalServerError().json(json!({
                     "error": "Failed to generate player performance distribution chart"
                 })))
@@ -634,10 +717,17 @@ impl<C: ClientExt> AnalyticsController<C> {
         query: web::Query<std::collections::HashMap<String, String>>,
     ) -> Result<HttpResponse, actix_web::Error> {
         let config = self.parse_chart_config(&query);
-        match self.usecase.get_game_difficulty_popularity_chart(Some(config)).await {
+        match self
+            .usecase
+            .get_game_difficulty_popularity_chart(Some(config))
+            .await
+        {
             Ok(chart) => Ok(HttpResponse::Ok().json(chart)),
             Err(e) => {
-                log::error!("Failed to generate game difficulty vs popularity chart: {}", e);
+                log::error!(
+                    "Failed to generate game difficulty vs popularity chart: {}",
+                    e
+                );
                 Ok(HttpResponse::InternalServerError().json(json!({
                     "error": "Failed to generate game difficulty vs popularity chart"
                 })))
@@ -652,7 +742,11 @@ impl<C: ClientExt> AnalyticsController<C> {
         query: web::Query<std::collections::HashMap<String, String>>,
     ) -> Result<HttpResponse, actix_web::Error> {
         let config = self.parse_chart_config(&query);
-        match self.usecase.get_venue_performance_timeslot_chart(Some(config)).await {
+        match self
+            .usecase
+            .get_venue_performance_timeslot_chart(Some(config))
+            .await
+        {
             Ok(chart) => Ok(HttpResponse::Ok().json(chart)),
             Err(e) => {
                 log::error!("Failed to generate venue performance timeslot chart: {}", e);
@@ -670,7 +764,11 @@ impl<C: ClientExt> AnalyticsController<C> {
         query: web::Query<std::collections::HashMap<String, String>>,
     ) -> Result<HttpResponse, actix_web::Error> {
         let config = self.parse_chart_config(&query);
-        match self.usecase.get_player_retention_cohort_chart(Some(config)).await {
+        match self
+            .usecase
+            .get_player_retention_cohort_chart(Some(config))
+            .await
+        {
             Ok(chart) => Ok(HttpResponse::Ok().json(chart)),
             Err(e) => {
                 log::error!("Failed to generate player retention cohort chart: {}", e);
@@ -688,7 +786,11 @@ impl<C: ClientExt> AnalyticsController<C> {
         query: web::Query<std::collections::HashMap<String, String>>,
     ) -> Result<HttpResponse, actix_web::Error> {
         let config = self.parse_chart_config(&query);
-        match self.usecase.get_contest_completion_by_game_chart(Some(config)).await {
+        match self
+            .usecase
+            .get_contest_completion_by_game_chart(Some(config))
+            .await
+        {
             Ok(chart) => Ok(HttpResponse::Ok().json(chart)),
             Err(e) => {
                 log::error!("Failed to generate contest completion by game chart: {}", e);
@@ -705,11 +807,16 @@ impl<C: ClientExt> AnalyticsController<C> {
         _req: HttpRequest,
         query: web::Query<std::collections::HashMap<String, String>>,
     ) -> Result<HttpResponse, actix_web::Error> {
-        let limit = query.get("limit")
+        let limit = query
+            .get("limit")
             .and_then(|l| l.parse::<i32>().ok())
             .unwrap_or(10);
         let config = self.parse_chart_config(&query);
-        match self.usecase.get_head_to_head_matrix_chart(limit, Some(config)).await {
+        match self
+            .usecase
+            .get_head_to_head_matrix_chart(limit, Some(config))
+            .await
+        {
             Ok(chart) => Ok(HttpResponse::Ok().json(chart)),
             Err(e) => {
                 log::error!("Failed to generate head-to-head matrix chart: {}", e);
@@ -727,7 +834,7 @@ impl<C: ClientExt> AnalyticsController<C> {
         query: web::Query<std::collections::HashMap<String, String>>,
     ) -> Result<HttpResponse, actix_web::Error> {
         let config = self.parse_chart_config(&query);
-        
+
         match self.usecase.get_analytics_dashboard(Some(config)).await {
             Ok(charts) => Ok(HttpResponse::Ok().json(charts)),
             Err(e) => {
@@ -745,12 +852,22 @@ impl<C: ClientExt> AnalyticsController<C> {
         _req: HttpRequest,
         query: web::Query<std::collections::HashMap<String, String>>,
     ) -> Result<HttpResponse, actix_web::Error> {
-        let chart_type = query.get("chart_type").unwrap_or(&"bar".to_string()).clone();
-        let data_type = query.get("data_type").unwrap_or(&"leaderboard".to_string()).clone();
-        
+        let chart_type = query
+            .get("chart_type")
+            .unwrap_or(&"bar".to_string())
+            .clone();
+        let data_type = query
+            .get("data_type")
+            .unwrap_or(&"leaderboard".to_string())
+            .clone();
+
         let config = self.parse_chart_config(&query);
-        
-        match self.usecase.get_custom_chart(&chart_type, &data_type, Some(config)).await {
+
+        match self
+            .usecase
+            .get_custom_chart(&chart_type, &data_type, Some(config))
+            .await
+        {
             Ok(chart) => Ok(HttpResponse::Ok().json(chart)),
             Err(e) => {
                 log::error!("Failed to generate custom chart: {}", e);
@@ -764,9 +881,18 @@ impl<C: ClientExt> AnalyticsController<C> {
     /// Helper method to parse chart configuration from query parameters
     fn parse_chart_config(&self, query: &std::collections::HashMap<String, String>) -> ChartConfig {
         ChartConfig {
-            title: query.get("title").unwrap_or(&"Analytics Chart".to_string()).clone(),
-            width: query.get("width").and_then(|w| w.parse::<u32>().ok()).unwrap_or(800),
-            height: query.get("height").and_then(|h| h.parse::<u32>().ok()).unwrap_or(400),
+            title: query
+                .get("title")
+                .unwrap_or(&"Analytics Chart".to_string())
+                .clone(),
+            width: query
+                .get("width")
+                .and_then(|w| w.parse::<u32>().ok())
+                .unwrap_or(800),
+            height: query
+                .get("height")
+                .and_then(|h| h.parse::<u32>().ok())
+                .unwrap_or(400),
             colors: vec![
                 "#3B82F6".to_string(), // Blue
                 "#EF4444".to_string(), // Red
@@ -777,7 +903,10 @@ impl<C: ClientExt> AnalyticsController<C> {
                 "#F97316".to_string(), // Orange
                 "#EC4899".to_string(), // Pink
             ],
-            show_legend: query.get("show_legend").map(|v| v == "true").unwrap_or(true),
+            show_legend: query
+                .get("show_legend")
+                .map(|v| v == "true")
+                .unwrap_or(true),
             show_grid: query.get("show_grid").map(|v| v == "true").unwrap_or(true),
             animation: query.get("animation").map(|v| v == "true").unwrap_or(true),
         }
@@ -786,7 +915,10 @@ impl<C: ClientExt> AnalyticsController<C> {
     // Sample data endpoints for testing
 
     /// Get sample platform stats for testing
-    pub async fn get_sample_platform_stats(&self, _req: HttpRequest) -> Result<HttpResponse, actix_web::Error> {
+    pub async fn get_sample_platform_stats(
+        &self,
+        _req: HttpRequest,
+    ) -> Result<HttpResponse, actix_web::Error> {
         let sample_stats = json!({
             "total_players": 1247,
             "total_contests": 89,
@@ -815,7 +947,10 @@ impl<C: ClientExt> AnalyticsController<C> {
     }
 
     /// Get sample leaderboard for testing
-    pub async fn get_sample_leaderboard(&self, _req: HttpRequest) -> Result<HttpResponse, actix_web::Error> {
+    pub async fn get_sample_leaderboard(
+        &self,
+        _req: HttpRequest,
+    ) -> Result<HttpResponse, actix_web::Error> {
         let sample_leaderboard = json!({
             "category": "win_rate",
             "time_period": "all_time",
@@ -839,7 +974,10 @@ impl<C: ClientExt> AnalyticsController<C> {
     }
 
     /// Get sample contest trends for testing
-    pub async fn get_sample_contest_trends(&self, _req: HttpRequest) -> Result<HttpResponse, actix_web::Error> {
+    pub async fn get_sample_contest_trends(
+        &self,
+        _req: HttpRequest,
+    ) -> Result<HttpResponse, actix_web::Error> {
         let sample_trends = json!([
             {"year": 2023, "month": 1, "contests": 3},
             {"year": 2023, "month": 2, "contests": 5},
@@ -860,7 +998,10 @@ impl<C: ClientExt> AnalyticsController<C> {
     }
 
     /// Get sample player stats for testing
-    pub async fn get_sample_player_stats(&self, _req: HttpRequest) -> Result<HttpResponse, actix_web::Error> {
+    pub async fn get_sample_player_stats(
+        &self,
+        _req: HttpRequest,
+    ) -> Result<HttpResponse, actix_web::Error> {
         let sample_stats = json!({
             "player_id": "player/1",
             "player_handle": "ChessMaster",
@@ -883,7 +1024,10 @@ impl<C: ClientExt> AnalyticsController<C> {
     }
 
     /// Get sample player achievements for testing
-    pub async fn get_sample_player_achievements(&self, _req: HttpRequest) -> Result<HttpResponse, actix_web::Error> {
+    pub async fn get_sample_player_achievements(
+        &self,
+        _req: HttpRequest,
+    ) -> Result<HttpResponse, actix_web::Error> {
         let sample_achievements = json!({
             "player_id": "player/1",
             "player_handle": "ChessMaster",
@@ -970,7 +1114,10 @@ impl<C: ClientExt> AnalyticsController<C> {
     // Player-specific analytics endpoints
 
     /// Get players who have beaten the current player
-    pub async fn get_players_who_beat_me(&self, req: HttpRequest) -> Result<HttpResponse, actix_web::Error> {
+    pub async fn get_players_who_beat_me(
+        &self,
+        req: HttpRequest,
+    ) -> Result<HttpResponse, actix_web::Error> {
         // Extract current player ID from auth context
         let email = match req.extensions().get::<String>() {
             Some(email) => email.clone(),
@@ -993,7 +1140,11 @@ impl<C: ClientExt> AnalyticsController<C> {
             }
         };
 
-        match self.usecase.get_players_who_beat_me(&current_player_id).await {
+        match self
+            .usecase
+            .get_players_who_beat_me(&current_player_id)
+            .await
+        {
             Ok(players) => Ok(HttpResponse::Ok().json(players)),
             Err(e) => {
                 log::error!("Failed to get players who beat me: {}", e);
@@ -1005,7 +1156,10 @@ impl<C: ClientExt> AnalyticsController<C> {
     }
 
     /// Get players that the current player has beaten
-    pub async fn get_players_i_beat(&self, req: HttpRequest) -> Result<HttpResponse, actix_web::Error> {
+    pub async fn get_players_i_beat(
+        &self,
+        req: HttpRequest,
+    ) -> Result<HttpResponse, actix_web::Error> {
         // Extract current player ID from auth context
         let email = match req.extensions().get::<String>() {
             Some(email) => email.clone(),
@@ -1040,7 +1194,10 @@ impl<C: ClientExt> AnalyticsController<C> {
     }
 
     /// Get player's game performance statistics
-    pub async fn get_my_game_performance(&self, req: HttpRequest) -> Result<HttpResponse, actix_web::Error> {
+    pub async fn get_my_game_performance(
+        &self,
+        req: HttpRequest,
+    ) -> Result<HttpResponse, actix_web::Error> {
         // Extract current player ID from auth context
         let email = match req.extensions().get::<String>() {
             Some(email) => email.clone(),
@@ -1063,7 +1220,11 @@ impl<C: ClientExt> AnalyticsController<C> {
             }
         };
 
-        match self.usecase.get_my_game_performance(&current_player_id).await {
+        match self
+            .usecase
+            .get_my_game_performance(&current_player_id)
+            .await
+        {
             Ok(performance) => Ok(HttpResponse::Ok().json(performance)),
             Err(e) => {
                 log::error!("Failed to get game performance: {}", e);
@@ -1075,14 +1236,22 @@ impl<C: ClientExt> AnalyticsController<C> {
     }
 
     /// Get player's head-to-head record against specific opponent
-    pub async fn get_head_to_head_record(&self, path: web::Path<String>, req: HttpRequest) -> Result<HttpResponse, actix_web::Error> {
+    pub async fn get_head_to_head_record(
+        &self,
+        path: web::Path<String>,
+        req: HttpRequest,
+    ) -> Result<HttpResponse, actix_web::Error> {
         // Accept either key or full id; normalize to collection/id
         fn normalize_id(collection: &str, key_or_id: &str) -> String {
-            if key_or_id.contains('/') { key_or_id.to_string() } else { format!("{}/{}", collection, key_or_id) }
+            if key_or_id.contains('/') {
+                key_or_id.to_string()
+            } else {
+                format!("{}/{}", collection, key_or_id)
+            }
         }
         let opponent_param = path.into_inner();
         let opponent_id = normalize_id("player", &opponent_param);
-        
+
         // Extract current player ID from auth context
         let email = match req.extensions().get::<String>() {
             Some(email) => email.clone(),
@@ -1105,7 +1274,11 @@ impl<C: ClientExt> AnalyticsController<C> {
             }
         };
 
-        match self.usecase.get_head_to_head_record(&current_player_id, &opponent_id).await {
+        match self
+            .usecase
+            .get_head_to_head_record(&current_player_id, &opponent_id)
+            .await
+        {
             Ok(record) => Ok(HttpResponse::Ok().json(record)),
             Err(e) => {
                 log::error!("Failed to get head-to-head record: {}", e);
@@ -1117,7 +1290,10 @@ impl<C: ClientExt> AnalyticsController<C> {
     }
 
     /// Get player's performance trends over time
-    pub async fn get_my_performance_trends(&self, req: HttpRequest) -> Result<HttpResponse, actix_web::Error> {
+    pub async fn get_my_performance_trends(
+        &self,
+        req: HttpRequest,
+    ) -> Result<HttpResponse, actix_web::Error> {
         // Extract current player ID from auth context
         let email = match req.extensions().get::<String>() {
             Some(email) => email.clone(),
@@ -1140,7 +1316,11 @@ impl<C: ClientExt> AnalyticsController<C> {
             }
         };
 
-        match self.usecase.get_my_performance_trends(&current_player_id).await {
+        match self
+            .usecase
+            .get_my_performance_trends(&current_player_id)
+            .await
+        {
             Ok(trends) => Ok(HttpResponse::Ok().json(trends)),
             Err(e) => {
                 log::error!("Failed to get performance trends: {}", e);
@@ -1152,7 +1332,11 @@ impl<C: ClientExt> AnalyticsController<C> {
     }
 
     /// Get contests by venue for current player
-    pub async fn get_contests_by_venue(&self, req: HttpRequest, query: web::Query<std::collections::HashMap<String, String>>) -> Result<HttpResponse, actix_web::Error> {
+    pub async fn get_contests_by_venue(
+        &self,
+        req: HttpRequest,
+        query: web::Query<std::collections::HashMap<String, String>>,
+    ) -> Result<HttpResponse, actix_web::Error> {
         // Extract current player ID from auth context
         let email = match req.extensions().get::<String>() {
             Some(email) => email.clone(),
@@ -1184,7 +1368,7 @@ impl<C: ClientExt> AnalyticsController<C> {
                 } else {
                     id.clone()
                 }
-            },
+            }
             None => {
                 return Ok(HttpResponse::BadRequest().json(json!({
                     "error": "Venue ID parameter 'id' is required"
@@ -1192,11 +1376,15 @@ impl<C: ClientExt> AnalyticsController<C> {
             }
         };
 
-        match self.usecase.get_contests_by_venue(&current_player_id, &venue_id).await {
+        match self
+            .usecase
+            .get_contests_by_venue(&current_player_id, &venue_id)
+            .await
+        {
             Ok(contests) => {
                 log::info!("Found {} contests for venue {}", contests.len(), venue_id);
                 Ok(HttpResponse::Ok().json(contests))
-            },
+            }
             Err(e) => {
                 log::error!("Failed to get contests by venue: {}", e);
                 Ok(HttpResponse::InternalServerError().json(json!({
@@ -1216,7 +1404,10 @@ impl<C: ClientExt> AnalyticsController<C> {
     }
 
     /// Debug endpoint to check database content
-    pub async fn debug_database(&self, _req: HttpRequest) -> Result<HttpResponse, actix_web::Error> {
+    pub async fn debug_database(
+        &self,
+        _req: HttpRequest,
+    ) -> Result<HttpResponse, actix_web::Error> {
         // Test the actual analytics query to see what's happening
         match self.usecase.debug_database().await {
             Ok(data) => Ok(HttpResponse::Ok().json(data)),
@@ -1230,13 +1421,19 @@ impl<C: ClientExt> AnalyticsController<C> {
     }
 
     /// Test endpoint to validate game performance query syntax
-    pub async fn test_game_performance_query(&self, _req: HttpRequest) -> Result<HttpResponse, actix_web::Error> {
+    pub async fn test_game_performance_query(
+        &self,
+        _req: HttpRequest,
+    ) -> Result<HttpResponse, actix_web::Error> {
         // Test the game performance query with a dummy player ID to validate syntax
         let test_player_id = "player/test123";
-        
+
         match self.usecase.get_my_game_performance(test_player_id).await {
             Ok(results) => {
-                log::info!("Game performance query syntax test successful, returned {} results", results.len());
+                log::info!(
+                    "Game performance query syntax test successful, returned {} results",
+                    results.len()
+                );
                 Ok(HttpResponse::Ok().json(json!({
                     "status": "success",
                     "message": "Query syntax is valid",
@@ -1257,13 +1454,13 @@ impl<C: ClientExt> AnalyticsController<C> {
 
 /// Configure analytics routes
 pub fn configure_routes<C: ClientExt + 'static>(
-    cfg: &mut web::ServiceConfig, 
-    db: arangors::Database<C>, 
+    cfg: &mut web::ServiceConfig,
+    db: arangors::Database<C>,
     config: DatabaseConfig,
     redis_client: std::sync::Arc<redis::Client>,
 ) {
     let controller = AnalyticsController::new(db, config);
-    
+
     log::debug!("Registering analytics routes:");
     log::debug!("  GET /api/analytics/health");
     log::debug!("  GET /api/analytics/test-game-performance");
@@ -1291,7 +1488,7 @@ pub fn configure_routes<C: ClientExt + 'static>(
     log::debug!("  GET /api/analytics/charts/activity-metrics");
     log::debug!("  GET /api/analytics/charts/platform-dashboard");
     log::debug!("  GET /api/analytics/charts/player-comparison");
-    
+
     cfg.service(
         web::scope("/api/analytics")
             .app_data(web::Data::new(controller))

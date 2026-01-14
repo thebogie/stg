@@ -1,9 +1,9 @@
-use yew::prelude::*;
-use wasm_bindgen_futures::spawn_local;
+use crate::api::venues::{get_all_venues, search_venues_for_create};
+use gloo::timers::callback::Timeout;
 use shared::dto::venue::VenueDto;
 use shared::models::venue::VenueSource;
-use crate::api::venues::{search_venues_for_create, get_all_venues};
-use gloo::timers::callback::Timeout;
+use wasm_bindgen_futures::spawn_local;
+use yew::prelude::*;
 
 #[derive(Properties, PartialEq, Clone)]
 pub struct VenuePickerProps {
@@ -49,7 +49,10 @@ pub fn venue_picker(props: &VenuePickerProps) -> Html {
         let search_query = search_query.clone();
         move |initial: &Option<VenueDto>| {
             if let Some(v) = initial.clone() {
-                gloo::console::log!(format!("VenuePicker: Updating from initial_venue: {}", v.display_name));
+                gloo::console::log!(format!(
+                    "VenuePicker: Updating from initial_venue: {}",
+                    v.display_name
+                ));
                 selected_venue.set(Some(v.clone()));
                 search_query.set(v.display_name.clone());
             } else {
@@ -74,11 +77,11 @@ pub fn venue_picker(props: &VenuePickerProps) -> Html {
             let input: web_sys::HtmlInputElement = e.target_unchecked_into();
             let query = input.value();
             search_query.set(query.clone());
-            
+
             // Clear selected venue when user starts typing
             selected_venue.set(None);
             search_error.set(None);
-            
+
             if query.is_empty() {
                 venue_suggestions.set(Vec::new());
                 show_suggestions.set(false);
@@ -94,27 +97,29 @@ pub fn venue_picker(props: &VenuePickerProps) -> Html {
             let is_searching = is_searching.clone();
             let search_error = search_error.clone();
             let query_clone = query.clone();
-            debounce_handle.borrow_mut().replace(Timeout::new(700, move || {
-                is_searching.set(true);
-                let query_for_log = query_clone.clone();
-                let query_for_search = query_clone.clone();
-                gloo::console::log!("Searching for venues with query: '{}'", query_for_log);
-                spawn_local(async move {
-                    match search_venues_for_create(&query_for_search).await {
-                        Ok(venues) => {
-                            gloo::console::log!("Search returned {} venues", venues.len());
-                            venue_suggestions.set(venues);
+            debounce_handle
+                .borrow_mut()
+                .replace(Timeout::new(700, move || {
+                    is_searching.set(true);
+                    let query_for_log = query_clone.clone();
+                    let query_for_search = query_clone.clone();
+                    gloo::console::log!("Searching for venues with query: '{}'", query_for_log);
+                    spawn_local(async move {
+                        match search_venues_for_create(&query_for_search).await {
+                            Ok(venues) => {
+                                gloo::console::log!("Search returned {} venues", venues.len());
+                                venue_suggestions.set(venues);
+                            }
+                            Err(e) => {
+                                let error_msg = e.clone();
+                                gloo::console::error!("Failed to fetch venues:", error_msg);
+                                venue_suggestions.set(Vec::new());
+                                search_error.set(Some(e));
+                            }
                         }
-                        Err(e) => {
-                            let error_msg = e.clone();
-                            gloo::console::error!("Failed to fetch venues:", error_msg);
-                            venue_suggestions.set(Vec::new());
-                            search_error.set(Some(e));
-                        }
-                    }
-                    is_searching.set(false);
-                });
-            }));
+                        is_searching.set(false);
+                    });
+                }));
         })
     };
 
@@ -126,7 +131,10 @@ pub fn venue_picker(props: &VenuePickerProps) -> Html {
         let search_error = search_error.clone();
 
         Callback::from(move |venue: VenueDto| {
-            gloo::console::log!(format!("VenuePicker: User selected venue: {}", venue.display_name));
+            gloo::console::log!(format!(
+                "VenuePicker: User selected venue: {}",
+                venue.display_name
+            ));
             props.on_venue_select.emit(venue.clone());
             search_query.set(venue.display_name.clone());
             selected_venue.set(Some(venue));
@@ -138,7 +146,7 @@ pub fn venue_picker(props: &VenuePickerProps) -> Html {
     let on_input_focus = {
         let show_suggestions = show_suggestions.clone();
         let venue_suggestions = venue_suggestions.clone();
-        
+
         Callback::from(move |_| {
             if !venue_suggestions.is_empty() {
                 show_suggestions.set(true);
@@ -149,7 +157,7 @@ pub fn venue_picker(props: &VenuePickerProps) -> Html {
     let on_input_blur = {
         let show_suggestions = show_suggestions.clone();
         let is_interacting_suggestions = is_interacting_suggestions.clone();
-        
+
         Callback::from(move |_| {
             // Delay hiding to allow for click events/scroll within suggestions
             let show_suggestions = show_suggestions.clone();
@@ -238,7 +246,7 @@ pub fn venue_picker(props: &VenuePickerProps) -> Html {
                                     let venue = venue.clone();
                                     Callback::from(move |_| on_venue_click.emit(venue.clone()))
                                 };
-                                
+
                                 // Determine styling based on source
                                 let (bg_class, text_class, border_class) = match venue.source {
                                     VenueSource::Database => (
@@ -252,7 +260,7 @@ pub fn venue_picker(props: &VenuePickerProps) -> Html {
                                         "border-l-4 border-l-yellow-500"
                                     ),
                                 };
-                                
+
                                 html! {
                                     <li
                                         class={format!("px-3 py-2 cursor-pointer transition-colors duration-150 {} {} {}", bg_class, text_class, border_class)}
@@ -263,7 +271,7 @@ pub fn venue_picker(props: &VenuePickerProps) -> Html {
                                                 <span class="font-medium truncate">
                                                     {&venue.display_name}
                                                 </span>
-                                                <span class={format!("text-xs px-2 py-1 rounded-full {}", 
+                                                <span class={format!("text-xs px-2 py-1 rounded-full {}",
                                                     match venue.source {
                                                         VenueSource::Database => "bg-blue-100 text-blue-800",
                                                         VenueSource::Google => "bg-yellow-100 text-yellow-800",
@@ -295,7 +303,7 @@ pub fn venue_picker(props: &VenuePickerProps) -> Html {
                                 <h4 class="text-sm font-medium text-blue-900">
                                     {"Selected Venue"}
                                 </h4>
-                                <span class={format!("text-xs px-2 py-1 rounded-full {}", 
+                                <span class={format!("text-xs px-2 py-1 rounded-full {}",
                                     match selected.source {
                                         VenueSource::Database => "bg-blue-100 text-blue-800",
                                         VenueSource::Google => "bg-yellow-100 text-yellow-800",
@@ -319,4 +327,4 @@ pub fn venue_picker(props: &VenuePickerProps) -> Html {
             }
         </div>
     }
-} 
+}

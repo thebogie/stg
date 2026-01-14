@@ -13,7 +13,7 @@ mod game_tests {
             description: Some("A test game".to_string()),
             source: GameSource::Database,
         };
-        
+
         assert_eq!(game_dto.name, "Test Game");
         assert_eq!(game_dto.year_published, Some(2020));
         assert_eq!(game_dto.bgg_id, Some(12345));
@@ -30,7 +30,7 @@ mod game_tests {
             description: Some("A test game".to_string()),
             source: GameSource::Database,
         };
-        
+
         assert_eq!(game.name, "Test Game");
         assert_eq!(game.year_published, Some(2020));
         assert_eq!(game.bgg_id, Some(12345));
@@ -48,10 +48,10 @@ mod game_tests {
             description: Some("A test game".to_string()),
             source: GameSource::Database,
         };
-        
+
         let json = serde_json::to_string(&game).unwrap();
         let deserialized: Game = serde_json::from_str(&json).unwrap();
-        
+
         assert_eq!(game.id, deserialized.id);
         assert_eq!(game.name, deserialized.name);
         assert_eq!(game.source, deserialized.source);
@@ -64,7 +64,7 @@ mod game_tests {
             GameSource::Database => assert!(true),
             _ => assert!(false),
         }
-        
+
         match GameSource::BGG {
             GameSource::BGG => assert!(true),
             _ => assert!(false),

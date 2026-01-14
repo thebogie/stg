@@ -1,7 +1,7 @@
-use uuid::Uuid;
-use serde::{Deserialize, Serialize};
-use validator::Validate;
 use crate::models::relations::{PlayedAt, PlayedWith, ResultedIn};
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
+use validator::Validate;
 
 /// Data Transfer Object for Relation
 #[derive(Debug, Clone, Serialize, Deserialize, Validate)]
@@ -9,13 +9,13 @@ pub struct RelationDto {
     /// Unique identifier for the relation (optional for creation, will be set by ArangoDB if empty)
     #[serde(default)]
     pub id: Uuid,
-    
+
     /// ID of the source entity
     pub from_id: Uuid,
-    
+
     /// ID of the target entity
     pub to_id: Uuid,
-    
+
     /// Type of relation
     #[validate(length(min = 1))]
     pub label: String,
@@ -171,4 +171,4 @@ impl ResultedInDto {
         edge.place = self.place;
         edge.result = self.result.clone();
     }
-} 
+}

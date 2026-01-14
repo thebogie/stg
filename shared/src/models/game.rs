@@ -1,7 +1,7 @@
-use serde::{Deserialize, Serialize};
-use validator::Validate;
 use crate::error::Result;
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+use validator::Validate;
 
 /// Represents the source of game data
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
@@ -75,7 +75,7 @@ impl Game {
         source: GameSource,
     ) -> Result<Self> {
         let game = Self {
-            id: String::new(), // Will be set by ArangoDB
+            id: String::new(),  // Will be set by ArangoDB
             rev: String::new(), // Will be set by ArangoDB
             name,
             year_published,
@@ -99,4 +99,4 @@ impl Game {
             source: GameSource::Database,
         }
     }
-} 
+}

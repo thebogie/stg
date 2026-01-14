@@ -3,10 +3,10 @@
 
 #[derive(Debug, Clone, Copy)]
 pub struct Glicko2Params {
-    pub default_rating: f64,    // typically 1500
-    pub default_rd: f64,        // typically 350
-    pub default_vol: f64,       // typically 0.06
-    pub tau: f64,               // volatility constraint, 0.5–1.2; we’ll use 0.5
+    pub default_rating: f64, // typically 1500
+    pub default_rd: f64,     // typically 350
+    pub default_vol: f64,    // typically 0.06
+    pub tau: f64,            // volatility constraint, 0.5–1.2; we’ll use 0.5
 }
 
 impl Default for Glicko2Params {
@@ -44,16 +44,27 @@ fn e(mu: f64, mu_j: f64, phi_j: f64) -> f64 {
     1.0 / (1.0 + (-g(phi_j) * (mu - mu_j)).exp())
 }
 
-fn to_mu(r: f64) -> f64 { (r - 1500.0) / 173.7178 }
-fn to_phi(rd: f64) -> f64 { rd / 173.7178 }
-fn from_mu(mu: f64) -> f64 { mu * 173.7178 + 1500.0 }
-fn from_phi(phi: f64) -> f64 { phi * 173.7178 }
+fn to_mu(r: f64) -> f64 {
+    (r - 1500.0) / 173.7178
+}
+fn to_phi(rd: f64) -> f64 {
+    rd / 173.7178
+}
+fn from_mu(mu: f64) -> f64 {
+    mu * 173.7178 + 1500.0
+}
+fn from_phi(phi: f64) -> f64 {
+    phi * 173.7178
+}
 
 pub fn pre_period_inflate_rd(state: RatingState, periods_inactive: f64) -> RatingState {
     // Simple inactivity inflation per period: φ' = sqrt(φ^2 + σ^2 * t)
     let phi = to_phi(state.rd);
     let inflated_phi = (phi.powi(2) + state.vol.powi(2) * periods_inactive).sqrt();
-    RatingState { rd: from_phi(inflated_phi), ..state }
+    RatingState {
+        rd: from_phi(inflated_phi),
+        ..state
+    }
 }
 
 // Core Glicko-2 update for a batch vs multiple opponents (single period)
@@ -74,7 +85,9 @@ pub fn update_period(
     let mut v_inv = 0.0;
     let mut delta_num = 0.0;
     for s in samples.iter() {
-        if s.weight <= 0.0 { continue; }
+        if s.weight <= 0.0 {
+            continue;
+        }
         let mu_j = to_mu(s.opp_rating);
         let phi_j = to_phi(s.opp_rd);
         let g_phi = g(phi_j);
@@ -106,8 +119,14 @@ pub fn update_period(
         let mid = (a_low + a_high) / 2.0;
         let f_low = f(a_low);
         let f_mid = f(mid);
-        if f_mid * f_low < 0.0 { a_high = mid; } else { a_low = mid; }
-        if (a_high - a_low).abs() < 1e-6 { break; }
+        if f_mid * f_low < 0.0 {
+            a_high = mid;
+        } else {
+            a_low = mid;
+        }
+        if (a_high - a_low).abs() < 1e-6 {
+            break;
+        }
     }
     let a_new = (a_low + a_high) / 2.0;
     // Per Glickman: sigma' = exp(a'/2)
@@ -126,5 +145,3 @@ pub fn update_period(
         vol: sigma_prime,
     }
 }
-
-

@@ -1,24 +1,19 @@
-use anyhow::{Result, Context, anyhow};
-use arangors::{Connection, Document, Database, ClientError};
+use crate::models::{DocumentCache, StgContest, StgGame, StgOutcome, StgVenue};
+use anyhow::{anyhow, Context, Result};
 use arangors::client::reqwest::ReqwestClient;
 use arangors::document::options::InsertOptions;
-use std::collections::HashMap;
-use std::env;
-use log::{info, debug, warn};
+use arangors::{ClientError, Connection, Database, Document};
+use argon2::{
+    password_hash::{rand_core::OsRng, PasswordHasher, SaltString},
+    Argon2, Params, Version,
+};
 use chrono::Local;
+use log::{debug, info, warn};
 use reqwest::Client;
 use serde_json::json;
-use crate::models::{StgContest, StgVenue, StgGame, StgOutcome, DocumentCache};
-use shared::{Player, Game, Venue, Contest, PlayedAt, PlayedWith, ResultedIn};
-use argon2::{
-    password_hash::{
-        rand_core::OsRng,
-        PasswordHasher, SaltString,
-    },
-    Argon2,
-    Params,
-    Version,
-};
+use shared::{Contest, Game, PlayedAt, PlayedWith, Player, ResultedIn, Venue};
+use std::collections::HashMap;
+use std::env;
 
 pub struct DbClient {
     db: Database<ReqwestClient>,
@@ -83,9 +78,7 @@ impl DbClient {
         info!("Created database {}", db_name);
 
         // Connect to the new database
-        let db = conn.db(&db_name)
-            .await
-            .context("Failed to get database")?;
+        let db = conn.db(&db_name).await.context("Failed to get database")?;
 
         // Create collections
         let mut collections = HashMap::new();
@@ -104,7 +97,8 @@ impl DbClient {
             }
 
             // Create new document collection
-            let collection = db.create_collection(name)
+            let collection = db
+                .create_collection(name)
                 .await
                 .context(format!("Failed to create collection {}", name))?;
             info!("Created document collection {}", name);
@@ -123,51 +117,65 @@ impl DbClient {
             }
 
             // Create new edge collection
-            let collection = db.create_edge_collection(name)
+            let collection = db
+                .create_edge_collection(name)
                 .await
                 .context(format!("Failed to create edge collection {}", name))?;
             info!("Created edge collection {}", name);
             collections.insert(name.to_string(), collection);
         }
 
-        Ok(Self { 
-            db, 
+        Ok(Self {
+            db,
             cache: DocumentCache::new(),
         })
     }
 
     pub async fn load_records(&mut self, contests: Vec<StgContest>) -> Result<()> {
-        info!("Starting to load {} contests at {}", 
-            contests.len(), 
-            Local::now().format("%Y-%m-%d %H:%M:%S"));
-        
+        info!(
+            "Starting to load {} contests at {}",
+            contests.len(),
+            Local::now().format("%Y-%m-%d %H:%M:%S")
+        );
+
         let mut total_games = 0;
         let mut total_outcomes = 0;
         let mut total_venues = 0;
-        
+
         for (i, contest) in contests.iter().enumerate() {
             info!("=== Processing contest {}/{} ===", i + 1, contests.len());
-            debug!("Contest details: name='{}', start='{}', stop='{}', venue='{}'", 
+            debug!(
+                "Contest details: name='{}', start='{}', stop='{}', venue='{}'",
                 contest.name,
                 contest.start.format("%Y-%m-%d %H:%M:%S"),
                 contest.stop.format("%Y-%m-%d %H:%M:%S"),
-                contest.venue.display_name);
-            
+                contest.venue.display_name
+            );
+
             self.process_contest(contest).await?;
-            
+
             total_games += contest.games.len();
             total_outcomes += contest.outcome.len();
             total_venues += 1;
         }
-        
+
         info!("=== Load Summary ===");
         info!("Total contests processed: {}", contests.len());
         info!("Total games processed: {}", total_games);
         info!("Total outcomes processed: {}", total_outcomes);
         info!("Total venues processed: {}", total_venues);
-        info!("Average games per contest: {:.2}", total_games as f64 / contests.len() as f64);
-        info!("Average outcomes per contest: {:.2}", total_outcomes as f64 / contests.len() as f64);
-        info!("Load completed at {}", Local::now().format("%Y-%m-%d %H:%M:%S"));
+        info!(
+            "Average games per contest: {:.2}",
+            total_games as f64 / contests.len() as f64
+        );
+        info!(
+            "Average outcomes per contest: {:.2}",
+            total_outcomes as f64 / contests.len() as f64
+        );
+        info!(
+            "Load completed at {}",
+            Local::now().format("%Y-%m-%d %H:%M:%S")
+        );
         Ok(())
     }
 
@@ -197,7 +205,10 @@ impl DbClient {
 
         // Check if venue exists in cache using place_id
         if let Some(key) = self.cache.get_venue(&place_id) {
-            info!("Found existing venue in cache: {} (key: {})", venue.place_id, key);
+            info!(
+                "Found existing venue in cache: {} (key: {})",
+                venue.place_id, key
+            );
             // Fetch the venue from the database using the key
             let collection = self.db.collection("venue").await?;
             let doc = collection.document::<Venue>(&key).await?;
@@ -214,7 +225,10 @@ impl DbClient {
         let venues: Vec<Venue> = cursor.into_iter().map(|doc| doc.document).collect();
 
         if let Some(existing) = venues.first() {
-            info!("Found existing venue in database: {} (id: {})", venue.display_name, existing.id);
+            info!(
+                "Found existing venue in database: {} (id: {})",
+                venue.display_name, existing.id
+            );
             // Store in cache for future use - store just the key
             let key = existing.id.clone();
             self.cache.store_venue(place_id, key);
@@ -231,11 +245,16 @@ impl DbClient {
             "UTC".to_string(),
             shared::models::venue::VenueSource::Database,
         )?;
-        let doc = collection.create_document(venue.clone(), InsertOptions::default()).await?;
+        let doc = collection
+            .create_document(venue.clone(), InsertOptions::default())
+            .await?;
         let header = doc.header().unwrap();
         let venue_id = header._id.clone();
-        info!("Created new venue: {} (id: {})", venue.display_name, venue_id);
-        
+        info!(
+            "Created new venue: {} (id: {})",
+            venue.display_name, venue_id
+        );
+
         // Store in cache for future use - store just the key
         let key = header._key.clone();
         self.cache.store_venue(place_id, key);
@@ -257,21 +276,22 @@ impl DbClient {
     fn hash_password(password: &str) -> Result<String> {
         // Generate a random salt
         let salt = SaltString::generate(&mut OsRng);
-        
+
         // Configure Argon2 with strong parameters
         let params = Params::new(
-            65536,  // Memory cost (64MB)
-            3,      // Time cost (3 iterations)
-            1,      // Parallelism factor
-            None,   // Output length (use default)
-        ).map_err(|e| anyhow!("Failed to create Argon2 parameters: {}", e))?;
-        
+            65536, // Memory cost (64MB)
+            3,     // Time cost (3 iterations)
+            1,     // Parallelism factor
+            None,  // Output length (use default)
+        )
+        .map_err(|e| anyhow!("Failed to create Argon2 parameters: {}", e))?;
+
         let argon2 = Argon2::new(
-            argon2::Algorithm::Argon2id,  // Use Argon2id variant (recommended)
-            Version::V0x13,               // Use latest version
+            argon2::Algorithm::Argon2id, // Use Argon2id variant (recommended)
+            Version::V0x13,              // Use latest version
             params,
         );
-        
+
         // Hash the password
         Ok(argon2
             .hash_password(password.as_bytes(), &salt)
@@ -299,7 +319,10 @@ impl DbClient {
         let games: Vec<Game> = cursor.into_iter().map(|doc| doc.document).collect();
 
         if let Some(existing) = games.first() {
-            info!("Found existing game in database: {} (id: {})", game.name, existing.id);
+            info!(
+                "Found existing game in database: {} (id: {})",
+                game.name, existing.id
+            );
             // Store in cache for future use
             let key = existing.id.clone();
             self.cache.store_game(game.name.clone(), key);
@@ -314,11 +337,13 @@ impl DbClient {
             None, // description is optional
             shared::models::game::GameSource::Database,
         )?;
-        let doc = collection.create_document(game.clone(), InsertOptions::default()).await?;
+        let doc = collection
+            .create_document(game.clone(), InsertOptions::default())
+            .await?;
         let header = doc.header().unwrap();
         let game_id = header._id.clone();
         info!("Created new game: {} (id: {})", game.name, game_id);
-        
+
         // Store in cache for future use
         let key = header._key.clone();
         self.cache.store_game(game.name.clone(), key);
@@ -343,7 +368,10 @@ impl DbClient {
 
         // Check if player exists in cache using email
         if let Some(key) = self.cache.get_player(&email) {
-            info!("Found existing player in cache: {} (key: {})", outcome.player_id, key);
+            info!(
+                "Found existing player in cache: {} (key: {})",
+                outcome.player_id, key
+            );
             // Fetch the player from the database using the key
             let collection = self.db.collection("player").await?;
             let doc = collection.document::<Player>(&key).await?;
@@ -360,7 +388,10 @@ impl DbClient {
         let players: Vec<Player> = cursor.into_iter().map(|doc| doc.document).collect();
 
         if let Some(existing) = players.first() {
-            info!("Found existing player in database: {} (id: {})", outcome.player_id, existing.id);
+            info!(
+                "Found existing player in database: {} (id: {})",
+                outcome.player_id, existing.id
+            );
             // Store in cache for future use - store just the key
             let key = existing.id.clone();
             self.cache.store_player(email, key);
@@ -379,11 +410,16 @@ impl DbClient {
             chrono::Utc::now().with_timezone(&chrono::FixedOffset::east_opt(0).unwrap()),
             false,
         )?;
-        let doc = collection.create_document(player.clone(), InsertOptions::default()).await?;
+        let doc = collection
+            .create_document(player.clone(), InsertOptions::default())
+            .await?;
         let header = doc.header().unwrap();
         let player_id = header._id.clone();
-        info!("Created new player: {} (id: {})", outcome.player_id, player_id);
-        
+        info!(
+            "Created new player: {} (id: {})",
+            outcome.player_id, player_id
+        );
+
         // Store in cache for future use - store just the key
         let key = header._key.clone();
         self.cache.store_player(email, key);
@@ -404,34 +440,50 @@ impl DbClient {
     pub async fn process_contest(&mut self, contest: &StgContest) -> Result<Contest> {
         let start_time = Local::now();
         info!("=== Processing contest: {} ===", contest.name);
-        debug!("Contest metadata: start='{}', stop='{}', games={}, outcomes={}", 
+        debug!(
+            "Contest metadata: start='{}', stop='{}', games={}, outcomes={}",
             contest.start.format("%Y-%m-%d %H:%M:%S"),
             contest.stop.format("%Y-%m-%d %H:%M:%S"),
             contest.games.len(),
-            contest.outcome.len());
-        
+            contest.outcome.len()
+        );
+
         // Process venue (using cache)
         let venue = self.process_venue(&contest.venue).await?;
-        info!("Processing venue: {} (id: {})", venue.display_name, venue.id);
-        debug!("Venue details: address='{}', lat={}, lng={}, place_id={}", 
-            venue.formatted_address, venue.lat, venue.lng, venue.place_id);
+        info!(
+            "Processing venue: {} (id: {})",
+            venue.display_name, venue.id
+        );
+        debug!(
+            "Venue details: address='{}', lat={}, lng={}, place_id={}",
+            venue.formatted_address, venue.lat, venue.lng, venue.place_id
+        );
 
         // Process games (using cache)
         info!("Processing {} games for contest", contest.games.len());
         let mut games = Vec::new();
         for (i, game) in contest.games.iter().enumerate() {
             let game = self.process_game(game).await?;
-            info!("Processing game {}/{}: {} (id: {})", 
-                i + 1, contest.games.len(), game.name, game.id);
-            debug!("Game details: year={:?}, bgg_id={:?}", 
-                game.year_published, game.bgg_id);
+            info!(
+                "Processing game {}/{}: {} (id: {})",
+                i + 1,
+                contest.games.len(),
+                game.name,
+                game.id
+            );
+            debug!(
+                "Game details: year={:?}, bgg_id={:?}",
+                game.year_published, game.bgg_id
+            );
             games.push(game);
         }
 
         // Create new contest - let ArangoDB set key, id, and rev
         let contest_doc: Contest = contest.into();
         let collection = self.db.collection("contest").await?;
-        let doc = collection.create_document(contest_doc.clone(), InsertOptions::default()).await?;
+        let doc = collection
+            .create_document(contest_doc.clone(), InsertOptions::default())
+            .await?;
         let header = doc.header().unwrap();
         let contest_id = header._id.clone();
         info!("Created new contest: {} (id: {})", contest.name, contest_id);
@@ -439,22 +491,24 @@ impl DbClient {
         // Create edges (no caching needed)
         // Create played_at edge
         let played_at = PlayedAt::new(
-            String::new(), // Let ArangoDB set this
-            String::new(), // Let ArangoDB set this
-            venue.id.clone(),  // Using venue's _id
+            String::new(),      // Let ArangoDB set this
+            String::new(),      // Let ArangoDB set this
+            venue.id.clone(),   // Using venue's _id
             contest_id.clone(), // Using contest's _id
         )?;
-        self.create_edge("played_at", &contest_id, &venue.id, played_at).await?;
+        self.create_edge("played_at", &contest_id, &venue.id, played_at)
+            .await?;
 
         // Create played_with edges
         for game in &games {
             let played_with = PlayedWith::new(
-                String::new(), // Let ArangoDB set this
-                String::new(), // Let ArangoDB set this
-                game.id.clone(),       // Using game's _id
+                String::new(),      // Let ArangoDB set this
+                String::new(),      // Let ArangoDB set this
+                game.id.clone(),    // Using game's _id
                 contest_id.clone(), // Using contest's _id
             )?;
-            self.create_edge("played_with", &contest_id, &game.id, played_with).await?;
+            self.create_edge("played_with", &contest_id, &game.id, played_with)
+                .await?;
         }
 
         // Process outcomes and create resulted_in edges
@@ -462,35 +516,47 @@ impl DbClient {
         for (i, outcome) in contest.outcome.iter().enumerate() {
             // Get or create player (using cache)
             let player = self.process_player(outcome).await?;
-            info!("Processing outcome {}/{}: player {} (place: {})", 
-                i + 1, contest.outcome.len(), player.handle, outcome.place);
-            debug!("Player details: firstname='{}', email='{}', created_at='{}'", 
-                player.firstname, 
+            info!(
+                "Processing outcome {}/{}: player {} (place: {})",
+                i + 1,
+                contest.outcome.len(),
+                player.handle,
+                outcome.place
+            );
+            debug!(
+                "Player details: firstname='{}', email='{}', created_at='{}'",
+                player.firstname,
                 player.email,
-                player.created_at.format("%Y-%m-%d %H:%M:%S"));
+                player.created_at.format("%Y-%m-%d %H:%M:%S")
+            );
 
             // Create resulted_in edge (no caching needed)
             let resulted_in = ResultedIn::new(
-                String::new(), // Let ArangoDB set this
-                String::new(), // Let ArangoDB set this
-                player.id.clone(),     // Using player's _id
+                String::new(),      // Let ArangoDB set this
+                String::new(),      // Let ArangoDB set this
+                player.id.clone(),  // Using player's _id
                 contest_id.clone(), // Using contest's _id
                 outcome.place,
                 outcome.result.clone(),
             )?;
-            self.create_edge("resulted_in", &contest_id, &player.id, resulted_in).await?;
+            self.create_edge("resulted_in", &contest_id, &player.id, resulted_in)
+                .await?;
         }
 
         let duration = Local::now().signed_duration_since(start_time);
         info!("=== Successfully processed contest '{}' ===", contest.name);
-        info!("Summary: games={}, outcomes={}, duration={}s", 
-            contest.games.len(), 
+        info!(
+            "Summary: games={}, outcomes={}, duration={}s",
+            contest.games.len(),
             contest.outcome.len(),
-            duration.num_seconds());
-        debug!("Contest processing complete: id={}, venue={}, games={:?}", 
-            contest_id, 
+            duration.num_seconds()
+        );
+        debug!(
+            "Contest processing complete: id={}, venue={}, games={:?}",
+            contest_id,
             venue.display_name,
-            games.iter().map(|g| g.name.clone()).collect::<Vec<_>>());
+            games.iter().map(|g| g.name.clone()).collect::<Vec<_>>()
+        );
         Ok(contest_doc)
     }
-} 
+}

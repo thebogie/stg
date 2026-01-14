@@ -1,9 +1,9 @@
-use serde::Deserialize;
-use shared::{Game, Player, Venue, Contest};
-use std::collections::HashMap;
+use anyhow::Result;
 use chrono::{DateTime, FixedOffset, NaiveDateTime, Utc};
 use random_word;
-use anyhow::Result;
+use serde::Deserialize;
+use shared::{Contest, Game, Player, Venue};
+use std::collections::HashMap;
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct StgContest {
@@ -73,16 +73,32 @@ pub struct StgOutcome {
 fn default_name() -> String {
     let adj = random_word::get(random_word::Lang::En);
     let noun = random_word::get(random_word::Lang::En);
-    
+
     // Capitalize first letter of each word
-    let adj_capitalized = adj.chars().next().unwrap().to_uppercase().collect::<String>() + &adj[1..];
-    let noun_capitalized = noun.chars().next().unwrap().to_uppercase().collect::<String>() + &noun[1..];
-    
+    let adj_capitalized = adj
+        .chars()
+        .next()
+        .unwrap()
+        .to_uppercase()
+        .collect::<String>()
+        + &adj[1..];
+    let noun_capitalized = noun
+        .chars()
+        .next()
+        .unwrap()
+        .to_uppercase()
+        .collect::<String>()
+        + &noun[1..];
+
     format!("{} {}", adj_capitalized, noun_capitalized)
 }
 
-fn default_min_players() -> i32 { 1 }
-fn default_max_players() -> i32 { 99 }
+fn default_min_players() -> i32 {
+    1
+}
+fn default_max_players() -> i32 {
+    99
+}
 
 fn deserialize_games<'de, D>(deserializer: D) -> Result<Vec<StgGame>, D::Error>
 where
@@ -125,12 +141,13 @@ where
     D: serde::Deserializer<'de>,
 {
     let s = String::deserialize(deserializer)?;
-    
+
     // Clean up the datetime string
     let s = s.trim();
-    
+
     // Handle common datetime format issues
-    let s = if s.len() > 19 { // If longer than "YYYY-MM-DDThh:mm:ss"
+    let s = if s.len() > 19 {
+        // If longer than "YYYY-MM-DDThh:mm:ss"
         let (base, extra) = s.split_at(19);
         if extra.chars().all(|c| c == '0') {
             base.to_string()
@@ -192,10 +209,10 @@ where
                     }
                 }
             };
-            
+
             // Convert to UTC DateTime
             let utc_dt = DateTime::<Utc>::from_naive_utc_and_offset(naive_dt, Utc);
-            
+
             // Return as UTC (offset will be applied later)
             Ok(utc_dt.with_timezone(&FixedOffset::east_opt(0).unwrap()))
         }
@@ -252,7 +269,8 @@ impl From<&StgVenue> for Venue {
             venue.lng,
             "UTC".to_string(),
             shared::models::venue::VenueSource::Database,
-        ).unwrap_or_else(|_| {
+        )
+        .unwrap_or_else(|_| {
             Venue::new_for_db(
                 venue.display_name.clone(),
                 venue.formatted_address.clone(),
@@ -261,7 +279,8 @@ impl From<&StgVenue> for Venue {
                 venue.lng,
                 "UTC".to_string(),
                 shared::models::venue::VenueSource::Database,
-            ).unwrap()
+            )
+            .unwrap()
         })
     }
 }
@@ -276,15 +295,19 @@ impl From<StgGame> for Game {
             game.bgg_id,
             None, // description is optional
             shared::models::game::GameSource::Database,
-        ).unwrap_or_else(|_| Game::new(
-            String::new(), // Let ArangoDB set this
-            String::new(), // Let ArangoDB set this
-            game.name,
-            Some(game.year_published),
-            game.bgg_id,
-            None, // description is optional
-            shared::models::game::GameSource::Database,
-        ).unwrap())
+        )
+        .unwrap_or_else(|_| {
+            Game::new(
+                String::new(), // Let ArangoDB set this
+                String::new(), // Let ArangoDB set this
+                game.name,
+                Some(game.year_published),
+                game.bgg_id,
+                None, // description is optional
+                shared::models::game::GameSource::Database,
+            )
+            .unwrap()
+        })
     }
 }
 
@@ -316,13 +339,17 @@ impl From<&StgOutcome> for Player {
             String::new(), // Empty password - must be set separately
             chrono::Utc::now().with_timezone(&chrono::FixedOffset::east_opt(0).unwrap()),
             false,
-        ).unwrap_or_else(|_| Player::new_for_db(
-            outcome.player_id.clone(),
-            outcome.player_id.clone(),
-            String::new(), // Empty email - must be set separately
-            String::new(), // Empty password - must be set separately
-            chrono::Utc::now().with_timezone(&chrono::FixedOffset::east_opt(0).unwrap()),
-            false,
-        ).unwrap())
+        )
+        .unwrap_or_else(|_| {
+            Player::new_for_db(
+                outcome.player_id.clone(),
+                outcome.player_id.clone(),
+                String::new(), // Empty email - must be set separately
+                String::new(), // Empty password - must be set separately
+                chrono::Utc::now().with_timezone(&chrono::FixedOffset::east_opt(0).unwrap()),
+                false,
+            )
+            .unwrap()
+        })
     }
-} 
+}

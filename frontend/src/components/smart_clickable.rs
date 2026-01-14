@@ -10,16 +10,17 @@ pub struct SmartClickableProps {
 
 #[derive(PartialEq, Clone)]
 pub enum ClickType {
-    ContestsModal,           // Opens contests modal
-    BggLink,                // Links to BoardGameGeek (game_id passed separately)
-    ExternalLink,           // Links to external URL (url passed separately)
-    InternalLink,           // Internal navigation (route passed separately)
-    CustomAction,           // Custom action (like opening a different modal)
+    ContestsModal, // Opens contests modal
+    BggLink,       // Links to BoardGameGeek (game_id passed separately)
+    ExternalLink,  // Links to external URL (url passed separately)
+    InternalLink,  // Internal navigation (route passed separately)
+    CustomAction,  // Custom action (like opening a different modal)
 }
 
 #[function_component(SmartClickable)]
 pub fn smart_clickable(props: &SmartClickableProps) -> Html {
-    let base_classes = "font-medium text-blue-600 hover:text-blue-800 hover:underline cursor-pointer";
+    let base_classes =
+        "font-medium text-blue-600 hover:text-blue-800 hover:underline cursor-pointer";
     let final_classes = if let Some(ref custom_class) = props.class {
         format!("{} {}", base_classes, custom_class)
     } else {

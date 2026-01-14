@@ -7,13 +7,11 @@
 //! automatically stopped/removed when it goes out of scope (RAII pattern).
 
 use anyhow::{Context, Result};
-use std::time::Duration;
 use std::path::Path;
 use std::process::Command;
+use std::time::Duration;
 use testcontainers::{
-    core::IntoContainerPort,
-    runners::AsyncRunner,
-    ContainerAsync, GenericImage, ImageExt,
+    core::IntoContainerPort, runners::AsyncRunner, ContainerAsync, GenericImage, ImageExt,
 };
 
 /// Test environment with ArangoDB and Redis containers
@@ -66,17 +64,26 @@ impl TestEnvironment {
                     }
                     Err(e) => {
                         if attempt < 2 {
-                            log::warn!("Failed to start ArangoDB container (attempt {}), retrying...", attempt + 1);
-                            tokio::time::sleep(Duration::from_millis(1000 * (attempt + 1) as u64)).await;
+                            log::warn!(
+                                "Failed to start ArangoDB container (attempt {}), retrying...",
+                                attempt + 1
+                            );
+                            tokio::time::sleep(Duration::from_millis(1000 * (attempt + 1) as u64))
+                                .await;
                         } else {
-                            container_result = Some(Err(anyhow::anyhow!("Failed to start ArangoDB container: {:?}", e)));
+                            container_result = Some(Err(anyhow::anyhow!(
+                                "Failed to start ArangoDB container: {:?}",
+                                e
+                            )));
                         }
                     }
                 }
             }
-            container_result.expect("Should have container result").context("Failed to start ArangoDB container")?
+            container_result
+                .expect("Should have container result")
+                .context("Failed to start ArangoDB container")?
         };
-        
+
         let arangodb_port = arangodb
             .get_host_port_ipv4(8529.tcp())
             .await
@@ -87,10 +94,7 @@ impl TestEnvironment {
         let redis = {
             let mut container_result = None;
             for attempt in 0..3 {
-                match GenericImage::new("redis", "7-alpine")
-                    .start()
-                    .await
-                {
+                match GenericImage::new("redis", "7-alpine").start().await {
                     Ok(container) => {
                         // Give it more time to bind ports and start services
                         // Increased for parallel execution where containers compete for resources
@@ -100,18 +104,25 @@ impl TestEnvironment {
                     }
                     Err(e) => {
                         if attempt < 2 {
-                            log::warn!("Failed to start Redis container (attempt {}), retrying...", attempt + 1);
-                            tokio::time::sleep(Duration::from_millis(1000 * (attempt + 1) as u64)).await;
+                            log::warn!(
+                                "Failed to start Redis container (attempt {}), retrying...",
+                                attempt + 1
+                            );
+                            tokio::time::sleep(Duration::from_millis(1000 * (attempt + 1) as u64))
+                                .await;
                         } else {
-                            return Err(anyhow::anyhow!("Failed to start Redis container after 3 attempts: {:?}", e))
-                                .context("Failed to start Redis container");
+                            return Err(anyhow::anyhow!(
+                                "Failed to start Redis container after 3 attempts: {:?}",
+                                e
+                            ))
+                            .context("Failed to start Redis container");
                         }
                     }
                 }
             }
             container_result.expect("Should have container after successful start")
         };
-        
+
         let redis_port = redis
             .get_host_port_ipv4(6379.tcp())
             .await
@@ -135,10 +146,10 @@ impl TestEnvironment {
     /// This is useful when you want to use existing containers instead of
     /// spinning up new ones (e.g., in CI or for debugging).
     async fn from_env_vars() -> Result<Self> {
-        let arangodb_url = std::env::var("ARANGO_URL")
-            .unwrap_or_else(|_| "http://localhost:8529".to_string());
-        let redis_url = std::env::var("REDIS_URL")
-            .unwrap_or_else(|_| "redis://localhost:6379/".to_string());
+        let arangodb_url =
+            std::env::var("ARANGO_URL").unwrap_or_else(|_| "http://localhost:8529".to_string());
+        let redis_url =
+            std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://localhost:6379/".to_string());
 
         log::info!("Using environment variables for test environment");
         log::info!("ArangoDB: {}", arangodb_url);
@@ -188,14 +199,16 @@ impl TestEnvironment {
         // ArangoDB can take 30+ seconds to fully start in some environments
         let max_attempts = 40;
         let mut last_error = None;
-        
+
         for attempt in 0..max_attempts {
             // Try to connect to ArangoDB to verify it's ready
             match arangors::Connection::establish_basic_auth(
                 &self.arangodb_url,
                 "root",
-                "test_password"
-            ).await {
+                "test_password",
+            )
+            .await
+            {
                 Ok(_) => {
                     log::debug!("ArangoDB is ready after {} attempts", attempt + 1);
                     last_error = None;
@@ -212,7 +225,12 @@ impl TestEnvironment {
                     } else {
                         3000 * (attempt / 2 + 1) as u64 // Slower growth after initial attempts
                     };
-                    log::debug!("ArangoDB not ready yet (attempt {}): {}, waiting {}ms...", attempt + 1, last_error.as_ref().unwrap(), wait_ms);
+                    log::debug!(
+                        "ArangoDB not ready yet (attempt {}): {}, waiting {}ms...",
+                        attempt + 1,
+                        last_error.as_ref().unwrap(),
+                        wait_ms
+                    );
                     tokio::time::sleep(Duration::from_millis(wait_ms)).await;
                 }
                 Err(e) => {
@@ -220,17 +238,21 @@ impl TestEnvironment {
                 }
             }
         }
-        
+
         if let Some(e) = last_error {
-            return Err(anyhow::anyhow!("ArangoDB failed to become ready after {} attempts: {}", max_attempts, e));
+            return Err(anyhow::anyhow!(
+                "ArangoDB failed to become ready after {} attempts: {}",
+                max_attempts,
+                e
+            ));
         }
-        
+
         // Verify Redis is also ready with more attempts and longer waits
         // Increased for parallel test execution - Redis can take longer when multiple containers start simultaneously
         let redis_client = redis::Client::open(self.redis_url())?;
         let redis_max_attempts = 60; // Increased from 30 to 60 for parallel execution
         let mut redis_ready = false;
-        
+
         for attempt in 0..redis_max_attempts {
             match redis_client.get_async_connection().await {
                 Ok(mut conn) => {
@@ -248,11 +270,20 @@ impl TestEnvironment {
                             } else {
                                 3000 * (attempt / 2 + 1) as u64 // Slower growth after initial attempts
                             };
-                            log::debug!("Redis PING failed (attempt {}): {}, waiting {}ms...", attempt + 1, e, wait_ms);
+                            log::debug!(
+                                "Redis PING failed (attempt {}): {}, waiting {}ms...",
+                                attempt + 1,
+                                e,
+                                wait_ms
+                            );
                             tokio::time::sleep(Duration::from_millis(wait_ms)).await;
                         }
                         Err(e) => {
-                            return Err(anyhow::anyhow!("Redis failed to become ready after {} attempts: {}", redis_max_attempts, e));
+                            return Err(anyhow::anyhow!(
+                                "Redis failed to become ready after {} attempts: {}",
+                                redis_max_attempts,
+                                e
+                            ));
                         }
                     }
                 }
@@ -264,19 +295,31 @@ impl TestEnvironment {
                     } else {
                         3000 * (attempt / 2 + 1) as u64 // Slower growth after initial attempts
                     };
-                    log::debug!("Redis connection failed (attempt {}): {}, waiting {}ms...", attempt + 1, e, wait_ms);
+                    log::debug!(
+                        "Redis connection failed (attempt {}): {}, waiting {}ms...",
+                        attempt + 1,
+                        e,
+                        wait_ms
+                    );
                     tokio::time::sleep(Duration::from_millis(wait_ms)).await;
                 }
                 Err(e) => {
-                    return Err(anyhow::anyhow!("Redis failed to become ready after {} attempts: {}", redis_max_attempts, e));
+                    return Err(anyhow::anyhow!(
+                        "Redis failed to become ready after {} attempts: {}",
+                        redis_max_attempts,
+                        e
+                    ));
                 }
             }
         }
-        
+
         if !redis_ready {
-            return Err(anyhow::anyhow!("Redis failed to become ready after {} attempts", redis_max_attempts));
+            return Err(anyhow::anyhow!(
+                "Redis failed to become ready after {} attempts",
+                redis_max_attempts
+            ));
         }
-        
+
         // Additional safety buffer for services to fully initialize
         tokio::time::sleep(Duration::from_millis(500)).await;
         Ok(())
@@ -292,7 +335,13 @@ impl TestEnvironment {
         // Find the container by filtering for the arangodb image
         // We'll use docker ps to find the running container
         let output = Command::new("docker")
-            .args(&["ps", "--filter", "ancestor=arangodb:3.12.5", "--format", "{{.ID}}"])
+            .args(&[
+                "ps",
+                "--filter",
+                "ancestor=arangodb:3.12.5",
+                "--format",
+                "{{.ID}}",
+            ])
             .output()
             .context("Failed to find ArangoDB container")?;
 
@@ -326,17 +375,28 @@ impl TestEnvironment {
     /// - Nested structures like `dump.zip` -> `backup/` -> `smacktalk/`
     pub async fn load_data_dump(&self, dump_path: &str) -> Result<()> {
         let dump_path = Path::new(dump_path);
-        
+
         if !dump_path.exists() {
-            return Err(anyhow::anyhow!("Backup file not found: {}", dump_path.display()));
+            return Err(anyhow::anyhow!(
+                "Backup file not found: {}",
+                dump_path.display()
+            ));
         }
 
         let container_id = self.arangodb_container_id()?;
-        log::info!("Loading data dump from {} into container {}", dump_path.display(), container_id);
+        log::info!(
+            "Loading data dump from {} into container {}",
+            dump_path.display(),
+            container_id
+        );
 
         // Step 1: Copy the backup file into the container
         let copy_output = Command::new("docker")
-            .args(&["cp", dump_path.to_str().unwrap(), &format!("{}:/tmp/backup.zip", container_id)])
+            .args(&[
+                "cp",
+                dump_path.to_str().unwrap(),
+                &format!("{}:/tmp/backup.zip", container_id),
+            ])
             .output()
             .context("Failed to copy backup file into container")?;
 
@@ -349,7 +409,13 @@ impl TestEnvironment {
 
         // Step 2: Extract the zip file inside the container
         let extract_output = Command::new("docker")
-            .args(&["exec", &container_id, "sh", "-c", "cd /tmp && unzip -q -o backup.zip -d /tmp/dump"])
+            .args(&[
+                "exec",
+                &container_id,
+                "sh",
+                "-c",
+                "cd /tmp && unzip -q -o backup.zip -d /tmp/dump",
+            ])
             .output()
             .context("Failed to extract backup file in container")?;
 
@@ -370,14 +436,21 @@ impl TestEnvironment {
         // Step 5: Use arangorestore to restore the data
         let restore_output = Command::new("docker")
             .args(&[
-                "exec", &container_id,
+                "exec",
+                &container_id,
                 "arangorestore",
-                "--server.endpoint", "tcp://127.0.0.1:8529",
-                "--server.username", "root",
-                "--server.password", "test_password",
-                "--input-directory", &dump_dir,
-                "--create-database", "true",
-                "--server.database", &db_name,
+                "--server.endpoint",
+                "tcp://127.0.0.1:8529",
+                "--server.username",
+                "root",
+                "--server.password",
+                "test_password",
+                "--input-directory",
+                &dump_dir,
+                "--create-database",
+                "true",
+                "--server.database",
+                &db_name,
             ])
             .output()
             .context("Failed to restore backup using arangorestore")?;
@@ -398,7 +471,14 @@ impl TestEnvironment {
 
         // Cleanup: Remove the backup files from the container
         let _ = Command::new("docker")
-            .args(&["exec", &container_id, "rm", "-rf", "/tmp/backup.zip", "/tmp/dump"])
+            .args(&[
+                "exec",
+                &container_id,
+                "rm",
+                "-rf",
+                "/tmp/backup.zip",
+                "/tmp/dump",
+            ])
             .output();
 
         Ok(())
@@ -437,7 +517,13 @@ impl TestEnvironment {
 
         // If no specific directory found, try listing what we have
         let list_output = Command::new("docker")
-            .args(&["exec", container_id, "sh", "-c", "find /tmp/dump -type d -name '*' | head -10"])
+            .args(&[
+                "exec",
+                container_id,
+                "sh",
+                "-c",
+                "find /tmp/dump -type d -name '*' | head -10",
+            ])
             .output()
             .context("Failed to list dump directories")?;
 
@@ -577,7 +663,7 @@ impl Default for TestEnvironmentBuilder {
 /// Create a test environment with production data from default location
 ///
 /// This is a convenience function that:
-    /// 1. Looks for data dump in common locations (env var, `../_build/backups/`, etc.)
+/// 1. Looks for data dump in common locations (env var, `../_build/backups/`, etc.)
 /// 2. Loads it into a fresh container
 /// 3. Returns the test environment ready to use
 ///
@@ -604,7 +690,7 @@ pub async fn test_env_with_prod_data() -> Result<TestEnvironment> {
 /// ```rust,no_run
 /// #[tokio::test]
 /// async fn test_with_specific_dump() -> Result<()> {
-    ///     let env = test_env_with_dump("../_build/backups/smacktalk.zip").await?;
+///     let env = test_env_with_dump("../_build/backups/smacktalk.zip").await?;
 ///     // Test against specific production data
 ///     Ok(())
 /// }
@@ -655,7 +741,7 @@ macro_rules! create_authenticated_user {
                 "password": "password123"
             }))
             .to_request();
-        
+
         let register_resp = actix_web::test::call_service(&$app, register_req).await;
         assert!(
             register_resp.status().is_success(),
@@ -670,7 +756,7 @@ macro_rules! create_authenticated_user {
                 "password": "password123"
             }))
             .to_request();
-        
+
         let login_resp = actix_web::test::call_service(&$app, login_req).await;
         assert!(
             login_resp.status().is_success(),

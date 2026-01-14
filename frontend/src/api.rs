@@ -4,10 +4,10 @@ pub mod cache;
 pub mod contests;
 pub mod games;
 pub mod players;
+pub mod timezone;
+pub mod utils;
 pub mod venues;
 pub mod version;
-pub mod utils;
-pub mod timezone;
 
 use crate::config::Config;
 

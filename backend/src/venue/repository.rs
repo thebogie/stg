@@ -1,12 +1,12 @@
-use arangors::Database;
-use shared::models::venue::Venue;
-use shared::dto::venue::VenueDto;
+use crate::third_party::{google::timezone::GoogleTimezoneService, GooglePlacesService};
 use anyhow::Result;
-use crate::third_party::{GooglePlacesService, google::timezone::GoogleTimezoneService};
 use arangors::client::reqwest::ReqwestClient;
-use arangors::document::options::{InsertOptions, UpdateOptions, RemoveOptions};
-use serde::{Deserialize, Serialize};
+use arangors::document::options::{InsertOptions, RemoveOptions, UpdateOptions};
+use arangors::Database;
 use log;
+use serde::{Deserialize, Serialize};
+use shared::dto::venue::VenueDto;
+use shared::models::venue::Venue;
 
 // Database-only venue model (without source field)
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -22,11 +22,13 @@ struct VenueDb {
     pub place_id: String,
     pub lat: f64,
     pub lng: f64,
-    #[serde(default = "default_timezone")] 
+    #[serde(default = "default_timezone")]
     pub timezone: String,
 }
 
-fn default_timezone() -> String { "UTC".to_string() }
+fn default_timezone() -> String {
+    "UTC".to_string()
+}
 
 impl From<VenueDb> for Venue {
     fn from(db_venue: VenueDb) -> Self {
@@ -59,7 +61,10 @@ pub trait VenueRepository: Send + Sync {
     async fn search_dto(&self, query: &str) -> Vec<VenueDto>;
     async fn search_dto_with_external(&self, query: &str) -> Vec<VenueDto>;
     async fn get_venue_performance(&self, venue_id: &str) -> Result<serde_json::Value, String>;
-    async fn get_player_venue_stats(&self, player_id: &str) -> Result<Vec<serde_json::Value>, String>;
+    async fn get_player_venue_stats(
+        &self,
+        player_id: &str,
+    ) -> Result<Vec<serde_json::Value>, String>;
     async fn create(&self, venue: Venue) -> Result<Venue, String>;
     async fn update(&self, venue: Venue) -> Result<Venue, String>;
     async fn delete(&self, id: &str) -> Result<(), String>;
@@ -67,9 +72,16 @@ pub trait VenueRepository: Send + Sync {
 
 impl VenueRepositoryImpl {
     pub fn new(db: Database<ReqwestClient>, google_config: Option<(String, String)>) -> Self {
-        let google_places = google_config.as_ref().map(|(api_url, api_key)| GooglePlacesService::new(api_url.clone(), api_key.clone()));
-        let google_timezone = google_config.map(|(api_url, api_key)| GoogleTimezoneService::new(api_url, api_key));
-        Self { db, google_places, google_timezone }
+        let google_places = google_config
+            .as_ref()
+            .map(|(api_url, api_key)| GooglePlacesService::new(api_url.clone(), api_key.clone()));
+        let google_timezone =
+            google_config.map(|(api_url, api_key)| GoogleTimezoneService::new(api_url, api_key));
+        Self {
+            db,
+            google_places,
+            google_timezone,
+        }
     }
 
     /// Infer timezone from coordinates (simplified mapping)
@@ -78,16 +90,16 @@ impl VenueRepositoryImpl {
         // In production, you'd want to use a proper geocoding service
         match lng {
             lng if lng >= -180.0 && lng < -120.0 => "America/Los_Angeles".to_string(), // Pacific
-            lng if lng >= -120.0 && lng < -90.0 => "America/Denver".to_string(), // Mountain
-            lng if lng >= -90.0 && lng < -60.0 => "America/Chicago".to_string(), // Central
-            lng if lng >= -60.0 && lng < -30.0 => "America/New_York".to_string(), // Eastern
-            lng if lng >= -30.0 && lng < 0.0 => "Europe/London".to_string(), // GMT
-            lng if lng >= 0.0 && lng < 30.0 => "Europe/Paris".to_string(), // CET
-            lng if lng >= 30.0 && lng < 60.0 => "Europe/Berlin".to_string(), // CET
-            lng if lng >= 60.0 && lng < 90.0 => "Asia/Kolkata".to_string(), // IST
-            lng if lng >= 90.0 && lng < 120.0 => "Asia/Shanghai".to_string(), // CST
-            lng if lng >= 120.0 && lng < 150.0 => "Asia/Tokyo".to_string(), // JST
-            lng if lng >= 150.0 && lng < 180.0 => "Australia/Sydney".to_string(), // AEST
+            lng if lng >= -120.0 && lng < -90.0 => "America/Denver".to_string(),       // Mountain
+            lng if lng >= -90.0 && lng < -60.0 => "America/Chicago".to_string(),       // Central
+            lng if lng >= -60.0 && lng < -30.0 => "America/New_York".to_string(),      // Eastern
+            lng if lng >= -30.0 && lng < 0.0 => "Europe/London".to_string(),           // GMT
+            lng if lng >= 0.0 && lng < 30.0 => "Europe/Paris".to_string(),             // CET
+            lng if lng >= 30.0 && lng < 60.0 => "Europe/Berlin".to_string(),           // CET
+            lng if lng >= 60.0 && lng < 90.0 => "Asia/Kolkata".to_string(),            // IST
+            lng if lng >= 90.0 && lng < 120.0 => "Asia/Shanghai".to_string(),          // CST
+            lng if lng >= 120.0 && lng < 150.0 => "Asia/Tokyo".to_string(),            // JST
+            lng if lng >= 150.0 && lng < 180.0 => "Australia/Sydney".to_string(),      // AEST
             _ => "UTC".to_string(),
         }
     }
@@ -95,18 +107,22 @@ impl VenueRepositoryImpl {
     /// Update venue timezone in database
     async fn update_venue_timezone(&self, venue_id: &str, timezone: &str) -> Result<(), String> {
         log::info!("🔄 Updating venue {} timezone to: {}", venue_id, timezone);
-        
+
         let query = arangors::AqlQuery::builder()
             .query("UPDATE @venue_id WITH { timezone: @timezone } IN venue")
             .bind_var("venue_id", venue_id)
             .bind_var("timezone", timezone)
             .build();
-        
+
         match self.db.aql_query::<serde_json::Value>(query).await {
             Ok(_) => {
-                log::info!("✅ Successfully updated venue {} timezone to: {}", venue_id, timezone);
+                log::info!(
+                    "✅ Successfully updated venue {} timezone to: {}",
+                    venue_id,
+                    timezone
+                );
                 Ok(())
-            },
+            }
             Err(e) => {
                 log::error!("❌ Failed to update venue {} timezone: {}", venue_id, e);
                 Err(format!("Failed to update venue timezone: {}", e))
@@ -116,29 +132,40 @@ impl VenueRepositoryImpl {
 
     /// Get venue with smart timezone detection (only for Google-sourced venues)
     pub async fn get_venue_with_timezone(&self, venue_id: &str) -> Result<VenueDto, String> {
-        let venue = self.find_by_id(venue_id)
+        let venue = self
+            .find_by_id(venue_id)
             .await
             .ok_or_else(|| format!("Venue not found: {}", venue_id))?;
-        
+
         // If timezone is UTC and source is Google, try to infer from coordinates
-        if venue.source == shared::models::venue::VenueSource::Google && venue.timezone == "UTC" && venue.lat != 0.0 && venue.lng != 0.0 {
+        if venue.source == shared::models::venue::VenueSource::Google
+            && venue.timezone == "UTC"
+            && venue.lat != 0.0
+            && venue.lng != 0.0
+        {
             let inferred_timezone = self.infer_timezone_from_coordinates(venue.lat, venue.lng);
             if inferred_timezone != "UTC" {
-                log::info!("🌍 Inferring timezone for venue {}: {} -> {}", 
-                    venue_id, venue.timezone, inferred_timezone);
-                
+                log::info!(
+                    "🌍 Inferring timezone for venue {}: {} -> {}",
+                    venue_id,
+                    venue.timezone,
+                    inferred_timezone
+                );
+
                 // Update the venue in database
-                self.update_venue_timezone(venue_id, &inferred_timezone).await?;
-                
+                self.update_venue_timezone(venue_id, &inferred_timezone)
+                    .await?;
+
                 // Return updated venue
-                let updated_venue = self.find_by_id(venue_id)
+                let updated_venue = self
+                    .find_by_id(venue_id)
                     .await
                     .ok_or_else(|| format!("Venue not found after update: {}", venue_id))?;
-                
+
                 return Ok(VenueDto::from(&updated_venue));
             }
         }
-        
+
         Ok(VenueDto::from(&venue))
     }
 }
@@ -171,15 +198,15 @@ mod tests {
         // Test coordinate validation without database
         let lat = 40.7128;
         let lng = -74.0060;
-        
+
         // Validate coordinates are within valid ranges
         assert!(lat >= -90.0 && lat <= 90.0);
         assert!(lng >= -180.0 && lng <= 180.0);
-        
+
         // Test that coordinates represent valid locations
         assert_eq!(lat, 40.7128); // NYC latitude
         assert_eq!(lng, -74.0060); // NYC longitude
-        
+
         // Test other coordinate ranges
         assert!(34.0522 >= -90.0 && 34.0522 <= 90.0); // LA lat
         assert!(-118.2437 >= -180.0 && -118.2437 <= 180.0); // LA lng
@@ -254,14 +281,35 @@ mod search_dto_tests {
         // Set up in-memory Arango-like behavior is complex; instead, validate transformation logic
         // by constructing VenueDb and ensuring VenueDto preserves timezone and DB source ordering
         let db_venues = vec![
-            VenueDb { id: "venue/1".into(), rev: "1".into(), display_name: "Mitch Park".into(), formatted_address: "123 A".into(), place_id: "pid1".into(), lat: 1.0, lng: 2.0, timezone: "America/Chicago".into() },
-            VenueDb { id: "venue/2".into(), rev: "1".into(), display_name: "Paris Orly Airport".into(), formatted_address: "Orly".into(), place_id: "pid2".into(), lat: 48.72, lng: 2.38, timezone: "Europe/Paris".into() },
+            VenueDb {
+                id: "venue/1".into(),
+                rev: "1".into(),
+                display_name: "Mitch Park".into(),
+                formatted_address: "123 A".into(),
+                place_id: "pid1".into(),
+                lat: 1.0,
+                lng: 2.0,
+                timezone: "America/Chicago".into(),
+            },
+            VenueDb {
+                id: "venue/2".into(),
+                rev: "1".into(),
+                display_name: "Paris Orly Airport".into(),
+                formatted_address: "Orly".into(),
+                place_id: "pid2".into(),
+                lat: 48.72,
+                lng: 2.38,
+                timezone: "Europe/Paris".into(),
+            },
         ];
         let venues: Vec<Venue> = db_venues.into_iter().map(Venue::from).collect();
         let dtos: Vec<VenueDto> = venues.iter().map(|v| VenueDto::from(v)).collect();
         assert_eq!(dtos[0].timezone, "America/Chicago");
         assert_eq!(dtos[1].timezone, "Europe/Paris");
-        assert!(matches!(dtos[0].source, shared::models::venue::VenueSource::Database));
+        assert!(matches!(
+            dtos[0].source,
+            shared::models::venue::VenueSource::Database
+        ));
     }
 }
 
@@ -269,44 +317,55 @@ mod search_dto_tests {
 impl VenueRepository for VenueRepositoryImpl {
     async fn find_by_id(&self, id: &str) -> Option<Venue> {
         log::info!("🔍 Looking up venue by ID: '{}'", id);
-        
+
         let query = arangors::AqlQuery::builder()
             .query("FOR v IN venue FILTER v._id == @id LIMIT 1 RETURN v")
             .bind_var("id", id)
             .build();
-        
+
         match self.db.aql_query::<VenueDb>(query).await {
             Ok(mut cursor) => {
                 if let Some(venue_db) = cursor.pop() {
-                    log::info!("✅ Found venue by ID: '{}' -> '{}'", id, venue_db.display_name);
+                    log::info!(
+                        "✅ Found venue by ID: '{}' -> '{}'",
+                        id,
+                        venue_db.display_name
+                    );
                     Some(Venue::from(venue_db))
                 } else {
                     log::error!("❌ Venue not found by ID: '{}'", id);
-                    
+
                     // Debug: Show what venues actually exist in the database
                     log::info!("🔍 Debug: Checking what venues exist in database...");
                     let debug_query = arangors::AqlQuery::builder()
                         .query("FOR v IN venue LIMIT 10 RETURN { id: v._id, name: v.displayName }")
                         .build();
-                    
+
                     match self.db.aql_query::<serde_json::Value>(debug_query).await {
                         Ok(debug_cursor) => {
-                            let debug_results: Vec<serde_json::Value> = debug_cursor.into_iter().collect();
-                            log::info!("🔍 Debug: Found {} venues in database (showing first 10):", debug_results.len());
+                            let debug_results: Vec<serde_json::Value> =
+                                debug_cursor.into_iter().collect();
+                            log::info!(
+                                "🔍 Debug: Found {} venues in database (showing first 10):",
+                                debug_results.len()
+                            );
                             for (i, venue) in debug_results.iter().enumerate() {
-                                log::info!("  Venue {}: ID='{}', Name='{}'", i + 1, 
+                                log::info!(
+                                    "  Venue {}: ID='{}', Name='{}'",
+                                    i + 1,
                                     venue.get("id").unwrap_or(&serde_json::Value::Null),
-                                    venue.get("name").unwrap_or(&serde_json::Value::Null));
+                                    venue.get("name").unwrap_or(&serde_json::Value::Null)
+                                );
                             }
-                        },
+                        }
                         Err(e) => {
                             log::error!("❌ Debug query failed: {}", e);
                         }
                     }
-                    
+
                     None
                 }
-            },
+            }
             Err(e) => {
                 log::error!("❌ Database query failed for venue ID '{}': {}", id, e);
                 None
@@ -319,24 +378,32 @@ impl VenueRepository for VenueRepositoryImpl {
         let query = arangors::AqlQuery::builder()
             .query("FOR v IN venue RETURN v")
             .build();
-        
+
         log::info!("🔍 Executing AQL query: FOR v IN venue RETURN v");
-        
+
         match self.db.aql_query::<VenueDb>(query).await {
             Ok(cursor) => {
                 log::info!("✅ AQL query executed successfully");
                 let db_venues: Vec<VenueDb> = cursor.into_iter().collect();
                 log::info!("📊 Found {} total venues in database", db_venues.len());
-                
+
                 // Convert database venues to full Venue models with source field
-                let venues: Vec<Venue> = db_venues.into_iter().map(|db_venue| {
-                    log::info!("  Venue: ID={}, Name='{}', Address='{}'", db_venue.id, db_venue.display_name, db_venue.formatted_address);
-                    Venue::from(db_venue)
-                }).collect();
-                
+                let venues: Vec<Venue> = db_venues
+                    .into_iter()
+                    .map(|db_venue| {
+                        log::info!(
+                            "  Venue: ID={}, Name='{}', Address='{}'",
+                            db_venue.id,
+                            db_venue.display_name,
+                            db_venue.formatted_address
+                        );
+                        Venue::from(db_venue)
+                    })
+                    .collect();
+
                 log::info!("📊 Converted {} venues to full models", venues.len());
                 venues
-            },
+            }
             Err(e) => {
                 log::error!("❌ Failed to find all venues: {}", e);
                 Vec::new()
@@ -354,20 +421,27 @@ impl VenueRepository for VenueRepositoryImpl {
             .bind_var("query", query)
             .bind_var("limit", max_results)
             .build();
-        
+
         let display_name_results = match self.db.aql_query::<VenueDb>(display_name_query).await {
             Ok(cursor) => {
                 let db_venues: Vec<VenueDb> = cursor.into_iter().collect();
                 log::debug!("Display name search returned {} venues", db_venues.len());
-                
+
                 // Convert database venues to full Venue models with source field
-                let venues: Vec<Venue> = db_venues.into_iter().map(|db_venue| {
-                    log::debug!("Venue from display name search: ID={}, Name={}", db_venue.id, db_venue.display_name);
-                    Venue::from(db_venue)
-                }).collect();
-                
+                let venues: Vec<Venue> = db_venues
+                    .into_iter()
+                    .map(|db_venue| {
+                        log::debug!(
+                            "Venue from display name search: ID={}, Name={}",
+                            db_venue.id,
+                            db_venue.display_name
+                        );
+                        Venue::from(db_venue)
+                    })
+                    .collect();
+
                 venues
-            },
+            }
             Err(_) => Vec::new(),
         };
 
@@ -381,20 +455,27 @@ impl VenueRepository for VenueRepositoryImpl {
                 .bind_var("query", query)
                 .bind_var("limit", remaining_limit)
                 .build();
-            
+
             let address_results = match self.db.aql_query::<VenueDb>(address_query).await {
                 Ok(cursor) => {
                     let db_venues: Vec<VenueDb> = cursor.into_iter().collect();
                     log::debug!("Address search returned {} venues", db_venues.len());
-                    
+
                     // Convert database venues to full Venue models with source field
-                    let venues: Vec<Venue> = db_venues.into_iter().map(|db_venue| {
-                        log::debug!("Venue from address search: ID={}, Name={}", db_venue.id, db_venue.display_name);
-                        Venue::from(db_venue)
-                    }).collect();
-                    
+                    let venues: Vec<Venue> = db_venues
+                        .into_iter()
+                        .map(|db_venue| {
+                            log::debug!(
+                                "Venue from address search: ID={}, Name={}",
+                                db_venue.id,
+                                db_venue.display_name
+                            );
+                            Venue::from(db_venue)
+                        })
+                        .collect();
+
                     venues
-                },
+                }
                 Err(_) => Vec::new(),
             };
 
@@ -403,14 +484,20 @@ impl VenueRepository for VenueRepositoryImpl {
 
         // Always try to fill remaining slots with Google API results (if available)
         if results.len() < max_results && self.google_places.is_some() {
-            log::info!("Google Places API is available, attempting to fill {} remaining slots", max_results - results.len());
+            log::info!(
+                "Google Places API is available, attempting to fill {} remaining slots",
+                max_results - results.len()
+            );
             if let Some(ref google_places) = self.google_places {
                 match google_places.search_places(query).await {
                     Ok(google_results) => {
                         let remaining_limit = max_results - results.len();
                         log::info!("Google Places API returned {} results, adding {} to fill remaining slots", 
                                   google_results.len(), std::cmp::min(remaining_limit, google_results.len()));
-                        let limited_google_results = google_results.into_iter().take(remaining_limit).collect::<Vec<_>>();
+                        let limited_google_results = google_results
+                            .into_iter()
+                            .take(remaining_limit)
+                            .collect::<Vec<_>>();
                         results.extend(limited_google_results);
                     }
                     Err(e) => {
@@ -419,17 +506,23 @@ impl VenueRepository for VenueRepositoryImpl {
                 }
             }
         } else if results.len() < max_results {
-            log::info!("Google Places API not available, cannot fill remaining {} slots", max_results - results.len());
+            log::info!(
+                "Google Places API not available, cannot fill remaining {} slots",
+                max_results - results.len()
+            );
         }
 
         log::debug!("Total search results: {} venues", results.len());
         for venue in &results {
-            log::debug!("Final venue result: ID={}, Name={}", venue.id, venue.display_name);
+            log::debug!(
+                "Final venue result: ID={}, Name={}",
+                venue.id,
+                venue.display_name
+            );
         }
 
         results
     }
-
 
     async fn search_dto(&self, query: &str) -> Vec<VenueDto> {
         log::info!("🔍 Starting venue search with query: '{}'", query);
@@ -438,32 +531,49 @@ impl VenueRepository for VenueRepositoryImpl {
 
         // Case-insensitive partial match using CONTAINS on displayName
         let query_lower = query.to_lowercase();
-        let display_filter = "FOR v IN venue FILTER CONTAINS(LOWER(v.displayName), @q) LIMIT @limit RETURN v";
+        let display_filter =
+            "FOR v IN venue FILTER CONTAINS(LOWER(v.displayName), @q) LIMIT @limit RETURN v";
 
-        log::info!("📝 Searching venues by displayName with query_lower: '{}'", query_lower);
+        log::info!(
+            "📝 Searching venues by displayName with query_lower: '{}'",
+            query_lower
+        );
         let display_name_query = arangors::AqlQuery::builder()
             .query(display_filter)
             .bind_var("q", query_lower.as_str())
             .bind_var("limit", max_results)
             .build();
-        
+
         log::info!("🔍 Executing AQL query: FOR v IN venue FILTER CONTAINS(LOWER(v.displayName), LOWER(@query)) LIMIT @limit RETURN v");
-        log::info!("🔍 Query bindings: query='{}', limit={}", query, max_results);
-        
+        log::info!(
+            "🔍 Query bindings: query='{}', limit={}",
+            query,
+            max_results
+        );
+
         let display_name_results = match self.db.aql_query::<VenueDb>(display_name_query).await {
             Ok(cursor) => {
-                                    log::info!("✅ AQL query executed successfully");
-                    let db_venues: Vec<VenueDb> = cursor.into_iter().collect();
-                    log::info!("📊 Display name search returned {} venues", db_venues.len());
-                
+                log::info!("✅ AQL query executed successfully");
+                let db_venues: Vec<VenueDb> = cursor.into_iter().collect();
+                log::info!("📊 Display name search returned {} venues", db_venues.len());
+
                 // Convert database venues to full Venue models with source field
-                let venues: Vec<Venue> = db_venues.into_iter().map(|db_venue| {
-                    log::info!("  Venue {}: ID={}, Name='{}', Address='{}'", 1, db_venue.id, db_venue.display_name, db_venue.formatted_address);
-                    Venue::from(db_venue)
-                }).collect();
-                
+                let venues: Vec<Venue> = db_venues
+                    .into_iter()
+                    .map(|db_venue| {
+                        log::info!(
+                            "  Venue {}: ID={}, Name='{}', Address='{}'",
+                            1,
+                            db_venue.id,
+                            db_venue.display_name,
+                            db_venue.formatted_address
+                        );
+                        Venue::from(db_venue)
+                    })
+                    .collect();
+
                 venues
-            },
+            }
             Err(e) => {
                 log::error!("❌ AQL query failed: {}", e);
                 Vec::new()
@@ -472,7 +582,11 @@ impl VenueRepository for VenueRepositoryImpl {
 
         // Convert database venues to DTOs with Database source (preserve timezone)
         for venue in display_name_results {
-            log::info!("🔄 Converting venue to DTO: {} -> {}", venue.id, venue.display_name);
+            log::info!(
+                "🔄 Converting venue to DTO: {} -> {}",
+                venue.id,
+                venue.display_name
+            );
             results.push(VenueDto {
                 id: venue.id.clone(),
                 display_name: venue.display_name.clone(),
@@ -498,24 +612,36 @@ impl VenueRepository for VenueRepositoryImpl {
                 .bind_var("q", query_lower.as_str())
                 .bind_var("limit", remaining_limit)
                 .build();
-            
+
             log::info!("🔍 Executing address AQL query: FOR v IN venue FILTER CONTAINS(LOWER(v.formattedAddress), LOWER(@query)) LIMIT @limit RETURN v");
-            log::info!("🔍 Address query bindings: query='{}', limit={}", query, remaining_limit);
-            
+            log::info!(
+                "🔍 Address query bindings: query='{}', limit={}",
+                query,
+                remaining_limit
+            );
+
             let address_results = match self.db.aql_query::<VenueDb>(address_query).await {
                 Ok(cursor) => {
                     log::info!("✅ Address AQL query executed successfully");
                     let db_venues: Vec<VenueDb> = cursor.into_iter().collect();
                     log::info!("📊 Address search returned {} venues", db_venues.len());
-                    
+
                     // Convert database venues to full Venue models with source field
-                    let venues: Vec<Venue> = db_venues.into_iter().map(|db_venue| {
-                        log::info!("  Address Venue: ID={}, Name='{}', Address='{}'", db_venue.id, db_venue.display_name, db_venue.formatted_address);
-                        Venue::from(db_venue)
-                    }).collect();
-                    
+                    let venues: Vec<Venue> = db_venues
+                        .into_iter()
+                        .map(|db_venue| {
+                            log::info!(
+                                "  Address Venue: ID={}, Name='{}', Address='{}'",
+                                db_venue.id,
+                                db_venue.display_name,
+                                db_venue.formatted_address
+                            );
+                            Venue::from(db_venue)
+                        })
+                        .collect();
+
                     venues
-                },
+                }
                 Err(e) => {
                     log::error!("❌ Address AQL query failed: {}", e);
                     Vec::new()
@@ -526,7 +652,11 @@ impl VenueRepository for VenueRepositoryImpl {
             for venue in address_results {
                 // Check if we already have this venue (avoid duplicates)
                 if !results.iter().any(|dto| dto.id == venue.id) {
-                    log::info!("🔄 Converting address venue to DTO: {} -> {}", venue.id, venue.display_name);
+                    log::info!(
+                        "🔄 Converting address venue to DTO: {} -> {}",
+                        venue.id,
+                        venue.display_name
+                    );
                     results.push(VenueDto {
                         id: venue.id.clone(),
                         display_name: venue.display_name.clone(),
@@ -538,20 +668,32 @@ impl VenueRepository for VenueRepositoryImpl {
                         source: shared::models::venue::VenueSource::Database,
                     });
                 } else {
-                    log::info!("⏭️  Skipping duplicate venue: {} -> {}", venue.id, venue.display_name);
+                    log::info!(
+                        "⏭️  Skipping duplicate venue: {} -> {}",
+                        venue.id,
+                        venue.display_name
+                    );
                 }
             }
         }
 
         // DB-only: Do not include Google Places fallback in DTO search
         if results.len() < max_results {
-            log::info!("DB-only venue search: {} results (no external fallback)", results.len());
+            log::info!(
+                "DB-only venue search: {} results (no external fallback)",
+                results.len()
+            );
         }
 
         log::info!("🎯 Total search results: {} venues", results.len());
         for (i, venue_dto) in results.iter().enumerate() {
-            log::info!("  Final result {}: ID={}, Name='{}', Source={:?}", 
-                      i+1, venue_dto.id, venue_dto.display_name, venue_dto.source);
+            log::info!(
+                "  Final result {}: ID={}, Name='{}', Source={:?}",
+                i + 1,
+                venue_dto.id,
+                venue_dto.display_name,
+                venue_dto.source
+            );
         }
 
         results
@@ -559,9 +701,10 @@ impl VenueRepository for VenueRepositoryImpl {
 
     async fn get_venue_performance(&self, venue_id: &str) -> Result<serde_json::Value, String> {
         log::info!("🔍 Getting venue performance for venue: {}", venue_id);
-        
+
         let query = arangors::AqlQuery::builder()
-            .query(r#"
+            .query(
+                r#"
                 // Graph traversal: venue -> contests -> players -> performance
                 FOR venue IN venue
                   FILTER venue._id == @venue_id
@@ -634,14 +777,18 @@ impl VenueRepository for VenueRepositoryImpl {
                       RETURN p
                     )
                   }
-            "#)
+            "#,
+            )
             .bind_var("venue_id", venue_id)
             .build();
-        
+
         match self.db.aql_query::<serde_json::Value>(query).await {
             Ok(mut cursor) => {
                 if let Some(result) = cursor.pop() {
-                    log::info!("✅ Venue performance data retrieved for venue: {}", venue_id);
+                    log::info!(
+                        "✅ Venue performance data retrieved for venue: {}",
+                        venue_id
+                    );
                     Ok(result)
                 } else {
                     Err("No venue performance data found".to_string())
@@ -654,11 +801,15 @@ impl VenueRepository for VenueRepositoryImpl {
         }
     }
 
-    async fn get_player_venue_stats(&self, player_id: &str) -> Result<Vec<serde_json::Value>, String> {
+    async fn get_player_venue_stats(
+        &self,
+        player_id: &str,
+    ) -> Result<Vec<serde_json::Value>, String> {
         log::info!("🔍 Getting venue stats for player: {}", player_id);
-        
+
         let query = arangors::AqlQuery::builder()
-            .query(r#"
+            .query(
+                r#"
                 // Graph traversal: player -> contests -> venues -> performance
                 FOR player IN player
                   FILTER player._id == @player_id
@@ -716,16 +867,21 @@ impl VenueRepository for VenueRepositoryImpl {
                     player_handle: player.handle,
                     venue_stats: venue_stats
                   }
-            "#)
+            "#,
+            )
             .bind_var("player_id", player_id)
             .build();
-        
+
         match self.db.aql_query::<serde_json::Value>(query).await {
             Ok(cursor) => {
                 let results: Vec<serde_json::Value> = cursor.into_iter().collect();
-                log::info!("✅ Venue stats retrieved for player: {} ({} venues)", player_id, results.len());
+                log::info!(
+                    "✅ Venue stats retrieved for player: {} ({} venues)",
+                    player_id,
+                    results.len()
+                );
                 Ok(results)
-                }
+            }
             Err(e) => {
                 log::error!("❌ Failed to get player venue stats: {}", e);
                 Err(format!("Database query failed: {}", e))
@@ -742,10 +898,18 @@ impl VenueRepository for VenueRepositoryImpl {
             // Prefer place_id when available; otherwise use coordinates
             if !venue.place_id.is_empty() {
                 log::info!("🌍 Resolving timezone via place_id: {}", venue.place_id);
-                timezone_service.infer_timezone_from_place_id(&venue.place_id).await
+                timezone_service
+                    .infer_timezone_from_place_id(&venue.place_id)
+                    .await
             } else if venue.lat != 0.0 && venue.lng != 0.0 {
-                log::info!("🌍 Resolving timezone via coordinates: {}, {}", venue.lat, venue.lng);
-                timezone_service.get_timezone_with_fallback(venue.lat, venue.lng).await
+                log::info!(
+                    "🌍 Resolving timezone via coordinates: {}, {}",
+                    venue.lat,
+                    venue.lng
+                );
+                timezone_service
+                    .get_timezone_with_fallback(venue.lat, venue.lng)
+                    .await
             } else {
                 "UTC".to_string()
             }
@@ -756,19 +920,27 @@ impl VenueRepository for VenueRepositoryImpl {
             "UTC".to_string()
         };
 
-        log::info!("🌍 Setting timezone for new venue '{}': {} (lat: {}, lng: {})", 
-            venue.display_name, timezone, venue.lat, venue.lng);
+        log::info!(
+            "🌍 Setting timezone for new venue '{}': {} (lat: {}, lng: {})",
+            venue.display_name,
+            timezone,
+            venue.lat,
+            venue.lng
+        );
 
         // Create venue with determined timezone
-        let venue_with_timezone = Venue {
-            timezone,
-            ..venue
-        };
+        let venue_with_timezone = Venue { timezone, ..venue };
 
-        let collection = self.db.collection("venue").await
+        let collection = self
+            .db
+            .collection("venue")
+            .await
             .map_err(|e| format!("Failed to get collection: {}", e))?;
-        
-        match collection.create_document(venue_with_timezone.clone(), InsertOptions::default()).await {
+
+        match collection
+            .create_document(venue_with_timezone.clone(), InsertOptions::default())
+            .await
+        {
             Ok(created_doc) => {
                 let header = created_doc.header().unwrap();
                 Ok(Venue {
@@ -782,25 +954,34 @@ impl VenueRepository for VenueRepositoryImpl {
                     timezone: venue_with_timezone.timezone,
                     source: venue_with_timezone.source,
                 })
-            },
+            }
             Err(e) => Err(format!("Failed to create venue: {}", e)),
         }
     }
 
     async fn update(&self, venue: Venue) -> Result<Venue, String> {
-        let collection = self.db.collection("venue").await
+        let collection = self
+            .db
+            .collection("venue")
+            .await
             .map_err(|e| format!("Failed to get collection: {}", e))?;
-        
+
         // Allow updating without requiring a matching _rev from the client side.
         // We already fetched the existing document and preserve its rev in usecase.
         let update_options = UpdateOptions::builder()
             .ignore_revs(true)
             .return_new(true)
             .build();
-        
+
         // Arango's collection.update_document expects the document KEY, not the full _id
-        let key: String = match venue.id.split_once('/') { Some((_, k)) => k.to_string(), None => venue.id.clone() };
-        match collection.update_document(&key, venue.clone(), update_options).await {
+        let key: String = match venue.id.split_once('/') {
+            Some((_, k)) => k.to_string(),
+            None => venue.id.clone(),
+        };
+        match collection
+            .update_document(&key, venue.clone(), update_options)
+            .await
+        {
             Ok(updated_doc) => {
                 let header = updated_doc.header().unwrap();
                 Ok(Venue {
@@ -814,56 +995,82 @@ impl VenueRepository for VenueRepositoryImpl {
                     timezone: venue.timezone,
                     source: venue.source,
                 })
-            },
+            }
             Err(e) => Err(format!("Failed to update venue: {}", e)),
         }
     }
 
     async fn delete(&self, id: &str) -> Result<(), String> {
-        let collection = self.db.collection("venue").await
+        let collection = self
+            .db
+            .collection("venue")
+            .await
             .map_err(|e| format!("Failed to get collection: {}", e))?;
-        
+
         // Arango expects document key, not full _id
         let key = id.split_once('/').map(|(_, k)| k).unwrap_or(id);
-        match collection.remove_document::<serde_json::Value>(key, RemoveOptions::default(), None).await {
+        match collection
+            .remove_document::<serde_json::Value>(key, RemoveOptions::default(), None)
+            .await
+        {
             Ok(_) => Ok(()),
             Err(e) => Err(format!("Failed to delete venue: {}", e)),
         }
     }
 
     async fn search_dto_with_external(&self, query: &str) -> Vec<VenueDto> {
-        log::info!("🔍 Starting venue search with external APIs for query: '{}'", query);
+        log::info!(
+            "🔍 Starting venue search with external APIs for query: '{}'",
+            query
+        );
         let mut results = Vec::new();
         let max_results = 20;
 
         // Case-insensitive partial match using CONTAINS on displayName
         let query_lower = query.to_lowercase();
-        let display_filter = "FOR v IN venue FILTER CONTAINS(LOWER(v.displayName), @q) LIMIT @limit RETURN v";
+        let display_filter =
+            "FOR v IN venue FILTER CONTAINS(LOWER(v.displayName), @q) LIMIT @limit RETURN v";
 
-        log::info!("📝 Searching venues by displayName with query_lower: '{}'", query_lower);
+        log::info!(
+            "📝 Searching venues by displayName with query_lower: '{}'",
+            query_lower
+        );
         let display_name_query = arangors::AqlQuery::builder()
             .query(display_filter)
             .bind_var("q", query_lower.as_str())
             .bind_var("limit", max_results)
             .build();
-        
+
         log::info!("🔍 Executing AQL query: FOR v IN venue FILTER CONTAINS(LOWER(v.displayName), LOWER(@query)) LIMIT @limit RETURN v");
-        log::info!("🔍 Query bindings: query='{}', limit={}", query, max_results);
-        
+        log::info!(
+            "🔍 Query bindings: query='{}', limit={}",
+            query,
+            max_results
+        );
+
         let display_name_results = match self.db.aql_query::<VenueDb>(display_name_query).await {
             Ok(cursor) => {
                 log::info!("✅ AQL query executed successfully");
                 let db_venues: Vec<VenueDb> = cursor.into_iter().collect();
                 log::info!("📊 Display name search returned {} venues", db_venues.len());
-                
+
                 // Convert database venues to full Venue models with source field
-                let venues: Vec<Venue> = db_venues.into_iter().map(|db_venue| {
-                    log::info!("  Venue {}: ID={}, Name='{}', Address='{}'", 1, db_venue.id, db_venue.display_name, db_venue.formatted_address);
-                    Venue::from(db_venue)
-                }).collect();
-                
+                let venues: Vec<Venue> = db_venues
+                    .into_iter()
+                    .map(|db_venue| {
+                        log::info!(
+                            "  Venue {}: ID={}, Name='{}', Address='{}'",
+                            1,
+                            db_venue.id,
+                            db_venue.display_name,
+                            db_venue.formatted_address
+                        );
+                        Venue::from(db_venue)
+                    })
+                    .collect();
+
                 venues
-            },
+            }
             Err(e) => {
                 log::error!("❌ AQL query failed: {}", e);
                 Vec::new()
@@ -872,7 +1079,11 @@ impl VenueRepository for VenueRepositoryImpl {
 
         // Convert database venues to DTOs with Database source (preserve timezone)
         for venue in display_name_results {
-            log::info!("🔄 Converting venue to DTO: {} -> {}", venue.id, venue.display_name);
+            log::info!(
+                "🔄 Converting venue to DTO: {} -> {}",
+                venue.id,
+                venue.display_name
+            );
             results.push(VenueDto {
                 id: venue.id.clone(),
                 display_name: venue.display_name.clone(),
@@ -898,24 +1109,36 @@ impl VenueRepository for VenueRepositoryImpl {
                 .bind_var("q", query_lower.as_str())
                 .bind_var("limit", remaining_limit)
                 .build();
-            
+
             log::info!("🔍 Executing address AQL query: FOR v IN venue FILTER CONTAINS(LOWER(v.formattedAddress), LOWER(@query)) LIMIT @limit RETURN v");
-            log::info!("🔍 Address query bindings: query='{}', limit={}", query, remaining_limit);
-            
+            log::info!(
+                "🔍 Address query bindings: query='{}', limit={}",
+                query,
+                remaining_limit
+            );
+
             let address_results = match self.db.aql_query::<VenueDb>(address_query).await {
                 Ok(cursor) => {
                     log::info!("✅ Address AQL query executed successfully");
                     let db_venues: Vec<VenueDb> = cursor.into_iter().collect();
                     log::info!("📊 Address search returned {} venues", db_venues.len());
-                    
+
                     // Convert database venues to full Venue models with source field
-                    let venues: Vec<Venue> = db_venues.into_iter().map(|db_venue| {
-                        log::info!("  Address Venue: ID={}, Name='{}', Address='{}'", db_venue.id, db_venue.display_name, db_venue.formatted_address);
-                        Venue::from(db_venue)
-                    }).collect();
-                    
+                    let venues: Vec<Venue> = db_venues
+                        .into_iter()
+                        .map(|db_venue| {
+                            log::info!(
+                                "  Address Venue: ID={}, Name='{}', Address='{}'",
+                                db_venue.id,
+                                db_venue.display_name,
+                                db_venue.formatted_address
+                            );
+                            Venue::from(db_venue)
+                        })
+                        .collect();
+
                     venues
-                },
+                }
                 Err(e) => {
                     log::error!("❌ Address AQL query failed: {}", e);
                     Vec::new()
@@ -926,7 +1149,11 @@ impl VenueRepository for VenueRepositoryImpl {
             for venue in address_results {
                 // Check if we already have this venue (avoid duplicates)
                 if !results.iter().any(|dto| dto.id == venue.id) {
-                    log::info!("🔄 Converting address venue to DTO: {} -> {}", venue.id, venue.display_name);
+                    log::info!(
+                        "🔄 Converting address venue to DTO: {} -> {}",
+                        venue.id,
+                        venue.display_name
+                    );
                     results.push(VenueDto {
                         id: venue.id.clone(),
                         display_name: venue.display_name.clone(),
@@ -938,24 +1165,35 @@ impl VenueRepository for VenueRepositoryImpl {
                         source: shared::models::venue::VenueSource::Database,
                     });
                 } else {
-                    log::info!("⏭️  Skipping duplicate venue: {} -> {}", venue.id, venue.display_name);
+                    log::info!(
+                        "⏭️  Skipping duplicate venue: {} -> {}",
+                        venue.id,
+                        venue.display_name
+                    );
                 }
             }
         }
 
         // Try to fill remaining slots with Google API results (if available)
         if results.len() < max_results && self.google_places.is_some() {
-            log::info!("Google Places API is available, attempting to fill {} remaining slots", max_results - results.len());
+            log::info!(
+                "Google Places API is available, attempting to fill {} remaining slots",
+                max_results - results.len()
+            );
             if let Some(ref google_places) = self.google_places {
                 match google_places.search_places(query).await {
                     Ok(google_results) => {
                         let remaining_limit = max_results - results.len();
                         log::info!("Google Places API returned {} results, adding {} to fill remaining slots", 
                                   google_results.len(), std::cmp::min(remaining_limit, google_results.len()));
-                        
+
                         // Convert Google Places results to DTOs
                         for venue in google_results.into_iter().take(remaining_limit) {
-                            log::info!("🔄 Converting Google venue to DTO: {} -> {}", venue.id, venue.display_name);
+                            log::info!(
+                                "🔄 Converting Google venue to DTO: {} -> {}",
+                                venue.id,
+                                venue.display_name
+                            );
                             results.push(VenueDto {
                                 id: venue.id.clone(),
                                 display_name: venue.display_name.clone(),
@@ -974,15 +1212,23 @@ impl VenueRepository for VenueRepositoryImpl {
                 }
             }
         } else if results.len() < max_results {
-            log::info!("Google Places API not available, cannot fill remaining {} slots", max_results - results.len());
+            log::info!(
+                "Google Places API not available, cannot fill remaining {} slots",
+                max_results - results.len()
+            );
         }
 
         log::info!("🎯 Total search results: {} venues", results.len());
         for (i, venue_dto) in results.iter().enumerate() {
-            log::info!("  Final result {}: ID={}, Name='{}', Source={:?}", 
-                      i+1, venue_dto.id, venue_dto.display_name, venue_dto.source);
+            log::info!(
+                "  Final result {}: ID={}, Name='{}', Source={:?}",
+                i + 1,
+                venue_dto.id,
+                venue_dto.display_name,
+                venue_dto.source
+            );
         }
 
         results
     }
-} 
+}

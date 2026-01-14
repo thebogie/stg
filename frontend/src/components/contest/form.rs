@@ -1,12 +1,11 @@
-use yew::prelude::*;
-use shared::dto::{contest::OutcomeDto, venue::VenueDto, game::GameDto};
+use crate::flatpickr::{fp_destroy_all, fp_init, fp_set_value};
+use shared::dto::{contest::OutcomeDto, game::GameDto, venue::VenueDto};
 use wasm_bindgen::prelude::*;
-use crate::flatpickr::{fp_init, fp_set_value, fp_destroy_all};
+use yew::prelude::*;
 
 use super::game_selector::GameSelector;
-use super::venue_picker::VenuePicker;
 use super::outcome_selector::OutcomeSelector;
-
+use super::venue_picker::VenuePicker;
 
 #[wasm_bindgen(module = "/src/js/timezone.js")]
 extern "C" {
@@ -19,8 +18,6 @@ extern "C" {
 }
 
 // Timezone handling is now automatic based on venue selection
-
-
 
 #[derive(Properties, PartialEq, Clone)]
 pub struct ContestFormProps {
@@ -55,7 +52,8 @@ pub(crate) fn parse_offset_to_seconds(offset: &str) -> Option<i32> {
     // Case 2: "+HH:MM" or "-HH:MM"
     if offset.len() >= 6 {
         let sign = if &offset[0..1] == "+" { 1 } else { -1 };
-        if let (Ok(hours), Ok(minutes)) = (offset[1..3].parse::<i32>(), offset[4..6].parse::<i32>()) {
+        if let (Ok(hours), Ok(minutes)) = (offset[1..3].parse::<i32>(), offset[4..6].parse::<i32>())
+        {
             return Some(sign * (hours * 3600 + minutes * 60));
         }
     }
@@ -76,7 +74,7 @@ pub fn contest_form(props: &ContestFormProps) -> Html {
     let props = props.clone();
     let is_submitting = use_state(|| false);
     let show_validation_modal = use_state(|| false);
-    
+
     // Reset is_submitting state when component mounts or becomes visible again
     // This fixes the bug where the button stays spinning after returning from confirmation modal
     use_effect_with((), {
@@ -86,7 +84,7 @@ pub fn contest_form(props: &ContestFormProps) -> Html {
             || ()
         }
     });
-    
+
     // Local datetime state for stable flatpickr inputs
     let local_state = use_state(|| {
         // Convert UTC times to local strings for display
@@ -94,21 +92,31 @@ pub fn contest_form(props: &ContestFormProps) -> Html {
         let start_local = if !timezone.is_empty() {
             let offset_str = getTimezoneOffsetForInstant(&timezone, &props.start.to_rfc3339());
             let tz_seconds = parse_offset_to_seconds(&offset_str).unwrap_or(0);
-            let tz = chrono::FixedOffset::east_opt(tz_seconds).unwrap_or(chrono::FixedOffset::east_opt(0).unwrap());
-            props.start.with_timezone(&tz).format("%m/%d/%Y %H:%M").to_string()
+            let tz = chrono::FixedOffset::east_opt(tz_seconds)
+                .unwrap_or(chrono::FixedOffset::east_opt(0).unwrap());
+            props
+                .start
+                .with_timezone(&tz)
+                .format("%m/%d/%Y %H:%M")
+                .to_string()
         } else {
             props.start.format("%m/%d/%Y %H:%M").to_string()
         };
-        
+
         let stop_local = if !timezone.is_empty() {
             let offset_str = getTimezoneOffsetForInstant(&timezone, &props.stop.to_rfc3339());
             let tz_seconds = parse_offset_to_seconds(&offset_str).unwrap_or(0);
-            let tz = chrono::FixedOffset::east_opt(tz_seconds).unwrap_or(chrono::FixedOffset::east_opt(0).unwrap());
-            props.stop.with_timezone(&tz).format("%m/%d/%Y %H:%M").to_string()
+            let tz = chrono::FixedOffset::east_opt(tz_seconds)
+                .unwrap_or(chrono::FixedOffset::east_opt(0).unwrap());
+            props
+                .stop
+                .with_timezone(&tz)
+                .format("%m/%d/%Y %H:%M")
+                .to_string()
         } else {
             props.stop.format("%m/%d/%Y %H:%M").to_string()
         };
-        
+
         LocalDateTimeState {
             start_local,
             stop_local,
@@ -119,34 +127,57 @@ pub fn contest_form(props: &ContestFormProps) -> Html {
     let convert_and_emit_start = {
         let props = props.clone();
         move |datetime_str: String| {
-            web_sys::console::log_1(&format!("convert_and_emit_start: input='{}'", datetime_str).into());
-            
+            web_sys::console::log_1(
+                &format!("convert_and_emit_start: input='{}'", datetime_str).into(),
+            );
+
             // Try multiple date formats that flatpickr might return
             // Prioritize the new user-friendly format first
             let naive_dt = chrono::NaiveDateTime::parse_from_str(&datetime_str, "%m/%d/%Y %H:%M")
-                .or_else(|_| chrono::NaiveDateTime::parse_from_str(&datetime_str, "%m/%d/%Y %I:%M %p"))
+                .or_else(|_| {
+                    chrono::NaiveDateTime::parse_from_str(&datetime_str, "%m/%d/%Y %I:%M %p")
+                })
                 .or_else(|_| chrono::NaiveDateTime::parse_from_str(&datetime_str, "%Y-%m-%dT%H:%M"))
-                .or_else(|_| chrono::NaiveDateTime::parse_from_str(&datetime_str, "%Y-%m-%d %H:%M"));
-            
+                .or_else(|_| {
+                    chrono::NaiveDateTime::parse_from_str(&datetime_str, "%Y-%m-%d %H:%M")
+                });
+
             if let Ok(naive_dt) = naive_dt {
                 let timezone = normalizeIanaTimezone(&props.timezone);
-                web_sys::console::log_1(&format!("convert_and_emit_start: naive_dt='{}', timezone='{}'", naive_dt, timezone).into());
-                
+                web_sys::console::log_1(
+                    &format!(
+                        "convert_and_emit_start: naive_dt='{}', timezone='{}'",
+                        naive_dt, timezone
+                    )
+                    .into(),
+                );
+
                 if !timezone.is_empty() {
                     // The naive_dt from flatpickr represents the venue's local time
                     // Convert it directly to UTC using the venue's timezone
                     let iso_for_offset = naive_dt.format("%Y-%m-%dT%H:%M:%S").to_string();
                     let offset_str = getTimezoneOffsetForDate(&timezone, &iso_for_offset);
-                    web_sys::console::log_1(&format!("convert_and_emit_start: iso_for_offset='{}', offset_str='{}'", iso_for_offset, offset_str).into());
+                    web_sys::console::log_1(
+                        &format!(
+                            "convert_and_emit_start: iso_for_offset='{}', offset_str='{}'",
+                            iso_for_offset, offset_str
+                        )
+                        .into(),
+                    );
                     let tz_seconds = parse_offset_to_seconds(&offset_str).unwrap_or(0);
-                    web_sys::console::log_1(&format!("convert_and_emit_start: tz_seconds={}", tz_seconds).into());
-                    
+                    web_sys::console::log_1(
+                        &format!("convert_and_emit_start: tz_seconds={}", tz_seconds).into(),
+                    );
+
                     // Create timezone offset and convert to UTC
                     if let Some(tz) = chrono::FixedOffset::east_opt(tz_seconds) {
                         // Treat naive_dt as being in the venue's timezone
-                        if let chrono::LocalResult::Single(venue_dt) = naive_dt.and_local_timezone(tz) {
+                        if let chrono::LocalResult::Single(venue_dt) =
+                            naive_dt.and_local_timezone(tz)
+                        {
                             let utc_dt = venue_dt.with_timezone(&chrono::Utc);
-                            let fixed_offset_dt = utc_dt.with_timezone(&chrono::FixedOffset::east_opt(0).unwrap());
+                            let fixed_offset_dt =
+                                utc_dt.with_timezone(&chrono::FixedOffset::east_opt(0).unwrap());
                             web_sys::console::log_1(&format!("convert_and_emit_start: venue_dt='{}', utc_dt='{}', fixed_offset_dt='{}'", venue_dt, utc_dt, fixed_offset_dt).into());
                             props.on_start_change.emit(fixed_offset_dt);
                         }
@@ -154,14 +185,21 @@ pub fn contest_form(props: &ContestFormProps) -> Html {
                 } else {
                     // Fallback to UTC if no timezone
                     if let Some(utc) = chrono::FixedOffset::east_opt(0) {
-                        if let chrono::LocalResult::Single(utc_dt) = naive_dt.and_local_timezone(utc) {
-                            web_sys::console::log_1(&format!("convert_and_emit_start: fallback utc_dt='{}'", utc_dt).into());
+                        if let chrono::LocalResult::Single(utc_dt) =
+                            naive_dt.and_local_timezone(utc)
+                        {
+                            web_sys::console::log_1(
+                                &format!("convert_and_emit_start: fallback utc_dt='{}'", utc_dt)
+                                    .into(),
+                            );
                             props.on_start_change.emit(utc_dt);
                         }
                     }
                 }
             } else {
-                web_sys::console::log_1(&format!("convert_and_emit_start: failed to parse '{}'", datetime_str).into());
+                web_sys::console::log_1(
+                    &format!("convert_and_emit_start: failed to parse '{}'", datetime_str).into(),
+                );
             }
         }
     };
@@ -169,34 +207,57 @@ pub fn contest_form(props: &ContestFormProps) -> Html {
     let convert_and_emit_stop = {
         let props = props.clone();
         move |datetime_str: String| {
-            web_sys::console::log_1(&format!("convert_and_emit_stop: input='{}'", datetime_str).into());
-            
+            web_sys::console::log_1(
+                &format!("convert_and_emit_stop: input='{}'", datetime_str).into(),
+            );
+
             // Try multiple date formats that flatpickr might return
             // Prioritize the new user-friendly format first
             let naive_dt = chrono::NaiveDateTime::parse_from_str(&datetime_str, "%m/%d/%Y %H:%M")
-                .or_else(|_| chrono::NaiveDateTime::parse_from_str(&datetime_str, "%m/%d/%Y %I:%M %p"))
+                .or_else(|_| {
+                    chrono::NaiveDateTime::parse_from_str(&datetime_str, "%m/%d/%Y %I:%M %p")
+                })
                 .or_else(|_| chrono::NaiveDateTime::parse_from_str(&datetime_str, "%Y-%m-%dT%H:%M"))
-                .or_else(|_| chrono::NaiveDateTime::parse_from_str(&datetime_str, "%Y-%m-%d %H:%M"));
-            
+                .or_else(|_| {
+                    chrono::NaiveDateTime::parse_from_str(&datetime_str, "%Y-%m-%d %H:%M")
+                });
+
             if let Ok(naive_dt) = naive_dt {
                 let timezone = normalizeIanaTimezone(&props.timezone);
-                web_sys::console::log_1(&format!("convert_and_emit_stop: naive_dt='{}', timezone='{}'", naive_dt, timezone).into());
-                
+                web_sys::console::log_1(
+                    &format!(
+                        "convert_and_emit_stop: naive_dt='{}', timezone='{}'",
+                        naive_dt, timezone
+                    )
+                    .into(),
+                );
+
                 if !timezone.is_empty() {
                     // The naive_dt from flatpickr is in the user's local timezone
                     // We need to treat it as being in the venue's timezone and convert to UTC
                     let iso_for_offset = naive_dt.format("%Y-%m-%dT%H:%M:%S").to_string();
                     let offset_str = getTimezoneOffsetForDate(&timezone, &iso_for_offset);
-                    web_sys::console::log_1(&format!("convert_and_emit_stop: iso_for_offset='{}', offset_str='{}'", iso_for_offset, offset_str).into());
+                    web_sys::console::log_1(
+                        &format!(
+                            "convert_and_emit_stop: iso_for_offset='{}', offset_str='{}'",
+                            iso_for_offset, offset_str
+                        )
+                        .into(),
+                    );
                     let tz_seconds = parse_offset_to_seconds(&offset_str).unwrap_or(0);
-                    web_sys::console::log_1(&format!("convert_and_emit_stop: tz_seconds={}", tz_seconds).into());
-                    
+                    web_sys::console::log_1(
+                        &format!("convert_and_emit_stop: tz_seconds={}", tz_seconds).into(),
+                    );
+
                     // Create timezone offset and convert to UTC
                     if let Some(tz) = chrono::FixedOffset::east_opt(tz_seconds) {
                         // Treat naive_dt as being in the venue's timezone
-                        if let chrono::LocalResult::Single(venue_dt) = naive_dt.and_local_timezone(tz) {
+                        if let chrono::LocalResult::Single(venue_dt) =
+                            naive_dt.and_local_timezone(tz)
+                        {
                             let utc_dt = venue_dt.with_timezone(&chrono::Utc);
-                            let fixed_offset_dt = utc_dt.with_timezone(&chrono::FixedOffset::east_opt(0).unwrap());
+                            let fixed_offset_dt =
+                                utc_dt.with_timezone(&chrono::FixedOffset::east_opt(0).unwrap());
                             web_sys::console::log_1(&format!("convert_and_emit_stop: venue_dt='{}', utc_dt='{}', fixed_offset_dt='{}'", venue_dt, utc_dt, fixed_offset_dt).into());
                             props.on_stop_change.emit(fixed_offset_dt);
                         }
@@ -204,14 +265,21 @@ pub fn contest_form(props: &ContestFormProps) -> Html {
                 } else {
                     // Fallback to UTC if no timezone
                     if let Some(utc) = chrono::FixedOffset::east_opt(0) {
-                        if let chrono::LocalResult::Single(utc_dt) = naive_dt.and_local_timezone(utc) {
-                            web_sys::console::log_1(&format!("convert_and_emit_stop: fallback utc_dt='{}'", utc_dt).into());
+                        if let chrono::LocalResult::Single(utc_dt) =
+                            naive_dt.and_local_timezone(utc)
+                        {
+                            web_sys::console::log_1(
+                                &format!("convert_and_emit_stop: fallback utc_dt='{}'", utc_dt)
+                                    .into(),
+                            );
                             props.on_stop_change.emit(utc_dt);
                         }
                     }
                 }
             } else {
-                web_sys::console::log_1(&format!("convert_and_emit_stop: failed to parse '{}'", datetime_str).into());
+                web_sys::console::log_1(
+                    &format!("convert_and_emit_stop: failed to parse '{}'", datetime_str).into(),
+                );
             }
         }
     };
@@ -223,49 +291,87 @@ pub fn contest_form(props: &ContestFormProps) -> Html {
         let convert_stop = convert_and_emit_stop.clone();
         move |_| {
             web_sys::console::log_1(&"Initializing flatpickr...".into());
-            
-            // Create JavaScript callbacks - use onClose instead of onChange to avoid repeated conversions
-            let start_callback = Closure::wrap(Box::new(move |selected_dates: JsValue, date_str: JsValue, _instance: JsValue| {
-                web_sys::console::log_1(&"Start onClose callback triggered!".into());
-                web_sys::console::log_1(&format!("Start onClose - selected_dates: {:?}, date_str: {:?}", selected_dates, date_str).into());
-                if let Some(s) = date_str.as_string() {
-                    web_sys::console::log_1(&format!("Start onClose - calling convert_start with: {}", s).into());
-                    convert_start(s);
-                } else {
-                    web_sys::console::log_1(&"Start onClose - date_str is not a string".into());
-                }
-            }) as Box<dyn Fn(JsValue, JsValue, JsValue)>);
-            
-            let stop_callback = Closure::wrap(Box::new(move |selected_dates: JsValue, date_str: JsValue, _instance: JsValue| {
-                web_sys::console::log_1(&"Stop onClose callback triggered!".into());
-                web_sys::console::log_1(&format!("Stop onClose - selected_dates: {:?}, date_str: {:?}", selected_dates, date_str).into());
-                if let Some(s) = date_str.as_string() {
-                    web_sys::console::log_1(&format!("Stop onClose - calling convert_stop with: {}", s).into());
-                    convert_stop(s);
-                } else {
-                    web_sys::console::log_1(&"Stop onClose - date_str is not a string".into());
-                }
-            }) as Box<dyn Fn(JsValue, JsValue, JsValue)>);
 
-            web_sys::console::log_1(&format!("Initializing start flatpickr with value: {}", local_state.start_local).into());
+            // Create JavaScript callbacks - use onClose instead of onChange to avoid repeated conversions
+            let start_callback = Closure::wrap(Box::new(
+                move |selected_dates: JsValue, date_str: JsValue, _instance: JsValue| {
+                    web_sys::console::log_1(&"Start onClose callback triggered!".into());
+                    web_sys::console::log_1(
+                        &format!(
+                            "Start onClose - selected_dates: {:?}, date_str: {:?}",
+                            selected_dates, date_str
+                        )
+                        .into(),
+                    );
+                    if let Some(s) = date_str.as_string() {
+                        web_sys::console::log_1(
+                            &format!("Start onClose - calling convert_start with: {}", s).into(),
+                        );
+                        convert_start(s);
+                    } else {
+                        web_sys::console::log_1(&"Start onClose - date_str is not a string".into());
+                    }
+                },
+            )
+                as Box<dyn Fn(JsValue, JsValue, JsValue)>);
+
+            let stop_callback = Closure::wrap(Box::new(
+                move |selected_dates: JsValue, date_str: JsValue, _instance: JsValue| {
+                    web_sys::console::log_1(&"Stop onClose callback triggered!".into());
+                    web_sys::console::log_1(
+                        &format!(
+                            "Stop onClose - selected_dates: {:?}, date_str: {:?}",
+                            selected_dates, date_str
+                        )
+                        .into(),
+                    );
+                    if let Some(s) = date_str.as_string() {
+                        web_sys::console::log_1(
+                            &format!("Stop onClose - calling convert_stop with: {}", s).into(),
+                        );
+                        convert_stop(s);
+                    } else {
+                        web_sys::console::log_1(&"Stop onClose - date_str is not a string".into());
+                    }
+                },
+            )
+                as Box<dyn Fn(JsValue, JsValue, JsValue)>);
+
+            web_sys::console::log_1(
+                &format!(
+                    "Initializing start flatpickr with value: {}",
+                    local_state.start_local
+                )
+                .into(),
+            );
             // Initialize flatpickr instances
             if let Err(e) = fp_init(
                 "start-datetime-input",
                 Some(&local_state.start_local),
                 Some(JsValue::from(start_callback.as_ref())),
             ) {
-                web_sys::console::error_1(&format!("Failed to initialize start flatpickr: {:?}", e).into());
+                web_sys::console::error_1(
+                    &format!("Failed to initialize start flatpickr: {:?}", e).into(),
+                );
             } else {
                 web_sys::console::log_1(&"Start flatpickr initialized successfully".into());
             }
 
-            web_sys::console::log_1(&format!("Initializing stop flatpickr with value: {}", local_state.stop_local).into());
+            web_sys::console::log_1(
+                &format!(
+                    "Initializing stop flatpickr with value: {}",
+                    local_state.stop_local
+                )
+                .into(),
+            );
             if let Err(e) = fp_init(
-                "stop-datetime-input", 
+                "stop-datetime-input",
                 Some(&local_state.stop_local),
                 Some(JsValue::from(stop_callback.as_ref())),
             ) {
-                web_sys::console::error_1(&format!("Failed to initialize stop flatpickr: {:?}", e).into());
+                web_sys::console::error_1(
+                    &format!("Failed to initialize stop flatpickr: {:?}", e).into(),
+                );
             } else {
                 web_sys::console::log_1(&"Stop flatpickr initialized successfully".into());
             }
@@ -290,16 +396,21 @@ pub fn contest_form(props: &ContestFormProps) -> Html {
             let start_local = if !timezone.is_empty() {
                 let offset_str = getTimezoneOffsetForInstant(&timezone, &start.to_rfc3339());
                 let tz_seconds = parse_offset_to_seconds(&offset_str).unwrap_or(0);
-                let tz = chrono::FixedOffset::east_opt(tz_seconds).unwrap_or(chrono::FixedOffset::east_opt(0).unwrap());
-                start.with_timezone(&tz).format("%m/%d/%Y %H:%M").to_string()
+                let tz = chrono::FixedOffset::east_opt(tz_seconds)
+                    .unwrap_or(chrono::FixedOffset::east_opt(0).unwrap());
+                start
+                    .with_timezone(&tz)
+                    .format("%m/%d/%Y %H:%M")
+                    .to_string()
             } else {
                 start.format("%m/%d/%Y %H:%M").to_string()
             };
-            
+
             let stop_local = if !timezone.is_empty() {
                 let offset_str = getTimezoneOffsetForInstant(&timezone, &stop.to_rfc3339());
                 let tz_seconds = parse_offset_to_seconds(&offset_str).unwrap_or(0);
-                let tz = chrono::FixedOffset::east_opt(tz_seconds).unwrap_or(chrono::FixedOffset::east_opt(0).unwrap());
+                let tz = chrono::FixedOffset::east_opt(tz_seconds)
+                    .unwrap_or(chrono::FixedOffset::east_opt(0).unwrap());
                 stop.with_timezone(&tz).format("%m/%d/%Y %H:%M").to_string()
             } else {
                 stop.format("%m/%d/%Y %H:%M").to_string()
@@ -332,12 +443,16 @@ pub fn contest_form(props: &ContestFormProps) -> Html {
             if !*is_submitting {
                 // Check for validation errors and show modal if needed
                 let mut has_errors = false;
-                
+
                 // Basic validation
-                if props.venue.is_none() || props.games.is_empty() || props.outcomes.is_empty() || props.stop <= props.start {
+                if props.venue.is_none()
+                    || props.games.is_empty()
+                    || props.outcomes.is_empty()
+                    || props.stop <= props.start
+                {
                     has_errors = true;
                 }
-                
+
                 // Detailed ID validation
                 if let Some(venue) = &props.venue {
                     if venue.source == shared::models::venue::VenueSource::Database {
@@ -346,33 +461,32 @@ pub fn contest_form(props: &ContestFormProps) -> Html {
                         }
                     }
                 }
-                
+
                 for game in &props.games {
-                    if game.id.is_empty() || (!game.id.starts_with("game/") && !game.id.starts_with("bgg_")) {
+                    if game.id.is_empty()
+                        || (!game.id.starts_with("game/") && !game.id.starts_with("bgg_"))
+                    {
                         has_errors = true;
                     }
                 }
-                
+
                 for outcome in &props.outcomes {
                     // Allow empty player_id for new players, but check format for existing players
                     if !outcome.player_id.is_empty() && !outcome.player_id.starts_with("player/") {
                         has_errors = true;
                     }
                 }
-                
+
                 if has_errors {
                     show_validation_modal.set(true);
                     return;
                 }
-                
+
                 is_submitting.set(true);
                 props.on_submit.emit(());
             }
         })
     };
-
-
-
 
     // Build a human-friendly timezone label such as: "America/New_York (UTC-05:00)"
     let timezone_label = {
@@ -419,7 +533,7 @@ pub fn contest_form(props: &ContestFormProps) -> Html {
                             {"Pick a venue first to set the contest timezone. Date and time fields will unlock once a venue is selected. Times shown are in the venue's timezone; submissions are stored in UTC."}
                         </div>
                     }
-                    
+
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
                         // Start Date/Time
                         <div class="space-y-2">
@@ -453,7 +567,7 @@ pub fn contest_form(props: &ContestFormProps) -> Html {
                             />
                         </div>
                     </div>
-                
+
                     // Timezone display removed per requirements; venue timezone is used implicitly
                 </div>
 
@@ -584,7 +698,7 @@ pub fn contest_form(props: &ContestFormProps) -> Html {
             }
         </div>
     }
-} 
+}
 
 // ---------- Tests ----------
 #[cfg(test)]
@@ -593,18 +707,37 @@ mod tests {
 
     #[test]
     fn parse_offset_supports_minutes_and_hhmm() {
-        assert_eq!(crate::components::contest::form::parse_offset_to_seconds("0"), Some(0));
-        assert_eq!(crate::components::contest::form::parse_offset_to_seconds("-300"), Some(-300 * 60));
-        assert_eq!(crate::components::contest::form::parse_offset_to_seconds("+60"), Some(60 * 60));
-        assert_eq!(crate::components::contest::form::parse_offset_to_seconds("+05:30"), Some((5 * 3600) + 1800));
-        assert_eq!(crate::components::contest::form::parse_offset_to_seconds("-08:00"), Some(-(8 * 3600)));
-        assert_eq!(crate::components::contest::form::parse_offset_to_seconds("bad"), None);
+        assert_eq!(
+            crate::components::contest::form::parse_offset_to_seconds("0"),
+            Some(0)
+        );
+        assert_eq!(
+            crate::components::contest::form::parse_offset_to_seconds("-300"),
+            Some(-300 * 60)
+        );
+        assert_eq!(
+            crate::components::contest::form::parse_offset_to_seconds("+60"),
+            Some(60 * 60)
+        );
+        assert_eq!(
+            crate::components::contest::form::parse_offset_to_seconds("+05:30"),
+            Some((5 * 3600) + 1800)
+        );
+        assert_eq!(
+            crate::components::contest::form::parse_offset_to_seconds("-08:00"),
+            Some(-(8 * 3600))
+        );
+        assert_eq!(
+            crate::components::contest::form::parse_offset_to_seconds("bad"),
+            None
+        );
     }
 
     #[test]
     fn utc_conversion_roundtrip() {
         // Local 2024-03-10 01:30 in -08:00 should be 09:30 UTC
-        let naive = chrono::NaiveDateTime::parse_from_str("2024-03-10T01:30", "%Y-%m-%dT%H:%M").unwrap();
+        let naive =
+            chrono::NaiveDateTime::parse_from_str("2024-03-10T01:30", "%Y-%m-%dT%H:%M").unwrap();
         let tz = chrono::FixedOffset::east_opt(-8 * 3600).unwrap();
         let local = tz.from_local_datetime(&naive).single().unwrap();
         let utc = local.with_timezone(&chrono::FixedOffset::east_opt(0).unwrap());

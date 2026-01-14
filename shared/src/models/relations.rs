@@ -1,6 +1,6 @@
+use crate::error::{Result, SharedError};
 use serde::{Deserialize, Serialize};
 use validator::Validate;
-use crate::error::{Result, SharedError};
 
 /// Represents a "played at" relation between a contest and a venue
 #[derive(Debug, Clone, Serialize, Deserialize, Validate)]
@@ -8,21 +8,21 @@ pub struct PlayedAt {
     /// ArangoDB document ID (format: "played_at/{timestamp}")
     #[serde(rename = "_id")]
     pub id: String,
-    
+
     /// ArangoDB document revision
     #[serde(rename = "_rev")]
     pub rev: String,
-    
+
     /// Target vertex ID (format: "venue/{timestamp}")
     #[serde(rename = "_to")]
     #[validate(length(min = 1))]
     pub to: String,
-    
+
     /// Source vertex ID (format: "contest/{timestamp}")
     #[serde(rename = "_from")]
     #[validate(length(min = 1))]
     pub from: String,
-    
+
     /// Edge label (always "PLAYED_AT")
     #[serde(rename = "_label")]
     #[validate(length(min = 1))]
@@ -35,21 +35,21 @@ pub struct PlayedWith {
     /// ArangoDB document ID (format: "played_with/{timestamp}")
     #[serde(rename = "_id")]
     pub id: String,
-    
+
     /// ArangoDB document revision
     #[serde(rename = "_rev")]
     pub rev: String,
-    
+
     /// Target vertex ID (format: "game/{timestamp}")
     #[serde(rename = "_to")]
     #[validate(length(min = 1))]
     pub to: String,
-    
+
     /// Source vertex ID (format: "contest/{timestamp}")
     #[serde(rename = "_from")]
     #[validate(length(min = 1))]
     pub from: String,
-    
+
     /// Edge label (always "PLAYED_WITH")
     #[serde(rename = "_label")]
     #[validate(length(min = 1))]
@@ -62,30 +62,30 @@ pub struct ResultedIn {
     /// ArangoDB document ID (format: "resulted_in/{timestamp}")
     #[serde(rename = "_id")]
     pub id: String,
-    
+
     /// ArangoDB document revision
     #[serde(rename = "_rev")]
     pub rev: String,
-    
+
     /// Target vertex ID (format: "player/{timestamp}")
     #[serde(rename = "_to")]
     #[validate(length(min = 1))]
     pub to: String,
-    
+
     /// Source vertex ID (format: "contest/{timestamp}")
     #[serde(rename = "_from")]
     #[validate(length(min = 1))]
     pub from: String,
-    
+
     /// Edge label (always "RESULTED_IN")
     #[serde(rename = "_label")]
     #[validate(length(min = 1))]
     pub label: String,
-    
+
     /// Player's placement in the contest
     #[validate(range(min = 1))]
     pub place: i32,
-    
+
     /// Result description (e.g., "won", "lost")
     #[validate(length(min = 1))]
     pub result: String,
@@ -94,12 +94,12 @@ pub struct ResultedIn {
 impl PlayedAt {
     /// Creates a new played at relation with validation
     pub fn new(id: String, rev: String, to: String, from: String) -> Result<Self> {
-        let relation = Self { 
-            id, 
+        let relation = Self {
+            id,
             rev,
-            to, 
-            from, 
-            label: "PLAYED_AT".to_string() 
+            to,
+            from,
+            label: "PLAYED_AT".to_string(),
         };
         relation.validate_fields()?;
         Ok(relation)
@@ -116,12 +116,12 @@ impl PlayedWith {
     /// Creates a new played with relation with validation
     /// This represents a relation between a contest and a game
     pub fn new(id: String, rev: String, to: String, from: String) -> Result<Self> {
-        let relation = Self { 
-            id, 
+        let relation = Self {
+            id,
             rev,
-            to, 
-            from, 
-            label: "PLAYED_WITH".to_string() 
+            to,
+            from,
+            label: "PLAYED_WITH".to_string(),
         };
         relation.validate_fields()?;
         Ok(relation)
@@ -137,15 +137,22 @@ impl PlayedWith {
 impl ResultedIn {
     /// Creates a new resulted in relation with validation
     /// This represents a relation from a contest to a player with their result
-    pub fn new(id: String, rev: String, to: String, from: String, place: i32, result: String) -> Result<Self> {
-        let relation = Self { 
-            id, 
+    pub fn new(
+        id: String,
+        rev: String,
+        to: String,
+        from: String,
+        place: i32,
+        result: String,
+    ) -> Result<Self> {
+        let relation = Self {
+            id,
             rev,
-            to, 
-            from, 
+            to,
+            from,
             label: "RESULTED_IN".to_string(),
-            place, 
-            result 
+            place,
+            result,
         };
         relation.validate_fields()?;
         Ok(relation)
@@ -493,10 +500,10 @@ mod tests {
     fn test_relations_id_formats() {
         let played_at = create_test_played_at();
         assert!(played_at.id.starts_with("played_at/"));
-        
+
         let played_with = create_test_played_with();
         assert!(played_with.id.starts_with("played_with/"));
-        
+
         let resulted_in = create_test_resulted_in();
         assert!(resulted_in.id.starts_with("resulted_in/"));
     }
@@ -505,11 +512,11 @@ mod tests {
     fn test_relations_rev_formats() {
         let played_at = create_test_played_at();
         assert!(played_at.rev.parse::<i32>().is_ok());
-        
+
         let played_with = create_test_played_with();
         assert!(played_with.rev.parse::<i32>().is_ok());
-        
+
         let resulted_in = create_test_resulted_in();
         assert!(resulted_in.rev.parse::<i32>().is_ok());
     }
-} 
+}

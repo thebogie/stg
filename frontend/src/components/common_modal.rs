@@ -39,11 +39,11 @@ pub fn modal(props: &ModalProps) -> Html {
 
     html! {
         <div class="fixed inset-0 z-50 flex items-center justify-center">
-            <div 
+            <div
                 class="absolute inset-0 bg-black bg-opacity-50"
                 onclick={on_overlay_click}
             ></div>
-            <div 
+            <div
                 class="relative bg-white rounded-lg shadow-xl p-6 max-w-md w-full mx-4"
                 onclick={on_modal_click}
             >
@@ -67,4 +67,4 @@ pub fn modal(props: &ModalProps) -> Html {
             </div>
         </div>
     }
-} 
+}

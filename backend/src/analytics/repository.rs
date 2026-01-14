@@ -1,12 +1,13 @@
-use std::collections::HashMap;
-use arangors::{Database, document::options::{InsertOptions, UpdateOptions}, client::ClientExt, AqlQuery};
-use shared::{
-    models::analytics::*,
-    Result, SharedError,
-};
+use crate::analytics::engine::{ContestParticipant, ContestResult, GamePlay, VenueContest};
 use crate::config::DatabaseConfig;
-use crate::analytics::engine::{ContestResult, ContestParticipant, GamePlay, VenueContest};
+use arangors::{
+    client::ClientExt,
+    document::options::{InsertOptions, UpdateOptions},
+    AqlQuery, Database,
+};
 use serde::Deserialize;
+use shared::{models::analytics::*, Result, SharedError};
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct HeatRow {
@@ -41,7 +42,11 @@ impl<C: ClientExt> AnalyticsRepository<C> {
     }
 
     /// Returns contest counts bucketed by weekday (0=Sun..6=Sat) and hour (0..23)
-    pub async fn get_contest_heatmap(&self, weeks: i32, game_id: Option<&str>) -> Result<Vec<HeatRow>> {
+    pub async fn get_contest_heatmap(
+        &self,
+        weeks: i32,
+        game_id: Option<&str>,
+    ) -> Result<Vec<HeatRow>> {
         let query = r#"
             FOR c IN contest
               FILTER c.start >= DATE_SUBTRACT(DATE_NOW(), @weeks, "weeks")
@@ -88,12 +93,12 @@ impl<C: ClientExt> AnalyticsRepository<C> {
     /// Get player ID by email
     pub async fn get_player_id_by_email(&self, email: &str) -> Result<Option<String>> {
         let query = "FOR p IN player FILTER LOWER(p.email) == LOWER(@email) LIMIT 1 RETURN p._id";
-        
+
         let aql = AqlQuery::builder()
             .query(query)
             .bind_var("email", email)
             .build();
-            
+
         match self.db.aql_query::<String>(aql).await {
             Ok(results) => {
                 if let Some(player_id) = results.into_iter().next() {
@@ -112,67 +117,76 @@ impl<C: ClientExt> AnalyticsRepository<C> {
     /// Get platform statistics from real data
     pub async fn get_platform_stats(&self) -> Result<PlatformStats> {
         log::info!("Starting to get platform stats...");
-        
+
         // Get total counts from collections
         let total_players = self.get_total_players().await?;
         log::info!("Total players: {}", total_players);
-        
+
         let total_contests = self.get_total_contests().await?;
         log::info!("Total contests: {}", total_contests);
-        
+
         let total_games = self.get_total_games().await?;
         log::info!("Total games: {}", total_games);
-        
+
         let total_venues = self.get_total_venues().await?;
         log::info!("Total venues: {}", total_venues);
-        
+
         // Get active players (30 days and 7 days)
         let active_players_30d = self.get_active_players(30).await?;
         log::info!("Active players 30d: {}", active_players_30d);
-        
+
         let active_players_7d = self.get_active_players(7).await?;
         log::info!("Active players 7d: {}", active_players_7d);
-        
+
         // Get contests in last 30 days
         let contests_30d = self.get_contests_in_period(30).await?;
         log::info!("Contests 30d: {}", contests_30d);
-        
+
         // Calculate average participants per contest
         let average_participants_per_contest = self.get_average_participants_per_contest().await?;
-        log::info!("Average participants per contest: {}", average_participants_per_contest);
-        
+        log::info!(
+            "Average participants per contest: {}",
+            average_participants_per_contest
+        );
+
         // Get top games and venues
         let top_games = self.get_top_games(5).await?;
         log::info!("Top games: {:?}", top_games);
-        
+
         let top_venues = self.get_top_venues(5).await?;
         log::info!("Top venues: {:?}", top_venues);
 
         // Convert to proper types with real counts
-        let top_games_typed: Vec<GamePopularity> = top_games.into_iter().map(|(name, plays)| GamePopularity {
-            game_id: "".to_string(),
-            game_name: name,
-            plays,
-            popularity_score: plays as f64,
-        }).collect();
+        let top_games_typed: Vec<GamePopularity> = top_games
+            .into_iter()
+            .map(|(name, plays)| GamePopularity {
+                game_id: "".to_string(),
+                game_name: name,
+                plays,
+                popularity_score: plays as f64,
+            })
+            .collect();
 
-        let top_venues_typed: Vec<VenueActivity> = top_venues.into_iter().map(|(name, contests)| VenueActivity {
-            venue_id: "".to_string(),
-            venue_name: name,
-            contests_held: contests,
-            total_participants: contests * 4, // Estimate participants per contest
-            activity_score: contests as f64,
-        }).collect();
+        let top_venues_typed: Vec<VenueActivity> = top_venues
+            .into_iter()
+            .map(|(name, contests)| VenueActivity {
+                venue_id: "".to_string(),
+                venue_name: name,
+                contests_held: contests,
+                total_participants: contests * 4, // Estimate participants per contest
+                activity_score: contests as f64,
+            })
+            .collect();
 
         // Ensure we have at least some basic data
         let final_stats = PlatformStats {
-            total_players: total_players.max(1), // At least 1 player
+            total_players: total_players.max(1),   // At least 1 player
             total_contests: total_contests.max(1), // At least 1 contest
-            total_games: total_games.max(1), // At least 1 game
-            total_venues: total_venues.max(1), // At least 1 venue
+            total_games: total_games.max(1),       // At least 1 game
+            total_venues: total_venues.max(1),     // At least 1 venue
             active_players_30d: active_players_30d.max(1), // At least 1 active player
             active_players_7d: active_players_7d.max(1), // At least 1 active player
-            contests_30d: contests_30d.max(1), // At least 1 recent contest
+            contests_30d: contests_30d.max(1),     // At least 1 recent contest
             average_participants_per_contest: average_participants_per_contest.max(2.0), // At least 2 participants
             top_games: top_games_typed,
             top_venues: top_venues_typed,
@@ -191,9 +205,9 @@ impl<C: ClientExt> AnalyticsRepository<C> {
         let query = arangors::AqlQuery::builder()
             .query("RETURN LENGTH(FOR p IN player RETURN p)")
             .build();
-        
+
         log::debug!("Executing query: RETURN LENGTH(FOR p IN player RETURN p)");
-        
+
         match self.db.aql_query::<i64>(query).await {
             Ok(mut cursor) => {
                 if let Some(count) = cursor.pop() {
@@ -216,9 +230,9 @@ impl<C: ClientExt> AnalyticsRepository<C> {
         let query = arangors::AqlQuery::builder()
             .query("RETURN LENGTH(FOR c IN contest RETURN c)")
             .build();
-        
+
         log::debug!("Executing query: RETURN LENGTH(FOR c IN contest RETURN c)");
-        
+
         match self.db.aql_query::<i64>(query).await {
             Ok(mut cursor) => {
                 if let Some(count) = cursor.pop() {
@@ -241,9 +255,9 @@ impl<C: ClientExt> AnalyticsRepository<C> {
         let query = arangors::AqlQuery::builder()
             .query("RETURN LENGTH(FOR g IN game RETURN g)")
             .build();
-        
+
         log::debug!("Executing query: RETURN LENGTH(FOR g IN game RETURN g)");
-        
+
         match self.db.aql_query::<i64>(query).await {
             Ok(mut cursor) => {
                 if let Some(count) = cursor.pop() {
@@ -266,9 +280,9 @@ impl<C: ClientExt> AnalyticsRepository<C> {
         let query = arangors::AqlQuery::builder()
             .query("RETURN LENGTH(FOR v IN venue RETURN v)")
             .build();
-        
+
         log::debug!("Executing query: RETURN LENGTH(FOR v IN venue RETURN v)");
-        
+
         match self.db.aql_query::<i64>(query).await {
             Ok(mut cursor) => {
                 if let Some(count) = cursor.pop() {
@@ -290,7 +304,8 @@ impl<C: ClientExt> AnalyticsRepository<C> {
     async fn get_active_players(&self, days: i32) -> Result<i32> {
         // Try original query first
         let original_query = arangors::AqlQuery::builder()
-            .query(r#"
+            .query(
+                r#"
                 LET cutoff_date = DATE_SUBTRACT(DATE_NOW(), @days, 'day')
                 RETURN LENGTH(
                     FOR c IN contest
@@ -300,12 +315,13 @@ impl<C: ClientExt> AnalyticsRepository<C> {
                     COLLECT player_id = result._to
                     RETURN player_id
                 )
-            "#)
+            "#,
+            )
             .bind_var("days", days)
             .build();
-        
+
         log::debug!("Executing active players query for {} days", days);
-        
+
         match self.db.aql_query::<i64>(original_query).await {
             Ok(mut cursor) => {
                 if let Some(count) = cursor.pop() {
@@ -318,27 +334,34 @@ impl<C: ClientExt> AnalyticsRepository<C> {
             }
             Err(e) => {
                 log::error!("Original active players query failed: {}", e);
-                
+
                 // Fallback: if resulted_in is empty, estimate from contests
                 log::warn!("Trying fallback approach for active players...");
                 let fallback_query = arangors::AqlQuery::builder()
-                    .query(r#"
+                    .query(
+                        r#"
                         LET cutoff_date = DATE_SUBTRACT(DATE_NOW(), @days, 'day')
                         RETURN LENGTH(
                             FOR c IN contest
                             FILTER c.start >= cutoff_date
                             RETURN c
                         )
-                    "#)
+                    "#,
+                    )
                     .bind_var("days", days)
                     .build();
-                
+
                 match self.db.aql_query::<i64>(fallback_query).await {
                     Ok(mut fallback_cursor) => {
                         if let Some(contest_count) = fallback_cursor.pop() {
                             // Estimate 2-4 players per contest as fallback
                             let estimated_players = (contest_count * 3).min(contest_count * 4);
-                            log::info!("Fallback: {} contests in {} days, estimating {} active players", contest_count, days, estimated_players);
+                            log::info!(
+                                "Fallback: {} contests in {} days, estimating {} active players",
+                                contest_count,
+                                days,
+                                estimated_players
+                            );
                             Ok(estimated_players as i32)
                         } else {
                             Ok(0)
@@ -356,19 +379,21 @@ impl<C: ClientExt> AnalyticsRepository<C> {
     /// Get contests in the last N days
     async fn get_contests_in_period(&self, days: i32) -> Result<i32> {
         let query = arangors::AqlQuery::builder()
-            .query(r#"
+            .query(
+                r#"
                 LET cutoff_date = DATE_SUBTRACT(DATE_NOW(), @days, 'day')
                 RETURN LENGTH(
                     FOR c IN contest
                     FILTER c.start >= cutoff_date
                     RETURN c
                 )
-            "#)
+            "#,
+            )
             .bind_var("days", days)
             .build();
-        
+
         log::debug!("Executing contests in period query for {} days", days);
-        
+
         match self.db.aql_query::<i64>(query).await {
             Ok(mut cursor) => {
                 if let Some(count) = cursor.pop() {
@@ -390,7 +415,8 @@ impl<C: ClientExt> AnalyticsRepository<C> {
     async fn get_average_participants_per_contest(&self) -> Result<f64> {
         // Try original query first
         let original_query = arangors::AqlQuery::builder()
-            .query(r#"
+            .query(
+                r#"
                 LET contest_participants = (
                     FOR c IN contest
                     LET participant_count = LENGTH(
@@ -401,11 +427,12 @@ impl<C: ClientExt> AnalyticsRepository<C> {
                     RETURN participant_count
                 )
                 RETURN contest_participants == [] ? 0 : AVERAGE(contest_participants)
-            "#)
+            "#,
+            )
             .build();
-        
+
         log::debug!("Executing average participants per contest query");
-        
+
         match self.db.aql_query::<f64>(original_query).await {
             Ok(mut cursor) => {
                 if let Some(avg) = cursor.pop() {
@@ -418,7 +445,7 @@ impl<C: ClientExt> AnalyticsRepository<C> {
             }
             Err(e) => {
                 log::error!("Original average participants query failed: {}", e);
-                
+
                 // Fallback: estimate based on typical contest sizes
                 log::warn!("Using fallback estimate for average participants per contest");
                 Ok(3.0) // Typical board game contest has 3-4 players
@@ -429,7 +456,8 @@ impl<C: ClientExt> AnalyticsRepository<C> {
     /// Get top games by play count
     async fn get_top_games(&self, limit: i32) -> Result<Vec<(String, i32)>> {
         let query = arangors::AqlQuery::builder()
-            .query(r#"
+            .query(
+                r#"
                 FOR played_with IN played_with
                 LET game = DOCUMENT(played_with._to)
                 FILTER game != null
@@ -438,21 +466,23 @@ impl<C: ClientExt> AnalyticsRepository<C> {
                 SORT play_count DESC
                 LIMIT @limit
                 RETURN { name: game_name, plays: play_count }
-            "#)
+            "#,
+            )
             .bind_var("limit", limit)
             .build();
-        
+
         log::debug!("Executing top games query with limit {}", limit);
-        
+
         #[derive(serde::Deserialize)]
         struct GameResult {
             name: String,
             plays: i64,
         }
-        
+
         match self.db.aql_query::<GameResult>(query).await {
             Ok(cursor) => {
-                let games: Vec<(String, i32)> = cursor.into_iter()
+                let games: Vec<(String, i32)> = cursor
+                    .into_iter()
                     .map(|g| (g.name, g.plays as i32))
                     .collect();
                 log::debug!("Top games result: {:?}", games);
@@ -468,7 +498,8 @@ impl<C: ClientExt> AnalyticsRepository<C> {
     /// Get top venues by contest count
     async fn get_top_venues(&self, limit: i32) -> Result<Vec<(String, i32)>> {
         let query = arangors::AqlQuery::builder()
-            .query(r#"
+            .query(
+                r#"
                 FOR venue IN venue
                 LET contest_count = LENGTH(
                     FOR played_at IN played_at
@@ -478,21 +509,23 @@ impl<C: ClientExt> AnalyticsRepository<C> {
                 SORT contest_count DESC
                 LIMIT @limit
                 RETURN { name: venue.displayName, contests: contest_count }
-            "#)
+            "#,
+            )
             .bind_var("limit", limit)
             .build();
-        
+
         log::debug!("Executing top venues query with limit {}", limit);
-        
+
         #[derive(serde::Deserialize)]
         struct VenueResult {
             name: String,
             contests: i64,
         }
-        
+
         match self.db.aql_query::<VenueResult>(query).await {
             Ok(cursor) => {
-                let venues: Vec<(String, i32)> = cursor.into_iter()
+                let venues: Vec<(String, i32)> = cursor
+                    .into_iter()
                     .map(|v| (v.name, v.contests as i32))
                     .collect();
                 log::debug!("Top venues result: {:?}", venues);
@@ -506,9 +539,14 @@ impl<C: ClientExt> AnalyticsRepository<C> {
     }
 
     /// Get leaderboard data by category
-    pub async fn get_leaderboard(&self, category: &str, limit: i32, offset: i32) -> Result<Vec<PlayerWinRate>> {
+    pub async fn get_leaderboard(
+        &self,
+        category: &str,
+        limit: i32,
+        offset: i32,
+    ) -> Result<Vec<PlayerWinRate>> {
         log::debug!("Executing leaderboard query for category: {}", category);
-        
+
         // Use aql_query with a custom struct for the result
         #[derive(serde::Deserialize)]
         struct LeaderboardResult {
@@ -518,11 +556,11 @@ impl<C: ClientExt> AnalyticsRepository<C> {
             total_plays: i32,
             win_rate: f64,
         }
-        
+
         let query = match category {
-            "win_rate" => {
-                arangors::AqlQuery::builder()
-                    .query(r#"
+            "win_rate" => arangors::AqlQuery::builder()
+                .query(
+                    r#"
                         FOR player IN player
                         LET contests = (
                             FOR result IN resulted_in
@@ -546,14 +584,14 @@ impl<C: ClientExt> AnalyticsRepository<C> {
                             total_plays: total_contests,
                             win_rate: win_rate
                         }
-                    "#)
-                    .bind_var("limit", limit)
-                    .bind_var("offset", offset)
-                    .build()
-            }
-            "total_wins" => {
-                arangors::AqlQuery::builder()
-                    .query(r#"
+                    "#,
+                )
+                .bind_var("limit", limit)
+                .bind_var("offset", offset)
+                .build(),
+            "total_wins" => arangors::AqlQuery::builder()
+                .query(
+                    r#"
                         FOR player IN player
                         LET wins = LENGTH(
                             FOR result IN resulted_in
@@ -574,14 +612,14 @@ impl<C: ClientExt> AnalyticsRepository<C> {
                             total_plays: total_contests,
                             win_rate: total_contests > 0 ? (wins * 100.0) / total_contests : 0
                         }
-                    "#)
-                    .bind_var("limit", limit)
-                    .bind_var("offset", offset)
-                    .build()
-            }
-            "total_contests" => {
-                arangors::AqlQuery::builder()
-                    .query(r#"
+                    "#,
+                )
+                .bind_var("limit", limit)
+                .bind_var("offset", offset)
+                .build(),
+            "total_contests" => arangors::AqlQuery::builder()
+                .query(
+                    r#"
                         FOR player IN player
                         LET total_contests = LENGTH(
                             FOR result IN resulted_in
@@ -602,27 +640,34 @@ impl<C: ClientExt> AnalyticsRepository<C> {
                             total_plays: total_contests,
                             win_rate: total_contests > 0 ? (wins * 100.0) / total_contests : 0
                         }
-                    "#)
-                    .bind_var("limit", limit)
-                    .bind_var("offset", offset)
-                    .build()
+                    "#,
+                )
+                .bind_var("limit", limit)
+                .bind_var("offset", offset)
+                .build(),
+            _ => {
+                return Err(SharedError::Conversion(
+                    "Invalid leaderboard category".to_string(),
+                ))
             }
-            _ => return Err(SharedError::Conversion("Invalid leaderboard category".to_string())),
         };
-        
+
         match self.db.aql_query::<LeaderboardResult>(query).await {
             Ok(cursor) => {
                 let results: Vec<LeaderboardResult> = cursor.into_iter().collect();
                 log::debug!("Leaderboard query returned {} results", results.len());
-                
-                let leaderboard: Vec<PlayerWinRate> = results.into_iter().map(|result| PlayerWinRate {
-                    player_id: result.player_id,
-                    player_handle: result.player_handle,
-                    wins: result.wins,
-                    total_plays: result.total_plays,
-                    win_rate: result.win_rate,
-                }).collect();
-                
+
+                let leaderboard: Vec<PlayerWinRate> = results
+                    .into_iter()
+                    .map(|result| PlayerWinRate {
+                        player_id: result.player_id,
+                        player_handle: result.player_handle,
+                        wins: result.wins,
+                        total_plays: result.total_plays,
+                        win_rate: result.win_rate,
+                    })
+                    .collect();
+
                 Ok(leaderboard)
             }
             Err(e) => {
@@ -725,7 +770,6 @@ impl<C: ClientExt> AnalyticsRepository<C> {
             offset, limit
         )
     }
-
 }
 
 #[cfg(test)]
@@ -746,7 +790,7 @@ mod tests {
             pool_size: 10,
             _timeout_seconds: 30,
         };
-        
+
         // Test that we can create the config
         assert_eq!(config.name, "test");
         assert_eq!(config.url, "http://localhost:8529");
@@ -765,10 +809,10 @@ mod tests {
             pool_size: 10,
             _timeout_seconds: 30,
         };
-        
+
         assert_eq!(config.name, "test");
     }
-    }
+}
 
 impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
     /// Get player statistics
@@ -817,23 +861,32 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
             "#,
             player_id
         );
-        
-        let cursor = self.db.aql_str(&query).await
-            .map_err(|e| SharedError::Database(format!("Failed to query player stats: {}", e)))?;
-        
-        let results: Vec<PlayerStats> = cursor.into_iter().map(|doc: arangors::Document<PlayerStats>| doc.document).collect();
+
+        let cursor =
+            self.db.aql_str(&query).await.map_err(|e| {
+                SharedError::Database(format!("Failed to query player stats: {}", e))
+            })?;
+
+        let results: Vec<PlayerStats> = cursor
+            .into_iter()
+            .map(|doc: arangors::Document<PlayerStats>| doc.document)
+            .collect();
         Ok(results.into_iter().next())
     }
 
     /// Saves player statistics to database
     pub async fn save_player_stats(&self, stats: &PlayerStats) -> Result<()> {
-        let collection = self.db.collection("player_stats").await
-            .map_err(|e| SharedError::Database(format!("Failed to get player_stats collection: {}", e)))?;
+        let collection = self.db.collection("player_stats").await.map_err(|e| {
+            SharedError::Database(format!("Failed to get player_stats collection: {}", e))
+        })?;
 
-        let document = serde_json::to_value(stats)
-            .map_err(|e| SharedError::Conversion(format!("Failed to serialize player stats: {}", e)))?;
+        let document = serde_json::to_value(stats).map_err(|e| {
+            SharedError::Conversion(format!("Failed to serialize player stats: {}", e))
+        })?;
 
-        collection.create_document(document, InsertOptions::default()).await
+        collection
+            .create_document(document, InsertOptions::default())
+            .await
             .map_err(|e| SharedError::Database(format!("Failed to save player stats: {}", e)))?;
 
         Ok(())
@@ -841,13 +894,17 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
 
     /// Updates player statistics in database
     pub async fn update_player_stats(&self, stats: &PlayerStats) -> Result<()> {
-        let collection = self.db.collection("player_stats").await
-            .map_err(|e| SharedError::Database(format!("Failed to get player_stats collection: {}", e)))?;
+        let collection = self.db.collection("player_stats").await.map_err(|e| {
+            SharedError::Database(format!("Failed to get player_stats collection: {}", e))
+        })?;
 
-        let document = serde_json::to_value(stats)
-            .map_err(|e| SharedError::Conversion(format!("Failed to serialize player stats: {}", e)))?;
+        let document = serde_json::to_value(stats).map_err(|e| {
+            SharedError::Conversion(format!("Failed to serialize player stats: {}", e))
+        })?;
 
-        collection.update_document(&stats.player_id, document, UpdateOptions::default()).await
+        collection
+            .update_document(&stats.player_id, document, UpdateOptions::default())
+            .await
             .map_err(|e| SharedError::Database(format!("Failed to update player stats: {}", e)))?;
 
         Ok(())
@@ -855,30 +912,32 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
 
     /// Saves contest statistics to database
     pub async fn save_contest_stats(&self, stats: &ContestStats) -> Result<()> {
-        let collection = self.db.collection("contest_stats").await
-            .map_err(|e| SharedError::Database(format!("Failed to get contest_stats collection: {}", e)))?;
+        let collection = self.db.collection("contest_stats").await.map_err(|e| {
+            SharedError::Database(format!("Failed to get contest_stats collection: {}", e))
+        })?;
 
-        let document = serde_json::to_value(stats)
-            .map_err(|e| SharedError::Conversion(format!("Failed to serialize contest stats: {}", e)))?;
+        let document = serde_json::to_value(stats).map_err(|e| {
+            SharedError::Conversion(format!("Failed to serialize contest stats: {}", e))
+        })?;
 
-        collection.create_document(document, InsertOptions::default()).await
+        collection
+            .create_document(document, InsertOptions::default())
+            .await
             .map_err(|e| SharedError::Database(format!("Failed to save contest stats: {}", e)))?;
 
         Ok(())
     }
 
-
-
     /// Get contest statistics
     pub async fn get_contest_stats(&self, contest_id: &str) -> Result<Option<ContestStats>> {
         log::debug!("Querying contest stats for contest_id: {}", contest_id);
-        
+
         // First check if the contest exists
         let contest_exists_query = arangors::AqlQuery::builder()
             .query("FOR contest IN contest FILTER contest._id == @contest_id RETURN contest._id")
             .bind_var("contest_id", contest_id)
             .build();
-            
+
         match self.db.aql_query::<String>(contest_exists_query).await {
             Ok(cursor) => {
                 if cursor.is_empty() {
@@ -888,10 +947,13 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
             }
             Err(e) => {
                 log::error!("Failed to check if contest exists: {}", e);
-                return Err(SharedError::Database(format!("Failed to check contest existence: {}", e)));
+                return Err(SharedError::Database(format!(
+                    "Failed to check contest existence: {}",
+                    e
+                )));
             }
         }
-        
+
         let query = arangors::AqlQuery::builder()
             .query(r#"
                 FOR contest IN contest
@@ -983,7 +1045,10 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
             }
             Err(e) => {
                 log::error!("Failed to query contest stats: {}", e);
-                Err(SharedError::Database(format!("Failed to query contest stats: {}", e)))
+                Err(SharedError::Database(format!(
+                    "Failed to query contest stats: {}",
+                    e
+                )))
             }
         }
     }
@@ -991,7 +1056,8 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
     /// Get contest trends (monthly contest frequency)
     pub async fn get_contest_trends(&self, months: i32) -> Result<Vec<MonthlyContests>> {
         let query = arangors::AqlQuery::builder()
-            .query(r#"
+            .query(
+                r#"
                 FOR contest IN contest
                 FILTER contest.start >= DATE_SUBTRACT(DATE_NOW(), @months, 'month')
                 LET year = DATE_YEAR(contest.start)
@@ -1004,7 +1070,8 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
                     month: year_month.month,
                     contests: contests
                 }
-            "#)
+            "#,
+            )
             .bind_var("months", months)
             .build();
 
@@ -1017,7 +1084,8 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
 
         match self.db.aql_query::<ContestTrendResult>(query).await {
             Ok(cursor) => {
-                let trends: Vec<MonthlyContests> = cursor.into_iter()
+                let trends: Vec<MonthlyContests> = cursor
+                    .into_iter()
                     .map(|result| MonthlyContests {
                         year: result.year,
                         month: result.month,
@@ -1028,7 +1096,10 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
             }
             Err(e) => {
                 log::error!("Failed to query contest trends: {}", e);
-                Err(SharedError::Database(format!("Failed to query contest trends: {}", e)))
+                Err(SharedError::Database(format!(
+                    "Failed to query contest trends: {}",
+                    e
+                )))
             }
         }
     }
@@ -1036,7 +1107,8 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
     /// Get daily active players (unique players per day) for the last N days
     pub async fn get_daily_active_players(&self, days: i32) -> Result<Vec<(String, i32)>> {
         let query = arangors::AqlQuery::builder()
-            .query(r#"
+            .query(
+                r#"
                 LET cutoff = DATE_SUBTRACT(DATE_NOW(), @days, 'day')
                 LET pairs = (
                   FOR r IN resulted_in
@@ -1050,16 +1122,21 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
                   LET unique_players = LENGTH(UNIQUE(items[*].p.player_id))
                   SORT day ASC
                   RETURN { day, count: unique_players }
-            "#)
+            "#,
+            )
             .bind_var("days", days)
             .build();
 
         #[derive(serde::Deserialize)]
-        struct DayCount { day: String, count: i32 }
+        struct DayCount {
+            day: String,
+            count: i32,
+        }
 
         match self.db.aql_query::<DayCount>(query).await {
             Ok(cursor) => {
-                let out: Vec<(String, i32)> = cursor.into_iter().map(|e| (e.day, e.count)).collect();
+                let out: Vec<(String, i32)> =
+                    cursor.into_iter().map(|e| (e.day, e.count)).collect();
                 Ok(out)
             }
             Err(e) => {
@@ -1072,7 +1149,8 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
     /// Get daily contests count for the last N days
     pub async fn get_daily_contests(&self, days: i32) -> Result<Vec<(String, i32)>> {
         let query = arangors::AqlQuery::builder()
-            .query(r#"
+            .query(
+                r#"
                 LET cutoff = DATE_SUBTRACT(DATE_NOW(), @days, 'day')
                 FOR c IN contest
                   FILTER c.start >= cutoff
@@ -1080,16 +1158,21 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
                   COLLECT day WITH COUNT INTO contests
                   SORT day ASC
                   RETURN { day, count: contests }
-            "#)
+            "#,
+            )
             .bind_var("days", days)
             .build();
 
         #[derive(serde::Deserialize)]
-        struct DayCount { day: String, count: i32 }
+        struct DayCount {
+            day: String,
+            count: i32,
+        }
 
         match self.db.aql_query::<DayCount>(query).await {
             Ok(cursor) => {
-                let out: Vec<(String, i32)> = cursor.into_iter().map(|e| (e.day, e.count)).collect();
+                let out: Vec<(String, i32)> =
+                    cursor.into_iter().map(|e| (e.day, e.count)).collect();
                 Ok(out)
             }
             Err(e) => {
@@ -1138,7 +1221,10 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
             }
             Err(e) => {
                 log::error!("Failed to query contest difficulty: {}", e);
-                Err(SharedError::Database(format!("Failed to query contest difficulty: {}", e)))
+                Err(SharedError::Database(format!(
+                    "Failed to query contest difficulty: {}",
+                    e
+                )))
             }
         }
     }
@@ -1176,7 +1262,10 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
             }
             Err(e) => {
                 log::error!("Failed to query contest excitement: {}", e);
-                Err(SharedError::Database(format!("Failed to query contest excitement: {}", e)))
+                Err(SharedError::Database(format!(
+                    "Failed to query contest excitement: {}",
+                    e
+                )))
             }
         }
     }
@@ -1228,7 +1317,10 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
         "#;
 
         let mut bind_vars = HashMap::new();
-        bind_vars.insert("limit", serde_json::Value::Number(serde_json::Number::from(limit)));
+        bind_vars.insert(
+            "limit",
+            serde_json::Value::Number(serde_json::Number::from(limit)),
+        );
 
         let aql = AqlQuery::builder()
             .query(query)
@@ -1250,28 +1342,36 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
             last_updated: String,
         }
 
-        let results: Vec<RecentContestResult> = self.db.aql_query(aql).await.map_err(|e| SharedError::Database(format!("Failed to query recent contests: {}", e)))?;
-        
-        Ok(results.into_iter().map(|r| ContestStats {
-            contest_id: r.contest_id,
-            participant_count: r.participant_count,
-            completion_count: r.completion_count,
-            completion_rate: r.completion_rate,
-            average_placement: r.average_placement,
-            duration_minutes: r.duration_minutes,
-            most_popular_game: r.most_popular_game,
-            difficulty_rating: r.difficulty_rating,
-            excitement_rating: r.excitement_rating,
-            last_updated: chrono::Utc::now().fixed_offset(),
-        }).collect())
+        let results: Vec<RecentContestResult> = self.db.aql_query(aql).await.map_err(|e| {
+            SharedError::Database(format!("Failed to query recent contests: {}", e))
+        })?;
+
+        Ok(results
+            .into_iter()
+            .map(|r| ContestStats {
+                contest_id: r.contest_id,
+                participant_count: r.participant_count,
+                completion_count: r.completion_count,
+                completion_rate: r.completion_rate,
+                average_placement: r.average_placement,
+                duration_minutes: r.duration_minutes,
+                most_popular_game: r.most_popular_game,
+                difficulty_rating: r.difficulty_rating,
+                excitement_rating: r.excitement_rating,
+                last_updated: chrono::Utc::now().fixed_offset(),
+            })
+            .collect())
     }
 
     // Player-specific analytics methods
 
     /// Get players who have beaten the current player
-    pub async fn get_players_who_beat_me(&self, player_id: &str) -> Result<Vec<shared::dto::analytics::PlayerOpponentDto>> {
+    pub async fn get_players_who_beat_me(
+        &self,
+        player_id: &str,
+    ) -> Result<Vec<shared::dto::analytics::PlayerOpponentDto>> {
         log::info!("get_players_who_beat_me called for player: {}", player_id);
-        
+
         // REAL QUERY: Find players who have beaten the current player
         let query = r#"
             FOR my_result IN resulted_in
@@ -1323,16 +1423,27 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
         "#;
 
         let mut bind_vars = HashMap::new();
-        bind_vars.insert("player_id", serde_json::Value::String(player_id.to_string()));
+        bind_vars.insert(
+            "player_id",
+            serde_json::Value::String(player_id.to_string()),
+        );
 
         let aql = AqlQuery::builder()
             .query(query)
             .bind_vars(bind_vars)
             .build();
 
-        match self.db.aql_query::<shared::dto::analytics::PlayerOpponentDto>(aql).await {
+        match self
+            .db
+            .aql_query::<shared::dto::analytics::PlayerOpponentDto>(aql)
+            .await
+        {
             Ok(results) => {
-                log::info!("Found {} players who beat player {}", results.len(), player_id);
+                log::info!(
+                    "Found {} players who beat player {}",
+                    results.len(),
+                    player_id
+                );
                 Ok(results)
             }
             Err(e) => {
@@ -1343,9 +1454,12 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
     }
 
     /// Get players that the current player has beaten
-    pub async fn get_players_i_beat(&self, player_id: &str) -> Result<Vec<shared::dto::analytics::PlayerOpponentDto>> {
+    pub async fn get_players_i_beat(
+        &self,
+        player_id: &str,
+    ) -> Result<Vec<shared::dto::analytics::PlayerOpponentDto>> {
         log::info!("get_players_i_beat called for player: {}", player_id);
-        
+
         // REAL QUERY: Find players that the current player has beaten
         let query = r#"
             FOR my_result IN resulted_in
@@ -1397,16 +1511,27 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
         "#;
 
         let mut bind_vars = HashMap::new();
-        bind_vars.insert("player_id", serde_json::Value::String(player_id.to_string()));
+        bind_vars.insert(
+            "player_id",
+            serde_json::Value::String(player_id.to_string()),
+        );
 
         let aql = AqlQuery::builder()
             .query(query)
             .bind_vars(bind_vars)
             .build();
 
-        match self.db.aql_query::<shared::dto::analytics::PlayerOpponentDto>(aql).await {
+        match self
+            .db
+            .aql_query::<shared::dto::analytics::PlayerOpponentDto>(aql)
+            .await
+        {
             Ok(results) => {
-                log::info!("Found {} players that player {} beat", results.len(), player_id);
+                log::info!(
+                    "Found {} players that player {} beat",
+                    results.len(),
+                    player_id
+                );
                 Ok(results)
             }
             Err(e) => {
@@ -1417,9 +1542,12 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
     }
 
     /// Get player's game performance statistics
-    pub async fn get_my_game_performance(&self, player_id: &str) -> Result<Vec<shared::dto::analytics::GamePerformanceDto>> {
+    pub async fn get_my_game_performance(
+        &self,
+        player_id: &str,
+    ) -> Result<Vec<shared::dto::analytics::GamePerformanceDto>> {
         log::info!("get_my_game_performance called for player: {}", player_id);
-        
+
         let query = r#"
             FOR result IN resulted_in
             FILTER result._to == @player_id
@@ -1524,26 +1652,43 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
         "#;
 
         let mut bind_vars = HashMap::new();
-        bind_vars.insert("player_id", serde_json::Value::String(player_id.to_string()));
+        bind_vars.insert(
+            "player_id",
+            serde_json::Value::String(player_id.to_string()),
+        );
 
         let aql = AqlQuery::builder()
             .query(query)
             .bind_vars(bind_vars.clone())
             .build();
 
-        match self.db.aql_query::<shared::dto::analytics::GamePerformanceDto>(aql).await {
+        match self
+            .db
+            .aql_query::<shared::dto::analytics::GamePerformanceDto>(aql)
+            .await
+        {
             Ok(results) => {
-                log::info!("Game performance query successful, found {} games", results.len());
+                log::info!(
+                    "Game performance query successful, found {} games",
+                    results.len()
+                );
                 // Debug log the first few results
                 for (i, result) in results.iter().take(3).enumerate() {
-                    log::info!("Game {}: {} - plays: {}, wins: {}, win_rate: {:.1}%, avg_placement: {:.1}", 
-                        i, result.game_name, result.total_plays, result.wins, result.win_rate, result.average_placement);
+                    log::info!(
+                        "Game {}: {} - plays: {}, wins: {}, win_rate: {:.1}%, avg_placement: {:.1}",
+                        i,
+                        result.game_name,
+                        result.total_plays,
+                        result.wins,
+                        result.win_rate,
+                        result.average_placement
+                    );
                 }
                 Ok(results)
             }
             Err(e) => {
                 log::error!("Game performance query failed: {}", e);
-                
+
                 // Try to get raw results to debug the issue
                 log::info!("Attempting to get raw query results for debugging...");
                 let debug_aql = AqlQuery::builder()
@@ -1559,29 +1704,50 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
                         log::error!("Raw query also failed: {}", raw_e);
                     }
                 }
-                
-                Err(SharedError::Database(format!("Failed to query game performance: {}", e)))
+
+                Err(SharedError::Database(format!(
+                    "Failed to query game performance: {}",
+                    e
+                )))
             }
         }
     }
 
     /// Get head-to-head record against specific opponent
-    pub async fn get_head_to_head_record(&self, player_id: &str, opponent_id: &str) -> Result<shared::dto::analytics::HeadToHeadRecordDto> {
+    pub async fn get_head_to_head_record(
+        &self,
+        player_id: &str,
+        opponent_id: &str,
+    ) -> Result<shared::dto::analytics::HeadToHeadRecordDto> {
         // Query opponent document separately
         let opp_query = r#"RETURN DOCUMENT(@opponent_id)"#;
         let mut opp_bind = HashMap::new();
-        opp_bind.insert("opponent_id", serde_json::Value::String(opponent_id.to_string()));
-        let opp_aql = AqlQuery::builder().query(opp_query).bind_vars(opp_bind).build();
+        opp_bind.insert(
+            "opponent_id",
+            serde_json::Value::String(opponent_id.to_string()),
+        );
+        let opp_aql = AqlQuery::builder()
+            .query(opp_query)
+            .bind_vars(opp_bind)
+            .build();
         let opp_rows: Vec<serde_json::Value> = self
             .db
             .aql_query(opp_aql)
             .await
             .map_err(|e| SharedError::Database(format!("Failed to load opponent: {}", e)))?;
         let (opponent_handle, opponent_name) = if let Some(opp) = opp_rows.first() {
-            let handle = opp.get("handle").and_then(|v| v.as_str()).unwrap_or("Unknown").to_string();
+            let handle = opp
+                .get("handle")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Unknown")
+                .to_string();
             let firstname = opp.get("firstname").and_then(|v| v.as_str()).unwrap_or("");
             let lastname = opp.get("lastname").and_then(|v| v.as_str()).unwrap_or("");
-            let name = if firstname.is_empty() && lastname.is_empty() { "Unknown Player".to_string() } else { format!("{} {}", firstname, lastname).trim().to_string() };
+            let name = if firstname.is_empty() && lastname.is_empty() {
+                "Unknown Player".to_string()
+            } else {
+                format!("{} {}", firstname, lastname).trim().to_string()
+            };
             (handle, name)
         } else {
             ("Unknown".to_string(), "Unknown Player".to_string())
@@ -1612,31 +1778,69 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
                 }
         "#;
         let mut rows_bind = HashMap::new();
-        rows_bind.insert("player_id", serde_json::Value::String(player_id.to_string()));
-        rows_bind.insert("opponent_id", serde_json::Value::String(opponent_id.to_string()));
-        let rows_aql = AqlQuery::builder().query(rows_query).bind_vars(rows_bind).build();
-        let rows: Vec<serde_json::Value> = self
-            .db
-            .aql_query(rows_aql)
-            .await
-            .map_err(|e| SharedError::Database(format!("Failed to query head-to-head rows: {}", e)))?;
+        rows_bind.insert(
+            "player_id",
+            serde_json::Value::String(player_id.to_string()),
+        );
+        rows_bind.insert(
+            "opponent_id",
+            serde_json::Value::String(opponent_id.to_string()),
+        );
+        let rows_aql = AqlQuery::builder()
+            .query(rows_query)
+            .bind_vars(rows_bind)
+            .build();
+        let rows: Vec<serde_json::Value> = self.db.aql_query(rows_aql).await.map_err(|e| {
+            SharedError::Database(format!("Failed to query head-to-head rows: {}", e))
+        })?;
 
         let mut contest_history: Vec<shared::dto::analytics::HeadToHeadContestDto> = Vec::new();
         let mut my_wins = 0i32;
         for row in rows.iter() {
-            let contest_id = row.get("contest_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
-            let contest_name = row.get("contest_name").and_then(|v| v.as_str()).unwrap_or("").to_string();
-            let game_id = row.get("game_id").and_then(|v| v.as_str()).map(|s| s.to_string());
-            let game_name = row.get("game_name").and_then(|v| v.as_str()).unwrap_or("Unknown Game").to_string();
-            let venue_id = row.get("venue_id").and_then(|v| v.as_str()).map(|s| s.to_string());
-            let venue_name = row.get("venue_name").and_then(|v| v.as_str()).unwrap_or("Unknown Venue").to_string();
-            let my_place = row.get("my_placement").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
-            let opp_place = row.get("opponent_placement").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+            let contest_id = row
+                .get("contest_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let contest_name = row
+                .get("contest_name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let game_id = row
+                .get("game_id")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            let game_name = row
+                .get("game_name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Unknown Game")
+                .to_string();
+            let venue_id = row
+                .get("venue_id")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            let venue_name = row
+                .get("venue_name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Unknown Venue")
+                .to_string();
+            let my_place = row
+                .get("my_placement")
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0) as i32;
+            let opp_place = row
+                .get("opponent_placement")
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0) as i32;
             let i_won = row.get("i_won").and_then(|v| v.as_bool()).unwrap_or(false);
-            if i_won { my_wins += 1; }
+            if i_won {
+                my_wins += 1;
+            }
             // contest_date may be RFC3339 string or timestamp; try parse string first, then assume millis
             let contest_date = match row.get("contest_date") {
-                Some(serde_json::Value::String(s)) => chrono::DateTime::parse_from_rfc3339(s).unwrap_or_else(|_| chrono::Utc::now().fixed_offset()),
+                Some(serde_json::Value::String(s)) => chrono::DateTime::parse_from_rfc3339(s)
+                    .unwrap_or_else(|_| chrono::Utc::now().fixed_offset()),
                 Some(serde_json::Value::Number(n)) => {
                     let millis = n.as_i64().unwrap_or(chrono::Utc::now().timestamp_millis());
                     chrono::DateTime::<chrono::Utc>::from_timestamp_millis(millis)
@@ -1661,7 +1865,11 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
 
         let total_contests = contest_history.len() as i32;
         let opponent_wins = total_contests - my_wins;
-        let my_win_rate = if total_contests > 0 { (my_wins as f64 / total_contests as f64) * 100.0 } else { 0.0 };
+        let my_win_rate = if total_contests > 0 {
+            (my_wins as f64 / total_contests as f64) * 100.0
+        } else {
+            0.0
+        };
 
         Ok(shared::dto::analytics::HeadToHeadRecordDto {
             opponent_id: opponent_id.to_string(),
@@ -1676,9 +1884,12 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
     }
 
     /// Get player's performance trends over the last 6 months
-    pub async fn get_my_performance_trends(&self, player_id: &str) -> Result<Vec<shared::dto::analytics::PerformanceTrendDto>> {
+    pub async fn get_my_performance_trends(
+        &self,
+        player_id: &str,
+    ) -> Result<Vec<shared::dto::analytics::PerformanceTrendDto>> {
         log::info!("get_my_performance_trends called for player: {}", player_id);
-        
+
         let query = r#"
             // Get performance data for the last 6 months
             FOR i IN 0..6
@@ -1722,21 +1933,37 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
         "#;
 
         let mut bind_vars = HashMap::new();
-        bind_vars.insert("player_id", serde_json::Value::String(player_id.to_string()));
+        bind_vars.insert(
+            "player_id",
+            serde_json::Value::String(player_id.to_string()),
+        );
 
         let aql = AqlQuery::builder()
             .query(query)
             .bind_vars(bind_vars.clone())
             .build();
 
-        let results: Vec<shared::dto::analytics::PerformanceTrendDto> = self.db.aql_query(aql).await.map_err(|e| SharedError::Database(format!("Failed to query performance trends: {}", e)))?;
-        
-        log::info!("Performance trends query returned {} results", results.len());
+        let results: Vec<shared::dto::analytics::PerformanceTrendDto> =
+            self.db.aql_query(aql).await.map_err(|e| {
+                SharedError::Database(format!("Failed to query performance trends: {}", e))
+            })?;
+
+        log::info!(
+            "Performance trends query returned {} results",
+            results.len()
+        );
         for (i, result) in results.iter().enumerate() {
-            log::info!("Trend {}: {} - contests: {}, wins: {}, win_rate: {:.1}%, avg_placement: {:.1}", 
-                i, result.month, result.contests_played, result.wins, result.win_rate, result.average_placement);
+            log::info!(
+                "Trend {}: {} - contests: {}, wins: {}, win_rate: {:.1}%, avg_placement: {:.1}",
+                i,
+                result.month,
+                result.contests_played,
+                result.wins,
+                result.win_rate,
+                result.average_placement
+            );
         }
-        
+
         // Debug: Check if player has any contests at all
         let debug_query = r#"
             LET total_contests = LENGTH(
@@ -1755,18 +1982,25 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
                 )
             }
         "#;
-        
+
         let debug_aql = AqlQuery::builder()
             .query(debug_query)
             .bind_vars(bind_vars.clone())
             .build();
-            
+
         match self.db.aql_query::<serde_json::Value>(debug_aql).await {
             Ok(debug_results) => {
                 if let Some(debug_data) = debug_results.first() {
-                    log::info!("Debug: Player {} has {} total contests", 
-                        debug_data.get("player_id").and_then(|v| v.as_str()).unwrap_or("unknown"),
-                        debug_data.get("total_contests").and_then(|v| v.as_i64()).unwrap_or(0)
+                    log::info!(
+                        "Debug: Player {} has {} total contests",
+                        debug_data
+                            .get("player_id")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("unknown"),
+                        debug_data
+                            .get("total_contests")
+                            .and_then(|v| v.as_i64())
+                            .unwrap_or(0)
                     );
                     if let Some(sample) = debug_data.get("sample_contest") {
                         log::info!("Debug: Sample contest data: {:?}", sample);
@@ -1777,12 +2011,16 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
                 log::error!("Debug query failed: {}", e);
             }
         }
-        
+
         Ok(results)
     }
 
     /// Get contests by venue for a player using graph traversal
-    pub async fn get_contests_by_venue(&self, player_id: &str, venue_id: &str) -> Result<Vec<serde_json::Value>> {
+    pub async fn get_contests_by_venue(
+        &self,
+        player_id: &str,
+        venue_id: &str,
+    ) -> Result<Vec<serde_json::Value>> {
         let query = r#"
         FOR contest IN contest
         LET my_outcome = FIRST(FOR r IN resulted_in FILTER r._from == contest._id AND r._to == @player_id RETURN r)
@@ -1824,7 +2062,10 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
         "#;
 
         let mut bind_vars = HashMap::new();
-        bind_vars.insert("player_id", serde_json::Value::String(player_id.to_string()));
+        bind_vars.insert(
+            "player_id",
+            serde_json::Value::String(player_id.to_string()),
+        );
         bind_vars.insert("venue_id", serde_json::Value::String(venue_id.to_string()));
 
         let aql = AqlQuery::builder()
@@ -1832,19 +2073,25 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
             .bind_vars(bind_vars)
             .build();
 
-        let results: Vec<serde_json::Value> = self.db.aql_query(aql).await.map_err(|e| SharedError::Database(format!("Failed to query contests by venue: {}", e)))?;
+        let results: Vec<serde_json::Value> = self.db.aql_query(aql).await.map_err(|e| {
+            SharedError::Database(format!("Failed to query contests by venue: {}", e))
+        })?;
         Ok(results)
     }
 
     /// Saves game statistics to database
     pub async fn save_game_stats(&self, stats: &GameStats) -> Result<()> {
-        let collection = self.db.collection("game_stats").await
-            .map_err(|e| SharedError::Database(format!("Failed to get game_stats collection: {}", e)))?;
+        let collection = self.db.collection("game_stats").await.map_err(|e| {
+            SharedError::Database(format!("Failed to get game_stats collection: {}", e))
+        })?;
 
-        let document = serde_json::to_value(stats)
-            .map_err(|e| SharedError::Conversion(format!("Failed to serialize game stats: {}", e)))?;
+        let document = serde_json::to_value(stats).map_err(|e| {
+            SharedError::Conversion(format!("Failed to serialize game stats: {}", e))
+        })?;
 
-        collection.create_document(document, InsertOptions::default()).await
+        collection
+            .create_document(document, InsertOptions::default())
+            .await
             .map_err(|e| SharedError::Database(format!("Failed to save game stats: {}", e)))?;
 
         Ok(())
@@ -1852,25 +2099,38 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
 
     /// Retrieves game statistics from database
     pub async fn get_game_stats(&self, game_id: &str) -> Result<Option<GameStats>> {
-        let query = format!("FOR doc IN game_stats FILTER doc.game_id == '{}' RETURN doc", game_id);
-        
-        let cursor = self.db.aql_str(&query).await
+        let query = format!(
+            "FOR doc IN game_stats FILTER doc.game_id == '{}' RETURN doc",
+            game_id
+        );
+
+        let cursor = self
+            .db
+            .aql_str(&query)
+            .await
             .map_err(|e| SharedError::Database(format!("Failed to query game stats: {}", e)))?;
 
-        let results: Vec<GameStats> = cursor.into_iter().map(|doc: arangors::Document<GameStats>| doc.document).collect();
+        let results: Vec<GameStats> = cursor
+            .into_iter()
+            .map(|doc: arangors::Document<GameStats>| doc.document)
+            .collect();
 
         Ok(results.into_iter().next())
     }
 
     /// Saves venue statistics to database
     pub async fn save_venue_stats(&self, stats: &VenueStats) -> Result<()> {
-        let collection = self.db.collection("venue_stats").await
-            .map_err(|e| SharedError::Database(format!("Failed to get venue_stats collection: {}", e)))?;
+        let collection = self.db.collection("venue_stats").await.map_err(|e| {
+            SharedError::Database(format!("Failed to get venue_stats collection: {}", e))
+        })?;
 
-        let document = serde_json::to_value(stats)
-            .map_err(|e| SharedError::Conversion(format!("Failed to serialize venue stats: {}", e)))?;
+        let document = serde_json::to_value(stats).map_err(|e| {
+            SharedError::Conversion(format!("Failed to serialize venue stats: {}", e))
+        })?;
 
-        collection.create_document(document, InsertOptions::default()).await
+        collection
+            .create_document(document, InsertOptions::default())
+            .await
             .map_err(|e| SharedError::Database(format!("Failed to save venue stats: {}", e)))?;
 
         Ok(())
@@ -1878,12 +2138,20 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
 
     /// Retrieves venue statistics from database
     pub async fn get_venue_stats(&self, venue_id: &str) -> Result<Option<VenueStats>> {
-        let query = format!("FOR doc IN venue_stats FILTER doc.venue_id == '{}' RETURN doc", venue_id);
-        
-        let cursor = self.db.aql_str(&query).await
-            .map_err(|e| SharedError::Database(format!("Failed to query venue stats: {}", e)))?;
+        let query = format!(
+            "FOR doc IN venue_stats FILTER doc.venue_id == '{}' RETURN doc",
+            venue_id
+        );
 
-        let results: Vec<VenueStats> = cursor.into_iter().map(|doc: arangors::Document<VenueStats>| doc.document).collect();
+        let cursor =
+            self.db.aql_str(&query).await.map_err(|e| {
+                SharedError::Database(format!("Failed to query venue stats: {}", e))
+            })?;
+
+        let results: Vec<VenueStats> = cursor
+            .into_iter()
+            .map(|doc: arangors::Document<VenueStats>| doc.document)
+            .collect();
 
         Ok(results.into_iter().next())
     }
@@ -1891,11 +2159,15 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
     /// Retrieves all player statistics for leaderboard
     pub async fn get_all_player_stats(&self) -> Result<Vec<PlayerStats>> {
         let query = "FOR doc IN player_stats SORT doc.skill_rating DESC RETURN doc";
-        
-        let cursor = self.db.aql_str(query).await
-            .map_err(|e| SharedError::Database(format!("Failed to query all player stats: {}", e)))?;
 
-        let results: Vec<PlayerStats> = cursor.into_iter().map(|doc: arangors::Document<PlayerStats>| doc.document).collect();
+        let cursor = self.db.aql_str(query).await.map_err(|e| {
+            SharedError::Database(format!("Failed to query all player stats: {}", e))
+        })?;
+
+        let results: Vec<PlayerStats> = cursor
+            .into_iter()
+            .map(|doc: arangors::Document<PlayerStats>| doc.document)
+            .collect();
 
         Ok(results)
     }
@@ -1920,16 +2192,23 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
             player_id
         );
 
-        let cursor = self.db.aql_str(&query).await
-            .map_err(|e| SharedError::Database(format!("Failed to query player contest results: {}", e)))?;
+        let cursor = self.db.aql_str(&query).await.map_err(|e| {
+            SharedError::Database(format!("Failed to query player contest results: {}", e))
+        })?;
 
-        let results: Vec<ContestResult> = cursor.into_iter().map(|doc: arangors::Document<ContestResult>| doc.document).collect();
+        let results: Vec<ContestResult> = cursor
+            .into_iter()
+            .map(|doc: arangors::Document<ContestResult>| doc.document)
+            .collect();
 
         Ok(results)
     }
 
     /// Retrieves contest participants for statistics calculation
-    pub async fn get_contest_participants(&self, contest_id: &str) -> Result<Vec<ContestParticipant>> {
+    pub async fn get_contest_participants(
+        &self,
+        contest_id: &str,
+    ) -> Result<Vec<ContestParticipant>> {
         let query = format!(
             r#"
             FOR result IN resulted_in
@@ -1952,10 +2231,14 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
             contest_id
         );
 
-        let cursor = self.db.aql_str(&query).await
-            .map_err(|e| SharedError::Database(format!("Failed to query contest participants: {}", e)))?;
+        let cursor = self.db.aql_str(&query).await.map_err(|e| {
+            SharedError::Database(format!("Failed to query contest participants: {}", e))
+        })?;
 
-        let results: Vec<ContestParticipant> = cursor.into_iter().map(|doc: arangors::Document<ContestParticipant>| doc.document).collect();
+        let results: Vec<ContestParticipant> = cursor
+            .into_iter()
+            .map(|doc: arangors::Document<ContestParticipant>| doc.document)
+            .collect();
 
         Ok(results)
     }
@@ -1985,10 +2268,16 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
             game_id
         );
 
-        let cursor = self.db.aql_str(&query).await
+        let cursor = self
+            .db
+            .aql_str(&query)
+            .await
             .map_err(|e| SharedError::Database(format!("Failed to query game plays: {}", e)))?;
 
-        let results: Vec<GamePlay> = cursor.into_iter().map(|doc: arangors::Document<GamePlay>| doc.document).collect();
+        let results: Vec<GamePlay> = cursor
+            .into_iter()
+            .map(|doc: arangors::Document<GamePlay>| doc.document)
+            .collect();
 
         Ok(results)
     }
@@ -2023,10 +2312,15 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
             venue_id
         );
 
-        let cursor = self.db.aql_str(&query).await
-            .map_err(|e| SharedError::Database(format!("Failed to query venue contests: {}", e)))?;
+        let cursor =
+            self.db.aql_str(&query).await.map_err(|e| {
+                SharedError::Database(format!("Failed to query venue contests: {}", e))
+            })?;
 
-        let results: Vec<VenueContest> = cursor.into_iter().map(|doc: arangors::Document<VenueContest>| doc.document).collect();
+        let results: Vec<VenueContest> = cursor
+            .into_iter()
+            .map(|doc: arangors::Document<VenueContest>| doc.document)
+            .collect();
 
         Ok(results)
     }
@@ -2038,10 +2332,15 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
             player_id
         );
 
-        let cursor = self.db.aql_str(&query).await
-            .map_err(|e| SharedError::Database(format!("Failed to query player info: {}", e)))?;
+        let cursor =
+            self.db.aql_str(&query).await.map_err(|e| {
+                SharedError::Database(format!("Failed to query player info: {}", e))
+            })?;
 
-        let results: Vec<serde_json::Value> = cursor.into_iter().map(|doc: arangors::Document<serde_json::Value>| doc.document).collect();
+        let results: Vec<serde_json::Value> = cursor
+            .into_iter()
+            .map(|doc: arangors::Document<serde_json::Value>| doc.document)
+            .collect();
 
         if let Some(result) = results.first() {
             let handle = result["handle"].as_str().unwrap_or("").to_string();
@@ -2059,10 +2358,16 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
             game_id
         );
 
-        let cursor = self.db.aql_str(&query).await
+        let cursor = self
+            .db
+            .aql_str(&query)
+            .await
             .map_err(|e| SharedError::Database(format!("Failed to query game info: {}", e)))?;
 
-        let results: Vec<String> = cursor.into_iter().map(|doc: arangors::Document<String>| doc.document).collect();
+        let results: Vec<String> = cursor
+            .into_iter()
+            .map(|doc: arangors::Document<String>| doc.document)
+            .collect();
 
         Ok(results.into_iter().next())
     }
@@ -2074,10 +2379,16 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
             venue_id
         );
 
-        let cursor = self.db.aql_str(&query).await
+        let cursor = self
+            .db
+            .aql_str(&query)
+            .await
             .map_err(|e| SharedError::Database(format!("Failed to query venue info: {}", e)))?;
 
-        let results: Vec<String> = cursor.into_iter().map(|doc: arangors::Document<String>| doc.document).collect();
+        let results: Vec<String> = cursor
+            .into_iter()
+            .map(|doc: arangors::Document<String>| doc.document)
+            .collect();
 
         Ok(results.into_iter().next())
     }
@@ -2089,10 +2400,15 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
             contest_id
         );
 
-        let cursor = self.db.aql_str(&query).await
-            .map_err(|e| SharedError::Database(format!("Failed to query contest info: {}", e)))?;
+        let cursor =
+            self.db.aql_str(&query).await.map_err(|e| {
+                SharedError::Database(format!("Failed to query contest info: {}", e))
+            })?;
 
-        let results: Vec<String> = cursor.into_iter().map(|doc: arangors::Document<String>| doc.document).collect();
+        let results: Vec<String> = cursor
+            .into_iter()
+            .map(|doc: arangors::Document<String>| doc.document)
+            .collect();
 
         Ok(results.into_iter().next())
     }
@@ -2101,7 +2417,7 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
     pub async fn create_collections(&self) -> Result<()> {
         let collections = vec![
             "player_stats",
-            "contest_stats", 
+            "contest_stats",
             "game_stats",
             "venue_stats",
             "platform_stats",
@@ -2109,8 +2425,15 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
 
         for collection_name in collections {
             if let Err(_) = self.db.collection(collection_name).await {
-                self.db.create_collection(collection_name).await
-                    .map_err(|e| SharedError::Database(format!("Failed to create collection {}: {}", collection_name, e)))?;
+                self.db
+                    .create_collection(collection_name)
+                    .await
+                    .map_err(|e| {
+                        SharedError::Database(format!(
+                            "Failed to create collection {}: {}",
+                            collection_name, e
+                        ))
+                    })?;
             }
         }
 
@@ -2119,11 +2442,16 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
 
     /// Debug method to run custom queries
     pub async fn debug_database(&self, query: &str) -> Result<serde_json::Value> {
-        let cursor = self.db.aql_str(query).await
-            .map_err(|e| SharedError::Database(format!("Failed to execute debug query: {}", e)))?;
-        
-        let results: Vec<serde_json::Value> = cursor.into_iter().map(|doc: arangors::Document<serde_json::Value>| doc.document).collect();
-        
+        let cursor =
+            self.db.aql_str(query).await.map_err(|e| {
+                SharedError::Database(format!("Failed to execute debug query: {}", e))
+            })?;
+
+        let results: Vec<serde_json::Value> = cursor
+            .into_iter()
+            .map(|doc: arangors::Document<serde_json::Value>| doc.document)
+            .collect();
+
         if let Some(result) = results.first() {
             Ok(result.clone())
         } else {
@@ -2143,17 +2471,45 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
         let average_participants = self.get_average_participants_per_contest().await?;
 
         // Calculate meaningful ratios and insights
-        let contests_per_player = if total_players > 0 { total_contests as f64 / total_players as f64 } else { 0.0 };
-        let activity_rate = if total_players > 0 { (active_players_30d as f64 / total_players as f64) * 100.0 } else { 0.0 };
+        let contests_per_player = if total_players > 0 {
+            total_contests as f64 / total_players as f64
+        } else {
+            0.0
+        };
+        let activity_rate = if total_players > 0 {
+            (active_players_30d as f64 / total_players as f64) * 100.0
+        } else {
+            0.0
+        };
         let monthly_avg_contests = total_contests as f64 / 12.0;
-        let monthly_growth = if monthly_avg_contests > 0.0 { 
-            (contests_30d as f64 / monthly_avg_contests) * 100.0 
-        } else { 0.0 };
+        let monthly_growth = if monthly_avg_contests > 0.0 {
+            (contests_30d as f64 / monthly_avg_contests) * 100.0
+        } else {
+            0.0
+        };
 
         // Determine platform health indicators
-        let engagement_level = if contests_per_player > 10.0 { "High" } else if contests_per_player > 5.0 { "Medium" } else { "Low" };
-        let growth_trend = if monthly_growth > 120.0 { "↗️ Above Average" } else if monthly_growth < 80.0 { "↘️ Below Average" } else { "→ On Track" };
-        let activity_status = if activity_rate > 20.0 { "Very Active" } else if activity_rate > 10.0 { "Moderately Active" } else { "Low Activity" };
+        let engagement_level = if contests_per_player > 10.0 {
+            "High"
+        } else if contests_per_player > 5.0 {
+            "Medium"
+        } else {
+            "Low"
+        };
+        let growth_trend = if monthly_growth > 120.0 {
+            "↗️ Above Average"
+        } else if monthly_growth < 80.0 {
+            "↘️ Below Average"
+        } else {
+            "→ On Track"
+        };
+        let activity_status = if activity_rate > 20.0 {
+            "Very Active"
+        } else if activity_rate > 10.0 {
+            "Moderately Active"
+        } else {
+            "Low Activity"
+        };
 
         // Get top performers
         let top_games = self.get_top_games(5).await?;
@@ -2198,7 +2554,8 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
     /// Get player achievements
     pub async fn get_player_achievements(&self, player_id: &str) -> Result<PlayerAchievements> {
         let query = arangors::AqlQuery::builder()
-            .query(r#"
+            .query(
+                r#"
                 FOR player IN player
                 FILTER player._id == @player_id
                 LET contests = (
@@ -2240,7 +2597,8 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
                     unique_games: unique_games,
                     unique_venues: unique_venues
                 }
-            "#)
+            "#,
+            )
             .bind_var("player_id", player_id)
             .build();
 
@@ -2250,13 +2608,17 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
                     let achievements = self.calculate_achievements(&player_data).await?;
                     let unlocked_count = achievements.iter().filter(|a| a.unlocked).count() as i32;
                     let total_achievements = achievements.len() as i32;
-                    
+
                     Ok(PlayerAchievements {
                         player_id: player_data.player_id,
                         achievements,
                         total_achievements,
                         unlocked_achievements: unlocked_count,
-                        completion_percentage: if total_achievements == 0 { 0.0 } else { (unlocked_count as f64 / total_achievements as f64) * 100.0 },
+                        completion_percentage: if total_achievements == 0 {
+                            0.0
+                        } else {
+                            (unlocked_count as f64 / total_achievements as f64) * 100.0
+                        },
                     })
                 } else {
                     Err(SharedError::NotFound("Player not found".to_string()))
@@ -2264,15 +2626,21 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
             }
             Err(e) => {
                 log::error!("Failed to query player achievements: {}", e);
-                Err(SharedError::Database(format!("Failed to query player achievements: {}", e)))
+                Err(SharedError::Database(format!(
+                    "Failed to query player achievements: {}",
+                    e
+                )))
             }
         }
     }
 
     /// Calculate achievements for a player based on their stats
-    async fn calculate_achievements(&self, player_data: &PlayerDataResult) -> Result<Vec<Achievement>> {
+    async fn calculate_achievements(
+        &self,
+        player_data: &PlayerDataResult,
+    ) -> Result<Vec<Achievement>> {
         let mut achievements = Vec::new();
-        
+
         // Win-based achievements
         achievements.push(Achievement {
             id: "first_win".to_string(),
@@ -2282,7 +2650,11 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
             required_value: 1,
             current_value: player_data.total_wins,
             unlocked: player_data.total_wins >= 1,
-            unlocked_at: if player_data.total_wins >= 1 { Some(chrono::Utc::now().into()) } else { None },
+            unlocked_at: if player_data.total_wins >= 1 {
+                Some(chrono::Utc::now().into())
+            } else {
+                None
+            },
         });
 
         achievements.push(Achievement {
@@ -2293,7 +2665,11 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
             required_value: 10,
             current_value: player_data.total_wins,
             unlocked: player_data.total_wins >= 10,
-            unlocked_at: if player_data.total_wins >= 10 { Some(chrono::Utc::now().into()) } else { None },
+            unlocked_at: if player_data.total_wins >= 10 {
+                Some(chrono::Utc::now().into())
+            } else {
+                None
+            },
         });
 
         achievements.push(Achievement {
@@ -2304,7 +2680,11 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
             required_value: 50,
             current_value: player_data.total_wins,
             unlocked: player_data.total_wins >= 50,
-            unlocked_at: if player_data.total_wins >= 50 { Some(chrono::Utc::now().into()) } else { None },
+            unlocked_at: if player_data.total_wins >= 50 {
+                Some(chrono::Utc::now().into())
+            } else {
+                None
+            },
         });
 
         // Contest-based achievements
@@ -2316,7 +2696,11 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
             required_value: 5,
             current_value: player_data.total_contests,
             unlocked: player_data.total_contests >= 5,
-            unlocked_at: if player_data.total_contests >= 5 { Some(chrono::Utc::now().into()) } else { None },
+            unlocked_at: if player_data.total_contests >= 5 {
+                Some(chrono::Utc::now().into())
+            } else {
+                None
+            },
         });
 
         achievements.push(Achievement {
@@ -2327,7 +2711,11 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
             required_value: 25,
             current_value: player_data.total_contests,
             unlocked: player_data.total_contests >= 25,
-            unlocked_at: if player_data.total_contests >= 25 { Some(chrono::Utc::now().into()) } else { None },
+            unlocked_at: if player_data.total_contests >= 25 {
+                Some(chrono::Utc::now().into())
+            } else {
+                None
+            },
         });
 
         achievements.push(Achievement {
@@ -2338,7 +2726,11 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
             required_value: 100,
             current_value: player_data.total_contests,
             unlocked: player_data.total_contests >= 100,
-            unlocked_at: if player_data.total_contests >= 100 { Some(chrono::Utc::now().into()) } else { None },
+            unlocked_at: if player_data.total_contests >= 100 {
+                Some(chrono::Utc::now().into())
+            } else {
+                None
+            },
         });
 
         // Game-based achievements
@@ -2350,7 +2742,11 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
             required_value: 5,
             current_value: player_data.unique_games,
             unlocked: player_data.unique_games >= 5,
-            unlocked_at: if player_data.unique_games >= 5 { Some(chrono::Utc::now().into()) } else { None },
+            unlocked_at: if player_data.unique_games >= 5 {
+                Some(chrono::Utc::now().into())
+            } else {
+                None
+            },
         });
 
         achievements.push(Achievement {
@@ -2361,7 +2757,11 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
             required_value: 15,
             current_value: player_data.unique_games,
             unlocked: player_data.unique_games >= 15,
-            unlocked_at: if player_data.unique_games >= 15 { Some(chrono::Utc::now().into()) } else { None },
+            unlocked_at: if player_data.unique_games >= 15 {
+                Some(chrono::Utc::now().into())
+            } else {
+                None
+            },
         });
 
         // Venue-based achievements
@@ -2373,7 +2773,11 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
             required_value: 3,
             current_value: player_data.unique_venues,
             unlocked: player_data.unique_venues >= 3,
-            unlocked_at: if player_data.unique_venues >= 3 { Some(chrono::Utc::now().into()) } else { None },
+            unlocked_at: if player_data.unique_venues >= 3 {
+                Some(chrono::Utc::now().into())
+            } else {
+                None
+            },
         });
 
         achievements.push(Achievement {
@@ -2384,7 +2788,11 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
             required_value: 10,
             current_value: player_data.unique_venues,
             unlocked: player_data.unique_venues >= 10,
-            unlocked_at: if player_data.unique_venues >= 10 { Some(chrono::Utc::now().into()) } else { None },
+            unlocked_at: if player_data.unique_venues >= 10 {
+                Some(chrono::Utc::now().into())
+            } else {
+                None
+            },
         });
 
         Ok(achievements)
@@ -2393,29 +2801,30 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
     /// Get player ranking across all categories
     pub async fn get_player_rankings(&self, player_id: &str) -> Result<Vec<PlayerRanking>> {
         let mut rankings = Vec::new();
-        
+
         // Get win rate ranking
         if let Ok(win_rate_rank) = self.get_player_win_rate_ranking(player_id).await {
             rankings.push(win_rate_rank);
         }
-        
+
         // Get total wins ranking
         if let Ok(total_wins_rank) = self.get_player_total_wins_ranking(player_id).await {
             rankings.push(total_wins_rank);
         }
-        
+
         // Get total contests ranking
         if let Ok(total_contests_rank) = self.get_player_total_contests_ranking(player_id).await {
             rankings.push(total_contests_rank);
         }
-        
+
         Ok(rankings)
     }
 
     /// Get player's win rate ranking
     async fn get_player_win_rate_ranking(&self, player_id: &str) -> Result<PlayerRanking> {
         let query = arangors::AqlQuery::builder()
-            .query(r#"
+            .query(
+                r#"
                 FOR player IN player
                 LET contests = (
                     FOR result IN resulted_in
@@ -2432,7 +2841,8 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
                 LET win_rate = (wins * 100.0) / total_contests
                 SORT win_rate DESC, total_contests DESC
                 RETURN { player_id: player._id, win_rate: win_rate }
-            "#)
+            "#,
+            )
             .build();
 
         #[derive(serde::Deserialize)]
@@ -2452,12 +2862,17 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
                         value: results[rank].win_rate,
                     })
                 } else {
-                    Err(SharedError::NotFound("Player not found in rankings".to_string()))
+                    Err(SharedError::NotFound(
+                        "Player not found in rankings".to_string(),
+                    ))
                 }
             }
             Err(e) => {
                 log::error!("Failed to query win rate ranking: {}", e);
-                Err(SharedError::Database(format!("Failed to query win rate ranking: {}", e)))
+                Err(SharedError::Database(format!(
+                    "Failed to query win rate ranking: {}",
+                    e
+                )))
             }
         }
     }
@@ -2465,7 +2880,8 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
     /// Get player's total wins ranking
     async fn get_player_total_wins_ranking(&self, player_id: &str) -> Result<PlayerRanking> {
         let query = arangors::AqlQuery::builder()
-            .query(r#"
+            .query(
+                r#"
                 FOR player IN player
                 LET wins = LENGTH(
                     FOR result IN resulted_in
@@ -2474,7 +2890,8 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
                 )
                 SORT wins DESC
                 RETURN { player_id: player._id, wins: wins }
-            "#)
+            "#,
+            )
             .build();
 
         #[derive(serde::Deserialize)]
@@ -2494,12 +2911,17 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
                         value: results[rank].wins as f64,
                     })
                 } else {
-                    Err(SharedError::NotFound("Player not found in rankings".to_string()))
+                    Err(SharedError::NotFound(
+                        "Player not found in rankings".to_string(),
+                    ))
                 }
             }
             Err(e) => {
                 log::error!("Failed to query total wins ranking: {}", e);
-                Err(SharedError::Database(format!("Failed to query total wins ranking: {}", e)))
+                Err(SharedError::Database(format!(
+                    "Failed to query total wins ranking: {}",
+                    e
+                )))
             }
         }
     }
@@ -2507,7 +2929,8 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
     /// Get player's total contests ranking
     async fn get_player_total_contests_ranking(&self, player_id: &str) -> Result<PlayerRanking> {
         let query = arangors::AqlQuery::builder()
-            .query(r#"
+            .query(
+                r#"
                 FOR player IN player
                 LET total_contests = LENGTH(
                     FOR result IN resulted_in
@@ -2516,7 +2939,8 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
                 )
                 SORT total_contests DESC
                 RETURN { player_id: player._id, total_contests: total_contests }
-            "#)
+            "#,
+            )
             .build();
 
         #[derive(serde::Deserialize)]
@@ -2536,12 +2960,17 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
                         value: results[rank].total_contests as f64,
                     })
                 } else {
-                    Err(SharedError::NotFound("Player not found in rankings".to_string()))
+                    Err(SharedError::NotFound(
+                        "Player not found in rankings".to_string(),
+                    ))
                 }
             }
             Err(e) => {
                 log::error!("Failed to query total contests ranking: {}", e);
-                Err(SharedError::Database(format!("Failed to query total contests ranking: {}", e)))
+                Err(SharedError::Database(format!(
+                    "Failed to query total contests ranking: {}",
+                    e
+                )))
             }
         }
     }
@@ -2549,7 +2978,8 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
     /// Get player performance distribution by win rate ranges
     pub async fn get_player_performance_distribution(&self) -> Result<Vec<(String, i32)>> {
         let query = arangors::AqlQuery::builder()
-            .query(r#"
+            .query(
+                r#"
                 FOR r IN resulted_in
                 LET player = DOCUMENT(r._to)
                 LET contest = DOCUMENT(r._from)
@@ -2571,15 +3001,26 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
                 COLLECT performance_range = range WITH COUNT INTO player_count
                 SORT performance_range ASC
                 RETURN { range: performance_range, count: player_count }
-            "#)
+            "#,
+            )
             .build();
 
-        let result = self.db.aql_query(query).await
-            .map_err(|e| SharedError::Database(format!("Failed to query player performance distribution: {}", e)))?;
-        let distribution: Vec<arangors::Document<serde_json::Value>> = result.try_into()
-            .map_err(|e| SharedError::Database(format!("Failed to parse player performance distribution: {}", e)))?;
-        
-        Ok(distribution.into_iter()
+        let result = self.db.aql_query(query).await.map_err(|e| {
+            SharedError::Database(format!(
+                "Failed to query player performance distribution: {}",
+                e
+            ))
+        })?;
+        let distribution: Vec<arangors::Document<serde_json::Value>> =
+            result.try_into().map_err(|e| {
+                SharedError::Database(format!(
+                    "Failed to parse player performance distribution: {}",
+                    e
+                ))
+            })?;
+
+        Ok(distribution
+            .into_iter()
             .filter_map(|doc| {
                 let obj = doc.document;
                 let range = obj.get("range")?.as_str()?.to_string();
@@ -2592,7 +3033,8 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
     /// Get game difficulty vs popularity data
     pub async fn get_game_difficulty_popularity(&self) -> Result<Vec<(String, f64, i32, f64)>> {
         let query = arangors::AqlQuery::builder()
-            .query(r#"
+            .query(
+                r#"
                 FOR g IN game
                 LET contests = (
                     FOR c IN contest
@@ -2638,15 +3080,19 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
                     popularity: contest_count,
                     win_rate: avg_win_rate
                 }
-            "#)
+            "#,
+            )
             .build();
 
-        let result = self.db.aql_query(query).await
-            .map_err(|e| SharedError::Database(format!("Failed to query game difficulty popularity: {}", e)))?;
-        let games: Vec<arangors::Document<serde_json::Value>> = result.try_into()
-            .map_err(|e| SharedError::Database(format!("Failed to parse game difficulty popularity: {}", e)))?;
-        
-        Ok(games.into_iter()
+        let result = self.db.aql_query(query).await.map_err(|e| {
+            SharedError::Database(format!("Failed to query game difficulty popularity: {}", e))
+        })?;
+        let games: Vec<arangors::Document<serde_json::Value>> = result.try_into().map_err(|e| {
+            SharedError::Database(format!("Failed to parse game difficulty popularity: {}", e))
+        })?;
+
+        Ok(games
+            .into_iter()
             .filter_map(|doc| {
                 let obj = doc.document;
                 let game_name = obj.get("game_name")?.as_str()?.to_string();
@@ -2701,25 +3147,35 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
             "#)
             .build();
 
-        let result = self.db.aql_query(query).await
-            .map_err(|e| SharedError::Database(format!("Failed to query venue performance timeslots: {}", e)))?;
-        let venues: Vec<arangors::Document<serde_json::Value>> = result.try_into()
-            .map_err(|e| SharedError::Database(format!("Failed to parse venue performance timeslots: {}", e)))?;
-        
+        let result = self.db.aql_query(query).await.map_err(|e| {
+            SharedError::Database(format!(
+                "Failed to query venue performance timeslots: {}",
+                e
+            ))
+        })?;
+        let venues: Vec<arangors::Document<serde_json::Value>> =
+            result.try_into().map_err(|e| {
+                SharedError::Database(format!(
+                    "Failed to parse venue performance timeslots: {}",
+                    e
+                ))
+            })?;
+
         let mut performance_data = Vec::new();
         for doc in venues {
             if let Some(array) = doc.document.as_array() {
                 for item in array {
                     if let Some(obj) = item.as_object() {
-                        let venue = obj.get("venue")
+                        let venue = obj
+                            .get("venue")
                             .and_then(|v| v.as_str())
                             .map(|s| s.to_string());
-                        let timeslot = obj.get("timeslot")
+                        let timeslot = obj
+                            .get("timeslot")
                             .and_then(|v| v.as_str())
                             .map(|s| s.to_string());
-                        let rate = obj.get("rate")
-                            .and_then(|v| v.as_f64());
-                        
+                        let rate = obj.get("rate").and_then(|v| v.as_f64());
+
                         if let (Some(venue), Some(timeslot), Some(rate)) = (venue, timeslot, rate) {
                             performance_data.push((venue, timeslot, rate));
                         }
@@ -2727,14 +3183,15 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
                 }
             }
         }
-        
+
         Ok(performance_data)
     }
 
     /// Get player retention cohort data
     pub async fn get_player_retention_cohort(&self) -> Result<Vec<(String, i32, f64)>> {
         let query = arangors::AqlQuery::builder()
-            .query(r#"
+            .query(
+                r#"
                 FOR r IN resulted_in
                 LET player = DOCUMENT(r._to)
                 LET contest = DOCUMENT(r._from)
@@ -2761,15 +3218,20 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
                         RETURN r3
                     )) * 100
                 }
-            "#)
+            "#,
+            )
             .build();
 
-        let result = self.db.aql_query(query).await
-            .map_err(|e| SharedError::Database(format!("Failed to query player retention cohort: {}", e)))?;
-        let cohorts: Vec<arangors::Document<serde_json::Value>> = result.try_into()
-            .map_err(|e| SharedError::Database(format!("Failed to parse player retention cohort: {}", e)))?;
-        
-        Ok(cohorts.into_iter()
+        let result = self.db.aql_query(query).await.map_err(|e| {
+            SharedError::Database(format!("Failed to query player retention cohort: {}", e))
+        })?;
+        let cohorts: Vec<arangors::Document<serde_json::Value>> =
+            result.try_into().map_err(|e| {
+                SharedError::Database(format!("Failed to parse player retention cohort: {}", e))
+            })?;
+
+        Ok(cohorts
+            .into_iter()
             .filter_map(|doc| {
                 let obj = doc.document;
                 let contest_num = obj.get("contest_number")?.as_str()?.to_string();
@@ -2817,12 +3279,15 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
             "#)
             .build();
 
-        let result = self.db.aql_query(query).await
-            .map_err(|e| SharedError::Database(format!("Failed to query contest completion by game: {}", e)))?;
-        let games: Vec<arangors::Document<serde_json::Value>> = result.try_into()
-            .map_err(|e| SharedError::Database(format!("Failed to parse contest completion by game: {}", e)))?;
-        
-        Ok(games.into_iter()
+        let result = self.db.aql_query(query).await.map_err(|e| {
+            SharedError::Database(format!("Failed to query contest completion by game: {}", e))
+        })?;
+        let games: Vec<arangors::Document<serde_json::Value>> = result.try_into().map_err(|e| {
+            SharedError::Database(format!("Failed to parse contest completion by game: {}", e))
+        })?;
+
+        Ok(games
+            .into_iter()
             .filter_map(|doc| {
                 let obj = doc.document;
                 let game_name = obj.get("game_name")?.as_str()?.to_string();
@@ -2836,7 +3301,8 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
     /// Get head-to-head win matrix for top players
     pub async fn get_head_to_head_matrix(&self, limit: i32) -> Result<Vec<(String, String, f64)>> {
         let query = arangors::AqlQuery::builder()
-            .query(r#"
+            .query(
+                r#"
                 LET top_players = (
                     FOR r IN resulted_in
                     LET player = DOCUMENT(r._to)
@@ -2886,16 +3352,21 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
                     player2: p2,
                     win_rate: win_rate
                 }
-            "#)
+            "#,
+            )
             .bind_var("limit", limit)
             .build();
 
-        let result = self.db.aql_query(query).await
-            .map_err(|e| SharedError::Database(format!("Failed to query head to head matrix: {}", e)))?;
-        let matrix: Vec<arangors::Document<serde_json::Value>> = result.try_into()
-            .map_err(|e| SharedError::Database(format!("Failed to parse head to head matrix: {}", e)))?;
-        
-        Ok(matrix.into_iter()
+        let result = self.db.aql_query(query).await.map_err(|e| {
+            SharedError::Database(format!("Failed to query head to head matrix: {}", e))
+        })?;
+        let matrix: Vec<arangors::Document<serde_json::Value>> =
+            result.try_into().map_err(|e| {
+                SharedError::Database(format!("Failed to parse head to head matrix: {}", e))
+            })?;
+
+        Ok(matrix
+            .into_iter()
             .filter_map(|doc| {
                 let obj = doc.document;
                 let player1 = obj.get("player1")?.as_str()?.to_string();
@@ -2910,37 +3381,50 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
     pub async fn get_games_by_player_count(&self) -> Result<Vec<(i32, Vec<(String, i32)>)>> {
         // First, let's check what fields are available in the contest collection
         let debug_query = arangors::AqlQuery::builder()
-            .query(r#"
+            .query(
+                r#"
                 FOR c IN contest LIMIT 1
                 RETURN c
-            "#)
+            "#,
+            )
             .build();
 
-        let debug_result = self.db.aql_query::<serde_json::Value>(debug_query).await
-            .map_err(|e| SharedError::Database(format!("Failed to debug contest structure: {}", e)))?;
-        
+        let debug_result = self
+            .db
+            .aql_query::<serde_json::Value>(debug_query)
+            .await
+            .map_err(|e| {
+                SharedError::Database(format!("Failed to debug contest structure: {}", e))
+            })?;
+
         if let Some(first_contest) = debug_result.first() {
             log::info!("Contest document structure: {:?}", first_contest);
         }
 
         // Also check what fields are available in the game collection
         let game_debug_query = arangors::AqlQuery::builder()
-            .query(r#"
+            .query(
+                r#"
                 FOR g IN game LIMIT 1
                 RETURN g
-            "#)
+            "#,
+            )
             .build();
 
-        let game_debug_result = self.db.aql_query::<serde_json::Value>(game_debug_query).await
+        let game_debug_result = self
+            .db
+            .aql_query::<serde_json::Value>(game_debug_query)
+            .await
             .map_err(|e| SharedError::Database(format!("Failed to debug game structure: {}", e)))?;
-        
+
         if let Some(first_game) = game_debug_result.first() {
             log::info!("Game document structure: {:?}", first_game);
         }
 
         // Now get the actual game breakdowns by player count
         let query = arangors::AqlQuery::builder()
-            .query(r#"
+            .query(
+                r#"
                 // Get all contests with their participant counts and game names
                 FOR c IN contest
                 LET participant_count = LENGTH(
@@ -2963,36 +3447,48 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
                     game_name: game_name,
                     game_count: game_count
                 }
-            "#)
+            "#,
+            )
             .build();
 
-        let result = self.db.aql_query::<serde_json::Value>(query).await
-            .map_err(|e| SharedError::Database(format!("Failed to query games by player count: {}", e)))?;
-        
+        let result = self
+            .db
+            .aql_query::<serde_json::Value>(query)
+            .await
+            .map_err(|e| {
+                SharedError::Database(format!("Failed to query games by player count: {}", e))
+            })?;
+
         log::info!("Game breakdown query result: {:?}", result);
-        
+
         // Also log the raw AQL query for debugging
         log::info!("AQL Query executed successfully");
-        
+
         // Test a simpler query to see if we can get basic contest data
         let test_query = arangors::AqlQuery::builder()
-            .query(r#"
+            .query(
+                r#"
                 FOR c IN contest LIMIT 5
                 RETURN {
                     contest_id: c._id,
                     all_fields: c
                 }
-            "#)
+            "#,
+            )
             .build();
-        
-        let test_result = self.db.aql_query::<serde_json::Value>(test_query).await
+
+        let test_result = self
+            .db
+            .aql_query::<serde_json::Value>(test_query)
+            .await
             .map_err(|e| SharedError::Database(format!("Failed to test contest query: {}", e)))?;
-        
+
         log::info!("Test contest query result: {:?}", test_result);
-        
+
         // Also check if there's a different relationship - maybe through played_with
         let relationship_query = arangors::AqlQuery::builder()
-            .query(r#"
+            .query(
+                r#"
                 FOR c IN contest LIMIT 3
                 LET participants = (
                     FOR r IN played_with
@@ -3004,27 +3500,56 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
                     participant_count: LENGTH(participants),
                     first_participant: participants[0]
                 }
-            "#)
+            "#,
+            )
             .build();
-        
-        let relationship_result = self.db.aql_query::<serde_json::Value>(relationship_query).await
-            .map_err(|e| SharedError::Database(format!("Failed to test relationship query: {}", e)))?;
-        
+
+        let relationship_result = self
+            .db
+            .aql_query::<serde_json::Value>(relationship_query)
+            .await
+            .map_err(|e| {
+                SharedError::Database(format!("Failed to test relationship query: {}", e))
+            })?;
+
         log::info!("Relationship query result: {:?}", relationship_result);
-        
+
         // Group by player count and collect individual games
-        let mut player_count_map: std::collections::HashMap<i32, Vec<(String, i32)>> = std::collections::HashMap::new();
-        
+        let mut player_count_map: std::collections::HashMap<i32, Vec<(String, i32)>> =
+            std::collections::HashMap::new();
+
         for obj in result {
-            let player_count = obj.get("player_count").ok_or(SharedError::Database("Missing player_count field".to_string()))?.as_i64().ok_or(SharedError::Database("Invalid player_count field".to_string()))? as i32;
-            let game_name = obj.get("game_name").ok_or(SharedError::Database("Missing game_name field".to_string()))?.as_str().ok_or(SharedError::Database("Invalid game_name field".to_string()))?.to_string();
-            let game_count = obj.get("game_count").ok_or(SharedError::Database("Missing game_count field".to_string()))?.as_i64().ok_or(SharedError::Database("Invalid game_count field".to_string()))? as i32;
-            
-            player_count_map.entry(player_count)
+            let player_count = obj
+                .get("player_count")
+                .ok_or(SharedError::Database(
+                    "Missing player_count field".to_string(),
+                ))?
+                .as_i64()
+                .ok_or(SharedError::Database(
+                    "Invalid player_count field".to_string(),
+                ))? as i32;
+            let game_name = obj
+                .get("game_name")
+                .ok_or(SharedError::Database("Missing game_name field".to_string()))?
+                .as_str()
+                .ok_or(SharedError::Database("Invalid game_name field".to_string()))?
+                .to_string();
+            let game_count = obj
+                .get("game_count")
+                .ok_or(SharedError::Database(
+                    "Missing game_count field".to_string(),
+                ))?
+                .as_i64()
+                .ok_or(SharedError::Database(
+                    "Invalid game_count field".to_string(),
+                ))? as i32;
+
+            player_count_map
+                .entry(player_count)
                 .or_insert_with(Vec::new)
                 .push((game_name, game_count));
         }
-        
+
         // Convert to sorted vector and ensure all player counts 2-10 are represented
         let mut final_result = Vec::new();
         for player_count in 2..=10 {
@@ -3036,8 +3561,7 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
                 final_result.push((player_count, Vec::new()));
             }
         }
-        
+
         Ok(final_result)
     }
 }
-

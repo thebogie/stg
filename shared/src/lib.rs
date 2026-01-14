@@ -1,27 +1,27 @@
 pub mod models {
-    pub mod contest;
-    pub mod game;
-    pub mod venue;
-    pub mod player;
-    pub mod auth;
-    pub mod relations;
     pub mod analytics;
+    pub mod auth;
     pub mod client_analytics;
     pub mod client_storage;
+    pub mod contest;
+    pub mod game;
+    pub mod player;
+    pub mod relations;
+    pub mod venue;
 }
 
 pub mod dto {
+    pub mod analytics;
+    pub mod auth;
+    pub mod client_sync;
+    pub mod common;
     pub mod contest;
     pub mod game;
-    pub mod venue;
-    pub mod player;
-    pub mod auth;
-    pub mod relations;
     pub mod outcome;
-    pub mod common;
-    pub mod analytics;
-    pub mod client_sync;
+    pub mod player;
     pub mod ratings;
+    pub mod relations;
+    pub mod venue;
 }
 
 pub mod error;
@@ -29,43 +29,43 @@ pub mod timezone;
 pub mod timezone_cache;
 
 // Re-export commonly used items
-pub use error::{SharedError, Result};
+pub use error::{Result, SharedError};
 
 // Re-export models
 pub use models::{
-    player::Player,
+    analytics::{
+        Achievement, AchievementCategory, ContestStats, GamePopularity, GameStats, MonthlyContests,
+        MonthlyPlays, PlatformStats, PlayerAchievements, PlayerStats, PlayerWinRate, VenueActivity,
+        VenueStats,
+    },
+    auth::{LoginRequest, RegisterRequest, User, UserSession},
     contest::Contest,
     game::Game,
-    venue::Venue,
-    auth::{User, UserSession, LoginRequest, RegisterRequest},
+    player::Player,
     relations::{PlayedAt, PlayedWith, ResultedIn},
-    analytics::{
-        PlayerStats, ContestStats, GameStats, VenueStats, PlatformStats,
-        PlayerWinRate, MonthlyPlays, GamePopularity, MonthlyContests,
-        VenueActivity, Achievement, AchievementCategory, PlayerAchievements,
-    },
+    venue::Venue,
 };
 
 // Re-export DTOs
 pub use dto::{
-    player::{PlayerDto, CreatePlayerRequest, LoginResponse, StoredPlayer, PlayerProfileDto},
+    analytics::{
+        AchievementCategoryDto, AchievementDto, ContestStatsDto, ContestStatsRequest,
+        GamePopularityDto, GameStatsDto, GameStatsRequest, LeaderboardCategory, LeaderboardEntry,
+        LeaderboardRequest, LeaderboardResponse, MonthlyContestsDto, MonthlyPlaysDto,
+        PlatformStatsDto, PlayerAchievementsDto, PlayerStatsDto, PlayerStatsRequest,
+        PlayerWinRateDto, TimePeriod, VenueActivityDto, VenueStatsDto, VenueStatsRequest,
+    },
+    auth::UserSessionDto,
+    common::{AuthResponse, ErrorResponse, SearchQuery},
     contest::{ContestDto, OutcomeDto},
     game::GameDto,
-    venue::VenueDto,
-    relations::{PlayedAtDto, PlayedWithDto, ResultedInDto},
-    auth::UserSessionDto,
-    common::{SearchQuery, ErrorResponse, AuthResponse},
     outcome::Outcome,
-    analytics::{
-        PlayerStatsDto, ContestStatsDto, GameStatsDto, VenueStatsDto, PlatformStatsDto,
-        PlayerWinRateDto, MonthlyPlaysDto, GamePopularityDto, MonthlyContestsDto,
-        VenueActivityDto, AchievementDto, AchievementCategoryDto, PlayerAchievementsDto,
-        PlayerStatsRequest, ContestStatsRequest, GameStatsRequest, VenueStatsRequest,
-        LeaderboardRequest, LeaderboardCategory, TimePeriod, LeaderboardEntry, LeaderboardResponse,
-    },
+    player::{CreatePlayerRequest, LoginResponse, PlayerDto, PlayerProfileDto, StoredPlayer},
     ratings::{
-        RatingScope, PlayerRatingDto, PlayerRatingHistoryPointDto, RatingLeaderboardEntryDto,
+        PlayerRatingDto, PlayerRatingHistoryPointDto, RatingLeaderboardEntryDto, RatingScope,
     },
+    relations::{PlayedAtDto, PlayedWithDto, ResultedInDto},
+    venue::VenueDto,
 };
 
 #[cfg(test)]
@@ -85,7 +85,7 @@ mod tests {
             created_at: chrono::Utc::now().fixed_offset(),
             is_admin: false,
         };
-        
+
         assert_eq!(player.handle, "testuser");
         assert_eq!(player.email, "test@example.com");
     }
@@ -103,7 +103,7 @@ mod tests {
             timezone: "America/New_York".to_string(),
             source: crate::models::venue::VenueSource::Database,
         };
-        
+
         assert_eq!(venue.display_name, "Test Venue");
         assert_eq!(venue.formatted_address, "123 Test St, Test City, TC 12345");
         assert_eq!(venue.timezone, "America/New_York");
@@ -120,9 +120,9 @@ mod tests {
             description: Some("A test game".to_string()),
             source: crate::models::game::GameSource::Database,
         };
-        
+
         assert_eq!(game.name, "Test Game");
         assert_eq!(game.year_published, Some(2020));
         assert_eq!(game.bgg_id, Some(12345));
     }
-} 
+}

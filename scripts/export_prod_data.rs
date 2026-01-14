@@ -4,9 +4,9 @@
 //! to a JSON file that can later be sanitized and used in tests.
 
 use anyhow::{Context, Result};
-use arangors::{Connection, Database, AqlQuery};
-use clap::Parser;
+use arangors::{AqlQuery, Connection, Database};
 use chrono::Utc;
+use clap::Parser;
 use log::{info, warn};
 use serde_json::{json, Value};
 use std::fs::File;
@@ -59,13 +59,13 @@ async fn main() -> Result<()> {
         .context("Failed to access database")?;
 
     info!("Fetching collections from database {}", args.database);
-    
+
     // List collections using AQL query
     use arangors::AqlQuery;
     let list_query = AqlQuery::builder()
         .query("FOR c IN COLLECTIONS FILTER !STARTS_WITH(c.name, '_') RETURN c.name")
         .build();
-    
+
     let collections: Vec<String> = db
         .aql_query(list_query)
         .await
@@ -87,7 +87,7 @@ async fn main() -> Result<()> {
 
     for collection_name in &collections_to_export {
         info!("Exporting collection: {}", collection_name);
-        
+
         match export_collection(&db, collection_name).await {
             Ok(documents) => {
                 let count = documents.len();
@@ -101,12 +101,10 @@ async fn main() -> Result<()> {
     }
 
     info!("Writing dump to {}", args.output.display());
-    let mut file = File::create(&args.output)
-        .context("Failed to create output file")?;
-    
-    serde_json::to_writer_pretty(&mut file, &dump)
-        .context("Failed to write JSON to file")?;
-    
+    let mut file = File::create(&args.output).context("Failed to create output file")?;
+
+    serde_json::to_writer_pretty(&mut file, &dump).context("Failed to write JSON to file")?;
+
     file.flush()?;
 
     info!("✅ Export completed successfully!");
@@ -116,17 +114,17 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-async fn export_collection(db: &Database<arangors::client::reqwest::ReqwestClient>, collection_name: &str) -> Result<Vec<Value>> {
+async fn export_collection(
+    db: &Database<arangors::client::reqwest::ReqwestClient>,
+    collection_name: &str,
+) -> Result<Vec<Value>> {
     let query_str = format!("FOR doc IN {} RETURN doc", collection_name);
-    let query = AqlQuery::builder()
-        .query(&query_str)
-        .build();
-    
+    let query = AqlQuery::builder().query(&query_str).build();
+
     let result: Vec<Value> = db
         .aql_query(query)
         .await
         .with_context(|| format!("Failed to query collection {}", collection_name))?;
-    
+
     Ok(result)
 }
-

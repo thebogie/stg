@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::RwLock;
 use std::time::{Duration, Instant};
+use tokio::sync::RwLock;
 
 /// Cache entry with expiration
 #[derive(Clone)]
@@ -140,8 +140,6 @@ impl CacheKeys {
         format!("analytics:player:{}:rankings", player_id)
     }
 
-
-
     /// Generate cache key for players who beat me
     pub fn players_who_beat_me(player_id: &str) -> String {
         format!("players_who_beat_me:{}", player_id)
@@ -204,27 +202,49 @@ impl CacheTTL {
             player_stats: Duration::from_secs(15 * 60),  // 15 minutes
             player_achievements: Duration::from_secs(30 * 60), // 30 minutes
             player_rankings: Duration::from_secs(20 * 60), // 20 minutes
-            contest_stats: Duration::from_secs(30 * 60),  // 30 minutes
+            contest_stats: Duration::from_secs(30 * 60), // 30 minutes
             contest_trends: Duration::from_secs(60 * 60), // 1 hour
             recent_contests: Duration::from_secs(5 * 60), // 5 minutes
             player_opponents: Duration::from_secs(15 * 60), // 15 minutes
-            head_to_head: Duration::from_secs(10 * 60),   // 10 minutes
-            player_trends: Duration::from_secs(30 * 60),  // 30 minutes
+            head_to_head: Duration::from_secs(10 * 60),  // 10 minutes
+            player_trends: Duration::from_secs(30 * 60), // 30 minutes
         }
     }
 
     // Convenience methods for accessing TTLs
-    pub fn platform_stats() -> Duration { Duration::from_secs(5 * 60) }
-    pub fn leaderboard() -> Duration { Duration::from_secs(10 * 60) }
-    pub fn player_stats() -> Duration { Duration::from_secs(15 * 60) }
-    pub fn player_achievements() -> Duration { Duration::from_secs(30 * 60) }
-    pub fn player_rankings() -> Duration { Duration::from_secs(20 * 60) }
-    pub fn contest_stats() -> Duration { Duration::from_secs(30 * 60) }
-    pub fn contest_trends() -> Duration { Duration::from_secs(60 * 60) }
-    pub fn recent_contests() -> Duration { Duration::from_secs(5 * 60) }
-    pub fn player_opponents() -> Duration { Duration::from_secs(15 * 60) }
-    pub fn head_to_head() -> Duration { Duration::from_secs(10 * 60) }
-    pub fn player_trends() -> Duration { Duration::from_secs(30 * 60) }
+    pub fn platform_stats() -> Duration {
+        Duration::from_secs(5 * 60)
+    }
+    pub fn leaderboard() -> Duration {
+        Duration::from_secs(10 * 60)
+    }
+    pub fn player_stats() -> Duration {
+        Duration::from_secs(15 * 60)
+    }
+    pub fn player_achievements() -> Duration {
+        Duration::from_secs(30 * 60)
+    }
+    pub fn player_rankings() -> Duration {
+        Duration::from_secs(20 * 60)
+    }
+    pub fn contest_stats() -> Duration {
+        Duration::from_secs(30 * 60)
+    }
+    pub fn contest_trends() -> Duration {
+        Duration::from_secs(60 * 60)
+    }
+    pub fn recent_contests() -> Duration {
+        Duration::from_secs(5 * 60)
+    }
+    pub fn player_opponents() -> Duration {
+        Duration::from_secs(15 * 60)
+    }
+    pub fn head_to_head() -> Duration {
+        Duration::from_secs(10 * 60)
+    }
+    pub fn player_trends() -> Duration {
+        Duration::from_secs(30 * 60)
+    }
 }
 
 #[cfg(test)]
@@ -235,11 +255,13 @@ mod tests {
     #[tokio::test]
     async fn test_cache_basic_operations() {
         let cache = AnalyticsCache::new(Duration::from_secs(1));
-        
+
         // Test set and get
-        cache.set("test_key".to_string(), "test_value".to_string()).await;
+        cache
+            .set("test_key".to_string(), "test_value".to_string())
+            .await;
         assert_eq!(cache.get("test_key").await, Some("test_value".to_string()));
-        
+
         // Test expiration
         tokio::time::sleep(Duration::from_millis(1100)).await;
         assert_eq!(cache.get("test_key").await, None);
@@ -248,13 +270,13 @@ mod tests {
     #[tokio::test]
     async fn test_cache_cleanup() {
         let cache = AnalyticsCache::new(Duration::from_millis(100));
-        
+
         cache.set("key1".to_string(), "value1".to_string()).await;
         cache.set("key2".to_string(), "value2".to_string()).await;
-        
+
         tokio::time::sleep(Duration::from_millis(150)).await;
         cache.cleanup().await;
-        
+
         let stats = cache.stats().await;
         assert_eq!(stats.valid_entries, 0);
         assert_eq!(stats.expired_entries, 0);
@@ -263,15 +285,33 @@ mod tests {
     #[tokio::test]
     async fn test_cache_pattern_invalidation() {
         let cache = AnalyticsCache::new(Duration::from_secs(60));
-        
-        cache.set("analytics:player:123:stats".to_string(), "value1".to_string()).await;
-        cache.set("analytics:player:456:stats".to_string(), "value2".to_string()).await;
-        cache.set("analytics:contest:789:stats".to_string(), "value3".to_string()).await;
-        
+
+        cache
+            .set(
+                "analytics:player:123:stats".to_string(),
+                "value1".to_string(),
+            )
+            .await;
+        cache
+            .set(
+                "analytics:player:456:stats".to_string(),
+                "value2".to_string(),
+            )
+            .await;
+        cache
+            .set(
+                "analytics:contest:789:stats".to_string(),
+                "value3".to_string(),
+            )
+            .await;
+
         cache.invalidate_pattern("player").await;
-        
+
         assert_eq!(cache.get("analytics:player:123:stats").await, None);
         assert_eq!(cache.get("analytics:player:456:stats").await, None);
-        assert_eq!(cache.get("analytics:contest:789:stats").await, Some("value3".to_string()));
+        assert_eq!(
+            cache.get("analytics:contest:789:stats").await,
+            Some("value3".to_string())
+        );
     }
-} 
+}

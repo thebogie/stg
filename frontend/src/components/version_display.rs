@@ -1,5 +1,5 @@
-use yew::prelude::*;
 use crate::version::Version;
+use yew::prelude::*;
 
 #[derive(Properties, PartialEq)]
 pub struct VersionDisplayProps {
@@ -44,14 +44,14 @@ pub struct VersionTooltipProps {
 #[function_component(VersionTooltip)]
 pub fn version_tooltip(props: &VersionTooltipProps) -> Html {
     let show_tooltip = use_state(|| false);
-    
+
     let on_mouse_enter = {
         let show_tooltip = show_tooltip.clone();
         Callback::from(move |_| {
             show_tooltip.set(true);
         })
     };
-    
+
     let on_mouse_leave = {
         let show_tooltip = show_tooltip.clone();
         Callback::from(move |_| {
@@ -60,7 +60,7 @@ pub fn version_tooltip(props: &VersionTooltipProps) -> Html {
     };
 
     html! {
-        <div 
+        <div
             class={classes!("relative", "inline-block", props.class.clone())}
             onmouseenter={on_mouse_enter}
             onmouseleave={on_mouse_leave}
@@ -74,11 +74,11 @@ pub fn version_tooltip(props: &VersionTooltipProps) -> Html {
                 <span class={classes!("text-xs")}>{"🔢"}</span>
                 <span>{Version::short()}</span>
             </div>
-            
+
             if *show_tooltip {
                 <div class={classes!(
-                    "absolute", "bottom-full", "left-1/2", "transform", "-translate-x-1/2", 
-                    "mb-2", "px-3", "py-2", "bg-gray-900", "text-white", "text-xs", 
+                    "absolute", "bottom-full", "left-1/2", "transform", "-translate-x-1/2",
+                    "mb-2", "px-3", "py-2", "bg-gray-900", "text-white", "text-xs",
                     "rounded-lg", "shadow-lg", "z-50", "whitespace-nowrap",
                     "border", "border-gray-700"
                 )}>
@@ -103,4 +103,4 @@ pub fn version_tooltip(props: &VersionTooltipProps) -> Html {
             }
         </div>
     }
-} 
+}

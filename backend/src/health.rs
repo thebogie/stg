@@ -1,8 +1,8 @@
 use actix_web::{get, web, HttpResponse, Responder};
-use serde::Serialize;
-use std::time::{SystemTime, UNIX_EPOCH, Duration};
-use tokio::time::timeout;
 use arangors::Database;
+use serde::Serialize;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use tokio::time::timeout;
 
 #[derive(Serialize, utoipa::ToSchema)]
 pub struct HealthResponse {
@@ -72,51 +72,49 @@ async fn check_database(
     db: &Database<arangors::client::reqwest::ReqwestClient>,
 ) -> ServiceHealthStatus {
     let start = std::time::Instant::now();
-    
+
     match timeout(Duration::from_secs(5), async {
         // Simple query to check database connectivity
         db.info().await
-    }).await {
+    })
+    .await
+    {
         Ok(Ok(_)) => {
             let elapsed = start.elapsed().as_millis() as u64;
             ServiceHealthStatus::healthy().with_response_time(elapsed)
         }
-        Ok(Err(e)) => {
-            ServiceHealthStatus::unhealthy(format!("Database query failed: {}", e))
-        }
-        Err(_) => {
-            ServiceHealthStatus::unhealthy("Database connection timeout".to_string())
-        }
+        Ok(Err(e)) => ServiceHealthStatus::unhealthy(format!("Database query failed: {}", e)),
+        Err(_) => ServiceHealthStatus::unhealthy("Database connection timeout".to_string()),
     }
 }
 
 /// Check Redis connectivity
 async fn check_redis(redis_client: &redis::Client) -> ServiceHealthStatus {
     let start = std::time::Instant::now();
-    
+
     match timeout(Duration::from_secs(5), async {
         let mut conn = redis_client.get_async_connection().await?;
         redis::cmd("PING").query_async::<_, String>(&mut conn).await
-    }).await {
+    })
+    .await
+    {
         Ok(Ok(_)) => {
             let elapsed = start.elapsed().as_millis() as u64;
             ServiceHealthStatus::healthy().with_response_time(elapsed)
         }
-        Ok(Err(e)) => {
-            ServiceHealthStatus::unhealthy(format!("Redis connection failed: {}", e))
-        }
-        Err(_) => {
-            ServiceHealthStatus::unhealthy("Redis connection timeout".to_string())
-        }
+        Ok(Err(e)) => ServiceHealthStatus::unhealthy(format!("Redis connection failed: {}", e)),
+        Err(_) => ServiceHealthStatus::unhealthy("Redis connection timeout".to_string()),
     }
 }
 
 /// Check scheduler status
 fn check_scheduler(
-    scheduler: &web::Data<crate::ratings::scheduler::RatingsScheduler<arangors::client::reqwest::ReqwestClient>>,
+    scheduler: &web::Data<
+        crate::ratings::scheduler::RatingsScheduler<arangors::client::reqwest::ReqwestClient>,
+    >,
 ) -> ServiceHealthStatus {
     let status = scheduler.get_status();
-    
+
     if status.is_running {
         ServiceHealthStatus::healthy()
     } else {
@@ -137,7 +135,9 @@ fn check_scheduler(
 pub async fn detailed_health_check(
     db: web::Data<Database<arangors::client::reqwest::ReqwestClient>>,
     redis_client: web::Data<redis::Client>,
-    scheduler: web::Data<crate::ratings::scheduler::RatingsScheduler<arangors::client::reqwest::ReqwestClient>>,
+    scheduler: web::Data<
+        crate::ratings::scheduler::RatingsScheduler<arangors::client::reqwest::ReqwestClient>,
+    >,
 ) -> impl Responder {
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -167,9 +167,10 @@ pub async fn detailed_health_check(
     let scheduler_status = check_scheduler(&scheduler);
 
     // Determine overall status
-    let overall_status = if db_status.status == "healthy" 
-        && redis_status.status == "healthy" 
-        && scheduler_status.status == "healthy" {
+    let overall_status = if db_status.status == "healthy"
+        && redis_status.status == "healthy"
+        && scheduler_status.status == "healthy"
+    {
         "ok"
     } else {
         "degraded"
@@ -222,10 +223,10 @@ pub async fn scheduler_health_check() -> impl Responder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use actix_web::{test, App, web, http::StatusCode};
-    use serde_json::Value;
-    use crate::ratings::usecase::RatingsUsecase;
     use crate::ratings::repository::RatingsRepository;
+    use crate::ratings::usecase::RatingsUsecase;
+    use actix_web::{http::StatusCode, test, web, App};
+    use serde_json::Value;
 
     #[actix_web::test]
     async fn test_health_response_structure() {
@@ -278,17 +279,15 @@ mod tests {
             // Fallback to a dummy URL that will fail gracefully
             redis::Client::open("redis://invalid:6379/").unwrap()
         });
-        
+
         // Note: We can't easily create a Database without a real connection in unit tests
         // We'll need to create a mock or skip the database check. For now, we'll create
         // a connection that will fail, and the health check should handle it gracefully.
         // Try to create a connection - if it fails, that's expected in unit tests
-        let db_result = arangors::Connection::establish_basic_auth(
-            "http://localhost:8529",
-            "root",
-            "test"
-        ).await;
-        
+        let db_result =
+            arangors::Connection::establish_basic_auth("http://localhost:8529", "root", "test")
+                .await;
+
         // Create scheduler - we need a database for this, so we'll skip it if DB connection fails
         // For unit tests, we'll just test that the endpoint structure is correct
         // even if services are unavailable
@@ -297,14 +296,15 @@ mod tests {
                 let ratings_repo = RatingsRepository::new(db.clone());
                 let ratings_usecase = RatingsUsecase::new(ratings_repo);
                 let scheduler = crate::ratings::scheduler::RatingsScheduler::new(ratings_usecase);
-                
+
                 test::init_service(
                     App::new()
                         .app_data(web::Data::new(db))
                         .app_data(web::Data::new(redis_client))
                         .app_data(web::Data::new(scheduler))
-                        .service(detailed_health_check)
-                ).await
+                        .service(detailed_health_check),
+                )
+                .await
             } else {
                 // DB connection failed, skip this test
                 return;
@@ -314,13 +314,17 @@ mod tests {
             // The test will verify the endpoint structure works even without real connections
             return;
         };
-        
-        let req = test::TestRequest::get().uri("/health/detailed").to_request();
+
+        let req = test::TestRequest::get()
+            .uri("/health/detailed")
+            .to_request();
         let resp = test::call_service(&app, req).await;
-        
+
         // The health check may return 503 if services are unavailable, or 200 if they're available
         // We just check that it returns a valid response structure
-        assert!(resp.status() == StatusCode::OK || resp.status() == StatusCode::SERVICE_UNAVAILABLE);
+        assert!(
+            resp.status() == StatusCode::OK || resp.status() == StatusCode::SERVICE_UNAVAILABLE
+        );
         let body = test::read_body(resp).await;
         let json: Value = serde_json::from_slice(&body).unwrap();
         assert!(json.get("status").is_some());
@@ -352,30 +356,28 @@ mod tests {
     async fn test_detailed_health_check_json_structure() {
         // Similar setup to test_detailed_health_check
         // This test verifies the JSON structure is correct
-        let redis_client = redis::Client::open("redis://localhost:6379/").unwrap_or_else(|_| {
-            redis::Client::open("redis://invalid:6379/").unwrap()
-        });
-        
+        let redis_client = redis::Client::open("redis://localhost:6379/")
+            .unwrap_or_else(|_| redis::Client::open("redis://invalid:6379/").unwrap());
+
         // Try to create database connection for scheduler
-        let db_result = arangors::Connection::establish_basic_auth(
-            "http://localhost:8529",
-            "root",
-            "test"
-        ).await;
-        
+        let db_result =
+            arangors::Connection::establish_basic_auth("http://localhost:8529", "root", "test")
+                .await;
+
         let app = if let Ok(conn) = db_result {
             if let Ok(db) = conn.db("_system").await {
                 let ratings_repo = RatingsRepository::new(db.clone());
                 let ratings_usecase = RatingsUsecase::new(ratings_repo);
                 let scheduler = crate::ratings::scheduler::RatingsScheduler::new(ratings_usecase);
-                
+
                 test::init_service(
                     App::new()
                         .app_data(web::Data::new(db))
                         .app_data(web::Data::new(redis_client))
                         .app_data(web::Data::new(scheduler))
-                        .service(detailed_health_check)
-                ).await
+                        .service(detailed_health_check),
+                )
+                .await
             } else {
                 // DB connection failed, skip this test
                 return;
@@ -384,12 +386,16 @@ mod tests {
             // Can't connect to DB in unit test environment - skip
             return;
         };
-        
-        let req = test::TestRequest::get().uri("/health/detailed").to_request();
+
+        let req = test::TestRequest::get()
+            .uri("/health/detailed")
+            .to_request();
         let resp = test::call_service(&app, req).await;
-        
+
         // Accept either OK or SERVICE_UNAVAILABLE status
-        assert!(resp.status() == StatusCode::OK || resp.status() == StatusCode::SERVICE_UNAVAILABLE);
+        assert!(
+            resp.status() == StatusCode::OK || resp.status() == StatusCode::SERVICE_UNAVAILABLE
+        );
         let body = test::read_body(resp).await;
         let json: Value = serde_json::from_slice(&body).unwrap();
         assert!(json.get("status").is_some());
@@ -408,4 +414,4 @@ mod tests {
         assert!(services["redis"].get("status").is_some());
         assert!(services["scheduler"].get("status").is_some());
     }
-} 
+}

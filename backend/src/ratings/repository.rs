@@ -1,7 +1,7 @@
-use arangors::{AqlQuery, Database};
 use arangors::client::ClientExt;
-use shared::{Result, SharedError};
+use arangors::{AqlQuery, Database};
 use serde_json::Value;
+use shared::{Result, SharedError};
 
 #[derive(Clone)]
 pub struct RatingsRepository<C: ClientExt> {
@@ -9,37 +9,62 @@ pub struct RatingsRepository<C: ClientExt> {
 }
 
 impl<C: ClientExt> RatingsRepository<C> {
-    pub fn new(db: Database<C>) -> Self { Self { db } }
+    pub fn new(db: Database<C>) -> Self {
+        Self { db }
+    }
 
-    pub async fn get_contests_in_period(&self, start: &str, end: &str) -> Result<Vec<serde_json::Value>> {
+    pub async fn get_contests_in_period(
+        &self,
+        start: &str,
+        end: &str,
+    ) -> Result<Vec<serde_json::Value>> {
         let query = AqlQuery::builder()
-            .query(r#"
+            .query(
+                r#"
                 FOR c IN contest
                   FILTER c.start >= @start AND c.start < @end
                   RETURN c
-            "#)
+            "#,
+            )
             .bind_var("start", start)
             .bind_var("end", end)
             .build();
-        let res = self.db.aql_query::<serde_json::Value>(query).await
+        let res = self
+            .db
+            .aql_query::<serde_json::Value>(query)
+            .await
             .map_err(|e| SharedError::Database(format!("Failed to fetch contests: {}", e)))?;
         Ok(res)
     }
 
-    pub async fn get_contest_results(&self, contest_id: &str) -> Result<Vec<(String, Option<i32>)>> {
+    pub async fn get_contest_results(
+        &self,
+        contest_id: &str,
+    ) -> Result<Vec<(String, Option<i32>)>> {
         let query = AqlQuery::builder()
-            .query(r#"
+            .query(
+                r#"
                 FOR r IN resulted_in
                   FILTER r._from == @contest_id
                   RETURN { player_id: r._to, place: r.place }
-            "#)
+            "#,
+            )
             .bind_var("contest_id", contest_id)
             .build();
-        let res = self.db.aql_query::<serde_json::Value>(query).await
-            .map_err(|e| SharedError::Database(format!("Failed to fetch contest results: {}", e)))?;
+        let res = self
+            .db
+            .aql_query::<serde_json::Value>(query)
+            .await
+            .map_err(|e| {
+                SharedError::Database(format!("Failed to fetch contest results: {}", e))
+            })?;
         let mut out = Vec::new();
         for v in res {
-            let pid = v.get("player_id").and_then(|x| x.as_str()).ok_or_else(|| SharedError::Database("missing player_id".into()))?.to_string();
+            let pid = v
+                .get("player_id")
+                .and_then(|x| x.as_str())
+                .ok_or_else(|| SharedError::Database("missing player_id".into()))?
+                .to_string();
             let place = v.get("place").and_then(|x| x.as_i64()).map(|n| n as i32);
             out.push((pid, place));
         }
@@ -48,64 +73,88 @@ impl<C: ClientExt> RatingsRepository<C> {
 
     pub async fn get_contest_players(&self, contest_id: &str) -> Result<Vec<String>> {
         let query = AqlQuery::builder()
-            .query(r#"
+            .query(
+                r#"
                 FOR r IN resulted_in
                   FILTER r._from == @contest_id
                   RETURN r._to
-            "#)
+            "#,
+            )
             .bind_var("contest_id", contest_id)
             .build();
-        let res = self.db.aql_query::<String>(query).await
-            .map_err(|e| SharedError::Database(format!("Failed to fetch contest players: {}", e)))?;
+        let res = self.db.aql_query::<String>(query).await.map_err(|e| {
+            SharedError::Database(format!("Failed to fetch contest players: {}", e))
+        })?;
         Ok(res)
     }
 
     pub async fn get_contest_game(&self, contest_id: &str) -> Result<Option<String>> {
         let query = AqlQuery::builder()
-            .query(r#"
+            .query(
+                r#"
                 LET pw = FIRST(FOR pw IN played_with FILTER pw._from == @contest_id RETURN pw)
                 RETURN pw != null ? pw._to : null
-            "#)
+            "#,
+            )
             .bind_var("contest_id", contest_id)
             .build();
-        let mut res = self.db.aql_query::<Option<String>>(query).await
+        let mut res = self
+            .db
+            .aql_query::<Option<String>>(query)
+            .await
             .map_err(|e| SharedError::Database(format!("Failed to fetch contest game: {}", e)))?;
         Ok(res.pop().unwrap_or(None))
     }
 
-    pub async fn get_latest_rating(&self, scope_type: &str, scope_id: Option<&str>, player_id: &str) -> Result<Option<Value>> {
+    pub async fn get_latest_rating(
+        &self,
+        scope_type: &str,
+        scope_id: Option<&str>,
+        player_id: &str,
+    ) -> Result<Option<Value>> {
         let query = AqlQuery::builder()
-            .query(r#"
+            .query(
+                r#"
                 FOR r IN rating_latest
                   FILTER r.scope_type == @scope_type
                     AND r.player_id == @player_id
                     AND ((@scope_id == null AND r.scope_id == null) OR r.scope_id == @scope_id)
                   LIMIT 1
                   RETURN r
-            "#)
+            "#,
+            )
             .bind_var("scope_type", scope_type)
             .bind_var("scope_id", scope_id)
             .bind_var("player_id", player_id)
             .build();
-        let mut res = self.db.aql_query::<Value>(query).await
-            .map_err(|e| SharedError::Database(format!("Failed to fetch latest rating: {}", e)))?;
+        let mut res =
+            self.db.aql_query::<Value>(query).await.map_err(|e| {
+                SharedError::Database(format!("Failed to fetch latest rating: {}", e))
+            })?;
         Ok(res.pop())
     }
 
     /// Fetch all player_ids that have a latest rating for a given scope
-    pub async fn get_all_latest_player_ids(&self, scope_type: &str, scope_id: Option<&str>) -> Result<Vec<String>> {
+    pub async fn get_all_latest_player_ids(
+        &self,
+        scope_type: &str,
+        scope_id: Option<&str>,
+    ) -> Result<Vec<String>> {
         let query = AqlQuery::builder()
-            .query(r#"
+            .query(
+                r#"
                 FOR r IN rating_latest
                   FILTER r.scope_type == @scope_type
                     AND ((@scope_id == null AND r.scope_id == null) OR r.scope_id == @scope_id)
                   RETURN r.player_id
-            "#)
+            "#,
+            )
             .bind_var("scope_type", scope_type)
             .bind_var("scope_id", scope_id)
             .build();
-        let res = self.db.aql_query::<String>(query).await
-            .map_err(|e| SharedError::Database(format!("Failed to fetch latest player ids: {}", e)))?;
+        let res = self.db.aql_query::<String>(query).await.map_err(|e| {
+            SharedError::Database(format!("Failed to fetch latest player ids: {}", e))
+        })?;
         Ok(res)
     }
 
@@ -118,24 +167,35 @@ impl<C: ClientExt> RatingsRepository<C> {
             "#)
             .bind_var("doc", doc)
             .build();
-        self.db.aql_query::<Value>(query).await
+        self.db
+            .aql_query::<Value>(query)
+            .await
             .map_err(|e| SharedError::Database(format!("Failed to upsert latest rating: {}", e)))?;
         Ok(())
     }
 
     pub async fn insert_rating_history(&self, doc: Value) -> Result<()> {
         let query = AqlQuery::builder()
-            .query(r#"
+            .query(
+                r#"
                 INSERT @doc INTO rating_history
-            "#)
+            "#,
+            )
             .bind_var("doc", doc)
             .build();
-        self.db.aql_query::<Value>(query).await
-            .map_err(|e| SharedError::Database(format!("Failed to insert rating history: {}", e)))?;
+        self.db.aql_query::<Value>(query).await.map_err(|e| {
+            SharedError::Database(format!("Failed to insert rating history: {}", e))
+        })?;
         Ok(())
     }
 
-    pub async fn get_leaderboard(&self, scope_type: &str, scope_id: Option<&str>, min_games: i32, limit: i32) -> Result<Vec<Value>> {
+    pub async fn get_leaderboard(
+        &self,
+        scope_type: &str,
+        scope_id: Option<&str>,
+        min_games: i32,
+        limit: i32,
+    ) -> Result<Vec<Value>> {
         let query = AqlQuery::builder()
             .query(r#"
                 // Optimized graph traversal for leaderboard with all-time stats
@@ -189,13 +249,21 @@ impl<C: ClientExt> RatingsRepository<C> {
             .bind_var("min_games", min_games)
             .bind_var("limit", limit)
             .build();
-        let res = self.db.aql_query::<Value>(query).await
-            .map_err(|e| SharedError::Database(format!("Failed to fetch leaderboard: {}", e)))?;
+        let res =
+            self.db.aql_query::<Value>(query).await.map_err(|e| {
+                SharedError::Database(format!("Failed to fetch leaderboard: {}", e))
+            })?;
         Ok(res)
     }
 
     /// Simple leaderboard query that just returns rating data without complex joins
-    pub async fn get_simple_leaderboard(&self, scope_type: &str, scope_id: Option<&str>, min_games: i32, limit: i32) -> Result<Vec<Value>> {
+    pub async fn get_simple_leaderboard(
+        &self,
+        scope_type: &str,
+        scope_id: Option<&str>,
+        min_games: i32,
+        limit: i32,
+    ) -> Result<Vec<Value>> {
         let query = AqlQuery::builder()
             .query(r#"
                 // Optimized graph traversal for simple leaderboard with all-time stats
@@ -241,15 +309,17 @@ impl<C: ClientExt> RatingsRepository<C> {
             .bind_var("min_games", min_games)
             .bind_var("limit", limit)
             .build();
-        let res = self.db.aql_query::<Value>(query).await
-            .map_err(|e| SharedError::Database(format!("Failed to fetch simple leaderboard: {}", e)))?;
+        let res = self.db.aql_query::<Value>(query).await.map_err(|e| {
+            SharedError::Database(format!("Failed to fetch simple leaderboard: {}", e))
+        })?;
         Ok(res)
     }
 
     /// Diagnostic function to check what's happening with player IDs
     pub async fn debug_player_ids(&self) -> Result<Vec<Value>> {
         let query = AqlQuery::builder()
-            .query(r#"
+            .query(
+                r#"
                 FOR r IN rating_latest
                   LIMIT 5
                   LET player = DOCUMENT(r.player_id)
@@ -266,9 +336,13 @@ impl<C: ClientExt> RatingsRepository<C> {
                         player_doc_type: player != null ? TYPENAME(player) : "NULL"
                     }
                   }
-            "#)
+            "#,
+            )
             .build();
-        let res = self.db.aql_query::<Value>(query).await
+        let res = self
+            .db
+            .aql_query::<Value>(query)
+            .await
             .map_err(|e| SharedError::Database(format!("Failed to debug player IDs: {}", e)))?;
         Ok(res)
     }
@@ -276,7 +350,8 @@ impl<C: ClientExt> RatingsRepository<C> {
     /// Check what's in resulted_in edges vs player collection
     pub async fn debug_resulted_in_vs_players(&self) -> Result<Vec<Value>> {
         let query = AqlQuery::builder()
-            .query(r#"
+            .query(
+                r#"
                 // Get a sample of resulted_in edges
                 FOR edge IN resulted_in
                   LIMIT 5
@@ -291,17 +366,20 @@ impl<C: ClientExt> RatingsRepository<C> {
                     player_firstname: player != null ? player.firstname : "NULL",
                     player_email: player != null ? player.email : "NULL"
                   }
-            "#)
+            "#,
+            )
             .build();
-        let res = self.db.aql_query::<Value>(query).await
-            .map_err(|e| SharedError::Database(format!("Failed to debug resulted_in vs players: {}", e)))?;
+        let res = self.db.aql_query::<Value>(query).await.map_err(|e| {
+            SharedError::Database(format!("Failed to debug resulted_in vs players: {}", e))
+        })?;
         Ok(res)
     }
 
     /// Check what collections exist in the database
     pub async fn debug_collections(&self) -> Result<Vec<Value>> {
         let query = AqlQuery::builder()
-            .query(r#"
+            .query(
+                r#"
                 FOR collection IN COLLECTIONS()
                   LET doc_count = LENGTH(collection)
                   RETURN {
@@ -309,17 +387,21 @@ impl<C: ClientExt> RatingsRepository<C> {
                     collection_type: collection.type,
                     document_count: doc_count
                   }
-            "#)
+            "#,
+            )
             .build();
-        let res = self.db.aql_query::<Value>(query).await
-            .map_err(|e| SharedError::Database(format!("Failed to debug collections: {}", e)))?;
+        let res =
+            self.db.aql_query::<Value>(query).await.map_err(|e| {
+                SharedError::Database(format!("Failed to debug collections: {}", e))
+            })?;
         Ok(res)
     }
 
     /// Debug function to check what fields are in the player collection
     pub async fn debug_player_fields(&self) -> Result<Vec<Value>> {
         let query = AqlQuery::builder()
-            .query(r#"
+            .query(
+                r#"
                 FOR player IN player
                   LIMIT 3
                   RETURN {
@@ -329,17 +411,21 @@ impl<C: ClientExt> RatingsRepository<C> {
                     firstname: player.firstname,
                     email: player.email
                   }
-            "#)
+            "#,
+            )
             .build();
-        let res = self.db.aql_query::<Value>(query).await
-            .map_err(|e| SharedError::Database(format!("Failed to debug player fields: {}", e)))?;
+        let res =
+            self.db.aql_query::<Value>(query).await.map_err(|e| {
+                SharedError::Database(format!("Failed to debug player fields: {}", e))
+            })?;
         Ok(res)
     }
 
     /// Simple test to see what's in a player document using DOCUMENT()
     pub async fn debug_player_document(&self, player_id: &str) -> Result<Vec<Value>> {
         let query = AqlQuery::builder()
-            .query(r#"
+            .query(
+                r#"
                 LET player = DOCUMENT(@player_id)
                 RETURN {
                     player_id: @player_id,
@@ -349,32 +435,44 @@ impl<C: ClientExt> RatingsRepository<C> {
                     firstname: player != null ? player.firstname : "NULL",
                     email: player != null ? player.email : "NULL"
                 }
-            "#)
+            "#,
+            )
             .bind_var("player_id", player_id)
             .build();
-        let res = self.db.aql_query::<Value>(query).await
-            .map_err(|e| SharedError::Database(format!("Failed to debug player document: {}", e)))?;
+        let res = self.db.aql_query::<Value>(query).await.map_err(|e| {
+            SharedError::Database(format!("Failed to debug player document: {}", e))
+        })?;
         Ok(res)
     }
 
     pub async fn get_player_latest_ratings(&self, player_id: &str) -> Result<Vec<Value>> {
         let query = AqlQuery::builder()
-            .query(r#"
+            .query(
+                r#"
                 FOR r IN rating_latest
                   FILTER r.player_id == @player_id
                   RETURN r
-            "#)
+            "#,
+            )
             .bind_var("player_id", player_id)
             .build();
-        let res = self.db.aql_query::<Value>(query).await
-            .map_err(|e| SharedError::Database(format!("Failed to fetch player latest ratings: {}", e)))?;
+        let res = self.db.aql_query::<Value>(query).await.map_err(|e| {
+            SharedError::Database(format!("Failed to fetch player latest ratings: {}", e))
+        })?;
         Ok(res)
     }
 
-    pub async fn get_rating_history(&self, player_id: &str, scope_type: &str, scope_id: Option<&str>, limit: i32) -> Result<Vec<Value>> {
+    pub async fn get_rating_history(
+        &self,
+        player_id: &str,
+        scope_type: &str,
+        scope_id: Option<&str>,
+        limit: i32,
+    ) -> Result<Vec<Value>> {
         // First try singular collection name
         let singular_query = AqlQuery::builder()
-            .query(r#"
+            .query(
+                r#"
                 FOR h IN rating_history
                   FILTER h.player_id == @player_id
                     AND h.scope_type == @scope_type
@@ -382,7 +480,8 @@ impl<C: ClientExt> RatingsRepository<C> {
                   SORT h.period_end DESC
                   LIMIT @limit
                   RETURN h
-            "#)
+            "#,
+            )
             .bind_var("player_id", player_id)
             .bind_var("scope_type", scope_type)
             .bind_var("scope_id", scope_id)
@@ -410,11 +509,22 @@ impl<C: ClientExt> RatingsRepository<C> {
                         .bind_var("scope_id", scope_id)
                         .bind_var("limit", limit)
                         .build();
-                    let res = self.db.aql_query::<Value>(plural_query).await
-                        .map_err(|e2| SharedError::Database(format!("Failed to fetch ratings history (plural): {}", e2)))?;
+                    let res = self
+                        .db
+                        .aql_query::<Value>(plural_query)
+                        .await
+                        .map_err(|e2| {
+                            SharedError::Database(format!(
+                                "Failed to fetch ratings history (plural): {}",
+                                e2
+                            ))
+                        })?;
                     Ok(res)
                 } else {
-                    Err(SharedError::Database(format!("Failed to fetch rating history: {}", err_str)))
+                    Err(SharedError::Database(format!(
+                        "Failed to fetch rating history: {}",
+                        err_str
+                    )))
                 }
             }
         }
@@ -423,22 +533,30 @@ impl<C: ClientExt> RatingsRepository<C> {
     pub async fn clear_all_ratings(&self) -> Result<()> {
         // Clear rating_latest collection
         let clear_latest_query = AqlQuery::builder()
-            .query(r#"
+            .query(
+                r#"
                 FOR r IN rating_latest
                     REMOVE r IN rating_latest
-            "#)
+            "#,
+            )
             .build();
-        self.db.aql_query::<Value>(clear_latest_query).await
+        self.db
+            .aql_query::<Value>(clear_latest_query)
+            .await
             .map_err(|e| SharedError::Database(format!("Failed to clear rating_latest: {}", e)))?;
 
         // Clear rating_history collection
         let clear_history_query = AqlQuery::builder()
-            .query(r#"
+            .query(
+                r#"
                 FOR r IN rating_history
                     REMOVE r IN rating_history
-            "#)
+            "#,
+            )
             .build();
-        self.db.aql_query::<Value>(clear_history_query).await
+        self.db
+            .aql_query::<Value>(clear_history_query)
+            .await
             .map_err(|e| SharedError::Database(format!("Failed to clear rating_history: {}", e)))?;
 
         Ok(())
@@ -446,25 +564,37 @@ impl<C: ClientExt> RatingsRepository<C> {
 
     pub async fn get_earliest_contest_date(&self) -> Result<String> {
         let query = AqlQuery::builder()
-            .query(r#"
+            .query(
+                r#"
                 FOR c IN contest
                     SORT c.start ASC
                     LIMIT 1
                     RETURN c.start
-            "#)
+            "#,
+            )
             .build();
-        let mut res = self.db.aql_query::<String>(query).await
-            .map_err(|e| SharedError::Database(format!("Failed to fetch earliest contest date: {}", e)))?;
-        
+        let mut res = self.db.aql_query::<String>(query).await.map_err(|e| {
+            SharedError::Database(format!("Failed to fetch earliest contest date: {}", e))
+        })?;
+
         // If no contests found, default to 2000-01-01
-        let earliest_date = res.pop().unwrap_or_else(|| "2000-01-01T00:00:00Z".to_string());
+        let earliest_date = res
+            .pop()
+            .unwrap_or_else(|| "2000-01-01T00:00:00Z".to_string());
         Ok(earliest_date)
     }
 
     /// Leaderboard with player info extracted from contest data
-    pub async fn get_leaderboard_with_contest_data(&self, scope_type: &str, scope_id: Option<&str>, min_games: i32, limit: i32) -> Result<Vec<Value>> {
+    pub async fn get_leaderboard_with_contest_data(
+        &self,
+        scope_type: &str,
+        scope_id: Option<&str>,
+        min_games: i32,
+        limit: i32,
+    ) -> Result<Vec<Value>> {
         let query = AqlQuery::builder()
-            .query(r#"
+            .query(
+                r#"
                 FOR r IN rating_latest
                   FILTER r.scope_type == @scope_type
                     AND ((@scope_id == null AND r.scope_id == null) OR r.scope_id == @scope_id)
@@ -496,16 +626,19 @@ impl<C: ClientExt> RatingsRepository<C> {
                     player_email: "Unknown",
                     contest_info: player_contest_data
                   }
-            "#)
+            "#,
+            )
             .bind_var("scope_type", scope_type)
             .bind_var("scope_id", scope_id)
             .bind_var("min_games", min_games)
             .bind_var("limit", limit)
             .build();
-        let res = self.db.aql_query::<Value>(query).await
-            .map_err(|e| SharedError::Database(format!("Failed to fetch leaderboard with contest data: {}", e)))?;
+        let res = self.db.aql_query::<Value>(query).await.map_err(|e| {
+            SharedError::Database(format!(
+                "Failed to fetch leaderboard with contest data: {}",
+                e
+            ))
+        })?;
         Ok(res)
     }
 }
-
-

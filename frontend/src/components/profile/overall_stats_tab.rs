@@ -1,5 +1,5 @@
-use yew::prelude::*;
 use shared::models::client_analytics::CoreStats;
+use yew::prelude::*;
 
 #[derive(Properties, PartialEq)]
 pub struct OverallStatsTabProps {
@@ -11,10 +11,16 @@ pub struct OverallStatsTabProps {
 pub fn overall_stats_tab(props: &OverallStatsTabProps) -> Html {
     let core_stats = props.core_stats.clone();
     let game_performance = props.game_performance.clone();
-    
+
     // Debug logging
     if let Some(stats) = &core_stats {
-        web_sys::console::log_1(&format!("📊 OverallStatsTab received core_stats: current_streak={}, longest_streak={}", stats.current_streak, stats.longest_streak).into());
+        web_sys::console::log_1(
+            &format!(
+                "📊 OverallStatsTab received core_stats: current_streak={}, longest_streak={}",
+                stats.current_streak, stats.longest_streak
+            )
+            .into(),
+        );
     } else {
         web_sys::console::log_1(&"📊 OverallStatsTab received no core_stats".into());
     }
@@ -25,7 +31,6 @@ pub fn overall_stats_tab(props: &OverallStatsTabProps) -> Html {
     } else {
         0
     };
-
 
     html! {
         <div class="space-y-6">

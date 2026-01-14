@@ -1,6 +1,6 @@
-use yew::prelude::*;
-use serde_json::Value;
 use crate::components::chart_renderer::ChartRenderer;
+use serde_json::Value;
+use yew::prelude::*;
 
 #[derive(Properties, PartialEq)]
 pub struct RatingsTabProps {
@@ -23,7 +23,7 @@ pub fn ratings_tab(props: &RatingsTabProps) -> Html {
                         <strong>{"Skill Rating System:"}</strong> {"Your Glicko2 rating represents your skill level. Higher ratings indicate stronger players. Ratings change based on your performance in contests."}
                     </p>
                 </div>
-                
+
                 if props.glicko_loading {
                     <div class="flex items-center justify-center py-8">
                         <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
@@ -62,7 +62,7 @@ pub fn ratings_tab(props: &RatingsTabProps) -> Html {
                             let rd_value = current_rating["rd"].as_f64().unwrap_or(350.0);
                             let volatility = current_rating["volatility"].as_f64().unwrap_or(0.06);
                             let games_played = current_rating["games_played"].as_i64().unwrap_or(0);
-                            
+
                             let (tier_label, tier_class) = if rating_value >= 1900.0 {
                                 ("Elite", "bg-green-100 text-green-800")
                             } else if rating_value >= 1700.0 {
@@ -74,7 +74,7 @@ pub fn ratings_tab(props: &RatingsTabProps) -> Html {
                             } else {
                                 ("New", "bg-gray-100 text-gray-800")
                             };
-                            
+
                             html! {
                                 <div class="space-y-6">
                                     <div class="bg-white rounded-lg shadow p-6">
@@ -88,13 +88,13 @@ pub fn ratings_tab(props: &RatingsTabProps) -> Html {
                                                 <span class={classes!("inline-flex", "items-center", "px-3", "py-1", "rounded-full", "text-sm", "font-medium", tier_class)}>{tier_label}</span>
                                             </div>
                                         </div>
-                                        
+
                                         <div class="bg-blue-50 rounded-lg p-3 mb-4">
                                             <p class="text-sm text-blue-800">
                                                 <strong>{"Note:"}</strong> {"This rating and all statistics below are from your latest month of play. The table below shows your monthly progression over time."}
                                             </p>
                                         </div>
-                                        
+
                                         <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6">
                                             <div class="bg-gray-50 rounded-lg p-4">
                                                 <h4 class="text-sm font-medium text-gray-500 uppercase tracking-wide">{"Rating Deviation (RD)"}</h4>
@@ -113,7 +113,7 @@ pub fn ratings_tab(props: &RatingsTabProps) -> Html {
                                             </div>
                                         </div>
                                     </div>
-                                    
+
                                     <div class="bg-blue-50 rounded-lg p-6">
                                         <h4 class="text-lg font-semibold text-blue-900 mb-3">{"Understanding Glicko2"}</h4>
                                         <div class="space-y-3 text-sm text-blue-800">
@@ -131,7 +131,7 @@ pub fn ratings_tab(props: &RatingsTabProps) -> Html {
                                             </div>
                                         </div>
                                     </div>
-                                    
+
                                     <div class="bg-white rounded-lg shadow p-6">
                                         <h4 class="text-lg font-semibold text-gray-900 mb-4">{"Rating Trends Over Time"}</h4>
                                         <div class="mb-4">
@@ -212,10 +212,10 @@ pub fn ratings_tab(props: &RatingsTabProps) -> Html {
                                                         }
                                                     }).to_string();
 
-                                                    html! { 
+                                                    html! {
                                                         <div>
                                                             <ChartRenderer chart_data={chart_json} chart_id={"rating-history".to_string()} width={Some(900)} height={Some(320)} />
-                                                            
+
                                                             <div class="mt-6">
                                                                 <div class="overflow-x-auto">
                                                                     <table class="min-w-full divide-y divide-gray-200 text-sm">
@@ -255,7 +255,7 @@ pub fn ratings_tab(props: &RatingsTabProps) -> Html {
                                                                                  let games = h["period_games"].as_i64().unwrap_or(0);
                                                                                  let wins = h["wins"].as_i64().unwrap_or(0);
                                                                                  let losses = h["losses"].as_i64().unwrap_or(0);
-                                                                                 
+
                                                                                  html! {
                                                                                      <tr class="hover:bg-gray-50">
                                                                                          <td class="px-3 py-2 text-sm text-gray-900">{formatted_period}</td>

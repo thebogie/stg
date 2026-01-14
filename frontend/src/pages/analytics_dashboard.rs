@@ -1,14 +1,14 @@
-use yew::prelude::*;
-use yew_router::prelude::*;
-use gloo_net::http::Request;
-use serde_json::Value;
-use crate::components::chart_renderer::ChartRenderer;
-use crate::api::utils::authenticated_get;
-use web_sys::console;
 use crate::api::games::get_game_analytics;
 use crate::api::games::search_games;
-use shared::dto::game::GameDto;
+use crate::api::utils::authenticated_get;
+use crate::components::chart_renderer::ChartRenderer;
 use crate::Route;
+use gloo_net::http::Request;
+use serde_json::Value;
+use shared::dto::game::GameDto;
+use web_sys::console;
+use yew::prelude::*;
+use yew_router::prelude::*;
 
 #[derive(Clone, Debug, PartialEq)]
 struct GameRecommendation {
@@ -51,7 +51,7 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
     let glicko_leaderboard = use_state(|| None::<Vec<Value>>);
     let glicko_loading = use_state(|| false);
     let glicko_error = use_state(|| None::<String>);
-    
+
     // Enhanced analytics state
     let venue_performance = use_state(|| None::<Vec<VenuePerformance>>);
     let venue_loading = use_state(|| false);
@@ -61,7 +61,7 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
     let communities_loading = use_state(|| false);
     let player_networking = use_state(|| None::<Value>);
     let networking_loading = use_state(|| false);
-    
+
     let loading = use_state(|| false);
     let error = use_state(|| None::<String>);
 
@@ -108,7 +108,9 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
         let game_analytics_error = game_analytics_error.clone();
         Callback::from(move |_| {
             let game_id = (*game_id_input).clone();
-            if game_id.is_empty() { return; }
+            if game_id.is_empty() {
+                return;
+            }
             game_analytics_loading.set(true);
             game_analytics_error.set(None);
             let game_analytics = game_analytics.clone();
@@ -174,41 +176,50 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
         let platform_stats = platform_stats.clone();
         let loading = loading.clone();
         let error = error.clone();
-        
+
         use_effect_with((), move |_| {
             loading.set(true);
             error.set(None);
-            
+
             wasm_bindgen_futures::spawn_local(async move {
-                match Request::get("/api/analytics/platform")
-                    .send()
-                    .await
-                {
+                match Request::get("/api/analytics/platform").send().await {
                     Ok(response) => {
                         if response.ok() {
                             if let Ok(stats) = response.json::<Value>().await {
-                                console::log_1(&format!("Platform stats received: {:?}", stats).into());
-                                
+                                console::log_1(
+                                    &format!("Platform stats received: {:?}", stats).into(),
+                                );
+
                                 // Check if the real data has meaningful game play counts
-                                let has_real_data = if let Some(top_games) = stats["top_games"].as_array() {
-                                    top_games.iter().any(|game| {
-                                        game["plays"].as_i64().unwrap_or(0) > 0
-                                    })
-                                } else {
-                                    false
-                                };
-                                
+                                let has_real_data =
+                                    if let Some(top_games) = stats["top_games"].as_array() {
+                                        top_games
+                                            .iter()
+                                            .any(|game| game["plays"].as_i64().unwrap_or(0) > 0)
+                                    } else {
+                                        false
+                                    };
+
                                 if has_real_data {
                                     // Use real data
                                     platform_stats.set(Some(stats));
                                 } else {
                                     // Fall back to sample data for better UX
-                                    console::log_1(&"Real data shows 0 plays, using sample data".into());
-                                    match Request::get("/api/analytics/sample-platform").send().await {
+                                    console::log_1(
+                                        &"Real data shows 0 plays, using sample data".into(),
+                                    );
+                                    match Request::get("/api/analytics/sample-platform")
+                                        .send()
+                                        .await
+                                    {
                                         Ok(sample_response) => {
                                             if sample_response.ok() {
-                                                if let Ok(sample_stats) = sample_response.json::<Value>().await {
-                                                    console::log_1(&"Using sample platform stats".into());
+                                                if let Ok(sample_stats) =
+                                                    sample_response.json::<Value>().await
+                                                {
+                                                    console::log_1(
+                                                        &"Using sample platform stats".into(),
+                                                    );
                                                     platform_stats.set(Some(sample_stats));
                                                 } else {
                                                     // If sample data fails, still use real data
@@ -230,9 +241,18 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
                             }
                         } else {
                             let status = response.status();
-                            let text = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
-                            console::error_1(&format!("Platform stats request failed: {} - {}", status, text).into());
-                            error.set(Some(format!("Platform stats request failed: {} - {}", status, text)));
+                            let text = response
+                                .text()
+                                .await
+                                .unwrap_or_else(|_| "Unknown error".to_string());
+                            console::error_1(
+                                &format!("Platform stats request failed: {} - {}", status, text)
+                                    .into(),
+                            );
+                            error.set(Some(format!(
+                                "Platform stats request failed: {} - {}",
+                                status, text
+                            )));
                         }
                     }
                     Err(e) => {
@@ -242,7 +262,7 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
                 }
                 loading.set(false);
             });
-            
+
             || ()
         });
     }
@@ -252,41 +272,69 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
         let glicko_leaderboard = glicko_leaderboard.clone();
         let glicko_loading = glicko_loading.clone();
         let glicko_error = glicko_error.clone();
-        
+
         use_effect_with((), move |_| {
             glicko_loading.set(true);
             glicko_error.set(None);
-            
+
             wasm_bindgen_futures::spawn_local(async move {
-                match authenticated_get("/api/ratings/leaderboard?scope=global&min_games=3&limit=10")
-                    .send()
-                    .await
+                match authenticated_get(
+                    "/api/ratings/leaderboard?scope=global&min_games=3&limit=10",
+                )
+                .send()
+                .await
                 {
                     Ok(response) => {
                         if response.ok() {
                             if let Ok(leaderboard) = response.json::<Vec<Value>>().await {
-                                console::log_1(&format!("Glicko2 leaderboard received: {} players", leaderboard.len()).into());
-                                console::log_1(&format!("First player: {:?}", leaderboard.first()).into());
-                                console::log_1(&format!("Last player: {:?}", leaderboard.last()).into());
+                                console::log_1(
+                                    &format!(
+                                        "Glicko2 leaderboard received: {} players",
+                                        leaderboard.len()
+                                    )
+                                    .into(),
+                                );
+                                console::log_1(
+                                    &format!("First player: {:?}", leaderboard.first()).into(),
+                                );
+                                console::log_1(
+                                    &format!("Last player: {:?}", leaderboard.last()).into(),
+                                );
                                 glicko_leaderboard.set(Some(leaderboard));
                             } else {
-                                glicko_error.set(Some("Failed to parse Glicko2 leaderboard".to_string()));
+                                glicko_error
+                                    .set(Some("Failed to parse Glicko2 leaderboard".to_string()));
                             }
                         } else {
                             let status = response.status();
-                            let text = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
-                            console::error_1(&format!("Glicko2 leaderboard request failed: {} - {}", status, text).into());
-                            glicko_error.set(Some(format!("Glicko2 leaderboard request failed: {} - {}", status, text)));
+                            let text = response
+                                .text()
+                                .await
+                                .unwrap_or_else(|_| "Unknown error".to_string());
+                            console::error_1(
+                                &format!(
+                                    "Glicko2 leaderboard request failed: {} - {}",
+                                    status, text
+                                )
+                                .into(),
+                            );
+                            glicko_error.set(Some(format!(
+                                "Glicko2 leaderboard request failed: {} - {}",
+                                status, text
+                            )));
                         }
                     }
                     Err(e) => {
-                        console::error_1(&format!("Failed to fetch Glicko2 leaderboard: {}", e).into());
-                        glicko_error.set(Some(format!("Failed to fetch Glicko2 leaderboard: {}", e)));
+                        console::error_1(
+                            &format!("Failed to fetch Glicko2 leaderboard: {}", e).into(),
+                        );
+                        glicko_error
+                            .set(Some(format!("Failed to fetch Glicko2 leaderboard: {}", e)));
                     }
                 }
                 glicko_loading.set(false);
             });
-            
+
             || ()
         });
     }
@@ -295,7 +343,7 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
     {
         let contest_trends_chart = contest_trends_chart.clone();
         let error = error.clone();
-        
+
         use_effect_with((), move |_| {
             wasm_bindgen_futures::spawn_local(async move {
                 match Request::get("/api/analytics/charts/contest-trends?months=12&title=Contest%20Trends%20Over%20Time")
@@ -314,7 +362,7 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
                     }
                 }
             });
-            
+
             || ()
         });
     }
@@ -337,13 +385,17 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
                         if resp.ok() {
                             match resp.json::<Value>().await {
                                 Ok(data) => contest_heatmap.set(Some(data)),
-                                Err(e) => contest_heatmap_error.set(Some(format!("Failed to parse heatmap: {}", e))),
+                                Err(e) => contest_heatmap_error
+                                    .set(Some(format!("Failed to parse heatmap: {}", e))),
                             }
                         } else {
-                            contest_heatmap_error.set(Some(format!("Heatmap request failed: {}", resp.status())));
+                            contest_heatmap_error
+                                .set(Some(format!("Heatmap request failed: {}", resp.status())));
                         }
                     }
-                    Err(e) => contest_heatmap_error.set(Some(format!("Failed to fetch heatmap: {}", e)))
+                    Err(e) => {
+                        contest_heatmap_error.set(Some(format!("Failed to fetch heatmap: {}", e)))
+                    }
                 }
                 contest_heatmap_loading.set(false);
             });
@@ -355,12 +407,14 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
     {
         let platform_dashboard = platform_dashboard.clone();
         let error = error.clone();
-        
+
         use_effect_with((), move |_| {
             wasm_bindgen_futures::spawn_local(async move {
-                match Request::get("/api/analytics/charts/platform-dashboard?title=Platform%20Overview")
-                    .send()
-                    .await
+                match Request::get(
+                    "/api/analytics/charts/platform-dashboard?title=Platform%20Overview",
+                )
+                .send()
+                .await
                 {
                     Ok(response) => {
                         if let Ok(charts) = response.json::<Vec<Value>>().await {
@@ -374,7 +428,7 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
                     }
                 }
             });
-            
+
             || ()
         });
     }
@@ -385,10 +439,7 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
         let error = error.clone();
         use_effect_with((), move |_| {
             wasm_bindgen_futures::spawn_local(async move {
-                match Request::get("/api/analytics/insights")
-                    .send()
-                    .await
-                {
+                match Request::get("/api/analytics/insights").send().await {
                     Ok(response) => {
                         if response.ok() {
                             if let Ok(data) = response.json::<Value>().await {
@@ -405,13 +456,13 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
         });
     }
 
-                    // Load games by player count distribution
-                {
-                    let game_popularity_chart = game_popularity_chart.clone();
-                    let error = error.clone();
-                    use_effect_with((), move |_| {
-                        wasm_bindgen_futures::spawn_local(async move {
-                            match Request::get("/api/analytics/charts/game-popularity?title=Games%20by%20Player%20Count%20Distribution")
+    // Load games by player count distribution
+    {
+        let game_popularity_chart = game_popularity_chart.clone();
+        let error = error.clone();
+        use_effect_with((), move |_| {
+            wasm_bindgen_futures::spawn_local(async move {
+                match Request::get("/api/analytics/charts/game-popularity?title=Games%20by%20Player%20Count%20Distribution")
                                 .send()
                                 .await
                             {
@@ -426,10 +477,10 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
                                     error.set(Some(format!("Failed to fetch games by player count chart: {}", e)));
                                 }
                             }
-                        });
-                        || ()
-                    });
-                }
+            });
+            || ()
+        });
+    }
 
     // Load activity metrics chart
     {
@@ -437,9 +488,11 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
         let error = error.clone();
         use_effect_with((), move |_| {
             wasm_bindgen_futures::spawn_local(async move {
-                match Request::get("/api/analytics/charts/activity-metrics?days=60&title=Daily%20Activity")
-                    .send()
-                    .await
+                match Request::get(
+                    "/api/analytics/charts/activity-metrics?days=60&title=Daily%20Activity",
+                )
+                .send()
+                .await
                 {
                     Ok(response) => {
                         if let Ok(chart_data) = response.text().await {
@@ -449,17 +502,16 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
                         }
                     }
                     Err(e) => {
-                        error.set(Some(format!("Failed to fetch activity metrics chart: {}", e)));
+                        error.set(Some(format!(
+                            "Failed to fetch activity metrics chart: {}",
+                            e
+                        )));
                     }
                 }
             });
             || ()
         });
     }
-
-
-
-
 
     // Load enhanced analytics data
     {
@@ -471,47 +523,65 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
         let communities_loading = communities_loading.clone();
         let player_networking = player_networking.clone();
         let networking_loading = networking_loading.clone();
-        
+
         use_effect_with((), move |_| {
             // Load venue performance for the current user
             let set_venue_performance = venue_performance.clone();
             let set_venue_loading = venue_loading.clone();
             set_venue_loading.set(true);
-            
+
             wasm_bindgen_futures::spawn_local(async move {
                 let user_id = "player/2025041711441894568690500"; // Placeholder
-                match crate::api::utils::authenticated_get(&format!("/api/analytics-enhanced/venues/player-stats/{}", user_id))
-                    .send()
-                    .await
+                match crate::api::utils::authenticated_get(&format!(
+                    "/api/analytics-enhanced/venues/player-stats/{}",
+                    user_id
+                ))
+                .send()
+                .await
                 {
                     Ok(response) => {
                         if response.ok() {
                             if let Ok(data) = response.json::<Value>().await {
                                 // Normalize to an array of venue stat entries
-                                let performance_array_opt = data.get("player_performance")
+                                let performance_array_opt = data
+                                    .get("player_performance")
                                     .and_then(|v| v.as_array())
                                     .cloned()
                                     .or_else(|| {
                                         // Some APIs return [{ player_id, venue_stats: [...] }]
                                         if let Some(arr) = data.as_array() {
                                             if let Some(first) = arr.first() {
-                                                return first.get("venue_stats").and_then(|v| v.as_array()).cloned();
+                                                return first
+                                                    .get("venue_stats")
+                                                    .and_then(|v| v.as_array())
+                                                    .cloned();
                                             }
                                         }
                                         data.as_array().cloned()
                                     });
                                 if let Some(performance_array) = performance_array_opt {
-                                    let performance: Vec<VenuePerformance> = performance_array.iter().filter_map(|v| {
-                                        if let (Some(venue_name), Some(total_contests), Some(win_rate)) = (
-                                            v.get("venue_name").and_then(|n| n.as_str()),
-                                            v.get("total_contests").and_then(|c| c.as_u64()),
-                                            v.get("win_rate").and_then(|w| w.as_f64())
-                                        ) {
-                                            Some(VenuePerformance { venue_name: venue_name.to_string(), total_contests, win_rate })
-                                        } else {
-                                            None
-                                        }
-                                    }).collect();
+                                    let performance: Vec<VenuePerformance> = performance_array
+                                        .iter()
+                                        .filter_map(|v| {
+                                            if let (
+                                                Some(venue_name),
+                                                Some(total_contests),
+                                                Some(win_rate),
+                                            ) = (
+                                                v.get("venue_name").and_then(|n| n.as_str()),
+                                                v.get("total_contests").and_then(|c| c.as_u64()),
+                                                v.get("win_rate").and_then(|w| w.as_f64()),
+                                            ) {
+                                                Some(VenuePerformance {
+                                                    venue_name: venue_name.to_string(),
+                                                    total_contests,
+                                                    win_rate,
+                                                })
+                                            } else {
+                                                None
+                                            }
+                                        })
+                                        .collect();
                                     set_venue_performance.set(Some(performance));
                                 }
                             }
@@ -523,37 +593,58 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
                 }
                 set_venue_loading.set(false);
             });
-            
+
             // Load game recommendations
             let set_game_recommendations = game_recommendations.clone();
             let set_recommendations_loading = recommendations_loading.clone();
             set_recommendations_loading.set(true);
-            
+
             wasm_bindgen_futures::spawn_local(async move {
                 let user_id = "player/2025041711441894568690500"; // Placeholder
-                match crate::api::utils::authenticated_get(&format!("/api/analytics-enhanced/games/recommendations/{}?limit=5", user_id))
-                    .send()
-                    .await
+                match crate::api::utils::authenticated_get(&format!(
+                    "/api/analytics-enhanced/games/recommendations/{}?limit=5",
+                    user_id
+                ))
+                .send()
+                .await
                 {
                     Ok(response) => {
                         if response.ok() {
                             if let Ok(data) = response.json::<Value>().await {
-                                let rec_array_opt = data.get("recommendations")
+                                let rec_array_opt = data
+                                    .get("recommendations")
                                     .and_then(|v| v.as_array())
                                     .cloned()
                                     .or_else(|| data.as_array().cloned());
                                 if let Some(rec_array) = rec_array_opt {
-                                    let recs: Vec<GameRecommendation> = rec_array.iter().filter_map(|v| {
-                                        let game_name = v.get("game_name").and_then(|n| n.as_str())
-                                            .or_else(|| v.get("name").and_then(|n| n.as_str()));
-                                        let reason = v.get("reason").and_then(|r| r.as_str()).or(Some("Recommended"));
-                                        let score = v.get("score").and_then(|s| s.as_f64()).or(Some(0.0));
-                                        if let (Some(game_name), Some(reason), Some(score)) = (game_name, reason, score) {
-                                            Some(GameRecommendation { game_name: game_name.to_string(), reason: reason.to_string(), score })
-                                        } else {
-                                            None
-                                        }
-                                    }).collect();
+                                    let recs: Vec<GameRecommendation> = rec_array
+                                        .iter()
+                                        .filter_map(|v| {
+                                            let game_name = v
+                                                .get("game_name")
+                                                .and_then(|n| n.as_str())
+                                                .or_else(|| v.get("name").and_then(|n| n.as_str()));
+                                            let reason = v
+                                                .get("reason")
+                                                .and_then(|r| r.as_str())
+                                                .or(Some("Recommended"));
+                                            let score = v
+                                                .get("score")
+                                                .and_then(|s| s.as_f64())
+                                                .or(Some(0.0));
+                                            if let (Some(game_name), Some(reason), Some(score)) =
+                                                (game_name, reason, score)
+                                            {
+                                                Some(GameRecommendation {
+                                                    game_name: game_name.to_string(),
+                                                    reason: reason.to_string(),
+                                                    score,
+                                                })
+                                            } else {
+                                                None
+                                            }
+                                        })
+                                        .collect();
                                     set_game_recommendations.set(Some(recs));
                                 }
                             }
@@ -565,26 +656,34 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
                 }
                 set_recommendations_loading.set(false);
             });
-            
+
             // Load gaming communities
             let set_gaming_communities = gaming_communities.clone();
             let set_communities_loading = communities_loading.clone();
             set_communities_loading.set(true);
-            
+
             wasm_bindgen_futures::spawn_local(async move {
                 let user_id = "player/2025041711441894568690500"; // Placeholder
-                
-                match crate::api::utils::authenticated_get(&format!("/api/analytics-enhanced/communities/{}?min_contests=2", user_id))
-                    .send()
-                    .await
+
+                match crate::api::utils::authenticated_get(&format!(
+                    "/api/analytics-enhanced/communities/{}?min_contests=2",
+                    user_id
+                ))
+                .send()
+                .await
                 {
                     Ok(response) => {
                         if response.ok() {
                             if let Ok(data) = response.json::<Value>().await {
                                 // Normalize nested communities shape if needed
-                                if let Some(arr) = data.get("gaming_communities").and_then(|v| v.as_array()) {
+                                if let Some(arr) =
+                                    data.get("gaming_communities").and_then(|v| v.as_array())
+                                {
                                     if let Some(first) = arr.first() {
-                                        if let Some(inner) = first.get("gaming_communities").and_then(|v| v.as_array()) {
+                                        if let Some(inner) = first
+                                            .get("gaming_communities")
+                                            .and_then(|v| v.as_array())
+                                        {
                                             let normalized = serde_json::json!({
                                                 "gaming_communities": inner
                                             });
@@ -603,18 +702,21 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
                 }
                 set_communities_loading.set(false);
             });
-            
+
             // Load player networking
             let set_player_networking = player_networking.clone();
             let set_networking_loading = networking_loading.clone();
             set_networking_loading.set(true);
-            
+
             wasm_bindgen_futures::spawn_local(async move {
                 let user_id = "player/2025041711441894568690500"; // Placeholder
-                
-                match crate::api::utils::authenticated_get(&format!("/api/analytics-enhanced/networking/{}", user_id))
-                    .send()
-                    .await
+
+                match crate::api::utils::authenticated_get(&format!(
+                    "/api/analytics-enhanced/networking/{}",
+                    user_id
+                ))
+                .send()
+                .await
                 {
                     Ok(response) => {
                         if response.ok() {
@@ -629,7 +731,7 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
                 }
                 set_networking_loading.set(false);
             });
-            
+
             || ()
         });
     }
@@ -1003,7 +1105,7 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
                                             <span class="trend-label">{"Player Engagement"}</span>
                                             <span class="trend-value">
                                                 {if stats["total_players"].as_i64().unwrap_or(0) > 0 {
-                                                    let contests_per_player = stats["total_contests"].as_i64().unwrap_or(0) as f64 / 
+                                                    let contests_per_player = stats["total_contests"].as_i64().unwrap_or(0) as f64 /
                                                                            stats["total_players"].as_i64().unwrap_or(1) as f64;
                                                     format!("{:.1}", contests_per_player)
                                                 } else {
@@ -1015,7 +1117,7 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
                                             <span class="trend-label">{"Activity Rate"}</span>
                                             <span class="trend-value">
                                                 {if stats["total_players"].as_i64().unwrap_or(0) > 0 {
-                                                    let activity_rate = (stats["active_players_30d"].as_i64().unwrap_or(0) as f64 / 
+                                                    let activity_rate = (stats["active_players_30d"].as_i64().unwrap_or(0) as f64 /
                                                                       stats["total_players"].as_i64().unwrap_or(1) as f64) * 100.0;
                                                     format!("{:.0}%", activity_rate)
                                                 } else {
@@ -1566,7 +1668,7 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
                                         let total_contests = opponent["total_contests"].as_i64().unwrap_or(0);
                                         let win_rate = opponent["win_rate"].as_f64().unwrap_or(0.0);
                                         let last_played = opponent["last_played"].as_str().unwrap_or("Never");
-                                        
+
                                         html! {
                                             <div class="opponent-card">
                                                 <h3>{opponent_handle}</h3>
@@ -1650,4 +1752,4 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
             }
         </div>
     }
-} 
+}

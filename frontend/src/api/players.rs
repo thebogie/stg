@@ -1,15 +1,19 @@
+use crate::api::api_url;
 use gloo_net::http::Request;
 use gloo_storage::Storage;
-use shared::dto::player::PlayerDto;
-use shared::dto::common::ErrorResponse;
 use log::debug;
-use crate::api::api_url;
+use shared::dto::common::ErrorResponse;
+use shared::dto::player::PlayerDto;
 
 pub async fn search_players(query: &str) -> Result<Vec<PlayerDto>, String> {
     debug!("Searching players with query: {}", query);
 
     let session_id = gloo_storage::LocalStorage::get::<String>("session_id").ok();
-    let mut req = Request::get(&format!("{}?query={}", api_url("/api/players/search"), query));
+    let mut req = Request::get(&format!(
+        "{}?query={}",
+        api_url("/api/players/search"),
+        query
+    ));
     if let Some(sid) = session_id {
         req = req.header("Authorization", &format!("Bearer {}", sid));
     }
@@ -34,4 +38,4 @@ pub async fn search_players(query: &str) -> Result<Vec<PlayerDto>, String> {
 
     debug!("Successfully found {} players", players.len());
     Ok(players)
-} 
+}

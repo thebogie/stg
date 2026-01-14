@@ -1,6 +1,6 @@
-use yew::prelude::*;
-use shared::dto::contest::ContestDto;
 use crate::components::contest::confirmation::ContestConfirmation;
+use shared::dto::contest::ContestDto;
+use yew::prelude::*;
 
 #[derive(Properties, Clone, PartialEq)]
 pub struct ContestConfirmationModalProps {
@@ -65,15 +65,15 @@ pub fn contest_confirmation_modal(props: &ContestConfirmationModalProps) -> Html
             <div class="bg-white rounded-xl shadow-xl w-full max-w-4xl mx-4 transform transition-all max-h-[90vh] overflow-y-auto" onclick={|e: MouseEvent| e.stop_propagation()}>
                 <div class="flex justify-between items-center p-6 border-b border-gray-200">
                     <h2 class="text-2xl font-semibold text-gray-800">{"Confirm Contest Details"}</h2>
-                    <button 
-                        class="text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-full p-2 transition-colors duration-200" 
+                    <button
+                        class="text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-full p-2 transition-colors duration-200"
                         onclick={on_cancel.clone()}
                     >
                         {"×"}
                     </button>
                 </div>
                 <div class="p-6">
-                    <ContestConfirmation 
+                    <ContestConfirmation
                         contest={contest}
                         on_confirm={on_confirm}
                         on_cancel={confirmation_on_cancel}

@@ -7,7 +7,7 @@ mod game_venue_history_tests {
     fn test_game_history_endpoint() {
         // This would require a test database setup
         // For now, we'll test the query structure and response format
-        
+
         let test_contest_data = json!({
             "contest_id": "contest/123",
             "contest_name": "Test Contest",
@@ -73,26 +73,26 @@ mod game_venue_history_tests {
         // Test game ID normalization
         let game_key = "123";
         let game_id_full = format!("game/{}", game_key);
-        
+
         // Test extraction of key from full ID
         let extracted_key = if game_id_full.contains('/') {
             game_id_full.split('/').nth(1).unwrap_or(&game_id_full)
         } else {
             &game_id_full
         };
-        
+
         assert_eq!(extracted_key, game_key);
-        
+
         // Test venue ID normalization
         let venue_key = "456";
         let venue_id_full = format!("venue/{}", venue_key);
-        
+
         let extracted_venue_key = if venue_id_full.contains('/') {
             venue_id_full.split('/').nth(1).unwrap_or(&venue_id_full)
         } else {
             &venue_id_full
         };
-        
+
         assert_eq!(extracted_venue_key, venue_key);
     }
 
@@ -100,11 +100,11 @@ mod game_venue_history_tests {
     #[test]
     fn test_date_formatting() {
         use chrono::DateTime;
-        
+
         let test_date = "2024-01-15T14:30:00Z";
         let parsed_date = DateTime::parse_from_rfc3339(test_date).unwrap();
         let formatted = parsed_date.format("%B %d, %Y at %I:%M %p").to_string();
-        
+
         // Should format to something like "January 15, 2024 at 2:30 PM"
         assert!(formatted.contains("January"));
         assert!(formatted.contains("15"));
@@ -132,11 +132,11 @@ mod game_venue_history_tests {
         assert!(valid_contest["venue_id"].is_string());
         assert!(valid_contest["my_placement"].is_number());
         assert!(valid_contest["total_players"].is_number());
-        
+
         // Test numeric validation
         let placement = valid_contest["my_placement"].as_i64().unwrap();
         let total_players = valid_contest["total_players"].as_i64().unwrap();
-        
+
         assert!(placement > 0);
         assert!(total_players > 0);
         assert!(placement <= total_players);
@@ -157,10 +157,12 @@ mod game_venue_history_tests {
         // Test that invalid data is handled gracefully
         let contest_id = invalid_contest["contest_id"].as_str().unwrap_or("default");
         assert_eq!(contest_id, "");
-        
-        let contest_name = invalid_contest["contest_name"].as_str().unwrap_or("Unknown Contest");
+
+        let contest_name = invalid_contest["contest_name"]
+            .as_str()
+            .unwrap_or("Unknown Contest");
         assert_eq!(contest_name, "Unknown Contest");
-        
+
         let placement = invalid_contest["my_placement"].as_i64().unwrap_or(0);
         assert_eq!(placement, -1);
     }
@@ -175,9 +177,9 @@ mod game_venue_history_tests {
         } else {
             format!("game/{}", game_id_param)
         };
-        
+
         assert_eq!(normalized_game_id, "game/123");
-        
+
         // Test venue ID parameter extraction
         let venue_id_param = "456";
         let normalized_venue_id = if venue_id_param.contains('/') {
@@ -185,7 +187,7 @@ mod game_venue_history_tests {
         } else {
             format!("venue/{}", venue_id_param)
         };
-        
+
         assert_eq!(normalized_venue_id, "venue/456");
     }
 
@@ -209,10 +211,10 @@ mod game_venue_history_tests {
 
         // Test that response is an array
         assert!(mock_response.is_array());
-        
+
         let contests = mock_response.as_array().unwrap();
         assert_eq!(contests.len(), 1);
-        
+
         let first_contest = &contests[0];
         assert!(first_contest["contest_id"].is_string());
         assert!(first_contest["game_id"].is_string());

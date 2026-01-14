@@ -1,8 +1,8 @@
-use yew::prelude::*;
-use crate::components::scheduler_monitor::SchedulerMonitor;
-use crate::components::common::toast::{ToastContext, Toast, ToastType};
 use crate::api::utils::authenticated_get;
+use crate::components::common::toast::{Toast, ToastContext, ToastType};
+use crate::components::scheduler_monitor::SchedulerMonitor;
 use serde_json::Value;
+use yew::prelude::*;
 
 #[derive(Properties, PartialEq, Clone, Debug)]
 pub struct AdminPageProps {}
@@ -20,7 +20,7 @@ pub fn admin_page(_props: &AdminPageProps) -> Html {
     let auth = use_context::<crate::auth::AuthContext>().expect("Auth context not found");
     let toast_context = use_context::<ToastContext>().expect("Toast context not found");
     let current_tab = use_state(|| AdminTab::Dashboard);
-    
+
     // System stats state
     let system_stats = use_state(|| None::<Value>);
     let stats_loading = use_state(|| false);
@@ -56,16 +56,13 @@ pub fn admin_page(_props: &AdminPageProps) -> Html {
         let system_stats = system_stats.clone();
         let stats_loading = stats_loading.clone();
         let stats_error = stats_error.clone();
-        
+
         use_effect_with((), move |_| {
             stats_loading.set(true);
             stats_error.set(None);
-            
+
             wasm_bindgen_futures::spawn_local(async move {
-                match authenticated_get("/api/analytics/platform")
-                    .send()
-                    .await
-                {
+                match authenticated_get("/api/analytics/platform").send().await {
                     Ok(response) => {
                         if response.ok() {
                             if let Ok(stats) = response.json::<Value>().await {
@@ -75,8 +72,14 @@ pub fn admin_page(_props: &AdminPageProps) -> Html {
                             }
                         } else {
                             let status = response.status();
-                            let text = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
-                            stats_error.set(Some(format!("Failed to load system stats: {} - {}", status, text)));
+                            let text = response
+                                .text()
+                                .await
+                                .unwrap_or_else(|_| "Unknown error".to_string());
+                            stats_error.set(Some(format!(
+                                "Failed to load system stats: {} - {}",
+                                status, text
+                            )));
                         }
                     }
                     Err(e) => {
@@ -85,7 +88,7 @@ pub fn admin_page(_props: &AdminPageProps) -> Html {
                 }
                 stats_loading.set(false);
             });
-            
+
             || ()
         });
     }
@@ -118,25 +121,25 @@ pub fn admin_page(_props: &AdminPageProps) -> Html {
             <div class="admin-content">
                 // Navigation Tabs
                 <div class="admin-nav">
-                    <button 
+                    <button
                         class={classes!("nav-tab", if *current_tab == AdminTab::Dashboard { "active" } else { "" })}
                         onclick={on_tab_click.clone().reform(|_| AdminTab::Dashboard)}
                     >
                         {"📊 Dashboard"}
                     </button>
-                    <button 
+                    <button
                         class={classes!("nav-tab", if *current_tab == AdminTab::Ratings { "active" } else { "" })}
                         onclick={on_tab_click.clone().reform(|_| AdminTab::Ratings)}
                     >
                         {"🏆 Ratings Management"}
                     </button>
-                    <button 
+                    <button
                         class={classes!("nav-tab", if *current_tab == AdminTab::System { "active" } else { "" })}
                         onclick={on_tab_click.clone().reform(|_| AdminTab::System)}
                     >
                         {"⚙️ System"}
                     </button>
-                    <button 
+                    <button
                         class={classes!("nav-tab", if *current_tab == AdminTab::Users { "active" } else { "" })}
                         onclick={on_tab_click.clone().reform(|_| AdminTab::Users)}
                     >
@@ -182,7 +185,7 @@ pub fn admin_page(_props: &AdminPageProps) -> Html {
                                             </div>
                                         </div>
                                     }
-                                    
+
                                     <div class="stat-card">
                                         <h3>{"🔧 Quick Actions"}</h3>
                                         <div class="quick-actions">
@@ -200,7 +203,7 @@ pub fn admin_page(_props: &AdminPageProps) -> Html {
                                 </div>
                             </div>
                         },
-                        
+
                         AdminTab::Ratings => html! {
                             <div class="ratings-section">
                                 <h2>{"🏆 Glicko2 Ratings Management"}</h2>
@@ -208,14 +211,14 @@ pub fn admin_page(_props: &AdminPageProps) -> Html {
                                     <div class="ratings-info">
                                         <p>{"Manage the Glicko2 rating system, including monthly recalculation scheduling and historical data processing."}</p>
                                     </div>
-                                    
+
                                     <div class="scheduler-section">
                                         <SchedulerMonitor />
                                     </div>
                                 </div>
                             </div>
                         },
-                        
+
                         AdminTab::System => html! {
                             <div class="system-section">
                                 <h2>{"⚙️ System Configuration"}</h2>
@@ -237,7 +240,7 @@ pub fn admin_page(_props: &AdminPageProps) -> Html {
                                             </div>
                                         </div>
                                     </div>
-                                    
+
                                     <div class="config-card">
                                         <h3>{"System Information"}</h3>
                                         <div class="info-grid">
@@ -258,7 +261,7 @@ pub fn admin_page(_props: &AdminPageProps) -> Html {
                                 </div>
                             </div>
                         },
-                        
+
                         AdminTab::Users => html! {
                             <div class="users-section">
                                 <h2>{"👥 User Management"}</h2>
@@ -266,7 +269,7 @@ pub fn admin_page(_props: &AdminPageProps) -> Html {
                                     <div class="users-info">
                                         <p>{"Manage user accounts, permissions, and administrative access."}</p>
                                     </div>
-                                    
+
                                     <div class="users-actions">
                                         <button class="action-btn primary" onclick={show_success_toast.clone().reform(|_| "User management features coming soon!".to_string())}>
                                             {"👤 Manage Users"}
@@ -275,7 +278,7 @@ pub fn admin_page(_props: &AdminPageProps) -> Html {
                                             {"🔐 Manage Permissions"}
                                         </button>
                                     </div>
-                                    
+
                                     <div class="coming-soon">
                                         <h3>{"🚧 Coming Soon"}</h3>
                                         <p>{"Advanced user management features are under development and will include:"}</p>
@@ -308,7 +311,7 @@ mod tests {
     fn create_mock_auth_context(is_admin: bool) -> crate::auth::AuthContext {
         use crate::auth::{AuthContext, AuthState};
         use shared::dto::player::PlayerDto;
-        
+
         let mock_player = if is_admin {
             Some(PlayerDto {
                 id: "admin_player".to_string(),
@@ -337,8 +340,8 @@ mod tests {
         };
 
         // Create a simplified mock context without use_reducer_eq
-        AuthContext { 
-            state: mock_state, 
+        AuthContext {
+            state: mock_state,
             login: yew::Callback::from(|_| {}),
             logout: yew::Callback::from(|_| {}),
             on_session_expired: yew::Callback::from(|_| {}),
@@ -351,10 +354,10 @@ mod tests {
     //     // This test would require setting up a proper test environment
     //     // with mocked auth context and DOM manipulation
     //     // For now, we'll test the component logic
-    //     
+    //
     //     let props = AdminPageProps {};
     //     let component = AdminPage::new(props);
-    //     
+    //
     //     // Verify the component can be created
     //     assert!(component.props == AdminPageProps {});
     // }
@@ -382,11 +385,11 @@ mod tests {
     #[wasm_bindgen_test]
     async fn test_admin_page_props() {
         let props = AdminPageProps {};
-        
+
         // Test that props can be created and compared
         let props2 = AdminPageProps {};
         assert_eq!(props, props2);
-        
+
         // Test that props can be cloned
         let cloned_props = props.clone();
         assert_eq!(props, cloned_props);

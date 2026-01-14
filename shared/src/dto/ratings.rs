@@ -44,5 +44,3 @@ pub struct RatingLeaderboardEntryDto {
     pub last_active: Option<String>,
     pub contest_id: Option<String>,
 }
-
-

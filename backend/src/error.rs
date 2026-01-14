@@ -55,7 +55,10 @@ impl ResponseError for ApiError {
         let status = match actix_web::http::StatusCode::from_u16(self.status_code) {
             Ok(status) => status,
             Err(_) => {
-                log::warn!("Invalid status code {}, defaulting to 500", self.status_code);
+                log::warn!(
+                    "Invalid status code {}, defaulting to 500",
+                    self.status_code
+                );
                 actix_web::http::StatusCode::INTERNAL_SERVER_ERROR
             }
         };
@@ -193,7 +196,7 @@ mod tests {
         // Create a mock Redis error
         let redis_error = redis::RedisError::from(std::io::Error::new(
             std::io::ErrorKind::ConnectionRefused,
-            "connection refused"
+            "connection refused",
         ));
         let api_error: ApiError = redis_error.into();
 
@@ -229,4 +232,4 @@ mod tests {
         assert!(api_error.message.contains("Validation error"));
         assert_eq!(api_error.status_code, 400);
     }
-} 
+}

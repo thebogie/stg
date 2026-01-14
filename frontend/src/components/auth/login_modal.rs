@@ -1,6 +1,6 @@
-use yew::prelude::*;
-use yew::events::SubmitEvent;
 use web_sys::HtmlInputElement;
+use yew::events::SubmitEvent;
+use yew::prelude::*;
 use yew_router::prelude::*;
 
 use crate::auth::AuthContext;
@@ -120,8 +120,8 @@ pub fn login_modal(props: &LoginModalProps) -> Html {
             <div class="bg-white rounded-xl shadow-xl w-full max-w-md mx-4 transform transition-all" onclick={|e: MouseEvent| e.stop_propagation()}>
                 <div class="flex justify-between items-center p-6 border-b border-gray-200">
                     <h2 class="text-2xl font-semibold text-gray-800">{"Login"}</h2>
-                    <button 
-                        class="text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-full p-2 transition-colors duration-200" 
+                    <button
+                        class="text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-full p-2 transition-colors duration-200"
                         onclick={on_close_click}
                     >
                         {"×"}
@@ -160,8 +160,8 @@ pub fn login_modal(props: &LoginModalProps) -> Html {
                                 class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-gray-50 focus:bg-white transition-colors duration-200 disabled:bg-gray-100 disabled:cursor-not-allowed"
                             />
                         </div>
-                        <button 
-                            type="submit" 
+                        <button
+                            type="submit"
                             disabled={*loading}
                             class="w-full mt-6 px-4 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transform hover:-translate-y-0.5 transition-all duration-200 disabled:bg-gray-400 disabled:cursor-not-allowed disabled:transform-none"
                         >
@@ -182,4 +182,4 @@ pub fn login_modal(props: &LoginModalProps) -> Html {
             </div>
         </div>
     }
-} 
+}

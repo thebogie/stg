@@ -55,7 +55,7 @@ async fn test_concurrent_player_registrations() -> Result<()> {
         assert!(resp.status().is_success() || resp.status().is_client_error());
     }
 
-    // Should complete in reasonable time (30 seconds for 10 sequential requests, 
+    // Should complete in reasonable time (30 seconds for 10 sequential requests,
     // allowing for test environment overhead, resource contention, and container startup delays)
     // Note: In CI or when running full test suite, this can take longer due to resource sharing
     assert!(

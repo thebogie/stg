@@ -11,4 +11,4 @@ pub fn not_found(_props: &NotFoundProps) -> Html {
             <p>{"The page you're looking for doesn't exist."}</p>
         </div>
     }
-} 
+}

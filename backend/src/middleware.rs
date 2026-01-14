@@ -1,16 +1,16 @@
+use actix_web::http::header::{HeaderName, HeaderValue};
+use actix_web::HttpMessage;
 use actix_web::{
     dev::{Service, ServiceRequest, ServiceResponse, Transform},
     Error,
 };
-use actix_web::HttpMessage;
 use futures_util::future::{ready, LocalBoxFuture, Ready};
+use log::{error, info, warn};
 use std::rc::Rc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::task::{Context, Poll};
 use std::time::Instant;
-use log::{info, warn, error};
-use actix_web::http::header::{HeaderName, HeaderValue};
 use uuid::Uuid;
-use std::sync::atomic::{AtomicU64, Ordering};
 
 // Global counter for fast test ID generation
 static REQUEST_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -18,10 +18,11 @@ static REQUEST_COUNTER: AtomicU64 = AtomicU64::new(0);
 /// Generate a request ID - fast counter-based for tests, UUID v4 for production
 fn generate_request_id() -> String {
     // Check if we're in test mode (cfg(test) or RUST_ENV=test)
-    let is_test = cfg!(test) || std::env::var("RUST_ENV")
-        .unwrap_or_default()
-        .eq_ignore_ascii_case("test");
-    
+    let is_test = cfg!(test)
+        || std::env::var("RUST_ENV")
+            .unwrap_or_default()
+            .eq_ignore_ascii_case("test");
+
     if is_test {
         // Fast counter-based ID for tests (much faster than UUID generation)
         // Uses atomic counter + thread ID for uniqueness without crypto overhead
@@ -84,7 +85,7 @@ where
         let method = req.method().clone();
         let uri = req.uri().clone();
         let peer_addr = req.peer_addr().map(|addr| addr.to_string());
-        
+
         // Generate correlation ID for this request
         // Use fast counter-based ID for tests, UUID v4 for production
         let correlation_id = generate_request_id();
@@ -96,10 +97,8 @@ where
 
             // Add correlation ID to response header
             if let Ok(header_value) = HeaderValue::try_from(correlation_id.as_str()) {
-                res.headers_mut().insert(
-                    HeaderName::from_static("x-request-id"),
-                    header_value,
-                );
+                res.headers_mut()
+                    .insert(HeaderName::from_static("x-request-id"), header_value);
             }
 
             let status = res.status();
@@ -141,8 +140,6 @@ where
         })
     }
 }
-
-
 
 // Admin IP allowlist middleware
 pub struct AdminIpAllowlist {
@@ -214,7 +211,9 @@ where
                     return service.call(req).await;
                 }
             }
-            Err(actix_web::error::ErrorForbidden("Admin access not allowed from this IP"))
+            Err(actix_web::error::ErrorForbidden(
+                "Admin access not allowed from this IP",
+            ))
         })
     }
 }
@@ -235,7 +234,9 @@ where
     type Future = Ready<Result<Self::Transform, Self::InitError>>;
 
     fn new_transform(&self, service: S) -> Self::Future {
-        ready(Ok(AdminAuditService { service: Rc::new(service) }))
+        ready(Ok(AdminAuditService {
+            service: Rc::new(service),
+        }))
     }
 }
 
@@ -270,10 +271,24 @@ where
             match &result {
                 Ok(res) => {
                     let status = res.status().as_u16();
-                    info!("admin_audit method={} path={} status={} durationMs={} email={}", method, path, status, duration_ms, email.unwrap_or_else(|| "unknown".into()));
+                    info!(
+                        "admin_audit method={} path={} status={} durationMs={} email={}",
+                        method,
+                        path,
+                        status,
+                        duration_ms,
+                        email.unwrap_or_else(|| "unknown".into())
+                    );
                 }
                 Err(e) => {
-                    error!("admin_audit method={} path={} error='{}' durationMs={} email={}", method, path, e, duration_ms, email.unwrap_or_else(|| "unknown".into()));
+                    error!(
+                        "admin_audit method={} path={} error='{}' durationMs={} email={}",
+                        method,
+                        path,
+                        e,
+                        duration_ms,
+                        email.unwrap_or_else(|| "unknown".into())
+                    );
                 }
             }
             result
@@ -357,25 +372,25 @@ where
 
             // Add security headers
             let headers = res.headers_mut();
-            
+
             // Prevent MIME type sniffing
             headers.insert(
                 HeaderName::from_static("x-content-type-options"),
                 HeaderValue::from_static("nosniff"),
             );
-            
+
             // Prevent clickjacking attacks
             headers.insert(
                 HeaderName::from_static("x-frame-options"),
                 HeaderValue::from_static("DENY"),
             );
-            
+
             // XSS Protection (legacy, but still useful for older browsers)
             headers.insert(
                 HeaderName::from_static("x-xss-protection"),
                 HeaderValue::from_static("1; mode=block"),
             );
-            
+
             // HSTS - only in production (HTTPS)
             if is_production {
                 headers.insert(
@@ -393,10 +408,8 @@ where
 mod tests {
     use super::*;
     use actix_web::{
-        test,
-        web,
-        App,
         http::{Method, StatusCode},
+        test, web, App,
     };
     use std::time::Duration;
 
@@ -424,12 +437,11 @@ mod tests {
         let app = test::init_service(
             App::new()
                 .wrap(Logger)
-                .route("/test", web::get().to(|| async { "test" }))
-        ).await;
+                .route("/test", web::get().to(|| async { "test" })),
+        )
+        .await;
 
-        let req = test::TestRequest::get()
-            .uri("/test")
-            .to_request();
+        let req = test::TestRequest::get().uri("/test").to_request();
 
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), StatusCode::OK);
@@ -438,17 +450,13 @@ mod tests {
     #[actix_web::test]
     async fn test_logger_middleware_with_error() {
         let _logger = Logger;
-        let app = test::init_service(
-            App::new()
-                .wrap(Logger)
-                .route("/error", web::get().to(|| async { 
-                    actix_web::HttpResponse::InternalServerError().finish()
-                }))
-        ).await;
+        let app = test::init_service(App::new().wrap(Logger).route(
+            "/error",
+            web::get().to(|| async { actix_web::HttpResponse::InternalServerError().finish() }),
+        ))
+        .await;
 
-        let req = test::TestRequest::get()
-            .uri("/error")
-            .to_request();
+        let req = test::TestRequest::get().uri("/error").to_request();
 
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
@@ -457,17 +465,13 @@ mod tests {
     #[actix_web::test]
     async fn test_logger_middleware_with_client_error() {
         let _logger = Logger;
-        let app = test::init_service(
-            App::new()
-                .wrap(Logger)
-                .route("/notfound", web::get().to(|| async { 
-                    actix_web::HttpResponse::NotFound().finish()
-                }))
-        ).await;
+        let app = test::init_service(App::new().wrap(Logger).route(
+            "/notfound",
+            web::get().to(|| async { actix_web::HttpResponse::NotFound().finish() }),
+        ))
+        .await;
 
-        let req = test::TestRequest::get()
-            .uri("/notfound")
-            .to_request();
+        let req = test::TestRequest::get().uri("/notfound").to_request();
 
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), StatusCode::NOT_FOUND);
@@ -478,13 +482,12 @@ mod tests {
         let app = test::init_service(
             App::new()
                 .wrap(cors_middleware())
-                .route("/test", web::get().to(|| async { "test" }))
-        ).await;
+                .route("/test", web::get().to(|| async { "test" })),
+        )
+        .await;
 
         // Test normal request without origin header
-        let req = test::TestRequest::get()
-            .uri("/test")
-            .to_request();
+        let req = test::TestRequest::get().uri("/test").to_request();
 
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), StatusCode::OK);
@@ -503,8 +506,14 @@ mod tests {
             .method(Method::OPTIONS)
             .uri("/test")
             .insert_header((actix_web::http::header::ORIGIN, "http://localhost:50003"))
-            .insert_header((actix_web::http::header::ACCESS_CONTROL_REQUEST_METHOD, "GET"))
-            .insert_header((actix_web::http::header::ACCESS_CONTROL_REQUEST_HEADERS, "authorization"))
+            .insert_header((
+                actix_web::http::header::ACCESS_CONTROL_REQUEST_METHOD,
+                "GET",
+            ))
+            .insert_header((
+                actix_web::http::header::ACCESS_CONTROL_REQUEST_HEADERS,
+                "authorization",
+            ))
             .to_request();
 
         let resp = test::call_service(&app, req).await;
@@ -515,19 +524,17 @@ mod tests {
     #[actix_web::test]
     async fn test_logger_middleware_timing() {
         let _logger = Logger;
-        let app = test::init_service(
-            App::new()
-                .wrap(Logger)
-                .route("/slow", web::get().to(|| async {
-                    tokio::time::sleep(Duration::from_millis(10)).await;
-                    "slow"
-                }))
-        ).await;
+        let app = test::init_service(App::new().wrap(Logger).route(
+            "/slow",
+            web::get().to(|| async {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+                "slow"
+            }),
+        ))
+        .await;
 
         let start = std::time::Instant::now();
-        let req = test::TestRequest::get()
-            .uri("/slow")
-            .to_request();
+        let req = test::TestRequest::get().uri("/slow").to_request();
 
         let resp = test::call_service(&app, req).await;
         let duration = start.elapsed();
@@ -542,8 +549,9 @@ mod tests {
         let app = test::init_service(
             App::new()
                 .wrap(Logger)
-                .route("/test", web::get().to(|| async { "test" }))
-        ).await;
+                .route("/test", web::get().to(|| async { "test" })),
+        )
+        .await;
 
         let req = test::TestRequest::get()
             .uri("/test")
@@ -553,4 +561,4 @@ mod tests {
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), StatusCode::OK);
     }
-} 
+}

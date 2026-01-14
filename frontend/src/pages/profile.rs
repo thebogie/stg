@@ -1,23 +1,25 @@
-use yew::prelude::*;
-use yew::use_effect_with;
-use wasm_bindgen_futures::spawn_local;
-use web_sys::console;
-use shared::dto::analytics::{HeadToHeadRecordDto, PlayerOpponentDto, GamePerformanceDto};
-use shared::models::client_analytics::{GamePerformance, CoreStats, AnalyticsQuery, PerformanceTrend};
 use crate::analytics::client_manager::ClientAnalyticsManager;
 use crate::api::utils::authenticated_get;
 use crate::components::contests_modal::ContestsModal;
-use crate::components::profile::profile_tabs::ProfileTabs;
-use crate::components::profile::overall_stats_tab::OverallStatsTab;
-use crate::components::profile::game_performance_tab::GamePerformanceTab;
-use crate::components::profile::ratings_tab::RatingsTab;
-use crate::components::profile::nemesis_tab::NemesisTab;
-use crate::components::profile::owned_tab::OwnedTab;
-use crate::components::profile::trends_tab::TrendsTab;
 use crate::components::profile::comparison_tab::ComparisonTab;
+use crate::components::profile::game_performance_tab::GamePerformanceTab;
+use crate::components::profile::nemesis_tab::NemesisTab;
+use crate::components::profile::overall_stats_tab::OverallStatsTab;
+use crate::components::profile::owned_tab::OwnedTab;
+use crate::components::profile::profile_tabs::ProfileTabs;
+use crate::components::profile::ratings_tab::RatingsTab;
 use crate::components::profile::settings_tab::SettingsTab;
-use serde_json::Value;
+use crate::components::profile::trends_tab::TrendsTab;
 use chrono::DateTime;
+use serde_json::Value;
+use shared::dto::analytics::{GamePerformanceDto, HeadToHeadRecordDto, PlayerOpponentDto};
+use shared::models::client_analytics::{
+    AnalyticsQuery, CoreStats, GamePerformance, PerformanceTrend,
+};
+use wasm_bindgen_futures::spawn_local;
+use web_sys::console;
+use yew::prelude::*;
+use yew::use_effect_with;
 
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
@@ -27,11 +29,15 @@ struct StreakData {
 }
 
 #[allow(dead_code)]
-async fn fetch_contest_details_for_streaks(contest_ids: Vec<String>, player_id: &str, core_stats: yew::UseStateHandle<Option<CoreStats>>) {
+async fn fetch_contest_details_for_streaks(
+    contest_ids: Vec<String>,
+    player_id: &str,
+    core_stats: yew::UseStateHandle<Option<CoreStats>>,
+) {
     let mut all_contests = Vec::new();
-    
+
     console::log_1(&format!("🔄 Fetching details for {} contests", contest_ids.len()).into());
-    
+
     // Fetch individual contest details
     for contest_id in contest_ids {
         // Extract just the numeric part from contest IDs like "contest/4127490"
@@ -40,24 +46,42 @@ async fn fetch_contest_details_for_streaks(contest_ids: Vec<String>, player_id: 
         } else {
             &contest_id
         };
-        
+
         let contest_url = format!("/api/contests/{}", numeric_id);
-        console::log_1(&format!("🔍 Fetching contest details: {} -> {}", contest_id, contest_url).into());
-        
+        console::log_1(
+            &format!(
+                "🔍 Fetching contest details: {} -> {}",
+                contest_id, contest_url
+            )
+            .into(),
+        );
+
         match authenticated_get(&contest_url).send().await {
             Ok(response) => {
                 if response.ok() {
                     match response.json::<Value>().await {
                         Ok(contest_data) => {
-                            console::log_1(&format!("✅ Fetched contest {}: {:?}", contest_id, contest_data).into());
+                            console::log_1(
+                                &format!("✅ Fetched contest {}: {:?}", contest_id, contest_data)
+                                    .into(),
+                            );
                             all_contests.push(contest_data);
                         }
                         Err(e) => {
-                            console::log_1(&format!("Failed to parse contest {}: {}", contest_id, e).into());
+                            console::log_1(
+                                &format!("Failed to parse contest {}: {}", contest_id, e).into(),
+                            );
                         }
                     }
                 } else {
-                    console::log_1(&format!("Failed to fetch contest {}: {}", contest_id, response.status()).into());
+                    console::log_1(
+                        &format!(
+                            "Failed to fetch contest {}: {}",
+                            contest_id,
+                            response.status()
+                        )
+                        .into(),
+                    );
                 }
             }
             Err(e) => {
@@ -65,19 +89,37 @@ async fn fetch_contest_details_for_streaks(contest_ids: Vec<String>, player_id: 
             }
         }
     }
-    
-    console::log_1(&format!("📊 Successfully fetched {} contest details", all_contests.len()).into());
-    
+
+    console::log_1(
+        &format!(
+            "📊 Successfully fetched {} contest details",
+            all_contests.len()
+        )
+        .into(),
+    );
+
     if !all_contests.is_empty() {
         let streaks = calculate_streaks_from_contests(&all_contests, player_id);
-        console::log_1(&format!("✅ Calculated streaks: current={}, longest={}", streaks.current_streak, streaks.longest_streak).into());
-        
+        console::log_1(
+            &format!(
+                "✅ Calculated streaks: current={}, longest={}",
+                streaks.current_streak, streaks.longest_streak
+            )
+            .into(),
+        );
+
         // Update core stats with calculated streaks
         if let Some(current_stats) = core_stats.as_ref() {
             let mut updated_stats = current_stats.clone();
             updated_stats.current_streak = streaks.current_streak;
             updated_stats.longest_streak = streaks.longest_streak;
-            console::log_1(&format!("🔄 Updating core_stats with streaks: current={}, longest={}", updated_stats.current_streak, updated_stats.longest_streak).into());
+            console::log_1(
+                &format!(
+                    "🔄 Updating core_stats with streaks: current={}, longest={}",
+                    updated_stats.current_streak, updated_stats.longest_streak
+                )
+                .into(),
+            );
             core_stats.set(Some(updated_stats));
             console::log_1(&format!("✅ Core stats updated successfully").into());
         } else {
@@ -89,24 +131,46 @@ async fn fetch_contest_details_for_streaks(contest_ids: Vec<String>, player_id: 
 #[allow(dead_code)]
 fn calculate_streaks_from_contests(contests: &[Value], player_id: &str) -> StreakData {
     let mut player_contests = Vec::new();
-    
-    console::log_1(&format!("🔍 Analyzing {} contests for player {}", contests.len(), player_id).into());
-    
+
+    console::log_1(
+        &format!(
+            "🔍 Analyzing {} contests for player {}",
+            contests.len(),
+            player_id
+        )
+        .into(),
+    );
+
     // Extract player's contest results from the contest data
     for (i, contest) in contests.iter().enumerate() {
         console::log_1(&format!("Contest {}: {:?}", i, contest).into());
-        
+
         // Try different possible data structures
         if let Some(participants) = contest.get("participants").and_then(|p| p.as_array()) {
-            console::log_1(&format!("Found participants array with {} entries", participants.len()).into());
+            console::log_1(
+                &format!(
+                    "Found participants array with {} entries",
+                    participants.len()
+                )
+                .into(),
+            );
             for (j, participant) in participants.iter().enumerate() {
                 console::log_1(&format!("Participant {}: {:?}", j, participant).into());
                 if let Some(pid) = participant.get("player_id").and_then(|p| p.as_str()) {
-                    console::log_1(&format!("Checking player_id: {} against {}", pid, player_id).into());
+                    console::log_1(
+                        &format!("Checking player_id: {} against {}", pid, player_id).into(),
+                    );
                     if pid == player_id || pid.ends_with(player_id) {
                         if let Some(place) = participant.get("place").and_then(|p| p.as_i64()) {
-                            if let Some(start_time) = contest.get("start").and_then(|s| s.as_str()) {
-                                console::log_1(&format!("Found match! Player {} placed {} at {}", pid, place, start_time).into());
+                            if let Some(start_time) = contest.get("start").and_then(|s| s.as_str())
+                            {
+                                console::log_1(
+                                    &format!(
+                                        "Found match! Player {} placed {} at {}",
+                                        pid, place, start_time
+                                    )
+                                    .into(),
+                                );
                                 // Parse the start time to sort contests chronologically
                                 if let Ok(dt) = DateTime::parse_from_rfc3339(start_time) {
                                     player_contests.push((dt, place as i32));
@@ -121,12 +185,22 @@ fn calculate_streaks_from_contests(contests: &[Value], player_id: &str) -> Strea
             for (j, outcome) in outcomes.iter().enumerate() {
                 console::log_1(&format!("Outcome {}: {:?}", j, outcome).into());
                 if let Some(pid) = outcome.get("player_id").and_then(|p| p.as_str()) {
-                    console::log_1(&format!("Checking player_id: {} against {}", pid, player_id).into());
+                    console::log_1(
+                        &format!("Checking player_id: {} against {}", pid, player_id).into(),
+                    );
                     if pid == player_id || pid.ends_with(player_id) {
                         if let Some(place_str) = outcome.get("place").and_then(|p| p.as_str()) {
                             if let Ok(place) = place_str.parse::<i32>() {
-                                if let Some(start_time) = contest.get("start").and_then(|s| s.as_str()) {
-                                    console::log_1(&format!("Found match! Player {} placed {} at {}", pid, place, start_time).into());
+                                if let Some(start_time) =
+                                    contest.get("start").and_then(|s| s.as_str())
+                                {
+                                    console::log_1(
+                                        &format!(
+                                            "Found match! Player {} placed {} at {}",
+                                            pid, place, start_time
+                                        )
+                                        .into(),
+                                    );
                                     // Parse the start time to sort contests chronologically
                                     if let Ok(dt) = DateTime::parse_from_rfc3339(start_time) {
                                         player_contests.push((dt, place));
@@ -139,14 +213,23 @@ fn calculate_streaks_from_contests(contests: &[Value], player_id: &str) -> Strea
             }
         } else {
             // Try alternative data structure - maybe the contest data is structured differently
-            console::log_1(&format!("No participants or outcomes array found, trying alternative structure").into());
-            
+            console::log_1(
+                &format!("No participants or outcomes array found, trying alternative structure")
+                    .into(),
+            );
+
             // Check if this is a direct player result
             if let Some(pid) = contest.get("player_id").and_then(|p| p.as_str()) {
                 if pid == player_id || pid.ends_with(player_id) {
                     if let Some(place) = contest.get("place").and_then(|p| p.as_i64()) {
                         if let Some(start_time) = contest.get("start").and_then(|s| s.as_str()) {
-                            console::log_1(&format!("Found direct match! Player {} placed {} at {}", pid, place, start_time).into());
+                            console::log_1(
+                                &format!(
+                                    "Found direct match! Player {} placed {} at {}",
+                                    pid, place, start_time
+                                )
+                                .into(),
+                            );
                             if let Ok(dt) = DateTime::parse_from_rfc3339(start_time) {
                                 player_contests.push((dt, place as i32));
                             }
@@ -156,9 +239,9 @@ fn calculate_streaks_from_contests(contests: &[Value], player_id: &str) -> Strea
             }
         }
     }
-    
+
     console::log_1(&format!("📊 Found {} player contests", player_contests.len()).into());
-    
+
     if player_contests.is_empty() {
         console::log_1(&"❌ No player contests found - cannot calculate streaks".into());
         return StreakData {
@@ -166,46 +249,71 @@ fn calculate_streaks_from_contests(contests: &[Value], player_id: &str) -> Strea
             longest_streak: 0,
         };
     }
-    
+
     // Sort contests by start time (oldest first)
     player_contests.sort_by(|a, b| a.0.cmp(&b.0));
-    
+
     // Log the sorted contests
     for (i, (dt, place)) in player_contests.iter().enumerate() {
-        console::log_1(&format!("Contest {}: {} - Place {}", i, dt.format("%Y-%m-%d %H:%M"), place).into());
+        console::log_1(
+            &format!(
+                "Contest {}: {} - Place {}",
+                i,
+                dt.format("%Y-%m-%d %H:%M"),
+                place
+            )
+            .into(),
+        );
     }
-    
+
     // Calculate streaks
     let mut current_streak = 0;
     let mut longest_streak = 0;
-    
+
     for (_, place) in &player_contests {
         if *place == 1 {
             // Win
             current_streak += 1;
             longest_streak = longest_streak.max(current_streak);
-            console::log_1(&format!("🏆 Win! Current streak: {}, Longest: {}", current_streak, longest_streak).into());
+            console::log_1(
+                &format!(
+                    "🏆 Win! Current streak: {}, Longest: {}",
+                    current_streak, longest_streak
+                )
+                .into(),
+            );
         } else {
             // Loss or tie - reset streak
             if current_streak > 0 {
-                console::log_1(&format!("💔 Loss/Tie (place {}). Streak of {} ended", place, current_streak).into());
+                console::log_1(
+                    &format!(
+                        "💔 Loss/Tie (place {}). Streak of {} ended",
+                        place, current_streak
+                    )
+                    .into(),
+                );
             }
             current_streak = 0;
         }
     }
-    
-    console::log_1(&format!("✅ Final streaks - Current: {}, Longest: {}", current_streak, longest_streak).into());
-    
+
+    console::log_1(
+        &format!(
+            "✅ Final streaks - Current: {}, Longest: {}",
+            current_streak, longest_streak
+        )
+        .into(),
+    );
+
     StreakData {
         current_streak,
         longest_streak,
     }
 }
 
-
 use crate::auth::AuthContext;
-use gloo_utils;
 use gloo_storage::Storage;
+use gloo_utils;
 
 #[derive(Properties, PartialEq)]
 pub struct ProfilePageProps {}
@@ -227,7 +335,8 @@ pub fn profile_page(_props: &ProfilePageProps) -> Html {
     let auth_context = use_context::<AuthContext>().expect("AuthContext not found");
     // Restore last selected tab from LocalStorage, default to Ratings
     let current_tab = {
-        let initial = if let Ok(val) = gloo_storage::LocalStorage::get::<String>("profile_last_tab") {
+        let initial = if let Ok(val) = gloo_storage::LocalStorage::get::<String>("profile_last_tab")
+        {
             match val.as_str() {
                 "OverallStats" => ProfileTab::OverallStats,
                 "Ratings" => ProfileTab::Ratings,
@@ -239,40 +348,37 @@ pub fn profile_page(_props: &ProfilePageProps) -> Html {
                 "Settings" => ProfileTab::Settings,
                 _ => ProfileTab::OverallStats,
             }
-        } else { ProfileTab::OverallStats };
+        } else {
+            ProfileTab::OverallStats
+        };
         use_state(|| initial)
     };
     let loading = use_state(|| true);
     let error = use_state(|| None::<String>);
-    
+
     // Analytics data states
     let opponents_who_beat_me = use_state(|| None::<Vec<HeadToHeadRecordDto>>);
     let opponents_i_beat = use_state(|| None::<Vec<HeadToHeadRecordDto>>);
     let game_performance = use_state(|| None::<Vec<GamePerformance>>);
     let performance_trends = use_state(|| None::<Vec<PerformanceTrend>>);
     let core_stats = use_state(|| None::<CoreStats>);
-    
+
     // Glicko2 ratings states
     let glicko_ratings = use_state(|| None::<Vec<serde_json::Value>>);
     let glicko_loading = use_state(|| false);
     let glicko_error = use_state(|| None::<String>);
-    
+
     // Ratings history states
     let rating_history = use_state(|| None::<Vec<serde_json::Value>>);
     let rating_history_loading = use_state(|| false);
     let rating_history_error = use_state(|| None::<String>);
-    
 
-    
     // Contest details modal states
     let contest_modal_open = use_state(|| false);
     let contest_modal_loading = use_state(|| false);
     let contest_modal_error = use_state(|| None::<String>);
     let contest_details = use_state(|| None::<Vec<Value>>);
     let selected_opponent = use_state(|| None::<(String, String, String)>); // (id, handle, name)
-    
-
-
 
     // Tab click handler
     let on_tab_click = {
@@ -283,19 +389,29 @@ pub fn profile_page(_props: &ProfilePageProps) -> Html {
             current_tab.set(tab);
             // Persist selection for navigation/back behavior
             let _ = match t {
-                ProfileTab::OverallStats => gloo_storage::LocalStorage::set("profile_last_tab", "OverallStats"),
-                ProfileTab::Ratings => gloo_storage::LocalStorage::set("profile_last_tab", "Ratings"),
-                ProfileTab::Nemesis => gloo_storage::LocalStorage::set("profile_last_tab", "Nemesis"),
+                ProfileTab::OverallStats => {
+                    gloo_storage::LocalStorage::set("profile_last_tab", "OverallStats")
+                }
+                ProfileTab::Ratings => {
+                    gloo_storage::LocalStorage::set("profile_last_tab", "Ratings")
+                }
+                ProfileTab::Nemesis => {
+                    gloo_storage::LocalStorage::set("profile_last_tab", "Nemesis")
+                }
                 ProfileTab::Owned => gloo_storage::LocalStorage::set("profile_last_tab", "Owned"),
-                ProfileTab::GamePerformance => gloo_storage::LocalStorage::set("profile_last_tab", "GamePerformance"),
+                ProfileTab::GamePerformance => {
+                    gloo_storage::LocalStorage::set("profile_last_tab", "GamePerformance")
+                }
                 ProfileTab::Trends => gloo_storage::LocalStorage::set("profile_last_tab", "Trends"),
-                ProfileTab::Comparison => gloo_storage::LocalStorage::set("profile_last_tab", "Comparison"),
-                ProfileTab::Settings => gloo_storage::LocalStorage::set("profile_last_tab", "Settings"),
+                ProfileTab::Comparison => {
+                    gloo_storage::LocalStorage::set("profile_last_tab", "Comparison")
+                }
+                ProfileTab::Settings => {
+                    gloo_storage::LocalStorage::set("profile_last_tab", "Settings")
+                }
             };
         })
     };
-
-
 
     // Load initial data
     {
@@ -335,22 +451,32 @@ pub fn profile_page(_props: &ProfilePageProps) -> Html {
 
                 // Try client analytics first
                 let mut analytics_manager = ClientAnalyticsManager::new();
-                match analytics_manager.get_analytics("current_player", AnalyticsQuery {
-                    date_range: None,
-                    games: None,
-                    venues: None,
-                    opponents: None,
-                    min_players: None,
-                    max_players: None,
-                }).await {
+                match analytics_manager
+                    .get_analytics(
+                        "current_player",
+                        AnalyticsQuery {
+                            date_range: None,
+                            games: None,
+                            venues: None,
+                            opponents: None,
+                            min_players: None,
+                            max_players: None,
+                        },
+                    )
+                    .await
+                {
                     Ok(analytics) => {
-                        console::log_1(&format!("Client analytics data received: {:?}", analytics).into());
-                        
+                        console::log_1(
+                            &format!("Client analytics data received: {:?}", analytics).into(),
+                        );
+
                         // Set core stats
                         core_stats.set(Some(analytics.stats));
-                        
+
                         // Convert opponent performance data to HeadToHeadRecordDto
-                        let opponents_who_beat_me_data: Vec<HeadToHeadRecordDto> = analytics.opponent_performance.iter()
+                        let opponents_who_beat_me_data: Vec<HeadToHeadRecordDto> = analytics
+                            .opponent_performance
+                            .iter()
                             .filter(|opp| opp.head_to_head.my_win_rate < 50.0)
                             .map(|opp| HeadToHeadRecordDto {
                                 opponent_id: opp.opponent.player_id.clone(),
@@ -363,8 +489,10 @@ pub fn profile_page(_props: &ProfilePageProps) -> Html {
                                 contest_history: vec![],
                             })
                             .collect();
-                        
-                        let opponents_i_beat_data: Vec<HeadToHeadRecordDto> = analytics.opponent_performance.iter()
+
+                        let opponents_i_beat_data: Vec<HeadToHeadRecordDto> = analytics
+                            .opponent_performance
+                            .iter()
                             .filter(|opp| opp.head_to_head.my_win_rate >= 50.0)
                             .map(|opp| HeadToHeadRecordDto {
                                 opponent_id: opp.opponent.player_id.clone(),
@@ -377,26 +505,35 @@ pub fn profile_page(_props: &ProfilePageProps) -> Html {
                                 contest_history: vec![],
                             })
                             .collect();
-                        
+
                         // Set opponent data
                         opponents_who_beat_me.set(Some(opponents_who_beat_me_data));
                         opponents_i_beat.set(Some(opponents_i_beat_data));
-                        
+
                         // Set game performance and trends
                         game_performance.set(Some(analytics.game_performance));
                         performance_trends.set(Some(analytics.trends));
-                        
+
                         console::log_1(&"✅ Successfully set all client analytics data".into());
                     }
                     Err(e) => {
-                        console::log_1(&format!("Client analytics not available, falling back to API calls: {}", e).into());
-                        
+                        console::log_1(
+                            &format!(
+                                "Client analytics not available, falling back to API calls: {}",
+                                e
+                            )
+                            .into(),
+                        );
+
                         // Fallback to API calls
                         // Since the stats endpoint is having issues, we'll calculate core stats from other working endpoints
-                        console::log_1(&"⚠️ Stats endpoint unavailable, calculating from other data sources".into());
-                        
+                        console::log_1(
+                            &"⚠️ Stats endpoint unavailable, calculating from other data sources"
+                                .into(),
+                        );
+
                         // We'll fetch contest history after game performance to ensure proper timing
-                        
+
                         // Get game performance
                         let game_perf_url = "/api/analytics/player/game-performance";
                         match authenticated_get(game_perf_url).send().await {
@@ -425,33 +562,63 @@ pub fn profile_page(_props: &ProfilePageProps) -> Html {
                                                 }
                                             }).collect();
                                             game_performance.set(Some(mapped.clone()));
-                                            
+
                                             // Calculate core stats from game performance data
-                                            let total_contests: i32 = mapped.iter().map(|gp| gp.total_plays).sum();
-                                            let total_wins: i32 = mapped.iter().map(|gp| gp.wins).sum();
-                                            let total_losses: i32 = mapped.iter().map(|gp| gp.losses).sum();
-                                            let win_rate = if total_contests > 0 { (total_wins as f64 / total_contests as f64) * 100.0 } else { 0.0 };
-                                            let average_placement = if !mapped.is_empty() {
-                                                mapped.iter().map(|gp| gp.average_placement).sum::<f64>() / mapped.len() as f64
-                                            } else { 0.0 };
-                                            let best_placement = mapped.iter().map(|gp| gp.best_placement).min().unwrap_or(0);
-                                            
-                                            let core_stats_data = shared::models::client_analytics::CoreStats {
-                                                total_contests,
-                                                total_wins,
-                                                total_losses,
-                                                win_rate,
-                                                average_placement,
-                                                best_placement,
-                                                worst_placement: mapped.iter().map(|gp| gp.worst_placement).max().unwrap_or(0),
-                                                current_streak: if win_rate >= 100.0 { total_wins } else { 0 },
-                                                longest_streak: if win_rate >= 100.0 { total_wins } else { 0 },
-                                                skill_rating: 1200.0, // Default, will be updated from ratings
-                                                total_points: total_wins * 10, // Simple calculation
+                                            let total_contests: i32 =
+                                                mapped.iter().map(|gp| gp.total_plays).sum();
+                                            let total_wins: i32 =
+                                                mapped.iter().map(|gp| gp.wins).sum();
+                                            let total_losses: i32 =
+                                                mapped.iter().map(|gp| gp.losses).sum();
+                                            let win_rate = if total_contests > 0 {
+                                                (total_wins as f64 / total_contests as f64) * 100.0
+                                            } else {
+                                                0.0
                                             };
+                                            let average_placement = if !mapped.is_empty() {
+                                                mapped
+                                                    .iter()
+                                                    .map(|gp| gp.average_placement)
+                                                    .sum::<f64>()
+                                                    / mapped.len() as f64
+                                            } else {
+                                                0.0
+                                            };
+                                            let best_placement = mapped
+                                                .iter()
+                                                .map(|gp| gp.best_placement)
+                                                .min()
+                                                .unwrap_or(0);
+
+                                            let core_stats_data =
+                                                shared::models::client_analytics::CoreStats {
+                                                    total_contests,
+                                                    total_wins,
+                                                    total_losses,
+                                                    win_rate,
+                                                    average_placement,
+                                                    best_placement,
+                                                    worst_placement: mapped
+                                                        .iter()
+                                                        .map(|gp| gp.worst_placement)
+                                                        .max()
+                                                        .unwrap_or(0),
+                                                    current_streak: if win_rate >= 100.0 {
+                                                        total_wins
+                                                    } else {
+                                                        0
+                                                    },
+                                                    longest_streak: if win_rate >= 100.0 {
+                                                        total_wins
+                                                    } else {
+                                                        0
+                                                    },
+                                                    skill_rating: 1200.0, // Default, will be updated from ratings
+                                                    total_points: total_wins * 10, // Simple calculation
+                                                };
                                             core_stats.set(Some(core_stats_data));
                                             console::log_1(&format!("✅ Calculated core stats: {} contests, {} wins, {:.1}% win rate", total_contests, total_wins, win_rate).into());
-                                            
+
                                             console::log_1(&format!("✅ Core stats set with streaks: current={}, longest={}", 
                                                 if win_rate >= 100.0 { total_wins } else { 0 },
                                                 if win_rate >= 100.0 { total_wins } else { 0 }
@@ -464,25 +631,71 @@ pub fn profile_page(_props: &ProfilePageProps) -> Html {
                                                     if resp2.ok() {
                                                         match resp2.json::<Value>().await {
                                                             Ok(data) => {
-                                                                if let Some(perf_data) = data.get("game_performance").and_then(|v| v.as_array()) {
-                                                                    let mut game_perf_vec = Vec::new();
+                                                                if let Some(perf_data) = data
+                                                                    .get("game_performance")
+                                                                    .and_then(|v| v.as_array())
+                                                                {
+                                                                    let mut game_perf_vec =
+                                                                        Vec::new();
                                                                     for game_data in perf_data {
-                                                                        if let Ok(game_perf) = serde_json::from_value::<GamePerformance>(game_data.clone()) {
-                                                                            game_perf_vec.push(game_perf);
+                                                                        if let Ok(game_perf) =
+                                                                            serde_json::from_value::<
+                                                                                GamePerformance,
+                                                                            >(
+                                                                                game_data.clone()
+                                                                            )
+                                                                        {
+                                                                            game_perf_vec
+                                                                                .push(game_perf);
                                                                         }
                                                                     }
-                                                                    game_performance.set(Some(game_perf_vec.clone()));
-                                                                    
+                                                                    game_performance.set(Some(
+                                                                        game_perf_vec.clone(),
+                                                                    ));
+
                                                                     // Calculate core stats from game performance data
-                                                                    let total_contests: i32 = game_perf_vec.iter().map(|gp| gp.total_plays).sum();
-                                                                    let total_wins: i32 = game_perf_vec.iter().map(|gp| gp.wins).sum();
-                                                                    let total_losses: i32 = game_perf_vec.iter().map(|gp| gp.losses).sum();
-                                                                    let win_rate = if total_contests > 0 { (total_wins as f64 / total_contests as f64) * 100.0 } else { 0.0 };
-                                                                    let average_placement = if !game_perf_vec.is_empty() {
-                                                                        game_perf_vec.iter().map(|gp| gp.average_placement).sum::<f64>() / game_perf_vec.len() as f64
-                                                                    } else { 0.0 };
-                                                                    let best_placement = game_perf_vec.iter().map(|gp| gp.best_placement).min().unwrap_or(0);
-                                                                    
+                                                                    let total_contests: i32 =
+                                                                        game_perf_vec
+                                                                            .iter()
+                                                                            .map(|gp| {
+                                                                                gp.total_plays
+                                                                            })
+                                                                            .sum();
+                                                                    let total_wins: i32 =
+                                                                        game_perf_vec
+                                                                            .iter()
+                                                                            .map(|gp| gp.wins)
+                                                                            .sum();
+                                                                    let total_losses: i32 =
+                                                                        game_perf_vec
+                                                                            .iter()
+                                                                            .map(|gp| gp.losses)
+                                                                            .sum();
+                                                                    let win_rate = if total_contests
+                                                                        > 0
+                                                                    {
+                                                                        (total_wins as f64
+                                                                            / total_contests as f64)
+                                                                            * 100.0
+                                                                    } else {
+                                                                        0.0
+                                                                    };
+                                                                    let average_placement =
+                                                                        if !game_perf_vec.is_empty()
+                                                                        {
+                                                                            game_perf_vec.iter().map(|gp| gp.average_placement).sum::<f64>() / game_perf_vec.len() as f64
+                                                                        } else {
+                                                                            0.0
+                                                                        };
+                                                                    let best_placement =
+                                                                        game_perf_vec
+                                                                            .iter()
+                                                                            .map(|gp| {
+                                                                                gp.best_placement
+                                                                            })
+                                                                            .min()
+                                                                            .unwrap_or(0);
+
                                                                     let core_stats_data = shared::models::client_analytics::CoreStats {
                                                                         total_contests,
                                                                         total_wins,
@@ -496,7 +709,8 @@ pub fn profile_page(_props: &ProfilePageProps) -> Html {
                                                                         skill_rating: 1200.0, // Default, will be updated from ratings
                                                                         total_points: total_wins * 10, // Simple calculation
                                                                     };
-                                                                    core_stats.set(Some(core_stats_data));
+                                                                    core_stats
+                                                                        .set(Some(core_stats_data));
                                                                     console::log_1(&format!("✅ Calculated core stats (fallback): {} contests, {} wins, {:.1}% win rate", total_contests, total_wins, win_rate).into());
                                                                 }
                                                             }
@@ -515,7 +729,9 @@ pub fn profile_page(_props: &ProfilePageProps) -> Html {
                                 }
                             }
                             Err(e) => {
-                                console::log_1(&format!("Failed to fetch game performance: {}", e).into());
+                                console::log_1(
+                                    &format!("Failed to fetch game performance: {}", e).into(),
+                                );
                             }
                         }
 
@@ -527,7 +743,11 @@ pub fn profile_page(_props: &ProfilePageProps) -> Html {
                                     match response.json::<Value>().await {
                                         Ok(data) => {
                                             // Map PlayerOpponentDto -> HeadToHeadRecordDto for UI consumption
-                                            if let Ok(opponents) = serde_json::from_value::<Vec<PlayerOpponentDto>>(data.clone()) {
+                                            if let Ok(opponents) =
+                                                serde_json::from_value::<Vec<PlayerOpponentDto>>(
+                                                    data.clone(),
+                                                )
+                                            {
                                                 let mapped: Vec<HeadToHeadRecordDto> = opponents
                                                     .into_iter()
                                                     .map(|o| HeadToHeadRecordDto {
@@ -542,18 +762,30 @@ pub fn profile_page(_props: &ProfilePageProps) -> Html {
                                                     })
                                                     .collect();
                                                 opponents_who_beat_me.set(Some(mapped));
-                                            } else if let Ok(opponents_h2h) = serde_json::from_value::<Vec<HeadToHeadRecordDto>>(data) {
+                                            } else if let Ok(opponents_h2h) =
+                                                serde_json::from_value::<Vec<HeadToHeadRecordDto>>(
+                                                    data,
+                                                )
+                                            {
                                                 opponents_who_beat_me.set(Some(opponents_h2h));
                                             }
                                         }
                                         Err(e) => {
-                                            console::log_1(&format!("Failed to parse opponents who beat me: {}", e).into());
+                                            console::log_1(
+                                                &format!(
+                                                    "Failed to parse opponents who beat me: {}",
+                                                    e
+                                                )
+                                                .into(),
+                                            );
                                         }
                                     }
                                 }
                             }
                             Err(e) => {
-                                console::log_1(&format!("Failed to fetch opponents who beat me: {}", e).into());
+                                console::log_1(
+                                    &format!("Failed to fetch opponents who beat me: {}", e).into(),
+                                );
                             }
                         }
 
@@ -564,7 +796,11 @@ pub fn profile_page(_props: &ProfilePageProps) -> Html {
                                 if response.ok() {
                                     match response.json::<Value>().await {
                                         Ok(data) => {
-                                            if let Ok(opponents) = serde_json::from_value::<Vec<PlayerOpponentDto>>(data.clone()) {
+                                            if let Ok(opponents) =
+                                                serde_json::from_value::<Vec<PlayerOpponentDto>>(
+                                                    data.clone(),
+                                                )
+                                            {
                                                 let mapped: Vec<HeadToHeadRecordDto> = opponents
                                                     .into_iter()
                                                     .map(|o| HeadToHeadRecordDto {
@@ -579,18 +815,27 @@ pub fn profile_page(_props: &ProfilePageProps) -> Html {
                                                     })
                                                     .collect();
                                                 opponents_i_beat.set(Some(mapped));
-                                            } else if let Ok(opponents_h2h) = serde_json::from_value::<Vec<HeadToHeadRecordDto>>(data) {
+                                            } else if let Ok(opponents_h2h) =
+                                                serde_json::from_value::<Vec<HeadToHeadRecordDto>>(
+                                                    data,
+                                                )
+                                            {
                                                 opponents_i_beat.set(Some(opponents_h2h));
                                             }
                                         }
                                         Err(e) => {
-                                            console::log_1(&format!("Failed to parse opponents i beat: {}", e).into());
+                                            console::log_1(
+                                                &format!("Failed to parse opponents i beat: {}", e)
+                                                    .into(),
+                                            );
                                         }
                                     }
                                 }
                             }
                             Err(e) => {
-                                console::log_1(&format!("Failed to fetch opponents i beat: {}", e).into());
+                                console::log_1(
+                                    &format!("Failed to fetch opponents i beat: {}", e).into(),
+                                );
                             }
                         }
 
@@ -602,31 +847,48 @@ pub fn profile_page(_props: &ProfilePageProps) -> Html {
                                     match response.json::<Value>().await {
                                         Ok(data) => {
                                             // Parse as array of PerformanceTrendDto and map to PerformanceTrend
-                                            if let Ok(trends_dto) = serde_json::from_value::<Vec<shared::dto::analytics::PerformanceTrendDto>>(data.clone()) {
-                                                let mapped: Vec<PerformanceTrend> = trends_dto.into_iter().map(|dto| {
-                                                    PerformanceTrend {
+                                            if let Ok(trends_dto) = serde_json::from_value::<
+                                                Vec<shared::dto::analytics::PerformanceTrendDto>,
+                                            >(
+                                                data.clone()
+                                            ) {
+                                                let mapped: Vec<PerformanceTrend> = trends_dto
+                                                    .into_iter()
+                                                    .map(|dto| PerformanceTrend {
                                                         period: dto.month,
                                                         contests_played: dto.contests_played,
                                                         wins: dto.wins,
                                                         win_rate: dto.win_rate,
                                                         average_placement: dto.average_placement,
                                                         skill_rating: dto.skill_rating,
-                                                    }
-                                                }).collect();
+                                                    })
+                                                    .collect();
                                                 performance_trends.set(Some(mapped));
-                                            } else if let Ok(trends) = serde_json::from_value::<Vec<PerformanceTrend>>(data) {
+                                            } else if let Ok(trends) =
+                                                serde_json::from_value::<Vec<PerformanceTrend>>(
+                                                    data,
+                                                )
+                                            {
                                                 // Fallback to direct parsing if already in correct format
                                                 performance_trends.set(Some(trends));
                                             }
                                         }
                                         Err(e) => {
-                                            console::log_1(&format!("Failed to parse performance trends: {}", e).into());
+                                            console::log_1(
+                                                &format!(
+                                                    "Failed to parse performance trends: {}",
+                                                    e
+                                                )
+                                                .into(),
+                                            );
                                         }
                                     }
                                 }
                             }
                             Err(e) => {
-                                console::log_1(&format!("Failed to fetch performance trends: {}", e).into());
+                                console::log_1(
+                                    &format!("Failed to fetch performance trends: {}", e).into(),
+                                );
                             }
                         }
                     }
@@ -642,31 +904,49 @@ pub fn profile_page(_props: &ProfilePageProps) -> Html {
                         if response.ok() {
                             match response.json::<Vec<serde_json::Value>>().await {
                                 Ok(data) => {
-                                    console::log_1(&format!("Glicko2 ratings data received: {:?}", data).into());
+                                    console::log_1(
+                                        &format!("Glicko2 ratings data received: {:?}", data)
+                                            .into(),
+                                    );
                                     glicko_ratings.set(Some(data.clone()));
-                                    
+
                                     // Update skill rating in core stats if available
                                     if let Some(global_rating) = data.iter().find(|r| {
-                                        r.get("scope").and_then(|s| s.get("type")).and_then(|t| t.as_str()) == Some("Global")
+                                        r.get("scope")
+                                            .and_then(|s| s.get("type"))
+                                            .and_then(|t| t.as_str())
+                                            == Some("Global")
                                     }) {
-                                        if let Some(rating_value) = global_rating.get("rating").and_then(|r| r.as_f64()) {
+                                        if let Some(rating_value) =
+                                            global_rating.get("rating").and_then(|r| r.as_f64())
+                                        {
                                             // Update the core stats with the real skill rating
                                             if let Some(current_stats) = core_stats.as_ref() {
                                                 let mut updated_stats = current_stats.clone();
                                                 updated_stats.skill_rating = rating_value;
                                                 core_stats.set(Some(updated_stats));
-                                                console::log_1(&format!("✅ Updated skill rating to {:.0}", rating_value).into());
+                                                console::log_1(
+                                                    &format!(
+                                                        "✅ Updated skill rating to {:.0}",
+                                                        rating_value
+                                                    )
+                                                    .into(),
+                                                );
                                             }
                                         }
                                     }
                                 }
                                 Err(_e) => {
                                     console::log_1(&"Failed to parse Glicko2 ratings".into());
-                                    glicko_error.set(Some("Failed to parse Glicko2 ratings".to_string()));
+                                    glicko_error
+                                        .set(Some("Failed to parse Glicko2 ratings".to_string()));
                                 }
                             }
                         } else {
-                            glicko_error.set(Some(format!("Failed to fetch ratings: {}", response.status())));
+                            glicko_error.set(Some(format!(
+                                "Failed to fetch ratings: {}",
+                                response.status()
+                            )));
                         }
                     }
                     Err(e) => {
@@ -683,11 +963,14 @@ pub fn profile_page(_props: &ProfilePageProps) -> Html {
                         if response.ok() {
                             match response.json::<Vec<serde_json::Value>>().await {
                                 Ok(hist) => {
-                                    console::log_1(&format!("Ratings history points: {}", hist.len()).into());
+                                    console::log_1(
+                                        &format!("Ratings history points: {}", hist.len()).into(),
+                                    );
                                     rating_history.set(Some(hist));
                                 }
                                 Err(_) => {
-                                    rating_history_error.set(Some("Failed to parse ratings history".to_string()));
+                                    rating_history_error
+                                        .set(Some("Failed to parse ratings history".to_string()));
                                 }
                             }
                         } else {
@@ -696,12 +979,16 @@ pub fn profile_page(_props: &ProfilePageProps) -> Html {
                                 // Treat as no history yet
                                 rating_history.set(Some(vec![]));
                             } else {
-                                rating_history_error.set(Some(format!("Failed to fetch ratings history: {}", status)));
+                                rating_history_error.set(Some(format!(
+                                    "Failed to fetch ratings history: {}",
+                                    status
+                                )));
                             }
                         }
                     }
                     Err(e) => {
-                        rating_history_error.set(Some(format!("Failed to fetch ratings history: {}", e)));
+                        rating_history_error
+                            .set(Some(format!("Failed to fetch ratings history: {}", e)));
                     }
                 }
                 rating_history_loading.set(false);
@@ -739,9 +1026,13 @@ pub fn profile_page(_props: &ProfilePageProps) -> Html {
                             match response.json::<Value>().await {
                                 Ok(data) => {
                                     // Backend returns `contest_history`
-                                    if let Some(history) = data.get("contest_history").and_then(|v| v.as_array()) {
+                                    if let Some(history) =
+                                        data.get("contest_history").and_then(|v| v.as_array())
+                                    {
                                         contest_details.set(Some(history.clone()));
-                                    } else if let Some(contests) = data.get("contests").and_then(|v| v.as_array()) {
+                                    } else if let Some(contests) =
+                                        data.get("contests").and_then(|v| v.as_array())
+                                    {
                                         // Backward compatibility if older key is present
                                         contest_details.set(Some(contests.clone()));
                                     } else {
@@ -749,11 +1040,15 @@ pub fn profile_page(_props: &ProfilePageProps) -> Html {
                                     }
                                 }
                                 Err(e) => {
-                                    contest_modal_error.set(Some(format!("Failed to parse contests: {}", e)));
+                                    contest_modal_error
+                                        .set(Some(format!("Failed to parse contests: {}", e)));
                                 }
                             }
                         } else {
-                            contest_modal_error.set(Some(format!("Failed to fetch contests: {}", response.status())));
+                            contest_modal_error.set(Some(format!(
+                                "Failed to fetch contests: {}",
+                                response.status()
+                            )));
                         }
                     }
                     Err(e) => {
@@ -765,8 +1060,6 @@ pub fn profile_page(_props: &ProfilePageProps) -> Html {
             });
         })
     };
-
-
 
     if *loading {
         html! {
@@ -806,7 +1099,7 @@ pub fn profile_page(_props: &ProfilePageProps) -> Html {
                     </div>
 
                     // Profile Tabs
-                    <ProfileTabs 
+                    <ProfileTabs
                         current_tab={(*current_tab).clone()}
                         on_tab_click={on_tab_click}
                     />
@@ -815,13 +1108,13 @@ pub fn profile_page(_props: &ProfilePageProps) -> Html {
                     <div class="mt-8">
                         {match *current_tab {
                             ProfileTab::OverallStats => html! {
-                                <OverallStatsTab 
+                                <OverallStatsTab
                                     core_stats={(*core_stats).clone()}
                                     game_performance={(*game_performance).clone()}
                                 />
                             },
                             ProfileTab::Ratings => html! {
-                                <RatingsTab 
+                                <RatingsTab
                                     glicko_ratings={(*glicko_ratings).clone()}
                                     glicko_loading={*glicko_loading}
                                     glicko_error={(*glicko_error).clone()}
@@ -831,13 +1124,13 @@ pub fn profile_page(_props: &ProfilePageProps) -> Html {
                                 />
                             },
                             ProfileTab::Nemesis => html! {
-                                <NemesisTab 
+                                <NemesisTab
                                     opponents_who_beat_me={(*opponents_who_beat_me).clone()}
                                     on_open_contest_modal={fetch_contest_details.clone()}
                                 />
                             },
                             ProfileTab::Owned => html! {
-                                <OwnedTab 
+                                <OwnedTab
                                     opponents_i_beat={(*opponents_i_beat).clone()}
                                     on_open_contest_modal={fetch_contest_details.clone()}
                                 />
@@ -846,7 +1139,7 @@ pub fn profile_page(_props: &ProfilePageProps) -> Html {
                                 <GamePerformanceTab game_performance={(*game_performance).clone()} />
                             },
                             ProfileTab::Trends => html! {
-                                <TrendsTab 
+                                <TrendsTab
                                     performance_trends={(*performance_trends).clone()}
                                     current_rating={
                                         if let Some(ratings) = &*glicko_ratings {

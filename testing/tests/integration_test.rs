@@ -7,7 +7,7 @@
 
 use anyhow::Result;
 use redis::AsyncCommands;
-use testing::{TestEnvironment, TestEnvironmentBuilder, test_env_with_prod_data};
+use testing::{test_env_with_prod_data, TestEnvironment, TestEnvironmentBuilder};
 
 #[tokio::test]
 async fn test_environment_creation() -> Result<()> {
@@ -42,10 +42,13 @@ async fn test_environment_with_data_dump() -> Result<()> {
     // This test demonstrates how to use the builder pattern
     // with a data dump from production backup
     let backup_path = "../_build/backups/smacktalk.zip";
-    
+
     // Skip test if backup file doesn't exist
     if !std::path::Path::new(backup_path).exists() {
-        eprintln!("⚠️  Backup file not found at {}, skipping test", backup_path);
+        eprintln!(
+            "⚠️  Backup file not found at {}, skipping test",
+            backup_path
+        );
         return Ok(());
     }
 
@@ -58,19 +61,19 @@ async fn test_environment_with_data_dump() -> Result<()> {
     // Verify the database was created and has data
     // We can check by connecting to ArangoDB and querying collections
     use arangors::Connection;
-    let conn = Connection::establish_basic_auth(
-        env.arangodb_url(),
-        "root",
-        "test_password"
-    ).await?;
-    
+    let conn =
+        Connection::establish_basic_auth(env.arangodb_url(), "root", "test_password").await?;
+
     // Verify we can access the database (the backup should have created it)
     let _db = conn.db(&env.arangodb_db_name()).await?;
-    
+
     // Check that we have collections (the backup should have created them)
     // This is a basic sanity check that the restore worked
-    log::info!("✅ Database '{}' restored successfully", env.arangodb_db_name());
-    
+    log::info!(
+        "✅ Database '{}' restored successfully",
+        env.arangodb_db_name()
+    );
+
     Ok(())
 }
 
@@ -80,12 +83,12 @@ async fn test_with_automatic_prod_data_discovery() -> Result<()> {
     // finds and loads production data from common locations
     // It gracefully handles missing data dumps (useful for CI)
     let env = test_env_with_prod_data().await?;
-    
+
     // Test works whether or not production data was loaded
     // Container is still isolated and fresh
     assert!(!env.arangodb_url().is_empty());
     assert!(!env.redis_url().is_empty());
-    
+
     Ok(())
 }
 
@@ -117,4 +120,3 @@ async fn test_redis_multiple_keys() -> Result<()> {
 
     Ok(())
 }
-

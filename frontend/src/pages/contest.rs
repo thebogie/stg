@@ -1,22 +1,22 @@
+use shared::dto::contest::ContestDto;
 use yew::prelude::*;
 use yew_router::prelude::*;
-use shared::dto::contest::ContestDto;
 
-use crate::Route;
-use crate::components::contest::form::ContestForm;
-use crate::components::contest::confirmation_modal::ContestConfirmationModal;
-use crate::auth::AuthContext;
 use crate::api::contests::submit_contest;
 use crate::api::timezone::{resolve_timezone, resolve_timezone_by_place_id};
-use shared::dto::venue::VenueDto;
-use shared::dto::game::GameDto;
+use crate::auth::AuthContext;
+use crate::components::contest::confirmation_modal::ContestConfirmationModal;
+use crate::components::contest::form::ContestForm;
+use crate::Route;
 use shared::dto::contest::OutcomeDto;
+use shared::dto::game::GameDto;
+use shared::dto::venue::VenueDto;
 
-use gloo_storage::{LocalStorage, Storage};
-use serde::{Serialize, Deserialize};
-use gloo::console::log;
-use wasm_bindgen::prelude::*;
 use crate::api::venues::get_venue_by_id;
+use gloo::console::log;
+use gloo_storage::{LocalStorage, Storage};
+use serde::{Deserialize, Serialize};
+use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen(module = "/src/js/timezone.js")]
 extern "C" {
@@ -48,7 +48,6 @@ enum ContestFormAction {
 fn contest_form_reducer(state: &mut ContestFormState, action: ContestFormAction) {
     log!(format!("Reducer action: {:?}", &action));
     match action {
-
         ContestFormAction::SetStart(dt) => state.start = dt,
         ContestFormAction::SetStop(dt) => state.stop = dt,
         ContestFormAction::SetTimezone(tz) => state.timezone = tz,
@@ -63,7 +62,7 @@ fn contest_form_reducer(state: &mut ContestFormState, action: ContestFormAction)
                 "" => {
                     log!("Warning: Could not detect browser timezone, using UTC as fallback");
                     "UTC".to_string()
-                },
+                }
                 tz => {
                     log!(format!("Reset - Detected browser timezone: {}", tz));
                     tz.to_string()
@@ -90,8 +89,6 @@ impl yew::Reducible for ContestFormState {
     }
 }
 
-
-
 #[function_component(Contest)]
 pub fn contest() -> Html {
     log!("ContestPage render");
@@ -111,44 +108,51 @@ pub fn contest() -> Html {
                 "" => {
                     log!("Warning: Could not detect browser timezone, using UTC as fallback");
                     "UTC".to_string()
-                },
+                }
                 tz => {
                     log!(format!("Detected browser timezone: {}", tz));
                     tz.to_string()
                 }
             };
-            
+
             // Try to load from localStorage, but always override the timezone with detected browser timezone
             // AND clear any stale venue/games/outcomes data to ensure fresh lookups
             // Initialize from localStorage, but always override times to current UTC defaults
-            let mut saved_state = LocalStorage::get::<ContestFormState>("contest_form_state").unwrap_or_else(|_| ContestFormState {
-                start: (now_utc - chrono::Duration::hours(1)),
-                stop: now_utc,
-                timezone: browser_timezone.clone(),
-                venue: None,
-                games: vec![],
-                outcomes: vec![],
-            });
+            let mut saved_state = LocalStorage::get::<ContestFormState>("contest_form_state")
+                .unwrap_or_else(|_| ContestFormState {
+                    start: (now_utc - chrono::Duration::hours(1)),
+                    stop: now_utc,
+                    timezone: browser_timezone.clone(),
+                    venue: None,
+                    games: vec![],
+                    outcomes: vec![],
+                });
 
             // Always reset times to current UTC defaults on page load
             saved_state.stop = now_utc;
             saved_state.start = now_utc - chrono::Duration::hours(1);
-            
+
             // Always update the timezone to the detected browser timezone
             if saved_state.timezone != browser_timezone {
-                log!(format!("Updating timezone from '{}' to '{}'", saved_state.timezone, browser_timezone));
+                log!(format!(
+                    "Updating timezone from '{}' to '{}'",
+                    saved_state.timezone, browser_timezone
+                ));
                 saved_state.timezone = browser_timezone;
             }
-            
+
             // Clear any stale venue/games/outcomes data to ensure fresh lookups
             // This prevents using stale IDs from different environments
-            if saved_state.venue.is_some() || !saved_state.games.is_empty() || !saved_state.outcomes.is_empty() {
+            if saved_state.venue.is_some()
+                || !saved_state.games.is_empty()
+                || !saved_state.outcomes.is_empty()
+            {
                 log!("Clearing stale venue/games/outcomes data to ensure fresh lookups");
                 saved_state.venue = None;
                 saved_state.games = vec![];
                 saved_state.outcomes = vec![];
             }
-            
+
             saved_state
         })
     };
@@ -163,8 +167,8 @@ pub fn contest() -> Html {
                 start: reducer.start,
                 stop: reducer.stop,
                 timezone: reducer.timezone.clone(),
-                venue: None, // Don't persist venue
-                games: vec![], // Don't persist games
+                venue: None,      // Don't persist venue
+                games: vec![],    // Don't persist games
                 outcomes: vec![], // Don't persist outcomes
             };
             let _ = LocalStorage::set("contest_form_state", &minimal_state);
@@ -187,9 +191,10 @@ pub fn contest() -> Html {
         let reducer = reducer.clone();
         use_effect_with((), move |_| {
             // Only preload venue if no venue is currently selected AND user hasn't made a selection this session
-            let user_already_selected = LocalStorage::get::<bool>("user_selected_venue").unwrap_or(false);
+            let user_already_selected =
+                LocalStorage::get::<bool>("user_selected_venue").unwrap_or(false);
             let current_venue = (*reducer).venue.clone();
-            
+
             if !user_already_selected && current_venue.is_none() {
                 if let Ok(venue_id) = LocalStorage::get::<String>("last_selected_venue_id") {
                     let reducer = reducer.clone();
@@ -205,7 +210,7 @@ pub fn contest() -> Html {
                                 } else {
                                     log!("Skipping preload - venue was selected while fetching");
                                 }
-                            },
+                            }
                             Err(e) => log!(format!("Failed to preload last venue: {}", e)),
                         }
                     });
@@ -215,10 +220,13 @@ pub fn contest() -> Html {
             } else if current_venue.is_some() {
                 log!("Skipping venue preload - venue is already selected");
             }
-            
+
             let browser_timezone = getBrowserIanaTimezone();
             if !browser_timezone.is_empty() && browser_timezone != reducer.timezone {
-                log!(format!("Effect: Updating timezone from '{}' to '{}'", reducer.timezone, browser_timezone));
+                log!(format!(
+                    "Effect: Updating timezone from '{}' to '{}'",
+                    reducer.timezone, browser_timezone
+                ));
                 reducer.dispatch(ContestFormAction::SetTimezone(browser_timezone));
             }
             || ()
@@ -253,35 +261,47 @@ pub fn contest() -> Html {
             // Mark that the user actively selected a venue to suppress any late preloads
             let _ = gloo_storage::LocalStorage::set("user_selected_venue", true);
             log!(format!("on_venue_select called: {:?}", &v));
-            log!(format!("Current state venue before update: {:?}", reducer.venue));
-            
+            log!(format!(
+                "Current state venue before update: {:?}",
+                reducer.venue
+            ));
+
             // Set venue immediately and synchronously
             reducer.dispatch(ContestFormAction::SetVenue(Some(v.clone())));
-            
+
             // Verify the venue was actually set
             let updated_venue = (*reducer).venue.clone();
-            log!(format!("Current state venue after update: {:?}", updated_venue));
-            
+            log!(format!(
+                "Current state venue after update: {:?}",
+                updated_venue
+            ));
+
             if updated_venue.is_none() {
                 log!("ERROR: Venue was not set in reducer state!");
                 return;
             }
-            
+
             // Database venues: use their stored timezone
             if v.source == shared::models::venue::VenueSource::Database {
-                log!(format!("Database venue selected, using stored timezone: {}", v.timezone));
+                log!(format!(
+                    "Database venue selected, using stored timezone: {}",
+                    v.timezone
+                ));
                 reducer.dispatch(ContestFormAction::SetTimezone(v.timezone.clone()));
             }
             // Google venues: resolve timezone from place_id or coordinates
             else if v.source == shared::models::venue::VenueSource::Google {
                 log!("Google venue selected, resolving timezone");
-                log!(format!("Venue place_id: {}, coords: lat={}, lng={}", v.place_id, v.lat, v.lng));
-                
+                log!(format!(
+                    "Venue place_id: {}, coords: lat={}, lng={}",
+                    v.place_id, v.lat, v.lng
+                ));
+
                 let reducer_for_resolve = reducer.clone();
                 let place_id = v.place_id.clone();
                 let lat = v.lat;
                 let lng = v.lng;
-                
+
                 wasm_bindgen_futures::spawn_local(async move {
                     // Try place_id first
                     let mut tz_result = if !place_id.is_empty() {
@@ -293,7 +313,10 @@ pub fn contest() -> Html {
 
                     // Fallback to coordinates if place_id lookup failed
                     if tz_result.is_err() && (lat != 0.0 || lng != 0.0) {
-                        log!(format!("Place_id lookup failed; falling back to coords: lat={}, lng={}", lat, lng));
+                        log!(format!(
+                            "Place_id lookup failed; falling back to coords: lat={}, lng={}",
+                            lat, lng
+                        ));
                         tz_result = resolve_timezone(lat, lng).await;
                     }
 
@@ -301,7 +324,8 @@ pub fn contest() -> Html {
                         log!(format!("Frontend: Resolved timezone: {}", tz));
                         if let Some(mut updated_venue) = (*reducer_for_resolve).venue.clone() {
                             updated_venue.timezone = tz.clone();
-                            reducer_for_resolve.dispatch(ContestFormAction::SetVenue(Some(updated_venue)));
+                            reducer_for_resolve
+                                .dispatch(ContestFormAction::SetVenue(Some(updated_venue)));
                         }
                         reducer_for_resolve.dispatch(ContestFormAction::SetTimezone(tz));
                     } else {
@@ -310,12 +334,15 @@ pub fn contest() -> Html {
                 });
             }
             // Fallback: keep browser timezone
-            
+
             // Don't reset start/stop times - let flatpickr maintain stable values
             // Only change timezone, inputs will update their display automatically
-            
+
             // Persist last selected venue id only for real DB venues with valid IDs
-            if v.source == shared::models::venue::VenueSource::Database && !v.id.is_empty() && v.id.starts_with("venue/") {
+            if v.source == shared::models::venue::VenueSource::Database
+                && !v.id.is_empty()
+                && v.id.starts_with("venue/")
+            {
                 let _ = LocalStorage::set("last_selected_venue_id", v.id.clone());
             }
         })
@@ -346,10 +373,15 @@ pub fn contest() -> Html {
             let contest_data = contest_data.clone();
             let state_for_submit = state.clone();
             wasm_bindgen_futures::spawn_local(async move {
-                log!(format!("Contest submit - current state venue: {:?}", state_for_submit.venue));
+                log!(format!(
+                    "Contest submit - current state venue: {:?}",
+                    state_for_submit.venue
+                ));
                 let mut venue = state_for_submit.venue.clone().unwrap();
                 // Ensure Google venues have a resolved timezone before proceeding
-                if venue.source == shared::models::venue::VenueSource::Google && (venue.timezone.is_empty() || venue.timezone == "UTC") {
+                if venue.source == shared::models::venue::VenueSource::Google
+                    && (venue.timezone.is_empty() || venue.timezone == "UTC")
+                {
                     let place_id = venue.place_id.clone();
                     let lat = venue.lat;
                     let lng = venue.lng;
@@ -380,8 +412,13 @@ pub fn contest() -> Html {
                     created_at: None,
                 };
 
-                log!(format!("Submitting contest with venue: id='{}', name='{}', source='{:?}', tz='{}'",
-                    contest_dto.venue.id, contest_dto.venue.display_name, contest_dto.venue.source, contest_dto.venue.timezone));
+                log!(format!(
+                    "Submitting contest with venue: id='{}', name='{}', source='{:?}', tz='{}'",
+                    contest_dto.venue.id,
+                    contest_dto.venue.display_name,
+                    contest_dto.venue.source,
+                    contest_dto.venue.timezone
+                ));
 
                 contest_data.set(Some(contest_dto));
                 show_confirmation.set(true);
@@ -417,7 +454,7 @@ pub fn contest() -> Html {
                             dispatch.dispatch(ContestFormAction::Reset);
                             let _ = LocalStorage::delete("contest_form_state");
                             navigator.push(&Route::Contests);
-                        },
+                        }
                         Err(err) => {
                             error_message.set(Some(format!("Failed to create contest: {}", err)));
                             is_submitting.set(false);
@@ -487,4 +524,4 @@ pub fn contest() -> Html {
             </main>
         </div>
     }
-} 
+}

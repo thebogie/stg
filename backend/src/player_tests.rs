@@ -1,9 +1,9 @@
 #[cfg(test)]
 mod player_tests {
     // use super::*;
-    use shared::dto::player::{PlayerDto, CreatePlayerRequest, LoginRequest};
-    use shared::models::player::Player;
     use chrono::Utc;
+    use shared::dto::player::{CreatePlayerRequest, LoginRequest, PlayerDto};
+    use shared::models::player::Player;
 
     #[test]
     fn test_player_dto_creation() {
@@ -15,7 +15,7 @@ mod player_tests {
             created_at: Utc::now().fixed_offset(),
             is_admin: false,
         };
-        
+
         assert_eq!(player_dto.firstname, "John");
         assert_eq!(player_dto.handle, "testuser");
         assert_eq!(player_dto.email, "test@example.com");
@@ -30,7 +30,7 @@ mod player_tests {
             email: "jane@example.com".to_string(),
             is_admin: false,
         };
-        
+
         assert_eq!(request.username, "janeuser");
         assert_eq!(request.password, "password123");
         assert_eq!(request.email, "jane@example.com");
@@ -43,7 +43,7 @@ mod player_tests {
             email: "test@example.com".to_string(),
             password: "password123".to_string(),
         };
-        
+
         assert_eq!(request.email, "test@example.com");
         assert_eq!(request.password, "password123");
     }
@@ -60,7 +60,7 @@ mod player_tests {
             created_at: Utc::now().fixed_offset(),
             is_admin: false,
         };
-        
+
         assert_eq!(player.firstname, "John");
         assert_eq!(player.handle, "testuser");
         assert_eq!(player.email, "test@example.com");
@@ -79,10 +79,10 @@ mod player_tests {
             created_at: Utc::now().fixed_offset(),
             is_admin: false,
         };
-        
+
         let json = serde_json::to_string(&player).unwrap();
         let deserialized: Player = serde_json::from_str(&json).unwrap();
-        
+
         assert_eq!(player.id, deserialized.id);
         assert_eq!(player.firstname, deserialized.firstname);
         assert_eq!(player.handle, deserialized.handle);

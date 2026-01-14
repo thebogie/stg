@@ -1,10 +1,10 @@
-use yew::prelude::*;
-use yew_router::prelude::*;
-use gloo_storage::Storage;
-use serde_json::Value;
-use crate::Route;
 use crate::api::utils::authenticated_get;
 use crate::auth::AuthContext;
+use crate::Route;
+use gloo_storage::Storage;
+use serde_json::Value;
+use yew::prelude::*;
+use yew_router::prelude::*;
 
 // Helper functions for formatting
 fn format_date(date_str: &str, timezone_name: &str) -> String {
@@ -27,9 +27,13 @@ fn format_duration(minutes: i32) -> String {
         if remaining_minutes == 0 {
             format!("{} hour{}", hours, if hours == 1 { "" } else { "s" })
         } else {
-            format!("{} hour{} {} minute{}", 
-                hours, if hours == 1 { "" } else { "s" },
-                remaining_minutes, if remaining_minutes == 1 { "" } else { "s" })
+            format!(
+                "{} hour{} {} minute{}",
+                hours,
+                if hours == 1 { "" } else { "s" },
+                remaining_minutes,
+                if remaining_minutes == 1 { "" } else { "s" }
+            )
         }
     }
 }
@@ -95,15 +99,16 @@ struct ContestStats {
 pub fn contest_details(props: &ContestDetailsProps) -> Html {
     let _auth = use_context::<AuthContext>().expect("Auth context not found");
     let navigator = use_navigator().unwrap();
-    
+
     // Use contest_id from props instead of URL
     let contest_id = props.contest_id.clone();
-    
+
     let contest_details = use_state(|| None::<ContestData>);
     let loading = use_state(|| true);
     let error = use_state(|| None::<String>);
     let _came_from = use_state(|| {
-        gloo_storage::LocalStorage::get::<String>("profile_last_tab").unwrap_or_else(|_| "Profile".to_string())
+        gloo_storage::LocalStorage::get::<String>("profile_last_tab")
+            .unwrap_or_else(|_| "Profile".to_string())
     });
 
     // Load contest details
@@ -112,137 +117,236 @@ pub fn contest_details(props: &ContestDetailsProps) -> Html {
         let loading = loading.clone();
         let error = error.clone();
         let contest_id = contest_id.clone();
-        
+
         use_effect_with(contest_id.clone(), move |_| {
             let contest_details = contest_details.clone();
             let loading = loading.clone();
             let error = error.clone();
             let contest_id = contest_id.clone();
-            
+
             wasm_bindgen_futures::spawn_local(async move {
                 loading.set(true);
                 error.set(None);
-                
+
                 gloo::console::log!("Fetching contest details for ID:", &contest_id);
-                
+
                 // Extract just the numeric part from contest IDs like "contest/4127490"
                 let numeric_id = if contest_id.starts_with("contest/") {
                     contest_id.strip_prefix("contest/").unwrap_or(&contest_id)
                 } else {
                     &contest_id
                 };
-                
+
                 // First get contest stats
                 let stats_url = format!("/api/analytics/contests/{}/stats", numeric_id);
                 let stats_result = authenticated_get(&stats_url).send().await;
-                
+
                 let contest_url = format!("/api/contests/{}", numeric_id);
                 gloo::console::log!("Fetching from URL:", &contest_url);
                 let contest_result = authenticated_get(&contest_url).send().await;
-                
+
                 match (stats_result, contest_result) {
                     (Ok(stats_response), Ok(contest_response)) => {
                         if stats_response.ok() && contest_response.ok() {
-                            if let (Ok(stats_data), Ok(contest_data)) = (stats_response.json::<Value>().await, contest_response.json::<Value>().await) {
+                            if let (Ok(stats_data), Ok(contest_data)) = (
+                                stats_response.json::<Value>().await,
+                                contest_response.json::<Value>().await,
+                            ) {
                                 // Debug: Log venue data structure
                                 log::debug!("🔍 Venue data structure: {:?}", contest_data["venue"]);
-                                log::debug!("🔍 Venue display_name: {:?}", contest_data["venue"]["display_name"]);
+                                log::debug!(
+                                    "🔍 Venue display_name: {:?}",
+                                    contest_data["venue"]["display_name"]
+                                );
                                 log::debug!("🔍 Venue name: {:?}", contest_data["venue"]["name"]);
-                                log::debug!("🔍 Venue formatted_address: {:?}", contest_data["venue"]["formatted_address"]);
+                                log::debug!(
+                                    "🔍 Venue formatted_address: {:?}",
+                                    contest_data["venue"]["formatted_address"]
+                                );
                                 log::debug!("🔍 Venue lat: {:?}", contest_data["venue"]["lat"]);
                                 log::debug!("🔍 Venue lng: {:?}", contest_data["venue"]["lng"]);
-                                log::debug!("🔍 All venue fields: {:?}", contest_data["venue"].as_object().map(|obj| obj.keys().collect::<Vec<_>>()));
-                                
+                                log::debug!(
+                                    "🔍 All venue fields: {:?}",
+                                    contest_data["venue"]
+                                        .as_object()
+                                        .map(|obj| obj.keys().collect::<Vec<_>>())
+                                );
+
                                 // Parse contest details
                                 let contest = ContestData {
                                     id: contest_id,
-                                    name: contest_data["name"].as_str().unwrap_or("Unknown Contest").to_string(),
+                                    name: contest_data["name"]
+                                        .as_str()
+                                        .unwrap_or("Unknown Contest")
+                                        .to_string(),
                                     start: contest_data["start"].as_str().unwrap_or("").to_string(),
                                     stop: contest_data["stop"].as_str().unwrap_or("").to_string(),
                                     venue: VenueInfo {
-                                        id: contest_data["venue"]["id"].as_str().unwrap_or("").to_string(),
-                                        name: contest_data["venue"]["displayName"].as_str().unwrap_or("Venue").to_string(),
-                                        display_name: contest_data["venue"]["displayName"].as_str().map(|s| s.to_string()),
-                                        formatted_address: contest_data["venue"]["formattedAddress"].as_str().map(|s| s.to_string()),
+                                        id: contest_data["venue"]["id"]
+                                            .as_str()
+                                            .unwrap_or("")
+                                            .to_string(),
+                                        name: contest_data["venue"]["displayName"]
+                                            .as_str()
+                                            .unwrap_or("Venue")
+                                            .to_string(),
+                                        display_name: contest_data["venue"]["displayName"]
+                                            .as_str()
+                                            .map(|s| s.to_string()),
+                                        formatted_address: contest_data["venue"]
+                                            ["formattedAddress"]
+                                            .as_str()
+                                            .map(|s| s.to_string()),
                                         lat: contest_data["venue"]["lat"].as_f64().unwrap_or(0.0),
                                         lng: contest_data["venue"]["lng"].as_f64().unwrap_or(0.0),
-                                        timezone: contest_data["venue"]["timezone"].as_str().unwrap_or("UTC").to_string(),
+                                        timezone: contest_data["venue"]["timezone"]
+                                            .as_str()
+                                            .unwrap_or("UTC")
+                                            .to_string(),
                                     },
-                                    games: contest_data["games"].as_array()
-                                        .map(|games| games.iter().map(|g| {
-                                            // Extract bgg_id from URL string if it's stored as a URL
-                                            let bgg_id = if let Some(bgg_id_value) = g["bgg_id"].as_str() {
-                                                if bgg_id_value.contains("boardgamegeek.com/boardgame/") {
-                                                    // Extract the numeric ID from the URL
-                                                    bgg_id_value.split("boardgamegeek.com/boardgame/").last()
-                                                        .and_then(|id_str| id_str.parse::<i64>().ok())
-                                                } else {
-                                                    // Try to parse as direct numeric value
-                                                    bgg_id_value.parse::<i64>().ok()
-                                                }
-                                            } else {
-                                                // Try to parse as numeric value directly
-                                                g["bgg_id"].as_i64()
-                                            };
-                                            
-                                            GameInfo {
-                                                id: g["id"].as_str().unwrap_or("").to_string(),
-                                                name: g["name"].as_str().unwrap_or("Unknown Game").to_string(),
-                                                bgg_id,
-                                            }
-                                        }).collect())
+                                    games: contest_data["games"]
+                                        .as_array()
+                                        .map(|games| {
+                                            games
+                                                .iter()
+                                                .map(|g| {
+                                                    // Extract bgg_id from URL string if it's stored as a URL
+                                                    let bgg_id = if let Some(bgg_id_value) =
+                                                        g["bgg_id"].as_str()
+                                                    {
+                                                        if bgg_id_value.contains(
+                                                            "boardgamegeek.com/boardgame/",
+                                                        ) {
+                                                            // Extract the numeric ID from the URL
+                                                            bgg_id_value
+                                                                .split(
+                                                                    "boardgamegeek.com/boardgame/",
+                                                                )
+                                                                .last()
+                                                                .and_then(|id_str| {
+                                                                    id_str.parse::<i64>().ok()
+                                                                })
+                                                        } else {
+                                                            // Try to parse as direct numeric value
+                                                            bgg_id_value.parse::<i64>().ok()
+                                                        }
+                                                    } else {
+                                                        // Try to parse as numeric value directly
+                                                        g["bgg_id"].as_i64()
+                                                    };
+
+                                                    GameInfo {
+                                                        id: g["id"]
+                                                            .as_str()
+                                                            .unwrap_or("")
+                                                            .to_string(),
+                                                        name: g["name"]
+                                                            .as_str()
+                                                            .unwrap_or("Unknown Game")
+                                                            .to_string(),
+                                                        bgg_id,
+                                                    }
+                                                })
+                                                .collect()
+                                        })
                                         .unwrap_or_default(),
                                     participants: {
-                                        let mut participants: Vec<ParticipantInfo> = contest_data["outcomes"].as_array()
-                                            .map(|outcomes| outcomes.iter().map(|o| ParticipantInfo {
-                                                player_id: o["player_id"].as_str().unwrap_or("").to_string(),
-                                                handle: o["handle"].as_str().unwrap_or("Unknown Player").to_string(),
-                                                firstname: None, // Backend doesn't send firstname/lastname
-                                                lastname: None,
-                                                place: o["place"].as_str().unwrap_or("0").parse().unwrap_or(0),
-                                                result: o["result"].as_str().unwrap_or("").to_string(),
-                                            }).collect())
+                                        let mut participants: Vec<ParticipantInfo> = contest_data
+                                            ["outcomes"]
+                                            .as_array()
+                                            .map(|outcomes| {
+                                                outcomes
+                                                    .iter()
+                                                    .map(|o| ParticipantInfo {
+                                                        player_id: o["player_id"]
+                                                            .as_str()
+                                                            .unwrap_or("")
+                                                            .to_string(),
+                                                        handle: o["handle"]
+                                                            .as_str()
+                                                            .unwrap_or("Unknown Player")
+                                                            .to_string(),
+                                                        firstname: None, // Backend doesn't send firstname/lastname
+                                                        lastname: None,
+                                                        place: o["place"]
+                                                            .as_str()
+                                                            .unwrap_or("0")
+                                                            .parse()
+                                                            .unwrap_or(0),
+                                                        result: o["result"]
+                                                            .as_str()
+                                                            .unwrap_or("")
+                                                            .to_string(),
+                                                    })
+                                                    .collect()
+                                            })
                                             .unwrap_or_default();
-                                        
+
                                         // Sort participants by place (1st place first, then 2nd, etc.)
                                         participants.sort_by_key(|p| p.place);
                                         participants
                                     },
                                     stats: Some(ContestStats {
-                                        participant_count: stats_data["participant_count"].as_i64().unwrap_or(0) as i32,
-                                        completion_count: stats_data["completion_count"].as_i64().unwrap_or(0) as i32,
-                                        completion_rate: stats_data["completion_rate"].as_f64().unwrap_or(0.0),
-                                        average_placement: stats_data["average_placement"].as_f64().unwrap_or(0.0),
+                                        participant_count: stats_data["participant_count"]
+                                            .as_i64()
+                                            .unwrap_or(0)
+                                            as i32,
+                                        completion_count: stats_data["completion_count"]
+                                            .as_i64()
+                                            .unwrap_or(0)
+                                            as i32,
+                                        completion_rate: stats_data["completion_rate"]
+                                            .as_f64()
+                                            .unwrap_or(0.0),
+                                        average_placement: stats_data["average_placement"]
+                                            .as_f64()
+                                            .unwrap_or(0.0),
                                         duration_minutes: {
                                             // Calculate duration from start/stop times
                                             if let (Ok(start_time), Ok(stop_time)) = (
-                                                chrono::DateTime::parse_from_rfc3339(&contest_data["start"].as_str().unwrap_or("")),
-                                                chrono::DateTime::parse_from_rfc3339(&contest_data["stop"].as_str().unwrap_or(""))
+                                                chrono::DateTime::parse_from_rfc3339(
+                                                    &contest_data["start"].as_str().unwrap_or(""),
+                                                ),
+                                                chrono::DateTime::parse_from_rfc3339(
+                                                    &contest_data["stop"].as_str().unwrap_or(""),
+                                                ),
                                             ) {
                                                 let duration = stop_time - start_time;
                                                 duration.num_minutes() as i32
                                             } else {
                                                 // Fallback to stats duration if parsing fails
-                                                stats_data["duration_minutes"].as_i64().unwrap_or(0) as i32
+                                                stats_data["duration_minutes"].as_i64().unwrap_or(0)
+                                                    as i32
                                             }
                                         },
-                                        most_popular_game: stats_data["most_popular_game"].as_str().map(|s| s.to_string()),
-                                        difficulty_rating: stats_data["difficulty_rating"].as_f64().unwrap_or(5.0),
-                                        excitement_rating: stats_data["excitement_rating"].as_f64().unwrap_or(5.0),
+                                        most_popular_game: stats_data["most_popular_game"]
+                                            .as_str()
+                                            .map(|s| s.to_string()),
+                                        difficulty_rating: stats_data["difficulty_rating"]
+                                            .as_f64()
+                                            .unwrap_or(5.0),
+                                        excitement_rating: stats_data["excitement_rating"]
+                                            .as_f64()
+                                            .unwrap_or(5.0),
                                     }),
                                 };
-                                
+
                                 // Debug: Log the final parsed venue data
-                                log::debug!("🔍 Final parsed venue: id={}, name={}, display_name={:?}, formatted_address={:?}, lat={}, lng={}, timezone={}", 
-                                    contest.venue.id, contest.venue.name, contest.venue.display_name, 
+                                log::debug!("🔍 Final parsed venue: id={}, name={}, display_name={:?}, formatted_address={:?}, lat={}, lng={}, timezone={}",
+                                    contest.venue.id, contest.venue.name, contest.venue.display_name,
                                     contest.venue.formatted_address, contest.venue.lat, contest.venue.lng, contest.venue.timezone);
-                                
+
                                 contest_details.set(Some(contest));
                             } else {
                                 error.set(Some("Failed to parse contest data".to_string()));
                             }
                         } else {
-                            gloo::console::error!("Failed to fetch contest data - stats ok:", stats_response.ok(), "contest ok:", contest_response.ok());
+                            gloo::console::error!(
+                                "Failed to fetch contest data - stats ok:",
+                                stats_response.ok(),
+                                "contest ok:",
+                                contest_response.ok()
+                            );
                             error.set(Some("Failed to fetch contest data".to_string()));
                         }
                     }
@@ -255,10 +359,10 @@ pub fn contest_details(props: &ContestDetailsProps) -> Html {
                         error.set(Some(format!("Failed to fetch contest details: {}", e)));
                     }
                 }
-                
+
                 loading.set(false);
             });
-            
+
             || ()
         });
     }
@@ -292,7 +396,7 @@ pub fn contest_details(props: &ContestDetailsProps) -> Html {
                     </div>
                 </div>
             </header>
-            
+
             <main class="container mx-auto px-4 py-4">
                 if *loading {
                     <div class="flex items-center justify-center py-12">
@@ -379,7 +483,7 @@ pub fn contest_details(props: &ContestDetailsProps) -> Html {
                                             <svg class="h-3 w-3 mr-1.5 text-gray-400" fill="currentColor" viewBox="0 0 20 20">
                                                 <path fill-rule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clip-rule="evenodd" />
                                             </svg>
-                                            <a 
+                                            <a
                                                 href={format!("https://www.google.com/maps?q={},{}", contest.venue.lat, contest.venue.lng)}
                                                 target="_blank"
                                                 rel="noopener noreferrer"
@@ -401,7 +505,7 @@ pub fn contest_details(props: &ContestDetailsProps) -> Html {
                                     }
                                 </div>
                             </div>
-                            
+
                             <div class="bg-white rounded-md shadow-sm border border-gray-100 p-3 hover:shadow-md transition-shadow duration-200">
                                 <div class="flex items-center mb-2">
                                     <div class="p-1.5 bg-green-100 rounded-md mr-2">
@@ -418,7 +522,7 @@ pub fn contest_details(props: &ContestDetailsProps) -> Html {
                                                 <div class="flex items-center">
                                                     {if let Some(bgg_id) = game.bgg_id {
                                                         html! {
-                                                            <a 
+                                                            <a
                                                                 href={format!("https://boardgamegeek.com/boardgame/{}", bgg_id)}
                                                                 target="_blank"
                                                                 rel="noopener noreferrer"
@@ -432,7 +536,7 @@ pub fn contest_details(props: &ContestDetailsProps) -> Html {
                                                             <span class="font-medium text-gray-900 text-sm">{&game.name}</span>
                                                         }
                                                     }}
-                                                    
+
                                                 </div>
                                                 <div class="w-1.5 h-1.5 bg-green-400 rounded-full"></div>
                                             </div>
@@ -463,16 +567,16 @@ pub fn contest_details(props: &ContestDetailsProps) -> Html {
                                     </thead>
                                     <tbody class="bg-white divide-y divide-gray-200">
                                         {contest.participants.iter().map(|participant| {
-                                            let place_class = if participant.place == 1 { 
-                                                "bg-gradient-to-r from-yellow-400 to-yellow-500 text-white" 
-                                            } else if participant.place == 2 { 
-                                                "bg-gradient-to-r from-gray-400 to-gray-500 text-white" 
-                                            } else if participant.place == 3 { 
-                                                "bg-gradient-to-r from-orange-400 to-orange-500 text-white" 
-                                            } else { 
-                                                "bg-gray-100 text-gray-700" 
+                                            let place_class = if participant.place == 1 {
+                                                "bg-gradient-to-r from-yellow-400 to-yellow-500 text-white"
+                                            } else if participant.place == 2 {
+                                                "bg-gradient-to-r from-gray-400 to-gray-500 text-white"
+                                            } else if participant.place == 3 {
+                                                "bg-gradient-to-r from-orange-400 to-orange-500 text-white"
+                                            } else {
+                                                "bg-gray-100 text-gray-700"
                                             };
-                                            
+
                                             html! {
                                                 <tr class="hover:bg-gray-50 transition-colors">
                                                     <td class="px-3 py-2 whitespace-nowrap">

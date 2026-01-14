@@ -1,10 +1,10 @@
 use std::collections::HashMap;
-use std::sync::Mutex;
-use std::sync::Arc;
-use std::time::{Duration, Instant};
 use std::future::Future;
-use web_sys::console;
+use std::sync::Arc;
 use std::sync::LazyLock;
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
+use web_sys::console;
 
 /// Cache entry with expiration
 #[derive(Clone)]
@@ -59,7 +59,7 @@ impl RequestCache {
                 return Ok(entry.data);
             }
         }
-        
+
         // Fetch and cache
         console::log_1(&format!("Cache miss for key: {}, fetching...", key).into());
         let result = fetcher().await?;
@@ -164,7 +164,7 @@ mod tests {
     fn test_cache_entry_expiration() {
         let entry = CacheEntry::new("test_value".to_string(), Duration::from_millis(100));
         assert!(!entry.is_expired());
-        
+
         // Wait for expiration
         std::thread::sleep(Duration::from_millis(150));
         assert!(entry.is_expired());
@@ -173,13 +173,13 @@ mod tests {
     #[test]
     fn test_cache_basic_operations() {
         let cache = RequestCache::new(Duration::from_secs(60));
-        
+
         // Test set and get
         cache.set("test_key".to_string(), "test_value".to_string());
         let entry = cache.get("test_key").unwrap();
         assert_eq!(entry.data, "test_value");
         assert!(!entry.is_expired());
-        
+
         // Test remove
         cache.remove("test_key");
         assert!(cache.get("test_key").is_none());

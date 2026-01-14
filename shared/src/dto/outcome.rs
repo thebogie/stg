@@ -5,4 +5,4 @@ pub struct Outcome {
     pub id: String,
     pub name: String,
     pub odds: f64,
-} 
+}

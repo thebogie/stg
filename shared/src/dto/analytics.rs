@@ -1,7 +1,7 @@
+use crate::models::analytics::*;
+use chrono::{DateTime, FixedOffset};
 use serde::{Deserialize, Serialize};
 use validator::Validate;
-use chrono::{DateTime, FixedOffset};
-use crate::models::analytics::*;
 
 /// Data Transfer Object for Player Statistics
 #[derive(Debug, Clone, Serialize, Deserialize, Validate)]
@@ -432,18 +432,26 @@ impl From<&GameStats> for GameStatsDto {
             total_plays: stats.total_plays,
             unique_players: stats.unique_players,
             average_players: stats.average_players,
-            win_rate_distribution: stats.win_rate_distribution.iter().map(|p| PlayerWinRateDto {
-                player_id: p.player_id.clone(),
-                player_handle: p.player_handle.clone(),
-                wins: p.wins,
-                total_plays: p.total_plays,
-                win_rate: p.win_rate,
-            }).collect(),
-            popularity_trend: stats.popularity_trend.iter().map(|m| MonthlyPlaysDto {
-                year: m.year,
-                month: m.month,
-                plays: m.plays,
-            }).collect(),
+            win_rate_distribution: stats
+                .win_rate_distribution
+                .iter()
+                .map(|p| PlayerWinRateDto {
+                    player_id: p.player_id.clone(),
+                    player_handle: p.player_handle.clone(),
+                    wins: p.wins,
+                    total_plays: p.total_plays,
+                    win_rate: p.win_rate,
+                })
+                .collect(),
+            popularity_trend: stats
+                .popularity_trend
+                .iter()
+                .map(|m| MonthlyPlaysDto {
+                    year: m.year,
+                    month: m.month,
+                    plays: m.plays,
+                })
+                .collect(),
             average_duration_minutes: stats.average_duration_minutes,
             last_updated: stats.last_updated,
         }
@@ -458,17 +466,25 @@ impl From<&VenueStats> for VenueStatsDto {
             total_contests: stats.total_contests,
             unique_players: stats.unique_players,
             average_participants: stats.average_participants,
-            popular_games: stats.popular_games.iter().map(|g| GamePopularityDto {
-                game_id: g.game_id.clone(),
-                game_name: g.game_name.clone(),
-                plays: g.plays,
-                popularity_score: g.popularity_score,
-            }).collect(),
-            monthly_contests: stats.monthly_contests.iter().map(|m| MonthlyContestsDto {
-                year: m.year,
-                month: m.month,
-                contests: m.contests,
-            }).collect(),
+            popular_games: stats
+                .popular_games
+                .iter()
+                .map(|g| GamePopularityDto {
+                    game_id: g.game_id.clone(),
+                    game_name: g.game_name.clone(),
+                    plays: g.plays,
+                    popularity_score: g.popularity_score,
+                })
+                .collect(),
+            monthly_contests: stats
+                .monthly_contests
+                .iter()
+                .map(|m| MonthlyContestsDto {
+                    year: m.year,
+                    month: m.month,
+                    contests: m.contests,
+                })
+                .collect(),
             average_duration_minutes: stats.average_duration_minutes,
             last_updated: stats.last_updated,
         }
@@ -486,19 +502,27 @@ impl From<&PlatformStats> for PlatformStatsDto {
             active_players_7d: stats.active_players_7d,
             contests_30d: stats.contests_30d,
             average_participants_per_contest: stats.average_participants_per_contest,
-            top_games: stats.top_games.iter().map(|g| GamePopularityDto {
-                game_id: g.game_id.clone(),
-                game_name: g.game_name.clone(),
-                plays: g.plays,
-                popularity_score: g.popularity_score,
-            }).collect(),
-            top_venues: stats.top_venues.iter().map(|v| VenueActivityDto {
-                venue_id: v.venue_id.clone(),
-                venue_name: v.venue_name.clone(),
-                contests_held: v.contests_held,
-                total_participants: v.total_participants,
-                activity_score: v.activity_score,
-            }).collect(),
+            top_games: stats
+                .top_games
+                .iter()
+                .map(|g| GamePopularityDto {
+                    game_id: g.game_id.clone(),
+                    game_name: g.game_name.clone(),
+                    plays: g.plays,
+                    popularity_score: g.popularity_score,
+                })
+                .collect(),
+            top_venues: stats
+                .top_venues
+                .iter()
+                .map(|v| VenueActivityDto {
+                    venue_id: v.venue_id.clone(),
+                    venue_name: v.venue_name.clone(),
+                    contests_held: v.contests_held,
+                    total_participants: v.total_participants,
+                    activity_score: v.activity_score,
+                })
+                .collect(),
             last_updated: stats.last_updated,
         }
     }
@@ -601,20 +625,18 @@ mod tests {
             my_wins: 2,
             opponent_wins: 1,
             my_win_rate: 66.7,
-            contest_history: vec![
-                HeadToHeadContestDto {
-                    contest_id: "contest/1".to_string(),
-                    contest_name: "The grass shark".to_string(),
-                    game_name: "Cosmic Encounter".to_string(),
-                    venue_name: "Blue Room".to_string(),
-                    my_placement: 1,
-                    opponent_placement: 2,
-                    i_won: true,
-                    contest_date: chrono::Utc::now().fixed_offset(),
-                    game_id: Some("game/123".to_string()),
-                    venue_id: Some("venue/456".to_string()),
-                }
-            ],
+            contest_history: vec![HeadToHeadContestDto {
+                contest_id: "contest/1".to_string(),
+                contest_name: "The grass shark".to_string(),
+                game_name: "Cosmic Encounter".to_string(),
+                venue_name: "Blue Room".to_string(),
+                my_placement: 1,
+                opponent_placement: 2,
+                i_won: true,
+                contest_date: chrono::Utc::now().fixed_offset(),
+                game_id: Some("game/123".to_string()),
+                venue_id: Some("venue/456".to_string()),
+            }],
         };
 
         let json = serde_json::to_string(&record).expect("serialize");
@@ -624,4 +646,4 @@ mod tests {
         assert_eq!(de.contest_history.len(), 1);
         assert_eq!(de.contest_history[0].venue_name, "Blue Room");
     }
-} 
+}

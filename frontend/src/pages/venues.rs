@@ -1,8 +1,8 @@
-use yew::prelude::*;
-use yew_router::prelude::*;
 use crate::api::venues::{get_all_venues, search_venues};
 use crate::Route;
 use shared::VenueDto;
+use yew::prelude::*;
+use yew_router::prelude::*;
 
 #[function_component(Venues)]
 pub fn venues() -> Html {
@@ -169,7 +169,7 @@ pub fn venues() -> Html {
                                         let venue_id = v.id.clone();
                                         let navigator = navigator.clone();
                                         html!{
-                                            <tr 
+                                            <tr
                                                 class="hover:bg-gray-50 cursor-pointer"
                                                 onclick={Callback::from(move |_| {
                                                     navigator.push(&Route::VenueDetails { venue_id: venue_id.clone() });
@@ -193,4 +193,4 @@ pub fn venues() -> Html {
             </main>
         </div>
     }
-} 
+}

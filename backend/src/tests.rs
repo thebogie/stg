@@ -3,8 +3,8 @@ mod tests {
     // use super::*;
     use crate::config::Config;
     use crate::error::ApiError;
-    use shared::models::{player::Player, game::Game, venue::Venue, contest::Contest};
-    use chrono::{Utc, Duration};
+    use chrono::{Duration, Utc};
+    use shared::models::{contest::Contest, game::Game, player::Player, venue::Venue};
 
     // Configuration tests
     #[test]
@@ -178,13 +178,13 @@ mod tests {
     #[test]
     fn test_string_operations_performance() {
         let start = std::time::Instant::now();
-        
+
         // Perform some string operations
         let mut result = String::new();
         for i in 0..1000 {
             result.push_str(&format!("test{}", i));
         }
-        
+
         let duration = start.elapsed();
         assert!(duration.as_millis() < 100); // Should complete in under 100ms
         assert_eq!(result.len(), 6890); // Expected length: 1000 * 4 ("test") + sum of digit lengths
@@ -204,14 +204,14 @@ mod tests {
         };
 
         let start = std::time::Instant::now();
-        
+
         // Serialize and deserialize
         for _ in 0..100 {
             let json = serde_json::to_string(&player).unwrap();
             let _: Player = serde_json::from_str(&json).unwrap();
         }
-        
+
         let duration = start.elapsed();
         assert!(duration.as_millis() < 50); // Should complete in under 50ms
     }
-} 
+}

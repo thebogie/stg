@@ -1,16 +1,16 @@
-use yew::prelude::*;
-use yew_router::prelude::*;
-use crate::Route;
-use crate::auth::AuthContext;
 use crate::api::contests::{search_contests, ContestSearchResponse};
-use crate::api::venues::get_all_venues;
 use crate::api::games::{get_all_games, search_games};
 use crate::api::players::search_players;
-use shared::{VenueDto, GameDto};
-use shared::dto::player::PlayerDto;
+use crate::api::venues::get_all_venues;
+use crate::auth::AuthContext;
+use crate::Route;
 use chrono::DateTime;
-use web_sys::js_sys;
+use shared::dto::player::PlayerDto;
+use shared::{GameDto, VenueDto};
 use wasm_bindgen::JsCast;
+use web_sys::js_sys;
+use yew::prelude::*;
+use yew_router::prelude::*;
 
 #[derive(Properties, PartialEq)]
 pub struct ContestsProps {}
@@ -56,7 +56,7 @@ impl Default for SearchState {
 pub fn contests(_props: &ContestsProps) -> Html {
     let auth = use_context::<AuthContext>().expect("Auth context not found");
     let navigator = use_navigator().unwrap();
-    
+
     // Active filters used for querying
     let search_state = use_state(|| SearchState::default());
     // Draft filters edited in the UI before applying
@@ -110,10 +110,10 @@ pub fn contests(_props: &ContestsProps) -> Html {
             let search_results = search_results.clone();
             let loading = loading.clone();
             let error = error.clone();
-            
+
             loading.set(true);
             error.set(None);
-            
+
             wasm_bindgen_futures::spawn_local(async move {
                 let mut params = Vec::new();
                 if !search_state.query.is_empty() {
@@ -323,7 +323,6 @@ pub fn contests(_props: &ContestsProps) -> Html {
         })
     };
 
-
     let on_start_from_change = {
         let draft_state = draft_state.clone();
         Callback::from(move |e: Event| {
@@ -414,13 +413,14 @@ pub fn contests(_props: &ContestsProps) -> Html {
         if let Ok(utc_time) = DateTime::parse_from_rfc3339(time_str) {
             // Get venue timezone, fallback to UTC
             let timezone = if let Some(venue) = venue {
-                venue.get("timezone")
+                venue
+                    .get("timezone")
                     .and_then(|v| v.as_str())
                     .unwrap_or("UTC")
             } else {
                 "UTC"
             };
-            
+
             // Convert to venue timezone using JavaScript
             let js_code = format!(
                 r#"
@@ -443,16 +443,18 @@ pub fn contests(_props: &ContestsProps) -> Html {
                     return formatted + ' ' + offset;
                 }})()
                 "#,
-                utc_time.to_rfc3339(), timezone, timezone
+                utc_time.to_rfc3339(),
+                timezone,
+                timezone
             );
-            
+
             // Execute JavaScript to get properly formatted time
             if let Ok(result) = js_sys::eval(&js_code) {
                 if let Some(formatted) = result.as_string() {
                     return formatted;
                 }
             }
-            
+
             // Fallback: just format with timezone name
             format!("{} {}", utc_time.format("%d/%m/%Y %H:%M"), timezone)
         } else {
@@ -466,10 +468,18 @@ pub fn contests(_props: &ContestsProps) -> Html {
     // Active filter chips and count (based on applied search_state)
     let active_filter_count = {
         let mut c = 0u32;
-        if !search_state.query.is_empty() { c += 1; }
-        if !search_state.start_from.is_empty() { c += 1; }
-        if !search_state.start_to.is_empty() { c += 1; }
-        if !search_state.venue_id.is_empty() { c += 1; }
+        if !search_state.query.is_empty() {
+            c += 1;
+        }
+        if !search_state.start_from.is_empty() {
+            c += 1;
+        }
+        if !search_state.start_to.is_empty() {
+            c += 1;
+        }
+        if !search_state.venue_id.is_empty() {
+            c += 1;
+        }
         c + (search_state.game_ids.len() as u32) + (selected_players.len() as u32)
     };
 
@@ -606,7 +616,8 @@ pub fn contests(_props: &ContestsProps) -> Html {
             });
         }
         if !search_state.venue_id.is_empty() {
-            let venue_name = venues.iter()
+            let venue_name = venues
+                .iter()
                 .find(|v| v.id == search_state.venue_id)
                 .map(|v| v.display_name.clone())
                 .unwrap_or_else(|| "Venue".to_string());
@@ -618,7 +629,11 @@ pub fn contests(_props: &ContestsProps) -> Html {
             });
         }
         for gid in &search_state.game_ids {
-            let name = games.iter().find(|g| g.id == *gid).map(|g| g.name.clone()).unwrap_or_else(|| "Game".to_string());
+            let name = games
+                .iter()
+                .find(|g| g.id == *gid)
+                .map(|g| g.name.clone())
+                .unwrap_or_else(|| "Game".to_string());
             let remove_game_cb = {
                 let remove_game = remove_game.clone();
                 let gid_clone = gid.clone();
@@ -747,7 +762,7 @@ pub fn contests(_props: &ContestsProps) -> Html {
                                 </div>
                                 <div>
                                     <label class="block text-sm font-medium text-gray-700 mb-1">{"Venue"}</label>
-                                    <select 
+                                    <select
                                         value={draft_state.venue_id.clone()}
                                         onchange={on_venue_filter_change}
                                         class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
@@ -924,7 +939,7 @@ pub fn contests(_props: &ContestsProps) -> Html {
                                             let contest_id = contest.id.clone();
                                             let navigator = navigator.clone();
                                             html! {
-                                                <tr 
+                                                <tr
                                                     class="hover:bg-gray-50 cursor-pointer"
                                                     onclick={Callback::from(move |_| {
                                                         navigator.push(&Route::ContestDetails { contest_id: contest_id.clone() });
@@ -961,7 +976,7 @@ pub fn contests(_props: &ContestsProps) -> Html {
                                                                 // Accept either `_id` or `id` from backend payloads
                                                                 if let Some(game_id) = game.get("_id").or_else(|| game.get("id")).and_then(|v| v.as_str()) {
                                                                     // Only show games that match the current filter, or all games if no filter is applied
-                                                                    let should_show = search_state.game_ids.is_empty() || 
+                                                                    let should_show = search_state.game_ids.is_empty() ||
                                                                         search_state.game_ids.iter().any(|filter_id| filter_id == game_id);
                                                                     if should_show {
                                                                         Some(html! {
@@ -1039,13 +1054,13 @@ pub fn contests(_props: &ContestsProps) -> Html {
                                                 >
                                                     {"Previous"}
                                                 </button>
-                                                
+
                                                 // Page numbers
                                                 {{
                                                     let total_pages = ((results.total as f64) / (current_page_size as f64)).ceil() as u32;
                                                     let start_page = if current_page <= 3 { 1 } else { current_page - 2 };
                                                     let end_page = if current_page + 2 >= total_pages { total_pages } else { current_page + 2 };
-                                                    
+
                                                     (start_page..=end_page).map(|page_num| {
                                                         let is_current = page_num == current_page;
                                                         html! {
@@ -1065,7 +1080,7 @@ pub fn contests(_props: &ContestsProps) -> Html {
                                                         }
                                                     }).collect::<Vec<_>>()
                                                 }}
-                                                
+
                                                 <button
                                                     onclick={on_page_change.reform(move |_| current_page + 1)}
                                                     disabled={current_page * current_page_size >= results.total as u32}
@@ -1096,4 +1111,4 @@ pub fn contests(_props: &ContestsProps) -> Html {
             }
         </div>
     }
-} 
+}

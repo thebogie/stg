@@ -1,10 +1,10 @@
+use crate::dto::game::GameDto;
+use crate::dto::venue::VenueDto;
+use crate::models::contest::Contest;
+use crate::models::venue::Venue;
+use chrono::{DateTime, FixedOffset};
 use serde::{Deserialize, Serialize};
 use validator::{Validate, ValidationError};
-use chrono::{DateTime, FixedOffset};
-use crate::models::venue::Venue;
-use crate::models::contest::Contest;
-use crate::dto::venue::VenueDto;
-use crate::dto::game::GameDto;
 
 /// Data Transfer Object for Contest
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
@@ -27,22 +27,26 @@ pub struct ContestDto {
     pub created_at: Option<DateTime<FixedOffset>>,
 }
 
-
-
 impl Validate for ContestDto {
     fn validate(&self) -> Result<(), validator::ValidationErrors> {
         let mut errors = validator::ValidationErrors::new();
         // Validate nested fields
         if let Err(e) = self.venue.validate() {
             use validator::ValidationErrorsKind;
-            errors.errors_mut().entry("venue".into()).or_insert(ValidationErrorsKind::Struct(Box::new(e)));
+            errors
+                .errors_mut()
+                .entry("venue".into())
+                .or_insert(ValidationErrorsKind::Struct(Box::new(e)));
         }
         // Validate stop > start
         if self.stop <= self.start {
             use validator::ValidationErrorsKind;
             let mut err = ValidationError::new("invalid_dates");
             err.message = Some("stop must be after start".into());
-            errors.errors_mut().entry("stop".into()).or_insert(ValidationErrorsKind::Field(vec![err]));
+            errors
+                .errors_mut()
+                .entry("stop".into())
+                .or_insert(ValidationErrorsKind::Field(vec![err]));
         }
         if errors.errors().is_empty() {
             Ok(())
@@ -71,27 +75,30 @@ impl From<&Contest> for ContestDto {
             name: contest.name.clone(),
             start: contest.start,
             stop: contest.stop,
-            venue: VenueDto::from(&Venue::new(
-                String::new(), // id
-                String::new(), // rev
-                String::new(), // display_name
-                String::new(), // formatted_address
-                String::new(), // place_id
-                0.0,           // lat
-                0.0,           // lng
-                "UTC".to_string(), // timezone
-                crate::models::venue::VenueSource::Database, // source
-            ).unwrap_or_else(|_| Venue {
-                id: String::new(),
-                rev: String::new(),
-                display_name: String::new(),
-                formatted_address: String::new(),
-                place_id: String::new(),
-                lat: 0.0,
-                lng: 0.0,
-                timezone: "UTC".to_string(),
-                source: crate::models::venue::VenueSource::Database,
-            })),
+            venue: VenueDto::from(
+                &Venue::new(
+                    String::new(),                               // id
+                    String::new(),                               // rev
+                    String::new(),                               // display_name
+                    String::new(),                               // formatted_address
+                    String::new(),                               // place_id
+                    0.0,                                         // lat
+                    0.0,                                         // lng
+                    "UTC".to_string(),                           // timezone
+                    crate::models::venue::VenueSource::Database, // source
+                )
+                .unwrap_or_else(|_| Venue {
+                    id: String::new(),
+                    rev: String::new(),
+                    display_name: String::new(),
+                    formatted_address: String::new(),
+                    place_id: String::new(),
+                    lat: 0.0,
+                    lng: 0.0,
+                    timezone: "UTC".to_string(),
+                    source: crate::models::venue::VenueSource::Database,
+                }),
+            ),
             games: Vec::new(),
             outcomes: Vec::new(),
             creator_id: contest.creator_id.clone(),
@@ -109,7 +116,9 @@ impl From<ContestDto> for Contest {
             start: dto.start,
             stop: dto.stop,
             creator_id: dto.creator_id,
-            created_at: dto.created_at.unwrap_or_else(|| chrono::Utc::now().fixed_offset()),
+            created_at: dto
+                .created_at
+                .unwrap_or_else(|| chrono::Utc::now().fixed_offset()),
         }
     }
 }
@@ -133,10 +142,10 @@ impl ContestDto {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use validator::Validate;
+    use chrono::DateTime;
     use pretty_assertions::assert_eq;
     use test_log::test;
-    use chrono::DateTime;
+    use validator::Validate;
 
     fn create_test_contest_dto() -> ContestDto {
         ContestDto {
@@ -154,25 +163,21 @@ mod tests {
                 timezone: "America/New_York".to_string(),
                 source: crate::models::venue::VenueSource::Database,
             },
-            games: vec![
-                GameDto {
-                    id: "game/test-game".to_string(),
-                    name: "Test Game".to_string(),
-                    year_published: Some(2020),
-                    bgg_id: Some(12345),
-                    description: Some("A test game".to_string()),
-                    source: crate::models::game::GameSource::Database,
-                }
-            ],
-            outcomes: vec![
-                OutcomeDto {
-                    player_id: "player/test-player-1".to_string(),
-                    place: "1".to_string(),
-                    result: "won".to_string(),
-                    email: "player1@example.com".to_string(),
-                    handle: "player1".to_string(),
-                }
-            ],
+            games: vec![GameDto {
+                id: "game/test-game".to_string(),
+                name: "Test Game".to_string(),
+                year_published: Some(2020),
+                bgg_id: Some(12345),
+                description: Some("A test game".to_string()),
+                source: crate::models::game::GameSource::Database,
+            }],
+            outcomes: vec![OutcomeDto {
+                player_id: "player/test-player-1".to_string(),
+                place: "1".to_string(),
+                result: "won".to_string(),
+                email: "player1@example.com".to_string(),
+                handle: "player1".to_string(),
+            }],
             creator_id: "player/test-creator".to_string(),
             created_at: Some(DateTime::parse_from_rfc3339("2023-07-15T10:00:00Z").unwrap()),
         }
@@ -247,9 +252,15 @@ mod tests {
         let json = serde_json::to_string(&dto).unwrap();
 
         // Ensure the JSON contains UTC indicators (either Z or +00:00)
-        let has_utc_start = json.contains("\"start\":\"2024-01-15T14:30:00Z\"") || json.contains("\"start\":\"2024-01-15T14:30:00+00:00\"");
-        let has_utc_stop = json.contains("\"stop\":\"2024-01-15T16:30:00Z\"") || json.contains("\"stop\":\"2024-01-15T16:30:00+00:00\"");
-        assert!(has_utc_start, "start not serialized in UTC ISO8601: {}", json);
+        let has_utc_start = json.contains("\"start\":\"2024-01-15T14:30:00Z\"")
+            || json.contains("\"start\":\"2024-01-15T14:30:00+00:00\"");
+        let has_utc_stop = json.contains("\"stop\":\"2024-01-15T16:30:00Z\"")
+            || json.contains("\"stop\":\"2024-01-15T16:30:00+00:00\"");
+        assert!(
+            has_utc_start,
+            "start not serialized in UTC ISO8601: {}",
+            json
+        );
         assert!(has_utc_stop, "stop not serialized in UTC ISO8601: {}", json);
     }
 
@@ -264,7 +275,7 @@ mod tests {
             creator_id: "player/test-creator".to_string(),
             created_at: DateTime::parse_from_rfc3339("2023-07-15T10:00:00Z").unwrap(),
         };
-        
+
         let dto = ContestDto::from(&contest);
         assert_eq!(dto.id, "contest/test");
         assert_eq!(dto.name, "Test Contest");
@@ -275,7 +286,7 @@ mod tests {
     fn test_contest_from_contest_dto() {
         let dto = create_test_contest_dto();
         let contest = Contest::from(dto.clone());
-        
+
         assert_eq!(contest.id, dto.id);
         assert_eq!(contest.name, dto.name);
         assert_eq!(contest.start, dto.start);
@@ -294,9 +305,9 @@ mod tests {
             creator_id: "player/test-creator".to_string(),
             created_at: DateTime::parse_from_rfc3339("2023-01-01T00:00:00Z").unwrap(),
         };
-        
+
         dto.update_contest(&mut contest);
-        
+
         assert_eq!(contest.id, dto.id);
         assert_eq!(contest.name, dto.name);
         assert_eq!(contest.start, dto.start);
@@ -383,11 +394,11 @@ mod tests {
         let mut dto = create_test_contest_dto();
         dto.name = "A".repeat(1000);
         assert!(dto.validate().is_ok());
-        
+
         // Test with special characters in name
         dto.name = "Test Contest & Tournament (2023) - Special Edition!".to_string();
         assert!(dto.validate().is_ok());
-        
+
         // Test with empty timezone (should use default)
         dto.venue.timezone = "".to_string();
         assert!(dto.validate().is_ok());
@@ -398,7 +409,10 @@ mod tests {
         let dto = create_test_contest_dto();
         assert_eq!(dto.creator_id, "player/test-creator");
         assert!(dto.created_at.is_some());
-        assert_eq!(dto.created_at.unwrap(), DateTime::parse_from_rfc3339("2023-07-15T10:00:00Z").unwrap());
+        assert_eq!(
+            dto.created_at.unwrap(),
+            DateTime::parse_from_rfc3339("2023-07-15T10:00:00Z").unwrap()
+        );
     }
 
     #[test]
@@ -406,7 +420,7 @@ mod tests {
         let dto = create_test_contest_dto();
         let json = serde_json::to_string(&dto).unwrap();
         let deserialized: ContestDto = serde_json::from_str(&json).unwrap();
-        
+
         assert_eq!(dto.id, deserialized.id);
         assert_eq!(dto.name, deserialized.name);
         assert_eq!(dto.creator_id, deserialized.creator_id);
@@ -424,19 +438,22 @@ mod tests {
             creator_id: "player/test-creator".to_string(),
             created_at: DateTime::parse_from_rfc3339("2023-07-15T10:00:00Z").unwrap(),
         };
-        
+
         let dto = ContestDto::from(&contest);
         assert_eq!(dto.id, "contest/test");
         assert_eq!(dto.name, "Test Contest");
         assert_eq!(dto.creator_id, "player/test-creator");
-        assert_eq!(dto.created_at, Some(DateTime::parse_from_rfc3339("2023-07-15T10:00:00Z").unwrap()));
+        assert_eq!(
+            dto.created_at,
+            Some(DateTime::parse_from_rfc3339("2023-07-15T10:00:00Z").unwrap())
+        );
     }
 
     #[test]
     fn test_contest_from_contest_dto_with_creator() {
         let dto = create_test_contest_dto();
         let contest = Contest::from(dto.clone());
-        
+
         assert_eq!(contest.id, dto.id);
         assert_eq!(contest.name, dto.name);
         assert_eq!(contest.start, dto.start);
@@ -457,9 +474,9 @@ mod tests {
             creator_id: "player/old-creator".to_string(),
             created_at: DateTime::parse_from_rfc3339("2023-01-01T00:00:00Z").unwrap(),
         };
-        
+
         dto.update_contest(&mut contest);
-        
+
         assert_eq!(contest.id, dto.id);
         assert_eq!(contest.name, dto.name);
         assert_eq!(contest.start, dto.start);
@@ -467,4 +484,4 @@ mod tests {
         assert_eq!(contest.creator_id, dto.creator_id);
         assert_eq!(contest.created_at, dto.created_at.unwrap());
     }
-} 
+}
