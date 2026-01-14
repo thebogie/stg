@@ -8,6 +8,36 @@ use std::rc::Rc;
 use std::task::{Context, Poll};
 use std::time::Instant;
 use log::{info, warn, error};
+use actix_web::http::header::{HeaderName, HeaderValue};
+use uuid::Uuid;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+// Global counter for fast test ID generation
+static REQUEST_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+/// Generate a request ID - fast counter-based for tests, UUID v4 for production
+fn generate_request_id() -> String {
+    // Check if we're in test mode (cfg(test) or RUST_ENV=test)
+    let is_test = cfg!(test) || std::env::var("RUST_ENV")
+        .unwrap_or_default()
+        .eq_ignore_ascii_case("test");
+    
+    if is_test {
+        // Fast counter-based ID for tests (much faster than UUID generation)
+        // Uses atomic counter + thread ID for uniqueness without crypto overhead
+        let counter = REQUEST_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let thread_id = std::thread::current().id();
+        // Format thread ID as hex for compact representation
+        let thread_hash = format!("{:?}", thread_id)
+            .replace("ThreadId(", "")
+            .replace(")", "")
+            .replace("0x", "");
+        format!("test-{}-{}", thread_hash, counter)
+    } else {
+        // Production: Use proper UUID v4 for security and uniqueness
+        Uuid::new_v4().to_string()
+    }
+}
 
 pub struct Logger;
 
@@ -54,17 +84,31 @@ where
         let method = req.method().clone();
         let uri = req.uri().clone();
         let peer_addr = req.peer_addr().map(|addr| addr.to_string());
+        
+        // Generate correlation ID for this request
+        // Use fast counter-based ID for tests, UUID v4 for production
+        let correlation_id = generate_request_id();
+        req.extensions_mut().insert(correlation_id.clone());
 
         Box::pin(async move {
-            let res = svc.call(req).await?;
+            let mut res = svc.call(req).await?;
             let duration = start_time.elapsed();
+
+            // Add correlation ID to response header
+            if let Ok(header_value) = HeaderValue::try_from(correlation_id.as_str()) {
+                res.headers_mut().insert(
+                    HeaderName::from_static("x-request-id"),
+                    header_value,
+                );
+            }
 
             let status = res.status();
             let status_code = status.as_u16();
 
             if status_code >= 500 {
                 error!(
-                    "{} {} {} {}ms {}",
+                    "request_id={} {} {} {} {}ms {}",
+                    correlation_id,
                     method,
                     uri,
                     status_code,
@@ -73,7 +117,8 @@ where
                 );
             } else if status_code >= 400 {
                 warn!(
-                    "{} {} {} {}ms {}",
+                    "request_id={} {} {} {} {}ms {}",
+                    correlation_id,
                     method,
                     uri,
                     status_code,
@@ -82,7 +127,8 @@ where
                 );
             } else {
                 info!(
-                    "{} {} {} {}ms {}",
+                    "request_id={} {} {} {} {}ms {}",
+                    correlation_id,
                     method,
                     uri,
                     status_code,
@@ -258,6 +304,89 @@ pub fn cors_middleware() -> actix_cors::Cors {
     }
 
     cors
+}
+
+/// Security headers middleware
+pub struct SecurityHeaders;
+
+impl<S, B> Transform<S, ServiceRequest> for SecurityHeaders
+where
+    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error> + 'static,
+    S::Future: 'static,
+    B: 'static,
+{
+    type Response = ServiceResponse<B>;
+    type Error = Error;
+    type InitError = ();
+    type Transform = SecurityHeadersMiddleware<S>;
+    type Future = Ready<Result<Self::Transform, Self::InitError>>;
+
+    fn new_transform(&self, service: S) -> Self::Future {
+        ready(Ok(SecurityHeadersMiddleware {
+            service: Rc::new(service),
+        }))
+    }
+}
+
+pub struct SecurityHeadersMiddleware<S> {
+    service: Rc<S>,
+}
+
+impl<S, B> Service<ServiceRequest> for SecurityHeadersMiddleware<S>
+where
+    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error> + 'static,
+    S::Future: 'static,
+    B: 'static,
+{
+    type Response = ServiceResponse<B>;
+    type Error = Error;
+    type Future = LocalBoxFuture<'static, Result<Self::Response, Self::Error>>;
+
+    fn poll_ready(&self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        self.service.poll_ready(cx)
+    }
+
+    fn call(&self, req: ServiceRequest) -> Self::Future {
+        let svc = self.service.clone();
+        let is_production = std::env::var("RUST_ENV")
+            .unwrap_or_default()
+            .eq_ignore_ascii_case("production");
+
+        Box::pin(async move {
+            let mut res = svc.call(req).await?;
+
+            // Add security headers
+            let headers = res.headers_mut();
+            
+            // Prevent MIME type sniffing
+            headers.insert(
+                HeaderName::from_static("x-content-type-options"),
+                HeaderValue::from_static("nosniff"),
+            );
+            
+            // Prevent clickjacking attacks
+            headers.insert(
+                HeaderName::from_static("x-frame-options"),
+                HeaderValue::from_static("DENY"),
+            );
+            
+            // XSS Protection (legacy, but still useful for older browsers)
+            headers.insert(
+                HeaderName::from_static("x-xss-protection"),
+                HeaderValue::from_static("1; mode=block"),
+            );
+            
+            // HSTS - only in production (HTTPS)
+            if is_production {
+                headers.insert(
+                    HeaderName::from_static("strict-transport-security"),
+                    HeaderValue::from_static("max-age=31536000; includeSubDomains"),
+                );
+            }
+
+            Ok(res)
+        })
+    }
 }
 
 #[cfg(test)]

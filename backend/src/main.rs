@@ -118,6 +118,7 @@ async fn main() -> std::io::Result<()> {
     HttpServer::new(move || {
         App::new()
             .wrap(backend::middleware::Logger)
+            .wrap(backend::middleware::SecurityHeaders)
             .wrap(backend::middleware::cors_middleware())
             .app_data(actix_web::web::JsonConfig::default().limit(256 * 1024))
             .app_data(redis_data.clone())
