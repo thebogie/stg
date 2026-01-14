@@ -7,10 +7,12 @@ use actix_web::{
 use futures_util::future::{ready, LocalBoxFuture, Ready};
 use log::{error, info, warn};
 use std::rc::Rc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, atomic::{AtomicU64, Ordering}};
 use std::task::{Context, Poll};
 use std::time::Instant;
 use uuid::Uuid;
+
+use crate::metrics::{Metrics, record_http_request};
 
 // Global counter for fast test ID generation
 static REQUEST_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -40,7 +42,27 @@ fn generate_request_id() -> String {
     }
 }
 
-pub struct Logger;
+pub struct Logger {
+    metrics: Option<Arc<Metrics>>,
+}
+
+impl Logger {
+    pub fn new() -> Self {
+        Self { metrics: None }
+    }
+
+    pub fn with_metrics(metrics: Arc<Metrics>) -> Self {
+        Self {
+            metrics: Some(metrics),
+        }
+    }
+}
+
+impl Default for Logger {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl<S, B> Transform<S, ServiceRequest> for Logger
 where
@@ -57,12 +79,14 @@ where
     fn new_transform(&self, service: S) -> Self::Future {
         ready(Ok(LoggerMiddleware {
             service: Rc::new(service),
+            metrics: self.metrics.clone(),
         }))
     }
 }
 
 pub struct LoggerMiddleware<S> {
     service: Rc<S>,
+    metrics: Option<Arc<Metrics>>,
 }
 
 impl<S, B> Service<ServiceRequest> for LoggerMiddleware<S>
@@ -81,6 +105,7 @@ where
 
     fn call(&self, req: ServiceRequest) -> Self::Future {
         let svc = self.service.clone();
+        let metrics = self.metrics.clone();
         let start_time = Instant::now();
         let method = req.method().clone();
         let uri = req.uri().clone();
@@ -91,9 +116,19 @@ where
         let correlation_id = generate_request_id();
         req.extensions_mut().insert(correlation_id.clone());
 
+        // Increment in-flight requests if metrics are available
+        if let Some(ref m) = metrics {
+            m.http.requests_in_flight.inc();
+        }
+
         Box::pin(async move {
             let mut res = svc.call(req).await?;
             let duration = start_time.elapsed();
+
+            // Decrement in-flight requests
+            if let Some(ref m) = metrics {
+                m.http.requests_in_flight.dec();
+            }
 
             // Add correlation ID to response header
             if let Ok(header_value) = HeaderValue::try_from(correlation_id.as_str()) {
@@ -103,6 +138,13 @@ where
 
             let status = res.status();
             let status_code = status.as_u16();
+
+            // Record metrics if available
+            if let Some(ref m) = metrics {
+                // Normalize endpoint path (remove IDs, etc.) for better metric grouping
+                let endpoint = normalize_endpoint(uri.path());
+                record_http_request(m, method.as_str(), &endpoint, status_code, duration);
+            }
 
             if status_code >= 500 {
                 error!(
@@ -138,6 +180,37 @@ where
 
             Ok(res)
         })
+    }
+}
+
+/// Normalize endpoint path for metrics (remove IDs, etc.)
+fn normalize_endpoint(path: &str) -> String {
+    // Remove common ID patterns (UUIDs, numeric IDs, etc.)
+    let path = path
+        .split('/')
+        .map(|segment| {
+            // Check if segment looks like an ID
+            if segment.is_empty() {
+                segment
+            } else if segment.parse::<u64>().is_ok() {
+                "{id}"
+            } else if uuid::Uuid::parse_str(segment).is_ok() {
+                "{id}"
+            } else if segment.contains('@') {
+                // Email addresses
+                "{email}"
+            } else {
+                segment
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("/");
+    
+    // Limit path length to avoid cardinality explosion
+    if path.len() > 100 {
+        format!("{}...", &path[..97])
+    } else {
+        path
     }
 }
 
@@ -421,22 +494,22 @@ mod tests {
 
     #[actix_web::test]
     async fn test_logger_middleware_creation() {
-        let _logger = Logger;
+        let _logger = Logger::new();
         assert!(true);
     }
 
     #[actix_web::test]
     async fn test_logger_middleware_service_creation() {
-        let _logger = Logger;
+        let _logger = Logger::new();
         assert!(true);
     }
 
     #[actix_web::test]
     async fn test_logger_middleware_transform() {
-        let _logger = Logger;
+        let logger = Logger::new();
         let app = test::init_service(
             App::new()
-                .wrap(Logger)
+                .wrap(logger)
                 .route("/test", web::get().to(|| async { "test" })),
         )
         .await;
@@ -449,8 +522,8 @@ mod tests {
 
     #[actix_web::test]
     async fn test_logger_middleware_with_error() {
-        let _logger = Logger;
-        let app = test::init_service(App::new().wrap(Logger).route(
+        let logger = Logger::new();
+        let app = test::init_service(App::new().wrap(logger).route(
             "/error",
             web::get().to(|| async { actix_web::HttpResponse::InternalServerError().finish() }),
         ))
@@ -464,8 +537,8 @@ mod tests {
 
     #[actix_web::test]
     async fn test_logger_middleware_with_client_error() {
-        let _logger = Logger;
-        let app = test::init_service(App::new().wrap(Logger).route(
+        let logger = Logger::new();
+        let app = test::init_service(App::new().wrap(logger).route(
             "/notfound",
             web::get().to(|| async { actix_web::HttpResponse::NotFound().finish() }),
         ))
@@ -523,8 +596,8 @@ mod tests {
 
     #[actix_web::test]
     async fn test_logger_middleware_timing() {
-        let _logger = Logger;
-        let app = test::init_service(App::new().wrap(Logger).route(
+        let logger = Logger::new();
+        let app = test::init_service(App::new().wrap(logger).route(
             "/slow",
             web::get().to(|| async {
                 tokio::time::sleep(Duration::from_millis(10)).await;
@@ -545,10 +618,10 @@ mod tests {
 
     #[actix_web::test]
     async fn test_logger_middleware_with_peer_addr() {
-        let _logger = Logger;
+        let logger = Logger::new();
         let app = test::init_service(
             App::new()
-                .wrap(Logger)
+                .wrap(logger)
                 .route("/test", web::get().to(|| async { "test" })),
         )
         .await;

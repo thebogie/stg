@@ -24,7 +24,7 @@ async fn test_create_venue() -> Result<()> {
 
     let app = test::init_service(
         App::new()
-            .wrap(backend::middleware::Logger)
+            .wrap(backend::middleware::Logger::new())
             .wrap(backend::middleware::cors_middleware())
             .app_data(actix_web::web::JsonConfig::default().limit(64 * 1024))
             .app_data(app_data.redis_data.clone())
@@ -127,7 +127,7 @@ async fn test_get_venue() -> Result<()> {
 
     let app = test::init_service(
         App::new()
-            .wrap(backend::middleware::Logger)
+            .wrap(backend::middleware::Logger::new())
             .wrap(backend::middleware::cors_middleware())
             .app_data(actix_web::web::JsonConfig::default().limit(64 * 1024))
             .app_data(app_data.redis_data.clone())
@@ -246,7 +246,7 @@ async fn test_get_all_venues() -> Result<()> {
 
     let app = test::init_service(
         App::new()
-            .wrap(backend::middleware::Logger)
+            .wrap(backend::middleware::Logger::new())
             .wrap(backend::middleware::cors_middleware())
             .app_data(actix_web::web::JsonConfig::default().limit(64 * 1024))
             .app_data(app_data.redis_data.clone())
@@ -343,7 +343,7 @@ async fn test_update_venue() -> Result<()> {
 
     let app = test::init_service(
         App::new()
-            .wrap(backend::middleware::Logger)
+            .wrap(backend::middleware::Logger::new())
             .wrap(backend::middleware::cors_middleware())
             .app_data(actix_web::web::JsonConfig::default().limit(64 * 1024))
             .app_data(app_data.redis_data.clone())
@@ -461,7 +461,7 @@ async fn test_delete_venue() -> Result<()> {
 
     let app = test::init_service(
         App::new()
-            .wrap(backend::middleware::Logger)
+            .wrap(backend::middleware::Logger::new())
             .wrap(backend::middleware::cors_middleware())
             .app_data(actix_web::web::JsonConfig::default().limit(64 * 1024))
             .app_data(app_data.redis_data.clone())
@@ -578,7 +578,7 @@ async fn test_venue_validation_errors() -> Result<()> {
 
     let app = test::init_service(
         App::new()
-            .wrap(backend::middleware::Logger)
+            .wrap(backend::middleware::Logger::new())
             .wrap(backend::middleware::cors_middleware())
             .app_data(actix_web::web::JsonConfig::default().limit(64 * 1024))
             .app_data(app_data.redis_data.clone())
@@ -646,7 +646,7 @@ async fn test_venue_unauthorized_access() -> Result<()> {
 
     let app = test::init_service(
         App::new()
-            .wrap(backend::middleware::Logger)
+            .wrap(backend::middleware::Logger::new())
             .wrap(backend::middleware::cors_middleware())
             .app_data(actix_web::web::JsonConfig::default().limit(64 * 1024))
             .app_data(app_data.redis_data.clone())

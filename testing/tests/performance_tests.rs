@@ -15,7 +15,7 @@ async fn test_concurrent_player_registrations() -> Result<()> {
 
     let app = test::init_service(
         App::new()
-            .wrap(backend::middleware::Logger)
+            .wrap(backend::middleware::Logger::new())
             .wrap(backend::middleware::cors_middleware())
             .app_data(actix_web::web::JsonConfig::default().limit(256 * 1024))
             .app_data(app_data.redis_data.clone())
@@ -76,7 +76,7 @@ async fn test_api_response_time() -> Result<()> {
 
     let app = test::init_service(
         App::new()
-            .wrap(backend::middleware::Logger)
+            .wrap(backend::middleware::Logger::new())
             .wrap(backend::middleware::cors_middleware())
             .app_data(app_data.player_repo.clone())
             .service(

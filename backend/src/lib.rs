@@ -4,6 +4,7 @@ pub mod contest;
 pub mod error;
 pub mod game;
 pub mod health;
+pub mod metrics;
 pub mod middleware;
 pub mod player;
 pub mod third_party;

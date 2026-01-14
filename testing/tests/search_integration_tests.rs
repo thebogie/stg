@@ -15,7 +15,7 @@ async fn test_search_players() -> Result<()> {
 
     let app = test::init_service(
         App::new()
-            .wrap(backend::middleware::Logger)
+            .wrap(backend::middleware::Logger::new())
             .wrap(backend::middleware::cors_middleware())
             .app_data(actix_web::web::JsonConfig::default().limit(64 * 1024))
             .app_data(app_data.redis_data.clone())
@@ -72,7 +72,7 @@ async fn test_search_venues() -> Result<()> {
 
     let app = test::init_service(
         App::new()
-            .wrap(backend::middleware::Logger)
+            .wrap(backend::middleware::Logger::new())
             .wrap(backend::middleware::cors_middleware())
             .app_data(actix_web::web::JsonConfig::default().limit(64 * 1024))
             .app_data(app_data.venue_repo.clone())
@@ -176,7 +176,7 @@ async fn test_search_games() -> Result<()> {
 
     let app = test::init_service(
         App::new()
-            .wrap(backend::middleware::Logger)
+            .wrap(backend::middleware::Logger::new())
             .wrap(backend::middleware::cors_middleware())
             .app_data(actix_web::web::JsonConfig::default().limit(64 * 1024))
             .app_data(app_data.game_repo.clone())
@@ -277,7 +277,7 @@ async fn test_search_empty_query() -> Result<()> {
 
     let app = test::init_service(
         App::new()
-            .wrap(backend::middleware::Logger)
+            .wrap(backend::middleware::Logger::new())
             .wrap(backend::middleware::cors_middleware())
             .app_data(app_data.player_repo.clone())
             .service(
@@ -307,7 +307,7 @@ async fn test_search_special_characters() -> Result<()> {
 
     let app = test::init_service(
         App::new()
-            .wrap(backend::middleware::Logger)
+            .wrap(backend::middleware::Logger::new())
             .wrap(backend::middleware::cors_middleware())
             .app_data(app_data.player_repo.clone())
             .service(

@@ -22,7 +22,7 @@ async fn test_400_bad_request_validation_errors() -> Result<()> {
 
     let app = test::init_service(
         App::new()
-            .wrap(backend::middleware::Logger)
+            .wrap(backend::middleware::Logger::new())
             .wrap(backend::middleware::cors_middleware())
             .app_data(actix_web::web::JsonConfig::default().limit(256 * 1024))
             .app_data(app_data.redis_data.clone())
@@ -91,7 +91,7 @@ async fn test_401_unauthorized_missing_auth() -> Result<()> {
 
     let app = test::init_service(
         App::new()
-            .wrap(backend::middleware::Logger)
+            .wrap(backend::middleware::Logger::new())
             .wrap(backend::middleware::cors_middleware())
             .app_data(actix_web::web::JsonConfig::default().limit(256 * 1024))
             .app_data(app_data.redis_data.clone())
@@ -160,7 +160,7 @@ async fn test_401_unauthorized_invalid_session() -> Result<()> {
 
     let app = test::init_service(
         App::new()
-            .wrap(backend::middleware::Logger)
+            .wrap(backend::middleware::Logger::new())
             .wrap(backend::middleware::cors_middleware())
             .app_data(actix_web::web::JsonConfig::default().limit(256 * 1024))
             .app_data(app_data.redis_data.clone())
@@ -232,7 +232,7 @@ async fn test_404_not_found_resources() -> Result<()> {
 
     let app = test::init_service(
         App::new()
-            .wrap(backend::middleware::Logger)
+            .wrap(backend::middleware::Logger::new())
             .wrap(backend::middleware::cors_middleware())
             .app_data(actix_web::web::JsonConfig::default().limit(256 * 1024))
             .app_data(app_data.redis_data.clone())
@@ -320,7 +320,7 @@ async fn test_malformed_json_request() -> Result<()> {
 
     let app = test::init_service(
         App::new()
-            .wrap(backend::middleware::Logger)
+            .wrap(backend::middleware::Logger::new())
             .wrap(backend::middleware::cors_middleware())
             .app_data(actix_web::web::JsonConfig::default().limit(256 * 1024))
             .app_data(app_data.redis_data.clone())
@@ -381,7 +381,7 @@ async fn test_missing_required_fields() -> Result<()> {
 
     let app = test::init_service(
         App::new()
-            .wrap(backend::middleware::Logger)
+            .wrap(backend::middleware::Logger::new())
             .wrap(backend::middleware::cors_middleware())
             .app_data(actix_web::web::JsonConfig::default().limit(256 * 1024))
             .app_data(app_data.redis_data.clone())
@@ -446,7 +446,7 @@ async fn test_invalid_field_types() -> Result<()> {
 
     let app = test::init_service(
         App::new()
-            .wrap(backend::middleware::Logger)
+            .wrap(backend::middleware::Logger::new())
             .wrap(backend::middleware::cors_middleware())
             .app_data(actix_web::web::JsonConfig::default().limit(256 * 1024))
             .app_data(app_data.redis_data.clone())
@@ -514,7 +514,7 @@ async fn test_oversized_request_body() -> Result<()> {
 
     let app = test::init_service(
         App::new()
-            .wrap(backend::middleware::Logger)
+            .wrap(backend::middleware::Logger::new())
             .wrap(backend::middleware::cors_middleware())
             .app_data(actix_web::web::JsonConfig::default().limit(256 * 1024))
             .app_data(app_data.redis_data.clone())
@@ -582,7 +582,7 @@ async fn test_invalid_content_type() -> Result<()> {
 
     let app = test::init_service(
         App::new()
-            .wrap(backend::middleware::Logger)
+            .wrap(backend::middleware::Logger::new())
             .wrap(backend::middleware::cors_middleware())
             .app_data(actix_web::web::JsonConfig::default().limit(256 * 1024))
             .app_data(app_data.redis_data.clone())

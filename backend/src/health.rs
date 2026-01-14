@@ -3,6 +3,7 @@ use arangors::Database;
 use serde::Serialize;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::time::timeout;
+use prometheus::Encoder;
 
 #[derive(Serialize, utoipa::ToSchema)]
 pub struct HealthResponse {
@@ -287,6 +288,27 @@ pub async fn version_info() -> impl Responder {
     };
 
     HttpResponse::Ok().json(response)
+}
+
+/// Prometheus metrics endpoint
+/// Returns metrics in Prometheus exposition format
+#[get("/metrics")]
+pub async fn metrics_endpoint() -> impl Responder {
+    use crate::metrics::Metrics;
+    
+    let encoder = prometheus::TextEncoder::new();
+    let metric_families = Metrics::registry().gather();
+    
+    match encoder.encode_to_string(&metric_families) {
+        Ok(metrics) => HttpResponse::Ok()
+            .content_type("text/plain; version=0.0.4; charset=utf-8")
+            .body(metrics),
+        Err(e) => {
+            log::error!("Failed to encode metrics: {}", e);
+            HttpResponse::InternalServerError()
+                .body(format!("Failed to encode metrics: {}", e))
+        }
+    }
 }
 
 #[cfg(test)]

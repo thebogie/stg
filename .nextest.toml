@@ -40,5 +40,40 @@ filter = { package = "testing" }
 test-threads = 2  # Even more conservative in CI
 test-timeout = "240s"
 
+# Tier 3: Slowest tests run sequentially to avoid resource contention
+# These are the integration tests that use testcontainers and are most prone to timeouts
+# Venue tests (prone to Redis connection timeouts)
+[[profile.default.overrides]]
+filter = { test = "test_delete_venue_success|test_get_venue_not_found|test_get_venue" }
+test-threads = 1  # Run sequentially (one at a time)
+test-timeout = "180s"
+
+[[profile.ci.overrides]]
+filter = { test = "test_delete_venue_success|test_get_venue_not_found|test_get_venue" }
+test-threads = 1  # Run sequentially in CI too
+test-timeout = "300s"
+
+# Contest tests (slow integration tests)
+[[profile.default.overrides]]
+filter = { test = "test_search_contests|test_get_contest" }
+test-threads = 1
+test-timeout = "180s"
+
+[[profile.ci.overrides]]
+filter = { test = "test_search_contests|test_get_contest" }
+test-threads = 1
+test-timeout = "300s"
+
+# Game tests (slow integration tests)
+[[profile.default.overrides]]
+filter = { test = "test_get_all_games" }
+test-threads = 1
+test-timeout = "180s"
+
+[[profile.ci.overrides]]
+filter = { test = "test_get_all_games" }
+test-threads = 1
+test-timeout = "300s"
+
 
 

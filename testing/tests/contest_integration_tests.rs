@@ -16,7 +16,7 @@ async fn test_create_contest() -> Result<()> {
     // First create a venue and game
     let venue_app = test::init_service(
         App::new()
-            .wrap(backend::middleware::Logger)
+            .wrap(backend::middleware::Logger::new())
             .wrap(backend::middleware::cors_middleware())
             .app_data(actix_web::web::JsonConfig::default().limit(64 * 1024))
             .app_data(app_data.venue_repo.clone())
@@ -101,7 +101,7 @@ async fn test_create_contest() -> Result<()> {
     // Create game (reuses session_id from venue_app)
     let game_app = test::init_service(
         App::new()
-            .wrap(backend::middleware::Logger)
+            .wrap(backend::middleware::Logger::new())
             .wrap(backend::middleware::cors_middleware())
             .app_data(actix_web::web::JsonConfig::default().limit(64 * 1024))
             .app_data(app_data.game_repo.clone())
@@ -142,7 +142,7 @@ async fn test_create_contest() -> Result<()> {
     // Now create contest
     let contest_app = test::init_service(
         App::new()
-            .wrap(backend::middleware::Logger)
+            .wrap(backend::middleware::Logger::new())
             .wrap(backend::middleware::cors_middleware())
             .app_data(actix_web::web::JsonConfig::default().limit(128 * 1024))
             .app_data(app_data.contest_repo.clone())

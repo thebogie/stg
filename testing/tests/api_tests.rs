@@ -26,7 +26,7 @@ async fn test_player_registration() -> Result<()> {
     let app_data = app_setup::setup_test_app_data(&env).await?;
     let app = test::init_service(
         App::new()
-            .wrap(backend::middleware::Logger)
+            .wrap(backend::middleware::Logger::new())
             .wrap(backend::middleware::cors_middleware())
             .app_data(actix_web::web::JsonConfig::default().limit(256 * 1024))
             .app_data(app_data.redis_data.clone())
@@ -74,7 +74,7 @@ async fn test_player_registration_duplicate_email() -> Result<()> {
     let app_data = app_setup::setup_test_app_data(&env).await?;
     let app = test::init_service(
         App::new()
-            .wrap(backend::middleware::Logger)
+            .wrap(backend::middleware::Logger::new())
             .wrap(backend::middleware::cors_middleware())
             .app_data(actix_web::web::JsonConfig::default().limit(256 * 1024))
             .app_data(app_data.redis_data.clone())
@@ -127,7 +127,7 @@ async fn test_player_login() -> Result<()> {
     let app_data = app_setup::setup_test_app_data(&env).await?;
     let app = test::init_service(
         App::new()
-            .wrap(backend::middleware::Logger)
+            .wrap(backend::middleware::Logger::new())
             .wrap(backend::middleware::cors_middleware())
             .app_data(actix_web::web::JsonConfig::default().limit(256 * 1024))
             .app_data(app_data.redis_data.clone())
@@ -186,7 +186,7 @@ async fn test_player_login_invalid_credentials() -> Result<()> {
     let app_data = app_setup::setup_test_app_data(&env).await?;
     let app = test::init_service(
         App::new()
-            .wrap(backend::middleware::Logger)
+            .wrap(backend::middleware::Logger::new())
             .wrap(backend::middleware::cors_middleware())
             .app_data(actix_web::web::JsonConfig::default().limit(256 * 1024))
             .app_data(app_data.redis_data.clone())
@@ -226,7 +226,7 @@ async fn test_get_current_player() -> Result<()> {
     let app_data = app_setup::setup_test_app_data(&env).await?;
     let app = test::init_service(
         App::new()
-            .wrap(backend::middleware::Logger)
+            .wrap(backend::middleware::Logger::new())
             .wrap(backend::middleware::cors_middleware())
             .app_data(actix_web::web::JsonConfig::default().limit(256 * 1024))
             .app_data(app_data.redis_data.clone())
@@ -302,7 +302,7 @@ async fn test_get_current_player_unauthorized() -> Result<()> {
     let app_data = app_setup::setup_test_app_data(&env).await?;
     let app = test::init_service(
         App::new()
-            .wrap(backend::middleware::Logger)
+            .wrap(backend::middleware::Logger::new())
             .wrap(backend::middleware::cors_middleware())
             .app_data(actix_web::web::JsonConfig::default().limit(256 * 1024))
             .app_data(app_data.redis_data.clone())
@@ -365,7 +365,7 @@ async fn test_player_logout() -> Result<()> {
     let app_data = app_setup::setup_test_app_data(&env).await?;
     let app = test::init_service(
         App::new()
-            .wrap(backend::middleware::Logger)
+            .wrap(backend::middleware::Logger::new())
             .wrap(backend::middleware::cors_middleware())
             .app_data(actix_web::web::JsonConfig::default().limit(256 * 1024))
             .app_data(app_data.redis_data.clone())

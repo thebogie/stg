@@ -8,8 +8,26 @@ use utoipa::OpenApi;
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    // Initialize logging with debug level for better visibility
-    env_logger::init_from_env(env_logger::Env::new().default_filter_or("debug"));
+    // Initialize structured logging
+    let env = std::env::var("RUST_ENV").unwrap_or_else(|_| "development".to_string());
+    let is_production = env.eq_ignore_ascii_case("production");
+    
+    // Bridge log crate to tracing (must be done before subscriber init)
+    tracing_log::LogTracer::init().expect("Failed to set logger");
+    
+    // Initialize tracing subscriber
+    if is_production {
+        // Use JSON logging for production
+        tracing_subscriber::fmt()
+            .json()
+            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+            .init();
+    } else {
+        // Use human-readable logging for development
+        tracing_subscriber::fmt()
+            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+            .init();
+    }
 
     // Load configuration from environment variables
     let config = match backend::config::Config::load() {
@@ -157,11 +175,31 @@ async fn main() -> std::io::Result<()> {
     // Store database in web::Data for health checks
     let db_data = web::Data::new(db.clone());
 
+    // Initialize metrics (this will initialize the global instance)
+    let metrics = match backend::metrics::Metrics::new() {
+        Ok(m) => {
+            log::info!("Metrics initialized successfully");
+            let metrics_arc = std::sync::Arc::new(m);
+            // Set global metrics instance
+            backend::metrics::Metrics::set_global(metrics_arc.clone());
+            metrics_arc
+        }
+        Err(e) => {
+            log::error!("Failed to initialize metrics: {}", e);
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Failed to initialize metrics: {}", e),
+            ));
+        }
+    };
+    let metrics_data = web::Data::new(metrics.clone());
+
     HttpServer::new(move || {
         App::new()
-            .wrap(backend::middleware::Logger)
+            .wrap(backend::middleware::Logger::with_metrics(metrics.clone()))
             .wrap(backend::middleware::SecurityHeaders)
             .wrap(backend::middleware::cors_middleware())
+            .app_data(metrics_data.clone())
             .app_data(actix_web::web::JsonConfig::default().limit(256 * 1024))
             .app_data(redis_data.clone())
             .app_data(db_data.clone())
@@ -179,6 +217,7 @@ async fn main() -> std::io::Result<()> {
             .service(backend::health::detailed_health_check)
             .service(backend::health::scheduler_health_check)
             .service(backend::health::version_info)
+            .service(backend::health::metrics_endpoint)
             .service(
                 web::scope("/api/players")
                     .service(backend::player::controller::register_handler_prod)

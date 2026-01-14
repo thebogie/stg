@@ -52,7 +52,7 @@ async fn test_create_contest_success() -> Result<()> {
 
     let app = test::init_service(
         App::new()
-            .wrap(backend::middleware::Logger)
+            .wrap(backend::middleware::Logger::new())
             .wrap(backend::middleware::cors_middleware())
             .app_data(actix_web::web::JsonConfig::default().limit(256 * 1024))
             .app_data(app_data.redis_data.clone())
@@ -136,7 +136,7 @@ async fn test_create_contest_validation_errors() -> Result<()> {
 
     let app = test::init_service(
         App::new()
-            .wrap(backend::middleware::Logger)
+            .wrap(backend::middleware::Logger::new())
             .wrap(backend::middleware::cors_middleware())
             .app_data(actix_web::web::JsonConfig::default().limit(256 * 1024))
             .app_data(app_data.redis_data.clone())
@@ -211,7 +211,7 @@ async fn test_get_contest_success() -> Result<()> {
 
     let app = test::init_service(
         App::new()
-            .wrap(backend::middleware::Logger)
+            .wrap(backend::middleware::Logger::new())
             .wrap(backend::middleware::cors_middleware())
             .app_data(actix_web::web::JsonConfig::default().limit(256 * 1024))
             .app_data(app_data.redis_data.clone())
@@ -312,7 +312,7 @@ async fn test_get_contest_not_found() -> Result<()> {
 
     let app = test::init_service(
         App::new()
-            .wrap(backend::middleware::Logger)
+            .wrap(backend::middleware::Logger::new())
             .wrap(backend::middleware::cors_middleware())
             .app_data(actix_web::web::JsonConfig::default().limit(256 * 1024))
             .app_data(app_data.redis_data.clone())
@@ -366,7 +366,7 @@ async fn test_search_contests() -> Result<()> {
 
     let app = test::init_service(
         App::new()
-            .wrap(backend::middleware::Logger)
+            .wrap(backend::middleware::Logger::new())
             .wrap(backend::middleware::cors_middleware())
             .app_data(actix_web::web::JsonConfig::default().limit(256 * 1024))
             .app_data(app_data.redis_data.clone())
@@ -530,7 +530,7 @@ async fn test_contest_unauthorized_access() -> Result<()> {
 
     let app = test::init_service(
         App::new()
-            .wrap(backend::middleware::Logger)
+            .wrap(backend::middleware::Logger::new())
             .wrap(backend::middleware::cors_middleware())
             .app_data(actix_web::web::JsonConfig::default().limit(256 * 1024))
             .app_data(app_data.redis_data.clone())

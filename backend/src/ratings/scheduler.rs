@@ -134,12 +134,31 @@ impl<C: ClientExt + Send + Sync + 'static> RatingsScheduler<C> {
         info!("Recalculating ratings for period: {}", period);
 
         // Run the recalculation
-        usecase.recompute_month(Some(period)).await?;
+        let result = usecase.recompute_month(Some(period)).await;
 
         let duration = start_time.elapsed();
-        info!("Monthly recalculation completed in {:?}", duration);
+        let status = if result.is_ok() { "success" } else { "error" };
+        
+        // Record metrics if available
+        if let Some(metrics) = crate::metrics::Metrics::global() {
+            crate::metrics::record_scheduler_execution(
+                metrics.as_ref(),
+                "monthly_recalculation",
+                status,
+                duration,
+            );
+        }
 
-        Ok(())
+        match result {
+            Ok(_) => {
+                info!("Monthly recalculation completed in {:?}", duration);
+                Ok(())
+            }
+            Err(e) => {
+                error!("Monthly recalculation failed after {:?}: {}", duration, e);
+                Err(e)
+            }
+        }
     }
 
     /// Manually trigger recalculation for a specific period
@@ -150,12 +169,31 @@ impl<C: ClientExt + Send + Sync + 'static> RatingsScheduler<C> {
         );
 
         let start_time = Instant::now();
-        self.usecase.recompute_month(period).await?;
+        let result = self.usecase.recompute_month(period).await;
 
         let duration = start_time.elapsed();
-        info!("Manual recalculation completed in {:?}", duration);
+        let status = if result.is_ok() { "success" } else { "error" };
+        
+        // Record metrics if available
+        if let Some(metrics) = crate::metrics::Metrics::global() {
+            crate::metrics::record_scheduler_execution(
+                metrics.as_ref(),
+                "manual_recalculation",
+                status,
+                duration,
+            );
+        }
 
-        Ok(())
+        match result {
+            Ok(_) => {
+                info!("Manual recalculation completed in {:?}", duration);
+                Ok(())
+            }
+            Err(e) => {
+                error!("Manual recalculation failed after {:?}: {}", duration, e);
+                Err(e)
+            }
+        }
     }
 
     /// Get scheduler status

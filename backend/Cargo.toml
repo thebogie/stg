@@ -52,10 +52,16 @@ uuid = { version = "1.7", features = ["v4", "serde"] }
 validator = { version = "0.16", features = ["derive"] }
 
 # Logging and error handling
-env_logger = "0.10"
 log = "0.4"
 anyhow = "1.0"
 thiserror = "1.0"
+
+# Observability (structured logs + metrics)
+tracing = "0.1"
+tracing-log = "0.2"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+once_cell = "1.19"
+prometheus = "0.13"
 # Utilities
 base64 = { workspace = true }
 urlencoding = "2.1"
