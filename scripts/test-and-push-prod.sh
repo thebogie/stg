@@ -103,8 +103,9 @@ if ! cargo nextest run --workspace --lib --tests; then
 fi
 log_success "Backend unit tests passed"
 
-log_info "Running integration tests..."
-if ! cargo nextest run --package testing --test '*'; then
+log_info "Running integration tests with 3-tier strategy..."
+# 3-Tier approach: Fast tests (4 threads) -> Retry failures (2 threads) -> Slow tests (1 thread)
+if ! ./scripts/test-integration-3tier.sh; then
     log_error "Integration tests failed!"
     exit 1
 fi

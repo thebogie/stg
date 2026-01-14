@@ -69,6 +69,10 @@ shared = { path = "../shared" }
 random_word = "0.3"
 fastrand = "2.3.0"
 
+# OpenAPI/Swagger documentation
+utoipa = { version = "4.2", features = ["actix_extras", "chrono"] }
+utoipa-swagger-ui = { version = "6.0", features = ["actix-web"] }
+
 [dev-dependencies]
 tokio-test = { workspace = true }
 mockall = { workspace = true }

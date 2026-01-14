@@ -4,6 +4,7 @@ use backend::third_party::BGGService;
 use backend::config::BGGConfig;
 use log::error;
 use arangors::client::reqwest::ReqwestClient;
+use utoipa::OpenApi;
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -102,11 +103,17 @@ async fn main() -> std::io::Result<()> {
     } else {
         log::info!("Glicko2 ratings scheduler started successfully");
     }
+    
+    // Store scheduler in web::Data for health checks
+    let scheduler_data = web::Data::new(ratings_scheduler.clone());
 
     // Analytics components will be initialized in the route configuration
 
     // Start HTTP server
     log::info!("Starting server on {}:{}", config.server.host, config.server.port);
+
+    // Store database in web::Data for health checks
+    let db_data = web::Data::new(db.clone());
 
     HttpServer::new(move || {
         App::new()
@@ -114,11 +121,17 @@ async fn main() -> std::io::Result<()> {
             .wrap(backend::middleware::cors_middleware())
             .app_data(actix_web::web::JsonConfig::default().limit(256 * 1024))
             .app_data(redis_data.clone())
+            .app_data(db_data.clone())
+            .app_data(scheduler_data.clone())
             .app_data(player_repo.clone())
             .app_data(venue_repo.clone())
             .app_data(game_repo.clone())
             .app_data(contest_repo.clone())
             .app_data(session_store.clone())
+            .service(
+                utoipa_swagger_ui::SwaggerUi::new("/swagger-ui/{_:.*}")
+                    .url("/api-docs/openapi.json", <backend::openapi::ApiDoc as OpenApi>::openapi())
+            )
             .service(backend::health::health_check)
             .service(backend::health::detailed_health_check)
             .service(backend::health::scheduler_health_check)

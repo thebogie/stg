@@ -5,7 +5,6 @@ use actix_web::{test, web, App};
 use actix_web::dev::ServiceResponse;
 use serde_json::json;
 use testing::{TestEnvironment, app_setup};
-use testing::create_authenticated_user;
 use shared::dto::game::GameDto;
 
 /// Helper to read response body as text for debugging  
@@ -252,11 +251,11 @@ async fn test_update_game() -> Result<()> {
         }))
         .to_request();
     let login_resp = test::call_service(&app, login_req).await;
-    assert!(
-        login_resp.status().is_success(),
-        "Login should succeed, got status: {}",
-        login_resp.status()
-    );
+    let status = login_resp.status();
+    if !status.is_success() {
+        let body = read_body_text(login_resp).await;
+        panic!("Login should succeed, got status: {}, body: {}", status, body);
+    }
     let login_body: serde_json::Value = test::read_body_json(login_resp).await;
     let session_id = login_body["session_id"].as_str().expect("Login response should contain session_id");
 

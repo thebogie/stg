@@ -58,8 +58,9 @@ impl TestEnvironment {
                     .await
                 {
                     Ok(container) => {
-                        // Give it a moment to bind ports
-                        tokio::time::sleep(Duration::from_millis(500)).await;
+                        // Give it more time to bind ports and start services
+                        // ArangoDB needs time to initialize, especially when starting multiple containers
+                        tokio::time::sleep(Duration::from_millis(2000)).await;
                         container_result = Some(Ok(container));
                         break;
                     }
@@ -91,8 +92,9 @@ impl TestEnvironment {
                     .await
                 {
                     Ok(container) => {
-                        // Give it a moment to bind ports
-                        tokio::time::sleep(Duration::from_millis(500)).await;
+                        // Give it more time to bind ports and start services
+                        // Increased for parallel execution where containers compete for resources
+                        tokio::time::sleep(Duration::from_millis(2000)).await;
                         container_result = Some(container);
                         break;
                     }
@@ -182,7 +184,11 @@ impl TestEnvironment {
     pub async fn wait_for_ready(&self) -> Result<()> {
         // Wait for services to be fully ready with retry logic
         // This is especially important when running tests in parallel
-        let max_attempts = 10;
+        // Increased attempts and longer wait times for better reliability
+        // ArangoDB can take 30+ seconds to fully start in some environments
+        let max_attempts = 40;
+        let mut last_error = None;
+        
         for attempt in 0..max_attempts {
             // Try to connect to ArangoDB to verify it's ready
             match arangors::Connection::establish_basic_auth(
@@ -192,20 +198,87 @@ impl TestEnvironment {
             ).await {
                 Ok(_) => {
                     log::debug!("ArangoDB is ready after {} attempts", attempt + 1);
+                    last_error = None;
                     break;
                 }
                 Err(e) if attempt < max_attempts - 1 => {
-                    log::debug!("ArangoDB not ready yet (attempt {}): {}, waiting...", attempt + 1, e);
-                    tokio::time::sleep(Duration::from_millis(500 * (attempt + 1) as u64)).await;
+                    last_error = Some(e);
+                    // Exponential backoff with longer initial wait
+                    // ArangoDB needs more time, especially when containers start in parallel
+                    let wait_ms = if attempt == 0 {
+                        2000 // Start with 2 seconds
+                    } else if attempt < 5 {
+                        2000 * (attempt + 1) as u64 // Faster growth for first few attempts
+                    } else {
+                        3000 * (attempt / 2 + 1) as u64 // Slower growth after initial attempts
+                    };
+                    log::debug!("ArangoDB not ready yet (attempt {}): {}, waiting {}ms...", attempt + 1, last_error.as_ref().unwrap(), wait_ms);
+                    tokio::time::sleep(Duration::from_millis(wait_ms)).await;
                 }
                 Err(e) => {
-                    return Err(anyhow::anyhow!("ArangoDB failed to become ready after {} attempts: {}", max_attempts, e));
+                    last_error = Some(e);
                 }
             }
         }
         
-        // Additional safety buffer for Redis and other services
-        tokio::time::sleep(Duration::from_secs(1)).await;
+        if let Some(e) = last_error {
+            return Err(anyhow::anyhow!("ArangoDB failed to become ready after {} attempts: {}", max_attempts, e));
+        }
+        
+        // Verify Redis is also ready with more attempts and longer waits
+        // Increased for parallel test execution - Redis can take longer when multiple containers start simultaneously
+        let redis_client = redis::Client::open(self.redis_url())?;
+        let redis_max_attempts = 60; // Increased from 30 to 60 for parallel execution
+        let mut redis_ready = false;
+        
+        for attempt in 0..redis_max_attempts {
+            match redis_client.get_async_connection().await {
+                Ok(mut conn) => {
+                    match redis::cmd("PING").query_async::<_, String>(&mut conn).await {
+                        Ok(_) => {
+                            log::debug!("Redis is ready after {} attempts", attempt + 1);
+                            redis_ready = true;
+                            break;
+                        }
+                        Err(e) if attempt < redis_max_attempts - 1 => {
+                            let wait_ms = if attempt == 0 {
+                                2000 // Start with 2 seconds (increased from 1s for parallel execution)
+                            } else if attempt < 5 {
+                                2000 * (attempt + 1) as u64 // Faster growth for first few attempts
+                            } else {
+                                3000 * (attempt / 2 + 1) as u64 // Slower growth after initial attempts
+                            };
+                            log::debug!("Redis PING failed (attempt {}): {}, waiting {}ms...", attempt + 1, e, wait_ms);
+                            tokio::time::sleep(Duration::from_millis(wait_ms)).await;
+                        }
+                        Err(e) => {
+                            return Err(anyhow::anyhow!("Redis failed to become ready after {} attempts: {}", redis_max_attempts, e));
+                        }
+                    }
+                }
+                Err(e) if attempt < redis_max_attempts - 1 => {
+                    let wait_ms = if attempt == 0 {
+                        2000 // Start with 2 seconds (increased from 1s for parallel execution)
+                    } else if attempt < 5 {
+                        2000 * (attempt + 1) as u64 // Faster growth for first few attempts
+                    } else {
+                        3000 * (attempt / 2 + 1) as u64 // Slower growth after initial attempts
+                    };
+                    log::debug!("Redis connection failed (attempt {}): {}, waiting {}ms...", attempt + 1, e, wait_ms);
+                    tokio::time::sleep(Duration::from_millis(wait_ms)).await;
+                }
+                Err(e) => {
+                    return Err(anyhow::anyhow!("Redis failed to become ready after {} attempts: {}", redis_max_attempts, e));
+                }
+            }
+        }
+        
+        if !redis_ready {
+            return Err(anyhow::anyhow!("Redis failed to become ready after {} attempts", redis_max_attempts));
+        }
+        
+        // Additional safety buffer for services to fully initialize
+        tokio::time::sleep(Duration::from_millis(500)).await;
         Ok(())
     }
 

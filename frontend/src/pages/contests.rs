@@ -231,8 +231,11 @@ pub fn contests(_props: &ContestsProps) -> Html {
             let mut game_ids = Vec::new();
             for i in 0..selected_options.length() {
                 if let Some(option) = selected_options.item(i) {
-                    let option_element: web_sys::HtmlOptionElement = option.unchecked_into();
-                    game_ids.push(option_element.value());
+                    // Option elements are just Element types in web_sys
+                    // Get the value from the value attribute
+                    if let Some(value) = option.get_attribute("value") {
+                        game_ids.push(value);
+                    }
                 }
             }
             let mut state = (*draft_state).clone();

@@ -22,8 +22,9 @@ test-backend-coverage:
     cargo llvm-cov nextest --workspace --html --output-dir _build/coverage/html
 
 # Run integration tests (uses testcontainers)
+# 3-Tier strategy: Fast (4 threads) -> Retry failures (2 threads) -> Slow tests (1 thread)
 test-integration:
-    cargo nextest run --package testing --test '*'
+    ./scripts/test-integration-3tier.sh
 
 # Build Docker images for E2E testing (run this first or when code changes)
 # Industry standard: Build images separately, don't build during test runs

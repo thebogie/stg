@@ -2,7 +2,7 @@ use actix_web::{HttpResponse, ResponseError};
 use serde::Serialize;
 use std::fmt;
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct ApiError {
     pub error: String,
     pub message: String,

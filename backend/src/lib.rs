@@ -49,6 +49,8 @@ pub mod migration {
     pub mod timezone_migration;
 }
 
+pub mod openapi;
+
 // Unit test modules only
 #[cfg(test)]
 mod tests;
