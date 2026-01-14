@@ -1,4 +1,5 @@
 use crate::api::utils::authenticated_get;
+use crate::api::version::{get_version_info, VersionInfo};
 use crate::components::common::toast::{Toast, ToastContext, ToastType};
 use crate::components::scheduler_monitor::SchedulerMonitor;
 use serde_json::Value;
@@ -25,6 +26,10 @@ pub fn admin_page(_props: &AdminPageProps) -> Html {
     let system_stats = use_state(|| None::<Value>);
     let stats_loading = use_state(|| false);
     let stats_error = use_state(|| None::<String>);
+
+    // Version info state
+    let version_info = use_state(|| None::<VersionInfo>);
+    let version_loading = use_state(|| false);
 
     // Check if user is admin
     if !auth.state.is_admin() {
@@ -87,6 +92,30 @@ pub fn admin_page(_props: &AdminPageProps) -> Html {
                     }
                 }
                 stats_loading.set(false);
+            });
+
+            || ()
+        });
+    }
+
+    // Load version info
+    {
+        let version_info = version_info.clone();
+        let version_loading = version_loading.clone();
+
+        use_effect_with((), move |_| {
+            version_loading.set(true);
+
+            wasm_bindgen_futures::spawn_local(async move {
+                match get_version_info().await {
+                    Ok(info) => {
+                        version_info.set(Some(info));
+                    }
+                    Err(e) => {
+                        log::error!("Failed to fetch version info: {}", e);
+                    }
+                }
+                version_loading.set(false);
             });
 
             || ()
@@ -244,18 +273,58 @@ pub fn admin_page(_props: &AdminPageProps) -> Html {
                                     <div class="config-card">
                                         <h3>{"System Information"}</h3>
                                         <div class="info-grid">
-                                            <div class="info-item">
-                                                <span class="info-label">{"Version:"}</span>
-                                                <span class="info-value">{"1.0.0"}</span>
-                                            </div>
-                                            <div class="info-item">
-                                                <span class="info-label">{"Environment:"}</span>
-                                                <span class="info-value">{"Production"}</span>
-                                            </div>
-                                            <div class="info-item">
-                                                <span class="info-label">{"Last Updated:"}</span>
-                                                <span class="info-value">{"2025-01-15"}</span>
-                                            </div>
+                                            {if *version_loading {
+                                                html! {
+                                                    <div class="info-item">
+                                                        <span class="info-label">{"Loading..."}</span>
+                                                    </div>
+                                                }
+                                            } else if let Some(ref info) = *version_info {
+                                                html! {
+                                                    <>
+                                                        <div class="info-item">
+                                                            <span class="info-label">{"Version:"}</span>
+                                                            <span class="info-value">{&info.version}</span>
+                                                        </div>
+                                                        {if let Some(ref frontend_tag) = info.frontend_image_tag {
+                                                            html! {
+                                                                <div class="info-item">
+                                                                    <span class="info-label">{"Frontend Image:"}</span>
+                                                                    <span class="info-value">{frontend_tag}</span>
+                                                                </div>
+                                                            }
+                                                        } else {
+                                                            html! {}
+                                                        }}
+                                                        {if let Some(ref backend_tag) = info.backend_image_tag {
+                                                            html! {
+                                                                <div class="info-item">
+                                                                    <span class="info-label">{"Backend Image:"}</span>
+                                                                    <span class="info-value">{backend_tag}</span>
+                                                                </div>
+                                                            }
+                                                        } else {
+                                                            html! {}
+                                                        }}
+                                                        {if let Some(ref build_date) = info.build_date {
+                                                            html! {
+                                                                <div class="info-item">
+                                                                    <span class="info-label">{"Build Date:"}</span>
+                                                                    <span class="info-value">{build_date}</span>
+                                                                </div>
+                                                            }
+                                                        } else {
+                                                            html! {}
+                                                        }}
+                                                    </>
+                                                }
+                                            } else {
+                                                html! {
+                                                    <div class="info-item">
+                                                        <span class="info-label">{"Version info unavailable"}</span>
+                                                    </div>
+                                                }
+                                            }}
                                         </div>
                                     </div>
                                 </div>

@@ -118,6 +118,12 @@ pub fn footer() -> Html {
                                     if let Some(ref git_commit) = info.git_commit {
                                         <div>{"Commit: "}{git_commit}</div>
                                     }
+                                    if let Some(ref frontend_tag) = info.frontend_image_tag {
+                                        <div>{"Frontend Image: "}{frontend_tag}</div>
+                                    }
+                                    if let Some(ref backend_tag) = info.backend_image_tag {
+                                        <div>{"Backend Image: "}{backend_tag}</div>
+                                    }
                                     <div>{"Environment: "}{&info.environment}</div>
                                 } else if let Some(ref err) = *error {
                                     <div class="text-red-300">{"Error loading version: "}{err}</div>

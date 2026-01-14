@@ -5,6 +5,10 @@
 # Test timeout (default: 60s)
 test-timeout = "300s"
 
+# Limit parallelism to avoid overwhelming Docker with too many containers
+# When running 500+ tests, too many parallel containers cause resource contention
+test-threads = 8  # Limit to 8 parallel tests instead of auto (which could be 16+)
+
 # Retry failed tests
 retries = { backoff = "exponential", count = 2 }
 
@@ -20,8 +24,21 @@ threads-required = { file = 1 }
 [profile.ci]
 # CI-specific settings
 test-timeout = "600s"
+test-threads = 4  # Even more conservative for CI
 retries = { backoff = "exponential", count = 3 }
 status-level = "none"
+
+# Override for integration tests using testcontainers
+# These tests create Docker containers and need fewer parallel threads
+[[profile.default.overrides]]
+filter = { package = "testing" }
+test-threads = 4  # Limit to 4 parallel integration tests
+test-timeout = "180s"  # Match our optimized timeout
+
+[[profile.ci.overrides]]
+filter = { package = "testing" }
+test-threads = 2  # Even more conservative in CI
+test-timeout = "240s"
 
 
 

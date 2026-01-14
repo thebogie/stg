@@ -24,6 +24,12 @@ COPY testing ./testing
 COPY migrations ./migrations
 COPY scripts ./scripts
 
+# Build arguments for version info (available during cargo build)
+ARG GIT_COMMIT
+ARG BUILD_DATE
+ENV GIT_COMMIT=${GIT_COMMIT:-unknown}
+ENV BUILD_DATE=${BUILD_DATE:-unknown}
+
 # Build the backend binary from workspace root
 # Using --package backend ensures we only build the backend package
 # Strip binary to reduce size (strip will fail if binary doesn't exist)

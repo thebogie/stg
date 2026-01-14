@@ -1,0 +1,19 @@
+# Nextest configuration for integration tests
+# These tests use testcontainers and need limited parallelism
+
+[profile.default]
+# Limit parallelism to avoid Docker resource exhaustion
+# Each test creates 2 containers (ArangoDB + Redis)
+test-threads = 4  # Max 4 parallel tests = 8 containers max
+test-timeout = "180s"  # Match optimized wait_for_ready timeout
+retries = { backoff = "exponential", count = 1 }
+
+# Output configuration
+output = { type = "pretty", immediate = false }
+failure-output = { type = "pretty", immediate = true }
+
+[profile.ci]
+# Even more conservative for CI
+test-threads = 2  # Max 2 parallel tests = 4 containers max
+test-timeout = "240s"
+retries = { backoff = "exponential", count = 2 }

@@ -228,6 +228,10 @@ pub struct VersionInfo {
     pub build_date: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub git_commit: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub frontend_image_tag: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub backend_image_tag: Option<String>,
     pub environment: String,
 }
 
@@ -245,6 +249,38 @@ pub async fn version_info() -> impl Responder {
     let name = env!("CARGO_PKG_NAME").to_string();
     let build_date = option_env!("BUILD_DATE").map(|s| s.to_string());
     let git_commit = option_env!("GIT_COMMIT").map(|s| s.to_string());
+    // Get Docker image tags from runtime environment variables
+    // IMAGE_TAG is set in docker-compose.yaml for the backend container
+    let backend_image_tag = std::env::var("IMAGE_TAG")
+        .ok()
+        .or_else(|| {
+            // Fallback: try to extract tag from BACKEND_IMAGE if it contains a tag
+            std::env::var("BACKEND_IMAGE")
+                .ok()
+                .and_then(|img| {
+                    if img.contains(':') {
+                        img.split(':').nth(1).map(|s| s.to_string())
+                    } else {
+                        None
+                    }
+                })
+        });
+    
+    // Get frontend image tag (passed from docker-compose.yaml)
+    let frontend_image_tag = std::env::var("FRONTEND_IMAGE_TAG")
+        .ok()
+        .or_else(|| {
+            // Fallback: try to extract tag from FRONTEND_IMAGE if it contains a tag
+            std::env::var("FRONTEND_IMAGE")
+                .ok()
+                .and_then(|img| {
+                    if img.contains(':') {
+                        img.split(':').nth(1).map(|s| s.to_string())
+                    } else {
+                        None
+                    }
+                })
+        });
     let environment = std::env::var("ENVIRONMENT")
         .unwrap_or_else(|_| std::env::var("ENV").unwrap_or_else(|_| "production".to_string()));
 
@@ -253,6 +289,8 @@ pub async fn version_info() -> impl Responder {
         name,
         build_date,
         git_commit,
+        frontend_image_tag,
+        backend_image_tag,
         environment,
     };
 

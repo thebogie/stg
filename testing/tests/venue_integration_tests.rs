@@ -5,16 +5,21 @@ use actix_web::{test, web, App};
 use anyhow::Result;
 use serde_json::json;
 use shared::dto::venue::VenueDto;
-use testing::create_authenticated_user;
-use testing::{app_setup, TestEnvironment};
+use testing::{app_setup, create_test_env_with_timeout};
+
+/// Helper to generate unique test identifiers to avoid conflicts in parallel execution
+fn unique_test_id() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    format!("test_{}", timestamp)
+}
 
 #[tokio::test]
 async fn test_create_venue() -> Result<()> {
-    let env = tokio::time::timeout(std::time::Duration::from_secs(120), TestEnvironment::new())
-        .await
-        .map_err(|_| anyhow::anyhow!("Test environment setup timed out"))??;
-
-    env.wait_for_ready().await?;
+    let env = create_test_env_with_timeout().await?;
     let app_data = app_setup::setup_test_app_data(&env).await?;
 
     let app = test::init_service(
@@ -42,11 +47,12 @@ async fn test_create_venue() -> Result<()> {
     .await;
 
     // First, register and login to get auth token
+    let test_id = unique_test_id();
     let register_req = test::TestRequest::post()
         .uri("/api/players/register")
         .set_json(&json!({
-            "username": "venue_test_user",
-            "email": "venue_test@example.com",
+            "username": format!("venue_test_user_{}", test_id),
+            "email": format!("venue_test_{}@example.com", test_id),
             "password": "password123"
         }))
         .to_request();
@@ -61,7 +67,7 @@ async fn test_create_venue() -> Result<()> {
     let login_req = test::TestRequest::post()
         .uri("/api/players/login")
         .set_json(&json!({
-            "email": "venue_test@example.com",
+            "email": format!("venue_test_{}@example.com", test_id),
             "password": "password123"
         }))
         .to_request();
@@ -116,8 +122,7 @@ async fn test_create_venue() -> Result<()> {
 
 #[tokio::test]
 async fn test_get_venue() -> Result<()> {
-    let env = TestEnvironment::new().await?;
-    env.wait_for_ready().await?;
+    let env = create_test_env_with_timeout().await?;
     let app_data = app_setup::setup_test_app_data(&env).await?;
 
     let app = test::init_service(
@@ -146,11 +151,12 @@ async fn test_get_venue() -> Result<()> {
     .await;
 
     // Register, login, create venue
+    let test_id = unique_test_id();
     let register_req = test::TestRequest::post()
         .uri("/api/players/register")
         .set_json(&json!({
-            "username": "get_venue_user",
-            "email": "get_venue@example.com",
+            "username": format!("get_venue_user_{}", test_id),
+            "email": format!("get_venue_{}@example.com", test_id),
             "password": "password123"
         }))
         .to_request();
@@ -164,7 +170,7 @@ async fn test_get_venue() -> Result<()> {
     let login_req = test::TestRequest::post()
         .uri("/api/players/login")
         .set_json(&json!({
-            "email": "get_venue@example.com",
+            "email": format!("get_venue_{}@example.com", test_id),
             "password": "password123"
         }))
         .to_request();
@@ -185,7 +191,7 @@ async fn test_get_venue() -> Result<()> {
         .set_json(&json!({
             "displayName": "Get Test Venue",
             "formattedAddress": "456 Get St, Get City, GT 54321, USA",
-            "place_id": "get_place_id",
+            "place_id": format!("get_place_id_{}", test_id),
             "lat": 34.0522,
             "lng": -118.2437,
             "timezone": "America/Los_Angeles"
@@ -235,8 +241,7 @@ async fn test_get_venue() -> Result<()> {
 
 #[tokio::test]
 async fn test_get_all_venues() -> Result<()> {
-    let env = TestEnvironment::new().await?;
-    env.wait_for_ready().await?;
+    let env = create_test_env_with_timeout().await?;
     let app_data = app_setup::setup_test_app_data(&env).await?;
 
     let app = test::init_service(
@@ -265,11 +270,12 @@ async fn test_get_all_venues() -> Result<()> {
     .await;
 
     // Register and login
+    let test_id = unique_test_id();
     let register_req = test::TestRequest::post()
         .uri("/api/players/register")
         .set_json(&json!({
-            "username": "all_venues_user",
-            "email": "all_venues@example.com",
+            "username": format!("all_venues_user_{}", test_id),
+            "email": format!("all_venues_{}@example.com", test_id),
             "password": "password123"
         }))
         .to_request();
@@ -278,7 +284,7 @@ async fn test_get_all_venues() -> Result<()> {
     let login_req = test::TestRequest::post()
         .uri("/api/players/login")
         .set_json(&json!({
-            "email": "all_venues@example.com",
+            "email": format!("all_venues_{}@example.com", test_id),
             "password": "password123"
         }))
         .to_request();
@@ -294,7 +300,7 @@ async fn test_get_all_venues() -> Result<()> {
             .set_json(&json!({
             "displayName": format!("Venue {}", i),
             "formattedAddress": format!("{} Test St, Test City, TS 12345, USA", i),
-            "place_id": format!("test_place_id_{}", i),
+            "place_id": format!("test_place_id_{}_{}", test_id, i),
             "lat": 40.7128,
             "lng": -74.0060,
                 "timezone": "America/New_York"
@@ -332,8 +338,7 @@ async fn test_get_all_venues() -> Result<()> {
 
 #[tokio::test]
 async fn test_update_venue() -> Result<()> {
-    let env = TestEnvironment::new().await?;
-    env.wait_for_ready().await?;
+    let env = create_test_env_with_timeout().await?;
     let app_data = app_setup::setup_test_app_data(&env).await?;
 
     let app = test::init_service(
@@ -362,11 +367,12 @@ async fn test_update_venue() -> Result<()> {
     .await;
 
     // Register, login, create venue
+    let test_id = unique_test_id();
     let register_req = test::TestRequest::post()
         .uri("/api/players/register")
         .set_json(&json!({
-            "username": "update_venue_user",
-            "email": "update_venue@example.com",
+            "username": format!("update_venue_user_{}", test_id),
+            "email": format!("update_venue_{}@example.com", test_id),
             "password": "password123"
         }))
         .to_request();
@@ -375,7 +381,7 @@ async fn test_update_venue() -> Result<()> {
     let login_req = test::TestRequest::post()
         .uri("/api/players/login")
         .set_json(&json!({
-            "email": "update_venue@example.com",
+            "email": format!("update_venue_{}@example.com", test_id),
             "password": "password123"
         }))
         .to_request();
@@ -389,7 +395,7 @@ async fn test_update_venue() -> Result<()> {
         .set_json(&json!({
             "displayName": "Original Venue",
             "formattedAddress": "123 Original St, Original City, OR 12345, USA",
-            "place_id": "original_place_id",
+            "place_id": format!("original_place_id_{}", test_id),
             "lat": 40.7128,
             "lng": -74.0060,
             "timezone": "America/New_York"
@@ -420,7 +426,7 @@ async fn test_update_venue() -> Result<()> {
         .set_json(&json!({
             "displayName": "Updated Venue",
             "formattedAddress": "456 Updated St, Updated City, UP 54321, USA",
-            "place_id": "updated_place_id",
+            "place_id": format!("updated_place_id_{}", test_id),
             "lat": 34.0522,
             "lng": -118.2437,
             "timezone": "America/Los_Angeles"
@@ -450,8 +456,7 @@ async fn test_update_venue() -> Result<()> {
 
 #[tokio::test]
 async fn test_delete_venue() -> Result<()> {
-    let env = TestEnvironment::new().await?;
-    env.wait_for_ready().await?;
+    let env = create_test_env_with_timeout().await?;
     let app_data = app_setup::setup_test_app_data(&env).await?;
 
     let app = test::init_service(
@@ -481,11 +486,12 @@ async fn test_delete_venue() -> Result<()> {
     .await;
 
     // Register, login, create venue
+    let test_id = unique_test_id();
     let register_req = test::TestRequest::post()
         .uri("/api/players/register")
         .set_json(&json!({
-            "username": "delete_venue_user",
-            "email": "delete_venue@example.com",
+            "username": format!("delete_venue_user_{}", test_id),
+            "email": format!("delete_venue_{}@example.com", test_id),
             "password": "password123"
         }))
         .to_request();
@@ -494,7 +500,7 @@ async fn test_delete_venue() -> Result<()> {
     let login_req = test::TestRequest::post()
         .uri("/api/players/login")
         .set_json(&json!({
-            "email": "delete_venue@example.com",
+            "email": format!("delete_venue_{}@example.com", test_id),
             "password": "password123"
         }))
         .to_request();
@@ -508,7 +514,7 @@ async fn test_delete_venue() -> Result<()> {
         .set_json(&json!({
             "displayName": "Delete Test Venue",
             "formattedAddress": "789 Delete St, Delete City, DL 12345, USA",
-            "place_id": "delete_place_id",
+            "place_id": format!("delete_place_id_{}", test_id),
             "lat": 40.7128,
             "lng": -74.0060,
             "timezone": "America/New_York"
@@ -567,8 +573,7 @@ async fn test_delete_venue() -> Result<()> {
 
 #[tokio::test]
 async fn test_venue_validation_errors() -> Result<()> {
-    let env = TestEnvironment::new().await?;
-    env.wait_for_ready().await?;
+    let env = create_test_env_with_timeout().await?;
     let app_data = app_setup::setup_test_app_data(&env).await?;
 
     let app = test::init_service(
@@ -596,11 +601,12 @@ async fn test_venue_validation_errors() -> Result<()> {
     .await;
 
     // Register and login
+    let test_id = unique_test_id();
     let register_req = test::TestRequest::post()
         .uri("/api/players/register")
         .set_json(&json!({
-            "username": "validation_user",
-            "email": "validation@example.com",
+            "username": format!("validation_user_{}", test_id),
+            "email": format!("validation_{}@example.com", test_id),
             "password": "password123"
         }))
         .to_request();
@@ -609,7 +615,7 @@ async fn test_venue_validation_errors() -> Result<()> {
     let login_req = test::TestRequest::post()
         .uri("/api/players/login")
         .set_json(&json!({
-            "email": "validation@example.com",
+            "email": format!("validation_{}@example.com", test_id),
             "password": "password123"
         }))
         .to_request();
@@ -635,8 +641,7 @@ async fn test_venue_validation_errors() -> Result<()> {
 
 #[tokio::test]
 async fn test_venue_unauthorized_access() -> Result<()> {
-    let env = TestEnvironment::new().await?;
-    env.wait_for_ready().await?;
+    let env = create_test_env_with_timeout().await?;
     let app_data = app_setup::setup_test_app_data(&env).await?;
 
     let app = test::init_service(
@@ -669,7 +674,7 @@ async fn test_venue_unauthorized_access() -> Result<()> {
         .set_json(&json!({
             "displayName": "Unauthorized Venue",
             "formattedAddress": "123 Unauthorized St, Unauthorized City, UN 12345, USA",
-            "place_id": "unauthorized_place_id",
+            "place_id": format!("unauthorized_place_id_{}", unique_test_id()),
             "lat": 40.7128,
             "lng": -74.0060,
             "timezone": "America/New_York"

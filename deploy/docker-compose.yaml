@@ -20,6 +20,7 @@ services:
       # Flag to indicate we're running in Docker
       - DOCKER_ENV=true
       - FRONTEND_PORT=${FRONTEND_PORT}
+      - IMAGE_TAG=${IMAGE_TAG:-latest}
       # Note: API routing handled by external Traefik
     depends_on:
       - backend
@@ -43,6 +44,8 @@ services:
         RUST_ENV: "${RUST_ENV}"
         RUST_LOG: "${RUST_LOG}"
         RUST_BACKTRACE: "${RUST_BACKTRACE}"
+        GIT_COMMIT: "${GIT_COMMIT:-unknown}"
+        BUILD_DATE: "${BUILD_DATE:-unknown}"
     ports:
       - "${BACKEND_PORT}:${BACKEND_PORT}"
     env_file:
@@ -66,6 +69,8 @@ services:
       - DB_TIMEOUT=${DB_TIMEOUT}
       - REDIS_POOL_SIZE=${REDIS_POOL_SIZE}
       - REDIS_TIMEOUT=${REDIS_TIMEOUT}
+      - IMAGE_TAG=${IMAGE_TAG:-latest}
+      - FRONTEND_IMAGE_TAG=${IMAGE_TAG:-latest}
       # Note: All other environment variables (GOOGLE_LOCATION_API, BGG_API_TOKEN, etc.)
       # are automatically loaded from env_file above. Only variables that need to be
       # overridden or are used for container-to-container communication are listed here.

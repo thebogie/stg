@@ -8,6 +8,8 @@ pub struct VersionInfo {
     pub name: String,
     pub build_date: Option<String>,
     pub git_commit: Option<String>,
+    pub frontend_image_tag: Option<String>,
+    pub backend_image_tag: Option<String>,
     pub environment: String,
 }
 

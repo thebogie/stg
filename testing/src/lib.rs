@@ -7,6 +7,7 @@
 //! automatically stopped/removed when it goes out of scope (RAII pattern).
 
 use anyhow::{Context, Result};
+use arangors::ClientError;
 use std::path::Path;
 use std::process::Command;
 use std::time::Duration;
@@ -227,13 +228,26 @@ impl TestEnvironment {
     /// but this provides an additional safety buffer.
     pub async fn wait_for_ready(&self) -> Result<()> {
         // Wait for services to be fully ready with retry logic
-        // This is especially important when running tests in parallel
-        // Increased attempts and longer wait times for better reliability
-        // ArangoDB can take 30+ seconds to fully start in some environments
-        let max_attempts = 40;
-        let mut last_error = None;
+        // Optimized for parallel execution with faster initial checks and hard timeout
+        let start_time = std::time::Instant::now();
+        let max_total_time = Duration::from_secs(90); // Hard timeout of 90 seconds total
+        let max_attempts = 90; // More attempts but with shorter waits
+        let mut last_error: Option<ClientError> = None;
 
         for attempt in 0..max_attempts {
+            // Check if we've exceeded total time budget
+            if start_time.elapsed() > max_total_time {
+                let error_msg = last_error.as_ref()
+                    .map(|e: &ClientError| e.to_string())
+                    .unwrap_or_else(|| "timeout".to_string());
+                return Err(anyhow::anyhow!(
+                    "ArangoDB failed to become ready within {}s (attempt {}): {}",
+                    max_total_time.as_secs(),
+                    attempt + 1,
+                    error_msg
+                ));
+            }
+
             // Try to connect to ArangoDB to verify it's ready
             match arangors::Connection::establish_basic_auth(
                 &self.arangodb_url,
@@ -243,28 +257,43 @@ impl TestEnvironment {
             .await
             {
                 Ok(_) => {
-                    log::debug!("ArangoDB is ready after {} attempts", attempt + 1);
+                    log::debug!("ArangoDB is ready after {} attempts ({:.2}s)", attempt + 1, start_time.elapsed().as_secs_f64());
                     last_error = None;
                     break;
                 }
                 Err(e) if attempt < max_attempts - 1 => {
+                    let error_msg = e.to_string();
                     last_error = Some(e);
-                    // Exponential backoff with longer initial wait
-                    // ArangoDB needs more time, especially when containers start in parallel
-                    let wait_ms = if attempt == 0 {
-                        2000 // Start with 2 seconds
-                    } else if attempt < 5 {
-                        2000 * (attempt + 1) as u64 // Faster growth for first few attempts
+                    // Faster initial checks, then exponential backoff
+                    // Check more frequently at first when containers are likely starting
+                    let wait_ms = if attempt < 15 {
+                        300 + (attempt * 150) as u64 // 300ms, 450ms, 600ms... up to 2.4s
+                    } else if attempt < 40 {
+                        2000 + ((attempt - 15) * 300) as u64 // 2s, 2.3s, 2.6s... up to 9.5s
                     } else {
-                        3000 * (attempt / 2 + 1) as u64 // Slower growth after initial attempts
+                        3000 // Cap at 3s for later attempts
                     };
+                    
+                    // Don't wait if we're close to timeout
+                    let remaining = max_total_time.saturating_sub(start_time.elapsed());
+                    let wait_duration = Duration::from_millis(wait_ms);
+                    if wait_duration > remaining {
+                        return Err(anyhow::anyhow!(
+                            "ArangoDB failed to become ready within {}s (attempt {}): {}",
+                            max_total_time.as_secs(),
+                            attempt + 1,
+                            error_msg
+                        ));
+                    }
+                    
                     log::debug!(
-                        "ArangoDB not ready yet (attempt {}): {}, waiting {}ms...",
+                        "ArangoDB not ready yet (attempt {}, {:.2}s elapsed): {}, waiting {}ms...",
                         attempt + 1,
-                        last_error.as_ref().unwrap(),
+                        start_time.elapsed().as_secs_f64(),
+                        error_msg,
                         wait_ms
                     );
-                    tokio::time::sleep(Duration::from_millis(wait_ms)).await;
+                    tokio::time::sleep(wait_duration).await;
                 }
                 Err(e) => {
                     last_error = Some(e);
@@ -280,36 +309,60 @@ impl TestEnvironment {
             ));
         }
 
-        // Verify Redis is also ready with more attempts and longer waits
-        // Increased for parallel test execution - Redis can take longer when multiple containers start simultaneously
+        // Verify Redis is also ready - optimized for parallel execution
+        let redis_start_time = std::time::Instant::now();
+        let redis_max_time = Duration::from_secs(45); // Redis usually starts faster, but reduce timeout
         let redis_client = redis::Client::open(self.redis_url())?;
-        let redis_max_attempts = 60; // Increased from 30 to 60 for parallel execution
+        let redis_max_attempts = 90; // More attempts with shorter waits
         let mut redis_ready = false;
 
         for attempt in 0..redis_max_attempts {
+            // Check if we've exceeded time budget
+            if redis_start_time.elapsed() > redis_max_time {
+                return Err(anyhow::anyhow!(
+                    "Redis failed to become ready within {}s (attempt {})",
+                    redis_max_time.as_secs(),
+                    attempt + 1
+                ));
+            }
+
             match redis_client.get_async_connection().await {
                 Ok(mut conn) => {
                     match redis::cmd("PING").query_async::<_, String>(&mut conn).await {
                         Ok(_) => {
-                            log::debug!("Redis is ready after {} attempts", attempt + 1);
+                            log::debug!("Redis is ready after {} attempts ({:.2}s)", attempt + 1, redis_start_time.elapsed().as_secs_f64());
                             redis_ready = true;
                             break;
                         }
                         Err(e) if attempt < redis_max_attempts - 1 => {
-                            let wait_ms = if attempt == 0 {
-                                2000 // Start with 2 seconds (increased from 1s for parallel execution)
-                            } else if attempt < 5 {
-                                2000 * (attempt + 1) as u64 // Faster growth for first few attempts
+                            // Faster initial checks for Redis
+                            let wait_ms = if attempt < 20 {
+                                200 + (attempt * 100) as u64 // 200ms, 300ms, 400ms... up to 2.1s
+                            } else if attempt < 50 {
+                                1500 + ((attempt - 20) * 200) as u64 // 1.5s, 1.7s, 1.9s... up to 7.5s
                             } else {
-                                3000 * (attempt / 2 + 1) as u64 // Slower growth after initial attempts
+                                2000 // Cap at 2s
                             };
+                            
+                            let remaining = redis_max_time.saturating_sub(redis_start_time.elapsed());
+                            let wait_duration = Duration::from_millis(wait_ms);
+                            if wait_duration > remaining {
+                                return Err(anyhow::anyhow!(
+                                    "Redis failed to become ready within {}s (attempt {}): {}",
+                                    redis_max_time.as_secs(),
+                                    attempt + 1,
+                                    e
+                                ));
+                            }
+                            
                             log::debug!(
-                                "Redis PING failed (attempt {}): {}, waiting {}ms...",
+                                "Redis PING failed (attempt {}, {:.2}s elapsed): {}, waiting {}ms...",
                                 attempt + 1,
+                                redis_start_time.elapsed().as_secs_f64(),
                                 e,
                                 wait_ms
                             );
-                            tokio::time::sleep(Duration::from_millis(wait_ms)).await;
+                            tokio::time::sleep(wait_duration).await;
                         }
                         Err(e) => {
                             return Err(anyhow::anyhow!(
@@ -321,20 +374,34 @@ impl TestEnvironment {
                     }
                 }
                 Err(e) if attempt < redis_max_attempts - 1 => {
-                    let wait_ms = if attempt == 0 {
-                        2000 // Start with 2 seconds (increased from 1s for parallel execution)
-                    } else if attempt < 5 {
-                        2000 * (attempt + 1) as u64 // Faster growth for first few attempts
+                    // Same wait logic for connection failures
+                    let wait_ms = if attempt < 20 {
+                        200 + (attempt * 100) as u64
+                    } else if attempt < 50 {
+                        1500 + ((attempt - 20) * 200) as u64
                     } else {
-                        3000 * (attempt / 2 + 1) as u64 // Slower growth after initial attempts
+                        2000
                     };
+                    
+                    let remaining = redis_max_time.saturating_sub(redis_start_time.elapsed());
+                    let wait_duration = Duration::from_millis(wait_ms);
+                    if wait_duration > remaining {
+                        return Err(anyhow::anyhow!(
+                            "Redis failed to become ready within {}s (attempt {}): {}",
+                            redis_max_time.as_secs(),
+                            attempt + 1,
+                            e
+                        ));
+                    }
+                    
                     log::debug!(
-                        "Redis connection failed (attempt {}): {}, waiting {}ms...",
+                        "Redis connection failed (attempt {}, {:.2}s elapsed): {}, waiting {}ms...",
                         attempt + 1,
+                        redis_start_time.elapsed().as_secs_f64(),
                         e,
                         wait_ms
                     );
-                    tokio::time::sleep(Duration::from_millis(wait_ms)).await;
+                    tokio::time::sleep(wait_duration).await;
                 }
                 Err(e) => {
                     return Err(anyhow::anyhow!(
@@ -759,6 +826,24 @@ pub async fn test_env_with_prod_data_and_db(db_name: &str) -> Result<TestEnviron
 
 // Re-export app setup for convenience
 pub mod app_setup;
+
+/// Helper function to create a test environment with timeouts
+/// This ensures tests fail fast if containers don't start in time
+/// Use this in all integration tests for consistent timeout behavior
+pub async fn create_test_env_with_timeout() -> Result<TestEnvironment> {
+    use std::time::Duration;
+    let env = tokio::time::timeout(Duration::from_secs(90), TestEnvironment::new())
+        .await
+        .map_err(|_| anyhow::anyhow!("Test environment setup timed out after 90s"))??;
+    
+    // wait_for_ready now has its own internal timeouts (90s ArangoDB + 45s Redis)
+    // Add a small buffer timeout here (total should be ~150s max)
+    tokio::time::timeout(Duration::from_secs(150), env.wait_for_ready())
+        .await
+        .map_err(|_| anyhow::anyhow!("wait_for_ready timed out after 150s"))??;
+    
+    Ok(env)
+}
 
 /// Macro to create an authenticated user and return session token
 /// Usage: let session_id = create_authenticated_user!(app, "email@example.com", "username").await?;
