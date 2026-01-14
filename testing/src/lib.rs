@@ -237,7 +237,8 @@ impl TestEnvironment {
         for attempt in 0..max_attempts {
             // Check if we've exceeded total time budget
             if start_time.elapsed() > max_total_time {
-                let error_msg = last_error.as_ref()
+                let error_msg = last_error
+                    .as_ref()
                     .map(|e: &ClientError| e.to_string())
                     .unwrap_or_else(|| "timeout".to_string());
                 return Err(anyhow::anyhow!(
@@ -257,7 +258,11 @@ impl TestEnvironment {
             .await
             {
                 Ok(_) => {
-                    log::debug!("ArangoDB is ready after {} attempts ({:.2}s)", attempt + 1, start_time.elapsed().as_secs_f64());
+                    log::debug!(
+                        "ArangoDB is ready after {} attempts ({:.2}s)",
+                        attempt + 1,
+                        start_time.elapsed().as_secs_f64()
+                    );
                     last_error = None;
                     break;
                 }
@@ -273,7 +278,7 @@ impl TestEnvironment {
                     } else {
                         3000 // Cap at 3s for later attempts
                     };
-                    
+
                     // Don't wait if we're close to timeout
                     let remaining = max_total_time.saturating_sub(start_time.elapsed());
                     let wait_duration = Duration::from_millis(wait_ms);
@@ -285,7 +290,7 @@ impl TestEnvironment {
                             error_msg
                         ));
                     }
-                    
+
                     log::debug!(
                         "ArangoDB not ready yet (attempt {}, {:.2}s elapsed): {}, waiting {}ms...",
                         attempt + 1,
@@ -330,7 +335,11 @@ impl TestEnvironment {
                 Ok(mut conn) => {
                     match redis::cmd("PING").query_async::<_, String>(&mut conn).await {
                         Ok(_) => {
-                            log::debug!("Redis is ready after {} attempts ({:.2}s)", attempt + 1, redis_start_time.elapsed().as_secs_f64());
+                            log::debug!(
+                                "Redis is ready after {} attempts ({:.2}s)",
+                                attempt + 1,
+                                redis_start_time.elapsed().as_secs_f64()
+                            );
                             redis_ready = true;
                             break;
                         }
@@ -343,8 +352,9 @@ impl TestEnvironment {
                             } else {
                                 2000 // Cap at 2s
                             };
-                            
-                            let remaining = redis_max_time.saturating_sub(redis_start_time.elapsed());
+
+                            let remaining =
+                                redis_max_time.saturating_sub(redis_start_time.elapsed());
                             let wait_duration = Duration::from_millis(wait_ms);
                             if wait_duration > remaining {
                                 return Err(anyhow::anyhow!(
@@ -354,7 +364,7 @@ impl TestEnvironment {
                                     e
                                 ));
                             }
-                            
+
                             log::debug!(
                                 "Redis PING failed (attempt {}, {:.2}s elapsed): {}, waiting {}ms...",
                                 attempt + 1,
@@ -382,7 +392,7 @@ impl TestEnvironment {
                     } else {
                         2000
                     };
-                    
+
                     let remaining = redis_max_time.saturating_sub(redis_start_time.elapsed());
                     let wait_duration = Duration::from_millis(wait_ms);
                     if wait_duration > remaining {
@@ -393,7 +403,7 @@ impl TestEnvironment {
                             e
                         ));
                     }
-                    
+
                     log::debug!(
                         "Redis connection failed (attempt {}, {:.2}s elapsed): {}, waiting {}ms...",
                         attempt + 1,
@@ -835,13 +845,13 @@ pub async fn create_test_env_with_timeout() -> Result<TestEnvironment> {
     let env = tokio::time::timeout(Duration::from_secs(90), TestEnvironment::new())
         .await
         .map_err(|_| anyhow::anyhow!("Test environment setup timed out after 90s"))??;
-    
+
     // wait_for_ready now has its own internal timeouts (90s ArangoDB + 45s Redis)
     // Add a small buffer timeout here (total should be ~150s max)
     tokio::time::timeout(Duration::from_secs(150), env.wait_for_ready())
         .await
         .map_err(|_| anyhow::anyhow!("wait_for_ready timed out after 150s"))??;
-    
+
     Ok(env)
 }
 
