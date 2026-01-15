@@ -19,40 +19,56 @@ async fn main() -> std::io::Result<()> {
     if is_production {
         // Production: Use JSON logging with tracing
         // Bridge log crate to tracing (must be done before subscriber init)
-        if let Err(e) = tracing_log::LogTracer::builder()
+        let bridge_init_result = tracing_log::LogTracer::builder()
             .with_max_level(log::LevelFilter::Trace)
-            .init()
+            .init();
+        
+        // Only initialize tracing subscriber if bridge succeeded or wasn't needed
+        // Use try_init() to avoid panic if subscriber already initialized
+        if let Err(e) = tracing_subscriber::fmt()
+            .json()
+            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+            .try_init()
         {
-            // If tracing bridge fails, log to stderr but continue
-            // This prevents the server from crashing if logger is already initialized
+            // If tracing bridge failed, warn but continue
+            if let Err(bridge_err) = bridge_init_result {
+                eprintln!(
+                    "Warning: Failed to initialize tracing bridge: {}. Continuing without log bridge.",
+                    bridge_err
+                );
+            }
+            // If subscriber init failed (already initialized), that's okay - use existing
             eprintln!(
-                "Warning: Failed to initialize tracing bridge: {}. Continuing without log bridge.",
+                "Warning: Failed to initialize tracing subscriber: {}. Using existing logger.",
                 e
             );
         }
-
-        // Initialize tracing subscriber for JSON logging
-        tracing_subscriber::fmt()
-            .json()
-            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-            .init();
     } else {
         // Development: Use human-readable logging with tracing
         // Bridge log crate to tracing
-        if let Err(e) = tracing_log::LogTracer::builder()
+        let bridge_init_result = tracing_log::LogTracer::builder()
             .with_max_level(log::LevelFilter::Trace)
-            .init()
+            .init();
+        
+        // Only initialize tracing subscriber if bridge succeeded or wasn't needed
+        // Use try_init() to avoid panic if subscriber already initialized
+        if let Err(e) = tracing_subscriber::fmt()
+            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+            .try_init()
         {
+            // If tracing bridge failed, warn but continue
+            if let Err(bridge_err) = bridge_init_result {
+                eprintln!(
+                    "Warning: Failed to initialize tracing bridge: {}. Continuing without log bridge.",
+                    bridge_err
+                );
+            }
+            // If subscriber init failed (already initialized), that's okay - use existing
             eprintln!(
-                "Warning: Failed to initialize tracing bridge: {}. Continuing without log bridge.",
+                "Warning: Failed to initialize tracing subscriber: {}. Using existing logger.",
                 e
             );
         }
-
-        // Initialize tracing subscriber for human-readable logging
-        tracing_subscriber::fmt()
-            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-            .init();
     }
 
     // Load configuration from environment variables
