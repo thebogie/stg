@@ -22,7 +22,7 @@ async fn main() -> std::io::Result<()> {
         let bridge_init_result = tracing_log::LogTracer::builder()
             .with_max_level(log::LevelFilter::Trace)
             .init();
-        
+
         // Only initialize tracing subscriber if bridge succeeded or wasn't needed
         // Use try_init() to avoid panic if subscriber already initialized
         if let Err(e) = tracing_subscriber::fmt()
@@ -49,7 +49,7 @@ async fn main() -> std::io::Result<()> {
         let bridge_init_result = tracing_log::LogTracer::builder()
             .with_max_level(log::LevelFilter::Trace)
             .init();
-        
+
         // Only initialize tracing subscriber if bridge succeeded or wasn't needed
         // Use try_init() to avoid panic if subscriber already initialized
         if let Err(e) = tracing_subscriber::fmt()
