@@ -1,6 +1,7 @@
 use actix_web::{web, App, HttpServer};
 use arangors::client::reqwest::ReqwestClient;
 use backend::config::BGGConfig;
+use backend::error::ApiError;
 use backend::player::session::RedisSessionStore;
 use backend::third_party::BGGService;
 use log::error;
@@ -12,18 +13,43 @@ async fn main() -> std::io::Result<()> {
     let env = std::env::var("RUST_ENV").unwrap_or_else(|_| "development".to_string());
     let is_production = env.eq_ignore_ascii_case("production");
 
-    // Bridge log crate to tracing (must be done before subscriber init)
-    tracing_log::LogTracer::init().expect("Failed to set logger");
-
-    // Initialize tracing subscriber
+    // Initialize logging based on environment
+    // In production, use structured JSON logging with tracing
+    // In development, use human-readable logging
     if is_production {
-        // Use JSON logging for production
+        // Production: Use JSON logging with tracing
+        // Bridge log crate to tracing (must be done before subscriber init)
+        if let Err(e) = tracing_log::LogTracer::builder()
+            .with_max_level(log::LevelFilter::Trace)
+            .init()
+        {
+            // If tracing bridge fails, log to stderr but continue
+            // This prevents the server from crashing if logger is already initialized
+            eprintln!(
+                "Warning: Failed to initialize tracing bridge: {}. Continuing without log bridge.",
+                e
+            );
+        }
+
+        // Initialize tracing subscriber for JSON logging
         tracing_subscriber::fmt()
             .json()
             .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
             .init();
     } else {
-        // Use human-readable logging for development
+        // Development: Use human-readable logging with tracing
+        // Bridge log crate to tracing
+        if let Err(e) = tracing_log::LogTracer::builder()
+            .with_max_level(log::LevelFilter::Trace)
+            .init()
+        {
+            eprintln!(
+                "Warning: Failed to initialize tracing bridge: {}. Continuing without log bridge.",
+                e
+            );
+        }
+
+        // Initialize tracing subscriber for human-readable logging
         tracing_subscriber::fmt()
             .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
             .init();
@@ -195,12 +221,21 @@ async fn main() -> std::io::Result<()> {
     let metrics_data = web::Data::new(metrics.clone());
 
     HttpServer::new(move || {
+        // Configure JSON error handler to always return JSON (not HTML)
+        let json_config = actix_web::web::JsonConfig::default()
+            .limit(256 * 1024)
+            .error_handler(|err, _req| {
+                // Convert JSON deserialization errors to JSON responses
+                let error = ApiError::bad_request(&format!("Invalid JSON: {}", err));
+                error.into()
+            });
+
         App::new()
             .wrap(backend::middleware::Logger::with_metrics(metrics.clone()))
             .wrap(backend::middleware::SecurityHeaders)
             .wrap(backend::middleware::cors_middleware())
             .app_data(metrics_data.clone())
-            .app_data(actix_web::web::JsonConfig::default().limit(256 * 1024))
+            .app_data(json_config)
             .app_data(redis_data.clone())
             .app_data(db_data.clone())
             .app_data(scheduler_data.clone())

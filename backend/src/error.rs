@@ -63,7 +63,12 @@ impl ResponseError for ApiError {
             }
         };
 
-        HttpResponse::build(status).json(self)
+        // Return JSON response compatible with frontend ErrorResponse
+        // Frontend expects {error: String}, but we include message and status_code for debugging
+        // Serde will ignore extra fields when deserializing to ErrorResponse
+        HttpResponse::build(status)
+            .content_type("application/json")
+            .json(self)
     }
 }
 
