@@ -180,10 +180,30 @@ docker tag "$BACKEND_HUB" "stg_rd-backend:latest"
 log_success "Backend tagged"
 
 # ============================================================================
-# STEP 3: Deploy Using deploy-tested-images.sh
+# STEP 3: Ensure Docker Network Exists
 # ============================================================================
 log_info "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-log_info "STEP 3: Deploying to Production"
+log_info "STEP 3: Ensuring Docker Network Exists"
+log_info "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+# Check if stg_prod network exists, create if not
+if ! docker network inspect stg_prod >/dev/null 2>&1; then
+    log_info "Creating Docker network: stg_prod"
+    if docker network create stg_prod; then
+        log_success "Network stg_prod created"
+    else
+        log_error "Failed to create network stg_prod"
+        exit 1
+    fi
+else
+    log_info "Network stg_prod already exists"
+fi
+
+# ============================================================================
+# STEP 4: Deploy Using deploy-tested-images.sh
+# ============================================================================
+log_info "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+log_info "STEP 4: Deploying to Production"
 log_info "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
 # Build deploy command

@@ -260,6 +260,15 @@ export IMAGE_TAG="$VERSION_TAG"
 export FRONTEND_IMAGE="$FRONTEND_IMAGE"
 export BACKEND_IMAGE="$BACKEND_IMAGE"
 
+# Ensure Docker network exists (for external networks)
+log_info "Ensuring Docker network exists..."
+if ! docker network inspect stg_prod >/dev/null 2>&1; then
+    log_info "Creating Docker network: stg_prod"
+    docker network create stg_prod || {
+        log_warning "Failed to create network stg_prod (may already exist)"
+    }
+fi
+
 # Stop existing containers
 log_info "Stopping existing containers..."
 docker compose \
