@@ -256,9 +256,18 @@ log_info "  Frontend: $FRONTEND_IMAGE"
 log_info "  Backend: $BACKEND_IMAGE"
 
 # Set image tags for docker compose (docker-compose.yaml will use these)
+# If FRONTEND_IMAGE/BACKEND_IMAGE are not already set, use versioned tags
 export IMAGE_TAG="$VERSION_TAG"
-export FRONTEND_IMAGE="$FRONTEND_IMAGE"
-export BACKEND_IMAGE="$BACKEND_IMAGE"
+if [ -z "${FRONTEND_IMAGE:-}" ]; then
+    export FRONTEND_IMAGE="stg_rd-frontend:${VERSION_TAG}"
+fi
+if [ -z "${BACKEND_IMAGE:-}" ]; then
+    export BACKEND_IMAGE="stg_rd-backend:${VERSION_TAG}"
+fi
+log_info "Using images:"
+log_info "  FRONTEND_IMAGE: $FRONTEND_IMAGE"
+log_info "  BACKEND_IMAGE: $BACKEND_IMAGE"
+log_info "  IMAGE_TAG: $IMAGE_TAG"
 
 # Ensure Docker network exists (for external networks)
 log_info "Ensuring Docker network exists..."
@@ -278,6 +287,9 @@ docker compose \
 
 # Deploy new containers (docker-compose.production.yml will use IMAGE_TAG or FRONTEND_IMAGE/BACKEND_IMAGE)
 log_info "Deploying new containers..."
+log_info "Using IMAGE_TAG: $IMAGE_TAG"
+# Ensure IMAGE_TAG is exported so docker-compose can use it
+export IMAGE_TAG="$VERSION_TAG"
 docker compose \
     --env-file "$ENV_FILE" \
     -f deploy/docker-compose.production.yml \

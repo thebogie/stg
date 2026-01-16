@@ -173,11 +173,15 @@ log_info "━━━━━━━━━━━━━━━━━━━━━━━�
 
 log_info "Tagging frontend: $FRONTEND_HUB -> stg_rd-frontend:latest"
 docker tag "$FRONTEND_HUB" "stg_rd-frontend:latest"
-log_success "Frontend tagged"
+log_info "Tagging frontend: $FRONTEND_HUB -> stg_rd-frontend:${VERSION_TAG}"
+docker tag "$FRONTEND_HUB" "stg_rd-frontend:${VERSION_TAG}"
+log_success "Frontend tagged (latest and ${VERSION_TAG})"
 
 log_info "Tagging backend: $BACKEND_HUB -> stg_rd-backend:latest"
 docker tag "$BACKEND_HUB" "stg_rd-backend:latest"
-log_success "Backend tagged"
+log_info "Tagging backend: $BACKEND_HUB -> stg_rd-backend:${VERSION_TAG}"
+docker tag "$BACKEND_HUB" "stg_rd-backend:${VERSION_TAG}"
+log_success "Backend tagged (latest and ${VERSION_TAG})"
 
 # ============================================================================
 # STEP 3: Ensure Docker Network Exists
@@ -205,6 +209,11 @@ fi
 log_info "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 log_info "STEP 4: Deploying to Production"
 log_info "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+# Export IMAGE_TAG and image names for deploy script
+export IMAGE_TAG="$VERSION_TAG"
+export FRONTEND_IMAGE="stg_rd-frontend:${VERSION_TAG}"
+export BACKEND_IMAGE="stg_rd-backend:${VERSION_TAG}"
 
 # Build deploy command
 DEPLOY_CMD="./scripts/deploy-tested-images.sh --version $VERSION_TAG --skip-load"
