@@ -255,6 +255,22 @@ log_success "Images loaded:"
 log_info "  Frontend: $FRONTEND_IMAGE"
 log_info "  Backend: $BACKEND_IMAGE"
 
+# Save deployed version to file so prod-compose.sh (used by systemctl) can use it
+mkdir -p "${PROJECT_ROOT}/_build"
+DEPLOYED_VERSION_FILE="${PROJECT_ROOT}/_build/.deployed-version"
+cat > "$DEPLOYED_VERSION_FILE" <<EOF
+# Deployed version - used by prod-compose.sh for systemctl restarts
+# This file is created by deploy-tested-images.sh and read by prod-compose.sh
+VERSION_TAG="$VERSION_TAG"
+IMAGE_TAG="$VERSION_TAG"
+FRONTEND_IMAGE_TAG="$VERSION_TAG"
+FRONTEND_IMAGE="$FRONTEND_IMAGE"
+BACKEND_IMAGE="$BACKEND_IMAGE"
+DEPLOYED_DATE="$(date -u +"%Y-%m-%d %H:%M:%S UTC")"
+EOF
+log_info "Saved deployed version to: $DEPLOYED_VERSION_FILE"
+log_info "  This ensures systemctl restarts use the correct version"
+
 # Set image tags for docker compose (docker-compose.yaml will use these)
 # Always use versioned tags - don't fall back to "latest"
 export IMAGE_TAG="$VERSION_TAG"

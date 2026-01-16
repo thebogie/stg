@@ -64,6 +64,24 @@ source "$ENV_FILE" 2>/dev/null || {
 }
 set +a
 
+# Load IMAGE_TAG from deployment version file if it exists
+# This ensures systemctl restarts use the correct version
+VERSION_FILE="${PROJECT_ROOT}/_build/.deployed-version"
+if [ -f "$VERSION_FILE" ]; then
+    # Source the version file to get all variables
+    set -a
+    source "$VERSION_FILE" 2>/dev/null || true
+    set +a
+    
+    if [ -n "${VERSION_TAG:-}" ]; then
+        export IMAGE_TAG="${IMAGE_TAG:-$VERSION_TAG}"
+        export FRONTEND_IMAGE_TAG="${FRONTEND_IMAGE_TAG:-$VERSION_TAG}"
+        export FRONTEND_IMAGE="${FRONTEND_IMAGE:-stg_rd-frontend:${VERSION_TAG}}"
+        export BACKEND_IMAGE="${BACKEND_IMAGE:-stg_rd-backend:${VERSION_TAG}}"
+        log_info "Using deployed version: $VERSION_TAG"
+    fi
+fi
+
 # Second pass: Write expanded values (replacing ${VAR} with actual values)
 rm -f "$TEMP_ENV_FILE"
 while IFS= read -r line || [ -n "$line" ]; do
@@ -93,6 +111,26 @@ while IFS= read -r line || [ -n "$line" ]; do
         echo "$line" >> "$TEMP_ENV_FILE"
     fi
 done < "$ENV_FILE"
+
+# Append IMAGE_TAG and image names to temp env file if they were loaded from version file
+# This ensures docker-compose uses the correct version
+if [ -n "${IMAGE_TAG:-}" ]; then
+    # Remove any existing IMAGE_TAG lines
+    sed -i '/^IMAGE_TAG=/d' "$TEMP_ENV_FILE" 2>/dev/null || sed -i.bak '/^IMAGE_TAG=/d' "$TEMP_ENV_FILE"
+    sed -i '/^FRONTEND_IMAGE_TAG=/d' "$TEMP_ENV_FILE" 2>/dev/null || sed -i.bak '/^FRONTEND_IMAGE_TAG=/d' "$TEMP_ENV_FILE"
+    sed -i '/^FRONTEND_IMAGE=/d' "$TEMP_ENV_FILE" 2>/dev/null || sed -i.bak '/^FRONTEND_IMAGE=/d' "$TEMP_ENV_FILE"
+    sed -i '/^BACKEND_IMAGE=/d' "$TEMP_ENV_FILE" 2>/dev/null || sed -i.bak '/^BACKEND_IMAGE=/d' "$TEMP_ENV_FILE"
+    rm -f "${TEMP_ENV_FILE}.bak" 2>/dev/null || true
+    # Append the version info
+    echo "IMAGE_TAG=$IMAGE_TAG" >> "$TEMP_ENV_FILE"
+    echo "FRONTEND_IMAGE_TAG=$FRONTEND_IMAGE_TAG" >> "$TEMP_ENV_FILE"
+    if [ -n "${FRONTEND_IMAGE:-}" ]; then
+        echo "FRONTEND_IMAGE=$FRONTEND_IMAGE" >> "$TEMP_ENV_FILE"
+    fi
+    if [ -n "${BACKEND_IMAGE:-}" ]; then
+        echo "BACKEND_IMAGE=$BACKEND_IMAGE" >> "$TEMP_ENV_FILE"
+    fi
+fi
 
 # Use the expanded file for docker-compose (both --env-file and env_file: will use expanded values)
 export ENV_FILE="$TEMP_ENV_FILE"
