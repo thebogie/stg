@@ -256,18 +256,35 @@ log_info "  Frontend: $FRONTEND_IMAGE"
 log_info "  Backend: $BACKEND_IMAGE"
 
 # Set image tags for docker compose (docker-compose.yaml will use these)
-# If FRONTEND_IMAGE/BACKEND_IMAGE are not already set, use versioned tags
+# Always use versioned tags - don't fall back to "latest"
 export IMAGE_TAG="$VERSION_TAG"
-if [ -z "${FRONTEND_IMAGE:-}" ]; then
-    export FRONTEND_IMAGE="stg_rd-frontend:${VERSION_TAG}"
-fi
-if [ -z "${BACKEND_IMAGE:-}" ]; then
-    export BACKEND_IMAGE="stg_rd-backend:${VERSION_TAG}"
-fi
+export FRONTEND_IMAGE="stg_rd-frontend:${VERSION_TAG}"
+export BACKEND_IMAGE="stg_rd-backend:${VERSION_TAG}"
+export FRONTEND_IMAGE_TAG="$VERSION_TAG"
+
 log_info "Using images:"
 log_info "  FRONTEND_IMAGE: $FRONTEND_IMAGE"
 log_info "  BACKEND_IMAGE: $BACKEND_IMAGE"
 log_info "  IMAGE_TAG: $IMAGE_TAG"
+log_info "  FRONTEND_IMAGE_TAG: $FRONTEND_IMAGE_TAG"
+
+# Verify the images exist locally
+log_info "Verifying images exist locally..."
+if ! docker image inspect "$FRONTEND_IMAGE" >/dev/null 2>&1; then
+    log_error "Frontend image not found: $FRONTEND_IMAGE"
+    log_info "Available frontend images:"
+    docker images | grep frontend | head -5 || true
+    exit 1
+fi
+
+if ! docker image inspect "$BACKEND_IMAGE" >/dev/null 2>&1; then
+    log_error "Backend image not found: $BACKEND_IMAGE"
+    log_info "Available backend images:"
+    docker images | grep backend | head -5 || true
+    exit 1
+fi
+
+log_success "Both images exist locally"
 
 # Ensure Docker network exists (for external networks)
 log_info "Ensuring Docker network exists..."
@@ -299,34 +316,68 @@ export FRONTEND_IMAGE_TAG="${FRONTEND_IMAGE_TAG:-$VERSION_TAG}"
 # This ensures IMAGE_TAG is definitely available even if not in the original env file
 TEMP_ENV_FILE=$(mktemp)
 cat "$ENV_FILE" > "$TEMP_ENV_FILE"
+# Remove any existing IMAGE_TAG lines to avoid duplicates
+sed -i '/^IMAGE_TAG=/d' "$TEMP_ENV_FILE" 2>/dev/null || sed -i.bak '/^IMAGE_TAG=/d' "$TEMP_ENV_FILE"
+sed -i '/^FRONTEND_IMAGE_TAG=/d' "$TEMP_ENV_FILE" 2>/dev/null || sed -i.bak '/^FRONTEND_IMAGE_TAG=/d' "$TEMP_ENV_FILE"
+sed -i '/^FRONTEND_IMAGE=/d' "$TEMP_ENV_FILE" 2>/dev/null || sed -i.bak '/^FRONTEND_IMAGE=/d' "$TEMP_ENV_FILE"
+sed -i '/^BACKEND_IMAGE=/d' "$TEMP_ENV_FILE" 2>/dev/null || sed -i.bak '/^BACKEND_IMAGE=/d' "$TEMP_ENV_FILE"
+rm -f "${TEMP_ENV_FILE}.bak" 2>/dev/null || true
+
 # Append IMAGE_TAG variables (will override if already in file)
 echo "IMAGE_TAG=$VERSION_TAG" >> "$TEMP_ENV_FILE"
 echo "FRONTEND_IMAGE_TAG=$FRONTEND_IMAGE_TAG" >> "$TEMP_ENV_FILE"
-# Also set FRONTEND_IMAGE and BACKEND_IMAGE if they're set
-if [ -n "${FRONTEND_IMAGE:-}" ]; then
-    echo "FRONTEND_IMAGE=$FRONTEND_IMAGE" >> "$TEMP_ENV_FILE"
-fi
-if [ -n "${BACKEND_IMAGE:-}" ]; then
-    echo "BACKEND_IMAGE=$BACKEND_IMAGE" >> "$TEMP_ENV_FILE"
-fi
+echo "FRONTEND_IMAGE=$FRONTEND_IMAGE" >> "$TEMP_ENV_FILE"
+echo "BACKEND_IMAGE=$BACKEND_IMAGE" >> "$TEMP_ENV_FILE"
 
 log_info "Deploying with docker-compose..."
+log_info "Temp env file contains:"
+grep -E "^(IMAGE_TAG|FRONTEND_IMAGE|BACKEND_IMAGE)=" "$TEMP_ENV_FILE" || true
+
+log_info "Forcing recreation to ensure versioned images are used..."
 docker compose \
     --env-file "$TEMP_ENV_FILE" \
     -f deploy/docker-compose.production.yml \
-    up -d
+    up -d --force-recreate frontend backend
 
 # Clean up temp file
 rm -f "$TEMP_ENV_FILE"
 
 # Verify containers are using the correct image tags
 log_info "Verifying deployed containers..."
-sleep 2
-if docker ps --format "{{.Names}}\t{{.Image}}" | grep -E "^(frontend|backend)" | grep -v "$VERSION_TAG" | grep -v "latest"; then
-    log_warning "Some containers may not be using the versioned images"
-    docker ps --format "{{.Names}}\t{{.Image}}" | grep -E "^(frontend|backend)" || true
+sleep 3
+
+log_info "Container images:"
+docker ps --format "{{.Names}}\t{{.Image}}" | grep -E "^(frontend|backend)" || true
+
+# Check if containers are using versioned images
+FRONTEND_USING_VERSION=$(docker ps --format "{{.Names}}\t{{.Image}}" | grep "^frontend" | grep -c "$VERSION_TAG" || echo "0")
+BACKEND_USING_VERSION=$(docker ps --format "{{.Names}}\t{{.Image}}" | grep "^backend" | grep -c "$VERSION_TAG" || echo "0")
+
+if [ "$FRONTEND_USING_VERSION" -eq "1" ] && [ "$BACKEND_USING_VERSION" -eq "1" ]; then
+    log_success "Containers are using versioned images: $VERSION_TAG"
 else
-    log_success "Containers are using versioned images"
+    log_warning "Containers may not be using versioned images"
+    log_info "Expected: $VERSION_TAG"
+    log_info "If containers show 'latest', they need to be restarted with the versioned images"
+    log_info "You may need to manually restart:"
+    log_info "  docker compose --env-file $ENV_FILE -f deploy/docker-compose.production.yml up -d --force-recreate"
+fi
+
+# Verify environment variables in running containers
+log_info ""
+log_info "Checking IMAGE_TAG in running containers..."
+if docker exec backend sh -c 'echo $IMAGE_TAG' 2>/dev/null | grep -q "$VERSION_TAG"; then
+    log_success "Backend container has IMAGE_TAG=$VERSION_TAG"
+else
+    BACKEND_TAG=$(docker exec backend sh -c 'echo $IMAGE_TAG' 2>/dev/null || echo "not set")
+    log_warning "Backend IMAGE_TAG is: ${BACKEND_TAG:-not set} (expected: $VERSION_TAG)"
+fi
+
+if docker exec frontend sh -c 'echo $FRONTEND_IMAGE_TAG' 2>/dev/null | grep -q "$VERSION_TAG"; then
+    log_success "Frontend container has FRONTEND_IMAGE_TAG=$VERSION_TAG"
+else
+    FRONTEND_TAG=$(docker exec frontend sh -c 'echo $FRONTEND_IMAGE_TAG' 2>/dev/null || echo "not set")
+    log_warning "Frontend FRONTEND_IMAGE_TAG is: ${FRONTEND_TAG:-not set} (expected: $VERSION_TAG)"
 fi
 
 # Wait for services to be healthy
