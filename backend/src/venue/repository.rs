@@ -1,3 +1,4 @@
+use crate::cache::{CacheKeys, CacheTTL, RedisCache};
 use crate::third_party::{google::timezone::GoogleTimezoneService, GooglePlacesService};
 use anyhow::Result;
 use arangors::client::reqwest::ReqwestClient;
@@ -7,6 +8,7 @@ use log;
 use serde::{Deserialize, Serialize};
 use shared::dto::venue::VenueDto;
 use shared::models::venue::Venue;
+use std::sync::Arc;
 
 // Database-only venue model (without source field)
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -51,6 +53,7 @@ pub struct VenueRepositoryImpl {
     pub db: Database<ReqwestClient>,
     pub google_places: Option<GooglePlacesService>,
     pub google_timezone: Option<GoogleTimezoneService>,
+    pub cache: Option<Arc<RedisCache>>,
 }
 
 #[async_trait::async_trait]
@@ -81,6 +84,25 @@ impl VenueRepositoryImpl {
             db,
             google_places,
             google_timezone,
+            cache: None,
+        }
+    }
+
+    pub fn new_with_cache(
+        db: Database<ReqwestClient>,
+        google_config: Option<(String, String)>,
+        cache: Arc<RedisCache>,
+    ) -> Self {
+        let google_places = google_config
+            .as_ref()
+            .map(|(api_url, api_key)| GooglePlacesService::new(api_url.clone(), api_key.clone()));
+        let google_timezone =
+            google_config.map(|(api_url, api_key)| GoogleTimezoneService::new(api_url, api_key));
+        Self {
+            db,
+            google_places,
+            google_timezone,
+            cache: Some(cache),
         }
     }
 
@@ -318,6 +340,15 @@ impl VenueRepository for VenueRepositoryImpl {
     async fn find_by_id(&self, id: &str) -> Option<Venue> {
         log::info!("🔍 Looking up venue by ID: '{}'", id);
 
+        // Try cache first
+        if let Some(ref cache) = self.cache {
+            let cache_key = CacheKeys::venue(id);
+            if let Ok(Some(cached_venue)) = cache.get::<Venue>(&cache_key).await {
+                log::debug!("Cache hit for venue: {}", id);
+                return Some(cached_venue);
+            }
+        }
+
         let query = arangors::AqlQuery::builder()
             .query("FOR v IN venue FILTER v._id == @id LIMIT 1 RETURN v")
             .bind_var("id", id)
@@ -331,7 +362,17 @@ impl VenueRepository for VenueRepositoryImpl {
                         id,
                         venue_db.display_name
                     );
-                    Some(Venue::from(venue_db))
+                    let venue = Venue::from(venue_db);
+
+                    // Cache the result
+                    if let Some(ref cache) = self.cache {
+                        let cache_key = CacheKeys::venue(id);
+                        let _ = cache
+                            .set_with_ttl(&cache_key, &venue, CacheTTL::venue())
+                            .await;
+                    }
+
+                    Some(venue)
                 } else {
                     log::error!("❌ Venue not found by ID: '{}'", id);
 
@@ -526,6 +567,16 @@ impl VenueRepository for VenueRepositoryImpl {
 
     async fn search_dto(&self, query: &str) -> Vec<VenueDto> {
         log::info!("🔍 Starting venue search with query: '{}'", query);
+
+        // Try cache first
+        if let Some(ref cache) = self.cache {
+            let cache_key = CacheKeys::venue_search(query);
+            if let Ok(Some(cached_results)) = cache.get::<Vec<VenueDto>>(&cache_key).await {
+                log::debug!("Cache hit for venue search: {}", query);
+                return cached_results;
+            }
+        }
+
         let mut results = Vec::new();
         let max_results = 20;
 
@@ -694,6 +745,14 @@ impl VenueRepository for VenueRepositoryImpl {
                 venue_dto.display_name,
                 venue_dto.source
             );
+        }
+
+        // Cache the search results
+        if let Some(ref cache) = self.cache {
+            let cache_key = CacheKeys::venue_search(query);
+            let _ = cache
+                .set_with_ttl(&cache_key, &results, CacheTTL::venue_search())
+                .await;
         }
 
         results
@@ -943,7 +1002,7 @@ impl VenueRepository for VenueRepositoryImpl {
         {
             Ok(created_doc) => {
                 let header = created_doc.header().unwrap();
-                Ok(Venue {
+                let created_venue = Venue {
                     id: header._id.clone(),
                     rev: header._rev.clone(),
                     display_name: venue_with_timezone.display_name,
@@ -953,7 +1012,15 @@ impl VenueRepository for VenueRepositoryImpl {
                     lng: venue_with_timezone.lng,
                     timezone: venue_with_timezone.timezone,
                     source: venue_with_timezone.source,
-                })
+                };
+
+                // Invalidate cache
+                if let Some(ref cache) = self.cache {
+                    let _ = cache.delete(&CacheKeys::venue(&created_venue.id)).await;
+                    let _ = cache.invalidate_pattern("venues:search:").await;
+                }
+
+                Ok(created_venue)
             }
             Err(e) => Err(format!("Failed to create venue: {}", e)),
         }
@@ -984,7 +1051,7 @@ impl VenueRepository for VenueRepositoryImpl {
         {
             Ok(updated_doc) => {
                 let header = updated_doc.header().unwrap();
-                Ok(Venue {
+                let updated_venue = Venue {
                     id: header._id.clone(),
                     rev: header._rev.clone(),
                     display_name: venue.display_name,
@@ -994,7 +1061,15 @@ impl VenueRepository for VenueRepositoryImpl {
                     lng: venue.lng,
                     timezone: venue.timezone,
                     source: venue.source,
-                })
+                };
+
+                // Invalidate cache
+                if let Some(ref cache) = self.cache {
+                    let _ = cache.delete(&CacheKeys::venue(&updated_venue.id)).await;
+                    let _ = cache.invalidate_pattern("venues:search:").await;
+                }
+
+                Ok(updated_venue)
             }
             Err(e) => Err(format!("Failed to update venue: {}", e)),
         }
@@ -1013,7 +1088,14 @@ impl VenueRepository for VenueRepositoryImpl {
             .remove_document::<serde_json::Value>(key, RemoveOptions::default(), None)
             .await
         {
-            Ok(_) => Ok(()),
+            Ok(_) => {
+                // Invalidate cache
+                if let Some(ref cache) = self.cache {
+                    let _ = cache.delete(&CacheKeys::venue(id)).await;
+                    let _ = cache.invalidate_pattern("venues:search:").await;
+                }
+                Ok(())
+            }
             Err(e) => Err(format!("Failed to delete venue: {}", e)),
         }
     }

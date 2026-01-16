@@ -1,0 +1,94 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e3]:
+  - navigation [ref=e4]:
+    - generic [ref=e6]:
+      - link "STG" [ref=e8] [cursor=pointer]:
+        - /url: /
+        - generic [ref=e9]: STG
+      - generic [ref=e10]:
+        - button "🔑 Sign In" [ref=e11] [cursor=pointer]:
+          - generic [ref=e12]: 🔑
+          - generic [ref=e13]: Sign In
+        - button "Toggle mobile menu" [ref=e14] [cursor=pointer]
+  - main [ref=e19]:
+    - generic [ref=e21]:
+      - heading "Sign in to your account" [level=2] [ref=e23]
+      - generic [ref=e24]:
+        - generic [ref=e25]:
+          - generic [ref=e26]:
+            - generic [ref=e27]: Email address
+            - textbox "Email address" [ref=e28]
+          - generic [ref=e29]:
+            - generic [ref=e30]: Password
+            - textbox "Password" [ref=e31]
+        - button "Sign in" [ref=e33] [cursor=pointer]
+  - contentinfo [ref=e34]:
+    - generic [ref=e35]:
+      - generic [ref=e36]:
+        - generic [ref=e37]:
+          - generic [ref=e39]: STG
+          - paragraph [ref=e40]: Professional tournament management made simple. Create, organize, and manage contests with ease.
+        - generic [ref=e41]:
+          - heading "Quick Links" [level=3] [ref=e42]
+          - list [ref=e43]:
+            - listitem [ref=e44]:
+              - link "🏠 Home" [ref=e45] [cursor=pointer]:
+                - /url: "#"
+                - generic [ref=e46]: 🏠
+                - text: Home
+            - listitem [ref=e47]:
+              - link "🏆 Contests" [ref=e48] [cursor=pointer]:
+                - /url: "#"
+                - generic [ref=e49]: 🏆
+                - text: Contests
+            - listitem [ref=e50]:
+              - link "📍 Venues" [ref=e51] [cursor=pointer]:
+                - /url: "#"
+                - generic [ref=e52]: 📍
+                - text: Venues
+            - listitem [ref=e53]:
+              - link "🎮 Games" [ref=e54] [cursor=pointer]:
+                - /url: "#"
+                - generic [ref=e55]: 🎮
+                - text: Games
+        - generic [ref=e56]:
+          - heading "Support" [level=3] [ref=e57]
+          - list [ref=e58]:
+            - listitem [ref=e59]:
+              - link "📧 Contact Us" [ref=e60] [cursor=pointer]:
+                - /url: "#"
+                - generic [ref=e61]: 📧
+                - text: Contact Us
+            - listitem [ref=e62]:
+              - link "❓ Help Center" [ref=e63] [cursor=pointer]:
+                - /url: "#"
+                - generic [ref=e64]: ❓
+                - text: Help Center
+            - listitem [ref=e65]:
+              - link "📄 Privacy Policy" [ref=e66] [cursor=pointer]:
+                - /url: "#"
+                - generic [ref=e67]: 📄
+                - text: Privacy Policy
+            - listitem [ref=e68]:
+              - link "📋 Terms of Service" [ref=e69] [cursor=pointer]:
+                - /url: "#"
+                - generic [ref=e70]: 📋
+                - text: Terms of Service
+      - generic [ref=e72]:
+        - generic [ref=e73]:
+          - paragraph [ref=e74]: © 2024 STG. All rights reserved.
+          - generic [ref=e75]:
+            - generic [ref=e76]: "Error loading version: Failed to parse version info: expected value at line 1 column 1"
+            - generic [ref=e77]: "Frontend Version: 0.2.11"
+        - generic [ref=e78]:
+          - link "📱" [ref=e79] [cursor=pointer]:
+            - /url: "#"
+          - link "🐦" [ref=e80] [cursor=pointer]:
+            - /url: "#"
+          - link "💼" [ref=e81] [cursor=pointer]:
+            - /url: "#"
+          - link "📷" [ref=e82] [cursor=pointer]:
+            - /url: "#"
+```

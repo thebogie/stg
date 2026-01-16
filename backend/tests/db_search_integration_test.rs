@@ -4,18 +4,22 @@ use std::env;
 
 #[derive(Debug, serde::Deserialize)]
 struct GameDto {
+    #[serde(rename = "_id")]
     id: String,
     name: String,
 }
 
 #[derive(Debug, serde::Deserialize)]
 struct VenueDto {
+    #[serde(rename = "_id")]
     id: String,
+    #[serde(rename = "displayName")]
     display_name: String,
 }
 
 #[derive(Debug, serde::Deserialize)]
 struct PlayerDto {
+    #[serde(rename = "_id")]
     id: String,
     handle: String,
 }
@@ -37,12 +41,19 @@ async fn games_db_search_returns_success() {
     let url = format!("{}/api/games/db_search", base);
     let res = reqwest::Client::new()
         .get(&url)
-        .query(&[("q", "har")])
+        .query(&[("query", "har")])
         .send()
         .await
-        .expect("request ok");
-    assert!(res.status().is_success());
-    let _games: Vec<GameDto> = res.json().await.expect("json ok");
+        .unwrap_or_else(|e| panic!("Failed to send request to {}: {}", url, e));
+    assert!(
+        res.status().is_success(),
+        "Expected success status, got {} for {}",
+        res.status(),
+        url
+    );
+    let _games: Vec<GameDto> = res.json().await.unwrap_or_else(|e| {
+        panic!("Failed to parse JSON response from {}: {}", url, e);
+    });
 }
 
 #[tokio::test]
@@ -54,12 +65,19 @@ async fn venues_db_search_returns_success() {
     let url = format!("{}/api/venues/db_search", base);
     let res = reqwest::Client::new()
         .get(&url)
-        .query(&[("q", "coffee")])
+        .query(&[("query", "coffee")])
         .send()
         .await
-        .expect("request ok");
-    assert!(res.status().is_success());
-    let _venues: Vec<VenueDto> = res.json().await.expect("json ok");
+        .unwrap_or_else(|e| panic!("Failed to send request to {}: {}", url, e));
+    assert!(
+        res.status().is_success(),
+        "Expected success status, got {} for {}",
+        res.status(),
+        url
+    );
+    let _venues: Vec<VenueDto> = res.json().await.unwrap_or_else(|e| {
+        panic!("Failed to parse JSON response from {}: {}", url, e);
+    });
 }
 
 #[tokio::test]
@@ -71,10 +89,17 @@ async fn players_db_search_returns_success() {
     let url = format!("{}/api/players/db_search", base);
     let res = reqwest::Client::new()
         .get(&url)
-        .query(&[("q", "mit")])
+        .query(&[("query", "mit")])
         .send()
         .await
-        .expect("request ok");
-    assert!(res.status().is_success());
-    let _players: Vec<PlayerDto> = res.json().await.expect("json ok");
+        .unwrap_or_else(|e| panic!("Failed to send request to {}: {}", url, e));
+    assert!(
+        res.status().is_success(),
+        "Expected success status, got {} for {}",
+        res.status(),
+        url
+    );
+    let _players: Vec<PlayerDto> = res.json().await.unwrap_or_else(|e| {
+        panic!("Failed to parse JSON response from {}: {}", url, e);
+    });
 }

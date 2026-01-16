@@ -1,3 +1,4 @@
+use crate::cache::{CacheKeys, CacheTTL, RedisCache};
 use crate::third_party::BGGService;
 use arangors::client::reqwest::ReqwestClient;
 use arangors::document::options::{InsertOptions, RemoveOptions, UpdateOptions};
@@ -5,6 +6,7 @@ use arangors::Database;
 use serde::{Deserialize, Serialize};
 use shared::dto::game::GameDto;
 use shared::models::game::Game;
+use std::sync::Arc;
 
 // Database-only game model (without source field)
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -39,6 +41,7 @@ impl From<GameDb> for Game {
 pub struct GameRepositoryImpl {
     pub db: Database<ReqwestClient>,
     pub bgg_service: Option<BGGService>,
+    pub cache: Option<Arc<RedisCache>>,
 }
 
 #[async_trait::async_trait]
@@ -70,6 +73,7 @@ impl GameRepositoryImpl {
         Self {
             db,
             bgg_service: None,
+            cache: None,
         }
     }
 
@@ -77,6 +81,27 @@ impl GameRepositoryImpl {
         Self {
             db,
             bgg_service: Some(bgg_service),
+            cache: None,
+        }
+    }
+
+    pub fn new_with_cache(db: Database<ReqwestClient>, cache: Arc<RedisCache>) -> Self {
+        Self {
+            db,
+            bgg_service: None,
+            cache: Some(cache),
+        }
+    }
+
+    pub fn new_with_bgg_and_cache(
+        db: Database<ReqwestClient>,
+        bgg_service: BGGService,
+        cache: Arc<RedisCache>,
+    ) -> Self {
+        Self {
+            db,
+            bgg_service: Some(bgg_service),
+            cache: Some(cache),
         }
     }
 }
@@ -84,34 +109,91 @@ impl GameRepositoryImpl {
 #[async_trait::async_trait]
 impl GameRepository for GameRepositoryImpl {
     async fn find_by_id(&self, id: &str) -> Option<Game> {
+        // Try cache first
+        if let Some(ref cache) = self.cache {
+            let cache_key = CacheKeys::game(id);
+            if let Ok(Some(cached_game)) = cache.get::<Game>(&cache_key).await {
+                log::debug!("Cache hit for game: {}", id);
+                return Some(cached_game);
+            }
+        }
+
+        // Cache miss or no cache - query database
         let query = arangors::AqlQuery::builder()
             .query("FOR g IN game FILTER g._id == @id LIMIT 1 RETURN g")
             .bind_var("id", id)
             .build();
+
         match self.db.aql_query::<GameDb>(query).await {
-            Ok(mut cursor) => cursor.pop().map(|db_game| Game::from(db_game)),
+            Ok(mut cursor) => {
+                if let Some(db_game) = cursor.pop() {
+                    let game = Game::from(db_game);
+
+                    // Cache the result
+                    if let Some(ref cache) = self.cache {
+                        let cache_key = CacheKeys::game(id);
+                        let _ = cache
+                            .set_with_ttl(&cache_key, &game, CacheTTL::game())
+                            .await;
+                    }
+
+                    Some(game)
+                } else {
+                    None
+                }
+            }
             Err(_) => None,
         }
     }
 
     async fn find_all(&self) -> Vec<Game> {
+        // Try cache first
+        if let Some(ref cache) = self.cache {
+            let cache_key = CacheKeys::game_list();
+            if let Ok(Some(cached_games)) = cache.get::<Vec<Game>>(&cache_key).await {
+                log::debug!("Cache hit for game list");
+                return cached_games;
+            }
+        }
+
+        // Cache miss or no cache - query database
         let query = arangors::AqlQuery::builder()
             .query("FOR g IN game RETURN g")
             .build();
+
         match self.db.aql_query::<GameDb>(query).await {
             Ok(cursor) => {
                 let db_games: Vec<GameDb> = cursor.into_iter().collect();
                 // Convert database games to full Game models with source field
-                db_games
+                let games: Vec<Game> = db_games
                     .into_iter()
                     .map(|db_game| Game::from(db_game))
-                    .collect()
+                    .collect();
+
+                // Cache the result
+                if let Some(ref cache) = self.cache {
+                    let cache_key = CacheKeys::game_list();
+                    let _ = cache
+                        .set_with_ttl(&cache_key, &games, CacheTTL::game_list())
+                        .await;
+                }
+
+                games
             }
             Err(_) => Vec::new(),
         }
     }
 
     async fn search(&self, query: &str) -> Vec<Game> {
+        // Try cache first
+        if let Some(ref cache) = self.cache {
+            let cache_key = CacheKeys::game_search(query);
+            if let Ok(Some(cached_games)) = cache.get::<Vec<Game>>(&cache_key).await {
+                log::debug!("Cache hit for game search: {}", query);
+                return cached_games;
+            }
+        }
+
         let max_results = 20;
         let mut results = Vec::new();
 
@@ -272,6 +354,14 @@ impl GameRepository for GameRepositoryImpl {
                 game.name,
                 game.source
             );
+        }
+
+        // Cache the search results
+        if let Some(ref cache) = self.cache {
+            let cache_key = CacheKeys::game_search(query);
+            let _ = cache
+                .set_with_ttl(&cache_key, &results, CacheTTL::game_search())
+                .await;
         }
 
         results
@@ -616,7 +706,7 @@ impl GameRepository for GameRepositoryImpl {
         {
             Ok(created_doc) => {
                 let header = created_doc.header().unwrap();
-                Ok(Game {
+                let created_game = Game {
                     id: header._id.clone(),
                     rev: header._rev.clone(),
                     name: game.name,
@@ -624,7 +714,16 @@ impl GameRepository for GameRepositoryImpl {
                     bgg_id: game.bgg_id,
                     description: game.description,
                     source: game.source,
-                })
+                };
+
+                // Invalidate cache
+                if let Some(ref cache) = self.cache {
+                    let _ = cache.delete(&CacheKeys::game(&created_game.id)).await;
+                    let _ = cache.delete(&CacheKeys::game_list()).await;
+                    let _ = cache.invalidate_pattern("games:search:").await;
+                }
+
+                Ok(created_game)
             }
             Err(e) => Err(format!("Failed to create game: {}", e)),
         }
@@ -652,7 +751,16 @@ impl GameRepository for GameRepositoryImpl {
                 match self.db.aql_query::<GameDb>(aql).await {
                     Ok(mut cursor) => {
                         if let Some(db_game) = cursor.pop() {
-                            Ok(Game::from(db_game))
+                            let updated_game = Game::from(db_game);
+
+                            // Invalidate cache
+                            if let Some(ref cache) = self.cache {
+                                let _ = cache.delete(&CacheKeys::game(&updated_game.id)).await;
+                                let _ = cache.delete(&CacheKeys::game_list()).await;
+                                let _ = cache.invalidate_pattern("games:search:").await;
+                            }
+
+                            Ok(updated_game)
                         } else {
                             Err("Updated game not found".to_string())
                         }
@@ -677,7 +785,15 @@ impl GameRepository for GameRepositoryImpl {
             .remove_document::<serde_json::Value>(key, RemoveOptions::default(), None)
             .await
         {
-            Ok(_) => Ok(()),
+            Ok(_) => {
+                // Invalidate cache
+                if let Some(ref cache) = self.cache {
+                    let _ = cache.delete(&CacheKeys::game(id)).await;
+                    let _ = cache.delete(&CacheKeys::game_list()).await;
+                    let _ = cache.invalidate_pattern("games:search:").await;
+                }
+                Ok(())
+            }
             Err(e) => Err(format!("Failed to delete game: {}", e)),
         }
     }

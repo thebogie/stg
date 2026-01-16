@@ -66,6 +66,23 @@ fi
 
 cd "$DEPLOY_DIR"
 
+# Stop any existing E2E containers to avoid conflicts
+echo -e "${BLUE}🧹 Cleaning up any existing E2E containers...${NC}"
+docker compose \
+  -p "$PROJECT_NAME" \
+  --env-file "$ENV_FILE" \
+  -f docker-compose.production.yml \
+  -f docker-compose.e2e.yml \
+  down 2>/dev/null || true
+
+# Also stop containers with E2E names if they exist (from previous runs)
+for container in e2e_frontend e2e_backend e2e_redis e2e_arangodb; do
+  if docker ps -a --format '{{.Names}}' | grep -q "^${container}$"; then
+    echo -e "${YELLOW}  Removing existing container: ${container}${NC}"
+    docker rm -f "${container}" 2>/dev/null || true
+  fi
+done
+
 # Create isolated network for E2E tests (like hybrid_dev_env)
 echo -e "${BLUE}📡 Creating isolated network: ${NETWORK_NAME}...${NC}"
 if ! docker network inspect "$NETWORK_NAME" > /dev/null 2>&1; then
@@ -89,8 +106,8 @@ export ENV_FILE
 # come from config/.env.development via load-env.sh above
 
 # Start containers in production-like environment
-# Uses: docker-compose.yaml (base) + docker-compose.prod.yml (production config) + 
-#       docker-compose.stg_prod.yml (production network) + docker-compose.e2e.yml (port overrides only)
+# Uses: docker-compose.production.yml (consolidated production config) + 
+#       docker-compose.e2e.yml (port overrides and network isolation)
 # 
 # IMPORTANT: This ensures E2E uses EXACT same configuration as production!
 # Only differences: port mappings (for Playwright) and network name (for isolation)
@@ -107,6 +124,12 @@ echo -e "${BLUE}   Project: ${PROJECT_NAME} (isolated network: ${NETWORK_NAME})$
 echo -e "${BLUE}   Variables loaded: ARANGO_URL, REDIS_URL, API keys, ports, credentials, etc.${NC}"
 echo -e "${BLUE}   Configuration: Matches production EXACTLY (same compose files, only ports differ)${NC}"
 
+# Check if production compose file exists
+if [ ! -f "${DEPLOY_DIR}/docker-compose.production.yml" ]; then
+  echo -e "${RED}❌ Error: docker-compose.production.yml not found${NC}"
+  exit 1
+fi
+
 # Industry standard: Pre-build images, don't build during test runs
 # This is faster, more reliable, and matches CI/CD practices
 # Images should be built separately with: ./scripts/build-e2e-images.sh
@@ -116,9 +139,7 @@ if [ "${BUILD_IMAGES:-0}" = "1" ]; then
   docker compose \
     -p "$PROJECT_NAME" \
     --env-file "$ENV_FILE" \
-    -f docker-compose.yaml \
-    -f docker-compose.prod.yml \
-    -f docker-compose.stg_prod.yml \
+    -f docker-compose.production.yml \
     -f docker-compose.e2e.yml \
     build
 fi
@@ -128,9 +149,7 @@ echo -e "${BLUE}🚀 Starting containers...${NC}"
 docker compose \
   -p "$PROJECT_NAME" \
   --env-file "$ENV_FILE" \
-  -f docker-compose.yaml \
-  -f docker-compose.prod.yml \
-  -f docker-compose.stg_prod.yml \
+  -f docker-compose.production.yml \
   -f docker-compose.e2e.yml \
   up -d
 
@@ -143,7 +162,7 @@ elapsed=0
 while ! curl -f http://localhost:50023 > /dev/null 2>&1; do
   if [ $elapsed -ge $timeout ]; then
     echo -e "${RED}❌ Timeout waiting for frontend on port 50023${NC}"
-    docker compose -p "$PROJECT_NAME" -f docker-compose.yaml -f docker-compose.prod.yml -f docker-compose.stg_prod.yml -f docker-compose.e2e.yml logs frontend
+    docker compose -p "$PROJECT_NAME" -f docker-compose.production.yml -f docker-compose.e2e.yml logs frontend
     exit 1
   fi
   sleep 2
@@ -179,12 +198,12 @@ if [ "${LOAD_PROD_DATA:-1}" = "1" ]; then
 fi
 
 echo -e "${BLUE}📊 Container status:${NC}"
-docker compose -p "$PROJECT_NAME" -f docker-compose.yaml -f docker-compose.prod.yml -f docker-compose.stg_prod.yml -f docker-compose.e2e.yml ps
+docker compose -p "$PROJECT_NAME" -f docker-compose.production.yml -f docker-compose.e2e.yml ps
 echo ""
 echo -e "${BLUE}💡 To stop E2E containers:${NC}"
-echo -e "   docker compose -p ${PROJECT_NAME} -f docker-compose.yaml -f docker-compose.prod.yml -f docker-compose.stg_prod.yml -f docker-compose.e2e.yml down"
+echo -e "   docker compose -p ${PROJECT_NAME} -f docker-compose.production.yml -f docker-compose.e2e.yml down"
 echo -e "${BLUE}💡 To view logs:${NC}"
-echo -e "   docker compose -p ${PROJECT_NAME} -f docker-compose.yaml -f docker-compose.prod.yml -f docker-compose.stg_prod.yml -f docker-compose.e2e.yml logs -f"
+echo -e "   docker compose -p ${PROJECT_NAME} -f docker-compose.production.yml -f docker-compose.e2e.yml logs -f"
 echo -e "${BLUE}💡 To load production data manually:${NC}"
 echo -e "   ./scripts/load-e2e-data.sh [backup-file]"
 echo -e "${BLUE}💡 To skip loading production data:${NC}"

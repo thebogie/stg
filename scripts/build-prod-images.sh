@@ -78,8 +78,7 @@ cd "$PROJECT_ROOT"
 # Build images using docker compose
 docker compose \
     --env-file "$ENV_FILE" \
-    -f deploy/docker-compose.yaml \
-    -f deploy/docker-compose.prod.yml \
+    -f deploy/docker-compose.production.yml \
     build --progress=plain
 
 log_success "Images built successfully"
@@ -88,8 +87,8 @@ log_success "Images built successfully"
 log_info "Tagging images with version: $VERSION_TAG"
 
 # Get image names from docker compose
-FRONTEND_IMAGE=$(docker compose --env-file "$ENV_FILE" -f deploy/docker-compose.yaml -f deploy/docker-compose.prod.yml config | grep -A 5 "frontend:" | grep "image:" | awk '{print $2}' | tr -d '"' || echo "stg_rd-frontend")
-BACKEND_IMAGE=$(docker compose --env-file "$ENV_FILE" -f deploy/docker-compose.yaml -f deploy/docker-compose.prod.yml config | grep -A 5 "backend:" | grep "image:" | awk '{print $2}' | tr -d '"' || echo "stg_rd-backend")
+FRONTEND_IMAGE=$(docker compose --env-file "$ENV_FILE" -f deploy/docker-compose.production.yml config | grep -A 5 "frontend:" | grep "image:" | awk '{print $2}' | tr -d '"' || echo "stg_rd-frontend")
+BACKEND_IMAGE=$(docker compose --env-file "$ENV_FILE" -f deploy/docker-compose.production.yml config | grep -A 5 "backend:" | grep "image:" | awk '{print $2}' | tr -d '"' || echo "stg_rd-backend")
 
 # Default to project name if image names not found
 if [ -z "$FRONTEND_IMAGE" ] || [ "$FRONTEND_IMAGE" == "null" ]; then

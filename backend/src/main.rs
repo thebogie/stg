@@ -129,8 +129,32 @@ async fn main() -> std::io::Result<()> {
         }
     };
 
-    let player_repo =
-        web::Data::new(backend::player::repository::PlayerRepositoryImpl { db: db.clone() });
+    // Initialize Redis cache for repositories
+    use backend::cache::{CacheTTL, RedisCache};
+    use std::sync::Arc;
+    let game_cache = Arc::new(RedisCache::new(
+        redis_client.clone(),
+        "stg:cache:game".to_string(),
+        CacheTTL::game(),
+    ));
+    let venue_cache = Arc::new(RedisCache::new(
+        redis_client.clone(),
+        "stg:cache:venue".to_string(),
+        CacheTTL::venue(),
+    ));
+    let player_cache = Arc::new(RedisCache::new(
+        redis_client.clone(),
+        "stg:cache:player".to_string(),
+        CacheTTL::player(),
+    ));
+    log::info!("Redis cache initialized for games, venues, and players");
+
+    let player_repo = web::Data::new(
+        backend::player::repository::PlayerRepositoryImpl::new_with_cache(
+            db.clone(),
+            player_cache.clone(),
+        ),
+    );
 
     // Initialize venue repository with Google Places API if configured
     let google_config = if let Some(api_key) = &config.google.location_api_key {
@@ -143,10 +167,13 @@ async fn main() -> std::io::Result<()> {
         log::warn!("Google Places API not configured - no API key provided");
         None
     };
-    let venue_repo = web::Data::new(backend::venue::repository::VenueRepositoryImpl::new(
-        db.clone(),
-        google_config.clone(),
-    ));
+    let venue_repo = web::Data::new(
+        backend::venue::repository::VenueRepositoryImpl::new_with_cache(
+            db.clone(),
+            google_config.clone(),
+            venue_cache.clone(),
+        ),
+    );
 
     // Initialize game repository with BGG service
     let bgg_service = BGGService::new_with_config(&BGGConfig {
@@ -160,10 +187,13 @@ async fn main() -> std::io::Result<()> {
         log::warn!("BGG API token not configured - requests will be unauthenticated");
     }
 
-    let game_repo = web::Data::new(backend::game::repository::GameRepositoryImpl::new_with_bgg(
-        db.clone(),
-        bgg_service,
-    ));
+    let game_repo = web::Data::new(
+        backend::game::repository::GameRepositoryImpl::new_with_bgg_and_cache(
+            db.clone(),
+            bgg_service,
+            game_cache.clone(),
+        ),
+    );
 
     // Initialize contest repository
     let contest_repo = web::Data::new(

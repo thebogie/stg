@@ -1,9 +1,9 @@
 # E2E Test Override - Ports and Network Only
 # This file ensures E2E tests use the EXACT same configuration as production
-# Usage: docker compose -p e2e_env -f docker-compose.yaml -f docker-compose.prod.yml -f docker-compose.stg_prod.yml -f docker-compose.e2e.yml up -d
+# Usage: docker compose -p e2e_env -f docker-compose.production.yml -f docker-compose.e2e.yml up -d
 #
 # IMPORTANT: This file ONLY overrides ports and network name.
-# All other settings come from docker-compose.prod.yml and docker-compose.stg_prod.yml
+# All other settings come from docker-compose.production.yml
 # This guarantees E2E matches production exactly (except for ports needed for testing).
 #
 # NOTE: All variables come from config/.env.development via --env-file
@@ -11,6 +11,8 @@
 
 services:
   frontend:
+    # E2E: Override container name to avoid conflicts with production containers
+    container_name: e2e_frontend
     # E2E: Override ports for E2E environment
     # Ports: frontend 50023, backend 50022, arangodb 50021, redis 63790
     ports:
@@ -19,6 +21,8 @@ services:
       - FRONTEND_PORT=8080  # Container internal port (nginx config)
 
   backend:
+    # E2E: Override container name to avoid conflicts with production containers
+    container_name: e2e_backend
     # E2E: Override port mapping
     ports:
       - "50022:50022"  # Host port 50022 -> container port 50022
@@ -26,12 +30,16 @@ services:
       - SERVER_PORT=50022  # Backend listens on this port
 
   redis:
+    # E2E: Override container name to avoid conflicts with production containers
+    container_name: e2e_redis
     # E2E: Override host port to avoid conflicts
     # Container port stays 6379 for internal communication
     ports:
       - "63790:6379"  # Host port 63790 -> container port 6379
 
   arangodb:
+    # E2E: Override container name to avoid conflicts with production containers
+    container_name: e2e_arangodb
     # E2E: Override host port to avoid conflicts
     # Container port stays 8529 for internal communication
     ports:
@@ -40,7 +48,8 @@ services:
 # E2E: Use separate network (isolated from other environments)
 # Network configuration is identical to production, just different name
 # Note: Network is created by start-e2e-docker.sh script
+# This overrides the stg_prod network from docker-compose.production.yml
 networks:
-  stg_rd_net:
+  stg_prod:
     name: e2e_env
     external: true

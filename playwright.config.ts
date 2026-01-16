@@ -4,6 +4,19 @@ import { defineConfig, devices } from '@playwright/test';
  * Playwright configuration for Yew frontend E2E testing
  * @see https://playwright.dev/docs/test-configuration
  */
+
+// Check if we should use production containers (set by run-tests-setup-prod.sh)
+const USE_PRODUCTION_CONTAINERS = process.env.USE_PRODUCTION_CONTAINERS === '1';
+const PLAYWRIGHT_BASE_URL = process.env.PLAYWRIGHT_BASE_URL;
+
+// Debug logging for configuration
+if (USE_PRODUCTION_CONTAINERS) {
+  console.log('[Playwright Config] Using production containers - webServer disabled');
+  console.log(`[Playwright Config] PLAYWRIGHT_BASE_URL=${PLAYWRIGHT_BASE_URL}`);
+} else {
+  console.log('[Playwright Config] Using E2E containers via webServer');
+}
+
 export default defineConfig({
   testDir: './testing/e2e',
   /* Run tests in files in parallel */
@@ -15,14 +28,20 @@ export default defineConfig({
   /* Opt out of parallel tests on CI. */
   workers: process.env.CI ? 1 : undefined,
   /* Reporter to use. See https://playwright.dev/docs/test-reporters */
-  reporter: [
+  /* When using production containers, don't open HTML report (script continues immediately) */
+  reporter: USE_PRODUCTION_CONTAINERS ? [
+    ['html', { outputFolder: '_build/playwright-report', open: 'never' }],
+    ['junit', { outputFile: '_build/test-results/e2e-results.xml' }],
+  ] : [
     ['html', { outputFolder: '_build/playwright-report' }],
     ['junit', { outputFile: '_build/test-results/e2e-results.xml' }],
   ],
   /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
   use: {
     /* Base URL to use in actions like `await page.goto('/')`. */
-    baseURL: process.env.FRONTEND_URL || 'http://localhost:50023',
+    /* When USE_PRODUCTION_CONTAINERS=1, use PLAYWRIGHT_BASE_URL (set by run-tests-setup-prod.sh) */
+    /* Otherwise, use FRONTEND_URL or default to E2E port 50023 */
+    baseURL: process.env.PLAYWRIGHT_BASE_URL || process.env.FRONTEND_URL || 'http://localhost:50023',
     /* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
     trace: 'on-first-retry',
     /* Take screenshot on failure */
@@ -66,7 +85,11 @@ export default defineConfig({
   ],
 
   /* Run Docker containers before starting the tests */
-  webServer: {
+  /* NOTE: When running with run-tests-setup-prod.sh, production containers are already running.
+   *       Set USE_PRODUCTION_CONTAINERS=1 to skip webServer and use existing containers.
+   *       Otherwise, webServer will start E2E containers for standalone Playwright runs.
+   */
+  webServer: USE_PRODUCTION_CONTAINERS ? undefined : {
     command: './scripts/start-e2e-docker.sh',
     url: 'http://localhost:50023',
     reuseExistingServer: !process.env.CI,

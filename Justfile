@@ -12,6 +12,17 @@ test-all:
     just test-integration
     just test-frontend-e2e
 
+# Run ALL tests comprehensively (including cache tests, auto-starts services)
+# This is the most complete test runner - runs everything
+test-everything:
+    ./scripts/run-all-tests.sh
+
+# Run ALL tests against PRODUCTION Docker containers
+# Builds production images and tests the exact containers you'll deploy
+# This is the recommended pre-deployment test command
+test-everything-prod:
+    ./scripts/run-tests-setup-prod.sh
+
 # Run backend tests with nextest
 test-backend:
     cargo nextest run --workspace --lib --tests

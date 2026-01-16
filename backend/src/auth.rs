@@ -126,8 +126,9 @@ where
             let in_test = std::env::var("RUST_ENV")
                 .unwrap_or_default()
                 .eq_ignore_ascii_case("test");
-            // Only health checks are public; all other routes require auth
-            let is_public = path.starts_with("/health");
+            // Public endpoints: health checks and read-only search endpoints
+            let is_public =
+                path.starts_with("/health") || (method == "GET" && path.contains("/db_search"));
             let is_public_effective =
                 is_public || (in_test && method == "GET" && path.starts_with("/health"));
 

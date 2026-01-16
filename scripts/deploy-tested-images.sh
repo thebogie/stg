@@ -264,16 +264,14 @@ export BACKEND_IMAGE="$BACKEND_IMAGE"
 log_info "Stopping existing containers..."
 docker compose \
     --env-file "$ENV_FILE" \
-    -f deploy/docker-compose.yaml \
-    -f deploy/docker-compose.prod.yml \
+    -f deploy/docker-compose.production.yml \
     down
 
-# Deploy new containers (docker-compose.yaml will use IMAGE_TAG or FRONTEND_IMAGE/BACKEND_IMAGE)
+# Deploy new containers (docker-compose.production.yml will use IMAGE_TAG or FRONTEND_IMAGE/BACKEND_IMAGE)
 log_info "Deploying new containers..."
 docker compose \
     --env-file "$ENV_FILE" \
-    -f deploy/docker-compose.yaml \
-    -f deploy/docker-compose.prod.yml \
+    -f deploy/docker-compose.production.yml \
     up -d
 
 # Wait for services to be healthy
@@ -286,8 +284,7 @@ WAITED=0
 while [ $WAITED -lt $MAX_WAIT ]; do
     if docker compose \
         --env-file "$ENV_FILE" \
-        -f deploy/docker-compose.yaml \
-        -f deploy/docker-compose.prod.yml \
+        -f deploy/docker-compose.production.yml \
         ps | grep -q "healthy\|running"; then
         break
     fi
@@ -347,8 +344,7 @@ fi
 log_info "Container status:"
 docker compose \
     --env-file "$ENV_FILE" \
-    -f deploy/docker-compose.yaml \
-    -f deploy/docker-compose.prod.yml \
+    -f deploy/docker-compose.production.yml \
     ps
 
 log_success "Deployment completed!"
@@ -358,5 +354,5 @@ log_info "  Backend: http://localhost:${BACKEND_PORT}"
 log_info "  Frontend: http://localhost:${FRONTEND_PORT}"
 log_info ""
 log_info "To view logs:"
-log_info "  docker compose --env-file $ENV_FILE -f deploy/docker-compose.yaml -f deploy/docker-compose.prod.yml logs -f"
+log_info "  docker compose --env-file $ENV_FILE -f deploy/docker-compose.production.yml logs -f"
 

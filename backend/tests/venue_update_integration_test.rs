@@ -49,8 +49,13 @@ async fn venue_update_requires_auth() {
         .json(&body)
         .send()
         .await
-        .expect("request ok");
-    assert!(res.status().as_u16() == 401 || res.status().as_u16() == 403);
+        .unwrap_or_else(|e| panic!("Failed to send request to {}: {}", url, e));
+    assert!(
+        res.status().as_u16() == 401 || res.status().as_u16() == 403,
+        "Expected 401 or 403, got {} for {}",
+        res.status(),
+        url
+    );
 }
 
 #[tokio::test]

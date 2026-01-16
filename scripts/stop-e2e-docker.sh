@@ -32,9 +32,7 @@ export ENV_FILE
 docker compose \
   -p "$PROJECT_NAME" \
   --env-file "$ENV_FILE" \
-  -f docker-compose.yaml \
-  -f docker-compose.prod.yml \
-  -f docker-compose.stg_prod.yml \
+  -f docker-compose.production.yml \
   -f docker-compose.e2e.yml \
   down
 

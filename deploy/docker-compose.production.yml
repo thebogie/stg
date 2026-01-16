@@ -1,0 +1,216 @@
+# Production Docker Compose Configuration
+# Single consolidated file for production deployment
+# Usage: docker compose -f docker-compose.production.yml --env-file ../config/.env.production up -d
+#
+# All environment variables come from config/.env.production
+# The env_file directive loads variables, but critical container-to-container URLs are
+# explicitly set in the environment: section to ensure correct service discovery.
+
+services:
+  frontend:
+    container_name: frontend
+    image: ${FRONTEND_IMAGE:-stg_rd-frontend:${IMAGE_TAG:-latest}}
+    build:
+      context: ..
+      dockerfile: ./frontend/Dockerfile.frontend
+      args:
+        DOCKER_ENV: "true"
+        FRONTEND_PORT: "${FRONTEND_PORT:-50003}"
+        GIT_COMMIT: "${GIT_COMMIT:-unknown}"
+        BUILD_DATE: "${BUILD_DATE:-unknown}"
+    ports:
+      - "${FRONTEND_PORT:-50003}:${FRONTEND_PORT:-50003}"
+    # Environment variables are loaded via --env-file from prod-compose.sh (expanded file)
+    # Variables needed for compose file expansion are accessed via ${VAR} syntax
+    # Variables needed in containers are passed explicitly via environment: section below
+    environment:
+      - DOCKER_ENV=true
+      - RUST_ENV=production
+      - RUST_LOG=info
+      - FRONTEND_PORT=${FRONTEND_PORT:-50003}
+      - IMAGE_TAG=${IMAGE_TAG:-latest}
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: always
+    stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:${FRONTEND_PORT:-50003}/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - stg_prod
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+        window: 120s
+
+  backend:
+    container_name: backend
+    image: ${BACKEND_IMAGE:-stg_rd-backend:${IMAGE_TAG:-latest}}
+    build:
+      context: ..
+      dockerfile: ./backend/Dockerfile.backend
+      args:
+        RUST_ENV: "production"
+        RUST_LOG: "info"
+        RUST_BACKTRACE: "0"
+        GIT_COMMIT: "${GIT_COMMIT:-unknown}"
+        BUILD_DATE: "${BUILD_DATE:-unknown}"
+    ports:
+      - "${BACKEND_PORT:-50002}:${BACKEND_PORT:-50002}"
+    # Environment variables are passed via --env-file from prod-compose.sh
+    # The --env-file flag expands variables for compose file parsing (${VAR} syntax)
+    # We explicitly pass critical variables to containers via environment: section
+    # NOTE: Variables not listed here will NOT be available in the container
+    # If you need additional variables (e.g., GOOGLE_LOCATION_API, BGG_API_TOKEN),
+    # add them to the environment: section below
+    environment:
+      # CRITICAL: Container-to-container communication uses service names, not localhost
+      - ARANGO_URL=http://arangodb:8529
+      - REDIS_URL=redis://redis:6379/
+      # Server configuration
+      - SERVER_HOST=0.0.0.0
+      - SERVER_PORT=${BACKEND_PORT:-50002}
+      # Rust environment
+      - RUST_ENV=production
+      - RUST_LOG=info
+      - RUST_BACKTRACE=0
+      # Database credentials (from .env.production via --env-file)
+      - ARANGO_DB=${ARANGO_DB}
+      - ARANGO_USERNAME=${ARANGO_USERNAME}
+      - ARANGO_PASSWORD=${ARANGO_PASSWORD}
+      - ARANGO_ROOT_PASSWORD=${ARANGO_ROOT_PASSWORD}
+      # Connection pool settings
+      - DB_POOL_SIZE=${DB_POOL_SIZE:-10}
+      - DB_TIMEOUT=${DB_TIMEOUT:-30}
+      - REDIS_POOL_SIZE=${REDIS_POOL_SIZE:-10}
+      - REDIS_TIMEOUT=${REDIS_TIMEOUT:-30}
+      # Build info
+      - IMAGE_TAG=${IMAGE_TAG:-latest}
+      # API keys and other secrets (from .env.production via --env-file)
+      - GOOGLE_LOCATION_API=${GOOGLE_LOCATION_API:-}
+      - GOOGLEMAP_API_URL=${GOOGLEMAP_API_URL:-}
+      - GOOGLEMAP_API_TIMEZONE_URL=${GOOGLEMAP_API_TIMEZONE_URL:-}
+      - BGG_API_URL=${BGG_API_URL:-}
+      - BGG_API_TOKEN=${BGG_API_TOKEN:-}
+    depends_on:
+      redis:
+        condition: service_healthy
+      arangodb:
+        condition: service_healthy
+    volumes:
+      - ${VOLUME_PATH:-/var/lib/stg_rd}/backend_data:/app/data
+    restart: always
+    stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O-", "--tries=1", "http://localhost:${BACKEND_PORT:-50002}/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - stg_prod
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '1'
+          memory: 1G
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+        window: 120s
+
+  redis:
+    container_name: redis
+    image: redis:7-alpine
+    ports:
+      - "${REDIS_PORT:-63791}:6379"
+    # env_file is provided via --env-file flag (uses expanded file from prod-compose.sh)
+    command: >
+      sh -c "
+      if [ -n \"$${REDIS_PASSWORD}\" ]; then
+        redis-server --appendonly yes --requirepass \"$${REDIS_PASSWORD}\"
+      else
+        redis-server --appendonly yes
+      fi
+      "
+    volumes:
+      - ${VOLUME_PATH:-/var/lib/stg_rd}/redis_data:/data
+    restart: always
+    stop_grace_period: 10s
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - stg_prod
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+        window: 120s
+
+  arangodb:
+    container_name: arangodb
+    image: arangodb:3.12.5
+    ports:
+      - "${ARANGODB_PORT:-50001}:8529"
+    # env_file is provided via --env-file flag (uses expanded file from prod-compose.sh)
+    environment:
+      - ARANGO_ROOT_PASSWORD=${ARANGO_ROOT_PASSWORD}
+    volumes:
+      - ${VOLUME_PATH:-/var/lib/stg_rd}/arango_data:/var/lib/arangodb3:rw
+      - ${VOLUME_PATH:-/var/lib/stg_rd}/arango_apps_data:/var/lib/arangodb3-apps:rw
+    restart: always
+    stop_grace_period: 30s
+    healthcheck:
+      # Check if ArangoDB process is running and port is accessible
+      # Accept 401 Unauthorized as "healthy" - means server is responding
+      test: ["CMD-SHELL", "wget --spider --server-response http://127.0.0.1:8529/_api/version 2>&1 | grep -q 'HTTP' && exit 0 || pgrep arangod >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      - stg_prod
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '1'
+          memory: 1G
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+        max_attempts: 3
+        window: 120s
+
+networks:
+  stg_prod:
+    name: stg_prod
+    external: true  # Use existing network created by prod-compose.sh or previous deployments

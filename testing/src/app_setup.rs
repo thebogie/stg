@@ -160,8 +160,9 @@ pub async fn setup_test_app_data(env: &TestEnvironment) -> Result<TestAppData> {
     });
 
     // Create repositories
-    let player_repo =
-        web::Data::new(backend::player::repository::PlayerRepositoryImpl { db: db.clone() });
+    let player_repo = web::Data::new(backend::player::repository::PlayerRepositoryImpl::new(
+        db.clone(),
+    ));
 
     // Venue repository (no Google API key for tests)
     let venue_repo = web::Data::new(backend::venue::repository::VenueRepositoryImpl::new(

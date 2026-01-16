@@ -1,16 +1,27 @@
+use crate::cache::{CacheKeys, CacheTTL, RedisCache};
 use arangors::client::reqwest::ReqwestClient;
 use arangors::document::options::InsertOptions;
 use arangors::Database;
+use log;
 use shared::models::player::Player;
+use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct PlayerRepositoryImpl {
     pub db: Database<ReqwestClient>,
+    pub cache: Option<Arc<RedisCache>>,
 }
 
 impl PlayerRepositoryImpl {
     pub fn new(db: Database<ReqwestClient>) -> Self {
-        Self { db }
+        Self { db, cache: None }
+    }
+
+    pub fn new_with_cache(db: Database<ReqwestClient>, cache: Arc<RedisCache>) -> Self {
+        Self {
+            db,
+            cache: Some(cache),
+        }
     }
 }
 
@@ -28,6 +39,15 @@ pub trait PlayerRepository: Send + Sync {
 #[async_trait::async_trait]
 impl PlayerRepository for PlayerRepositoryImpl {
     async fn find_by_email(&self, email: &str) -> Option<Player> {
+        // Try cache first
+        if let Some(ref cache) = self.cache {
+            let cache_key = CacheKeys::player_by_email(email);
+            if let Ok(Some(cached_player)) = cache.get::<Player>(&cache_key).await {
+                log::debug!("Cache hit for player by email: {}", email);
+                return Some(cached_player);
+            }
+        }
+
         eprintln!(
             "[DEBUG] find_by_email called with email: '{}', len: {}",
             email,
@@ -41,16 +61,35 @@ impl PlayerRepository for PlayerRepositoryImpl {
             "[DEBUG] AQL query built for email: '{}', query: {:?}",
             email, query
         );
-        match self.db.aql_query(query).await {
+        match self.db.aql_query::<arangors::Document<Player>>(query).await {
             Ok(mut cursor) => {
                 let result = cursor
                     .pop()
                     .map(|doc: arangors::Document<Player>| doc.document);
+
                 if let Some(ref player) = result {
                     eprintln!(
                         "[DEBUG] Player found for email '{}': id={}, handle={}",
                         email, player.id, player.handle
                     );
+
+                    // Cache the result
+                    if let Some(ref cache) = self.cache {
+                        let _ = cache
+                            .set_with_ttl(
+                                &CacheKeys::player_by_email(email),
+                                player,
+                                CacheTTL::player(),
+                            )
+                            .await;
+                        let _ = cache
+                            .set_with_ttl(
+                                &CacheKeys::player(&player.id),
+                                player,
+                                CacheTTL::player(),
+                            )
+                            .await;
+                    }
                 } else {
                     eprintln!(
                         "[DEBUG] No player found for email: '{}', after query execution",
@@ -67,14 +106,56 @@ impl PlayerRepository for PlayerRepositoryImpl {
     }
 
     async fn find_by_id(&self, id: &str) -> Option<Player> {
+        // Try cache first
+        if let Some(ref cache) = self.cache {
+            let cache_key = CacheKeys::player(id);
+            if let Ok(Some(cached_player)) = cache.get::<Player>(&cache_key).await {
+                log::debug!("Cache hit for player by id: {}", id);
+                return Some(cached_player);
+            }
+        }
+
         let query = arangors::AqlQuery::builder()
             .query("FOR p IN player FILTER p._id == @id LIMIT 1 RETURN p")
             .bind_var("id", id)
             .build();
-        match self.db.aql_query(query).await {
-            Ok(mut cursor) => cursor
-                .pop()
-                .map(|doc: arangors::Document<Player>| doc.document),
+        match self.db.aql_query::<arangors::Document<Player>>(query).await {
+            Ok(mut cursor) => {
+                if let Some(player_doc) = cursor.pop() {
+                    let player = player_doc.document;
+
+                    // Cache the result
+                    if let Some(ref cache) = self.cache {
+                        let _ = cache
+                            .set_with_ttl(
+                                &CacheKeys::player(&player.id),
+                                &player,
+                                CacheTTL::player(),
+                            )
+                            .await;
+                        let _ = cache
+                            .set_with_ttl(
+                                &CacheKeys::player_by_email(&player.email),
+                                &player,
+                                CacheTTL::player(),
+                            )
+                            .await;
+                        if !player.handle.is_empty() {
+                            let _ = cache
+                                .set_with_ttl(
+                                    &CacheKeys::player_by_handle(&player.handle),
+                                    &player,
+                                    CacheTTL::player(),
+                                )
+                                .await;
+                        }
+                    }
+
+                    Some(player)
+                } else {
+                    None
+                }
+            }
             Err(_) => None,
         }
     }
@@ -84,7 +165,11 @@ impl PlayerRepository for PlayerRepositoryImpl {
             .query("FOR p IN player FILTER CONTAINS(LOWER(p.handle), LOWER(@query)) OR CONTAINS(LOWER(p.email), LOWER(@query)) LIMIT 10 RETURN p")
             .bind_var("query", query)
             .build();
-        match self.db.aql_query(search_query).await {
+        match self
+            .db
+            .aql_query::<arangors::Document<Player>>(search_query)
+            .await
+        {
             Ok(cursor) => cursor
                 .into_iter()
                 .map(|doc: arangors::Document<Player>| doc.document)
@@ -110,6 +195,33 @@ impl PlayerRepository for PlayerRepositoryImpl {
             .new_doc()
             .ok_or_else(|| "No document returned after creation".to_string())?
             .clone();
+
+        // Cache the created player
+        if let Some(ref cache) = self.cache {
+            let _ = cache
+                .set_with_ttl(
+                    &CacheKeys::player(&created_player.id),
+                    &created_player,
+                    CacheTTL::player(),
+                )
+                .await;
+            let _ = cache
+                .set_with_ttl(
+                    &CacheKeys::player_by_email(&created_player.email),
+                    &created_player,
+                    CacheTTL::player(),
+                )
+                .await;
+            if !created_player.handle.is_empty() {
+                let _ = cache
+                    .set_with_ttl(
+                        &CacheKeys::player_by_handle(&created_player.handle),
+                        &created_player,
+                        CacheTTL::player(),
+                    )
+                    .await;
+            }
+        }
 
         Ok(created_player)
     }
@@ -141,15 +253,64 @@ impl PlayerRepository for PlayerRepositoryImpl {
             .ok_or_else(|| "No document returned after update".to_string())?
             .clone();
 
+        // Invalidate and update cache
+        if let Some(ref cache) = self.cache {
+            // Delete old cache entries (in case email/handle changed)
+            if !player.email.is_empty() {
+                let _ = cache
+                    .delete(&CacheKeys::player_by_email(&player.email))
+                    .await;
+            }
+            if !player.handle.is_empty() {
+                let _ = cache
+                    .delete(&CacheKeys::player_by_handle(&player.handle))
+                    .await;
+            }
+
+            // Cache the updated player with new data
+            let _ = cache
+                .set_with_ttl(
+                    &CacheKeys::player(&updated_player.id),
+                    &updated_player,
+                    CacheTTL::player(),
+                )
+                .await;
+            let _ = cache
+                .set_with_ttl(
+                    &CacheKeys::player_by_email(&updated_player.email),
+                    &updated_player,
+                    CacheTTL::player(),
+                )
+                .await;
+            if !updated_player.handle.is_empty() {
+                let _ = cache
+                    .set_with_ttl(
+                        &CacheKeys::player_by_handle(&updated_player.handle),
+                        &updated_player,
+                        CacheTTL::player(),
+                    )
+                    .await;
+            }
+        }
+
         Ok(updated_player)
     }
 
     async fn find_by_handle(&self, handle: &str) -> Option<Player> {
+        // Try cache first
+        if let Some(ref cache) = self.cache {
+            let cache_key = CacheKeys::player_by_handle(handle);
+            if let Ok(Some(cached_player)) = cache.get::<Player>(&cache_key).await {
+                log::debug!("Cache hit for player by handle: {}", handle);
+                return Some(cached_player);
+            }
+        }
+
         let query = arangors::AqlQuery::builder()
             .query("FOR p IN player FILTER LOWER(p.handle) == LOWER(@handle) LIMIT 1 RETURN p")
             .bind_var("handle", handle)
             .build();
-        match self.db.aql_query(query).await {
+        match self.db.aql_query::<arangors::Document<Player>>(query).await {
             Ok(mut cursor) => cursor
                 .pop()
                 .map(|doc: arangors::Document<Player>| doc.document),
@@ -167,7 +328,7 @@ impl PlayerRepository for PlayerRepositoryImpl {
             .bind_var("ids", ids)
             .build();
 
-        match self.db.aql_query(query).await {
+        match self.db.aql_query::<arangors::Document<Player>>(query).await {
             Ok(cursor) => cursor
                 .into_iter()
                 .map(|doc: arangors::Document<Player>| doc.document)

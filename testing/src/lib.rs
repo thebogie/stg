@@ -48,6 +48,9 @@ impl TestEnvironment {
 
         // Start Docker containers using testcontainers
         // Start ArangoDB container with retry logic for parallel test execution
+        // Add small delay before starting to stagger container creation
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
         let arangodb = {
             let mut container_result = None;
             for attempt in 0..5 {
@@ -63,10 +66,11 @@ impl TestEnvironment {
 
                         // Try to get the port - if this fails, container might not be ready
                         match container.get_host_port_ipv4(8529.tcp()).await {
-                            Ok(_) => {
+                            Ok(port) => {
                                 log::debug!(
-                                    "ArangoDB container started successfully on attempt {}",
-                                    attempt + 1
+                                    "ArangoDB container started successfully on attempt {} (port {})",
+                                    attempt + 1,
+                                    port
                                 );
                                 container_result = Some(Ok(container));
                                 break;
@@ -78,11 +82,13 @@ impl TestEnvironment {
                                     e
                                 );
                                 if attempt < 4 {
-                                    // Retry by continuing the loop
-                                    tokio::time::sleep(Duration::from_millis(
-                                        2000 * (attempt + 1) as u64,
-                                    ))
-                                    .await;
+                                    // Retry by continuing the loop with exponential backoff
+                                    let backoff_ms = 2000 * (attempt + 1) as u64;
+                                    log::debug!(
+                                        "Retrying ArangoDB container start in {}ms...",
+                                        backoff_ms
+                                    );
+                                    tokio::time::sleep(Duration::from_millis(backoff_ms)).await;
                                     // Don't set container_result, let it retry
                                 } else {
                                     container_result = Some(Err(anyhow::anyhow!(
@@ -125,28 +131,60 @@ impl TestEnvironment {
         let arangodb_url = format!("http://localhost:{}", arangodb_port);
 
         // Start Redis container with retry logic
+        // Increased retries and delays for parallel execution
         let redis = {
             let mut container_result = None;
-            for attempt in 0..3 {
+            for attempt in 0..5 {
                 match GenericImage::new("redis", "7-alpine").start().await {
                     Ok(container) => {
                         // Give it more time to bind ports and start services
                         // Increased for parallel execution where containers compete for resources
-                        tokio::time::sleep(Duration::from_millis(2000)).await;
-                        container_result = Some(container);
-                        break;
+                        tokio::time::sleep(Duration::from_millis(3000)).await;
+
+                        // Verify port is available (similar to ArangoDB check)
+                        match container.get_host_port_ipv4(6379.tcp()).await {
+                            Ok(_) => {
+                                log::debug!(
+                                    "Redis container started successfully on attempt {}",
+                                    attempt + 1
+                                );
+                                container_result = Some(container);
+                                break;
+                            }
+                            Err(e) => {
+                                log::warn!(
+                                    "Redis container started but port not available (attempt {}): {:?}",
+                                    attempt + 1,
+                                    e
+                                );
+                                if attempt < 4 {
+                                    tokio::time::sleep(Duration::from_millis(
+                                        2000 * (attempt + 1) as u64,
+                                    ))
+                                    .await;
+                                } else {
+                                    return Err(anyhow::anyhow!(
+                                        "Redis container port not available after {} attempts: {:?}",
+                                        attempt + 1,
+                                        e
+                                    ))
+                                    .context("Failed to start Redis container");
+                                }
+                            }
+                        }
                     }
                     Err(e) => {
-                        if attempt < 2 {
+                        if attempt < 4 {
                             log::warn!(
                                 "Failed to start Redis container (attempt {}), retrying...",
                                 attempt + 1
                             );
-                            tokio::time::sleep(Duration::from_millis(1000 * (attempt + 1) as u64))
+                            tokio::time::sleep(Duration::from_millis(2000 * (attempt + 1) as u64))
                                 .await;
                         } else {
                             return Err(anyhow::anyhow!(
-                                "Failed to start Redis container after 3 attempts: {:?}",
+                                "Failed to start Redis container after {} attempts: {:?}",
+                                attempt + 1,
                                 e
                             ))
                             .context("Failed to start Redis container");
@@ -230,8 +268,8 @@ impl TestEnvironment {
         // Wait for services to be fully ready with retry logic
         // Optimized for parallel execution with faster initial checks and hard timeout
         let start_time = std::time::Instant::now();
-        let max_total_time = Duration::from_secs(90); // Hard timeout of 90 seconds total
-        let max_attempts = 90; // More attempts but with shorter waits
+        let max_total_time = Duration::from_secs(120); // Hard timeout of 120 seconds total (increased for slower systems)
+        let max_attempts = 120; // More attempts but with shorter waits
         let mut last_error: Option<ClientError> = None;
 
         for attempt in 0..max_attempts {
@@ -316,7 +354,7 @@ impl TestEnvironment {
 
         // Verify Redis is also ready - optimized for parallel execution
         let redis_start_time = std::time::Instant::now();
-        let redis_max_time = Duration::from_secs(45); // Redis usually starts faster, but reduce timeout
+        let redis_max_time = Duration::from_secs(60); // Increased timeout for parallel execution (was 45s)
         let redis_client = redis::Client::open(self.redis_url())?;
         let redis_max_attempts = 90; // More attempts with shorter waits
         let mut redis_ready = false;
@@ -846,11 +884,11 @@ pub async fn create_test_env_with_timeout() -> Result<TestEnvironment> {
         .await
         .map_err(|_| anyhow::anyhow!("Test environment setup timed out after 90s"))??;
 
-    // wait_for_ready now has its own internal timeouts (90s ArangoDB + 45s Redis)
-    // Add a small buffer timeout here (total should be ~150s max)
-    tokio::time::timeout(Duration::from_secs(150), env.wait_for_ready())
+    // wait_for_ready now has its own internal timeouts (120s ArangoDB + 45s Redis)
+    // Add a small buffer timeout here (total should be ~180s max)
+    tokio::time::timeout(Duration::from_secs(180), env.wait_for_ready())
         .await
-        .map_err(|_| anyhow::anyhow!("wait_for_ready timed out after 150s"))??;
+        .map_err(|_| anyhow::anyhow!("wait_for_ready timed out after 180s"))??;
 
     Ok(env)
 }

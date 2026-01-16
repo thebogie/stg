@@ -39,11 +39,7 @@ log_info "Checking production services..."
 log_info "Container status:"
 cd deploy
 export ENV_FILE="../config/.env.production"
-if [ -f "docker-compose.stg_prod.yml" ]; then
-    docker compose --env-file "$ENV_FILE" -f docker-compose.yaml -f docker-compose.prod.yml -f docker-compose.stg_prod.yml ps
-else
-    docker compose --env-file "$ENV_FILE" -f docker-compose.yaml -f docker-compose.prod.yml ps
-fi
+docker compose --env-file "$ENV_FILE" -f docker-compose.production.yml ps
 
 echo ""
 log_info "Checking network connectivity..."
