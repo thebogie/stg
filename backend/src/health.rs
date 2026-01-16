@@ -248,8 +248,8 @@ pub struct VersionInfo {
 pub async fn version_info() -> impl Responder {
     let version = env!("CARGO_PKG_VERSION").to_string();
     let name = env!("CARGO_PKG_NAME").to_string();
-    let build_date = option_env!("BUILD_DATE").map(|s| s.to_string());
     let git_commit = option_env!("GIT_COMMIT").map(|s| s.to_string());
+
     // Get Docker image tags from runtime environment variables
     // IMAGE_TAG is set in docker-compose.yaml for the backend container
     let backend_image_tag = std::env::var("IMAGE_TAG").ok().or_else(|| {
@@ -274,6 +274,49 @@ pub async fn version_info() -> impl Responder {
             }
         })
     });
+
+    // Extract build date from docker tag if available (format: v<commit>-YYYYMMDD-HHMMSS)
+    // This is more reliable than BUILD_DATE which can be cached by Docker
+    let build_date = backend_image_tag
+        .as_ref()
+        .and_then(|tag| {
+            // Parse tag like "v33adda3-20260116-002319" to extract date
+            if let Some(date_part) = tag.split('-').nth(1) {
+                if date_part.len() == 8 {
+                    // YYYYMMDD
+                    // Format as "YYYY-MM-DD HH:MM:SS UTC"
+                    let year = &date_part[0..4];
+                    let month = &date_part[4..6];
+                    let day = &date_part[6..8];
+                    // Try to get time from next part if available
+                    if let Some(time_part) = tag.split('-').nth(2) {
+                        if time_part.len() == 6 {
+                            // HHMMSS
+                            let hour = &time_part[0..2];
+                            let minute = &time_part[2..4];
+                            let second = &time_part[4..6];
+                            Some(format!(
+                                "{}-{}-{} {}:{}:{} UTC",
+                                year, month, day, hour, minute, second
+                            ))
+                        } else {
+                            Some(format!("{}-{}-{} 00:00:00 UTC", year, month, day))
+                        }
+                    } else {
+                        Some(format!("{}-{}-{} 00:00:00 UTC", year, month, day))
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        })
+        .or_else(|| {
+            // Fallback to compile-time BUILD_DATE if docker tag parsing fails
+            option_env!("BUILD_DATE").map(|s| s.to_string())
+        });
+
     let environment = std::env::var("ENVIRONMENT")
         .unwrap_or_else(|_| std::env::var("ENV").unwrap_or_else(|_| "production".to_string()));
 
