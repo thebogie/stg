@@ -29,6 +29,7 @@ services:
       - RUST_LOG=info
       - FRONTEND_PORT=${FRONTEND_PORT:-50003}
       - IMAGE_TAG=${IMAGE_TAG:-latest}
+      - FRONTEND_IMAGE_TAG=${FRONTEND_IMAGE_TAG:-${IMAGE_TAG:-latest}}
     depends_on:
       backend:
         condition: service_healthy

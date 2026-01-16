@@ -212,6 +212,7 @@ log_info "━━━━━━━━━━━━━━━━━━━━━━━�
 
 # Export IMAGE_TAG and image names for deploy script
 export IMAGE_TAG="$VERSION_TAG"
+export FRONTEND_IMAGE_TAG="$VERSION_TAG"
 export FRONTEND_IMAGE="stg_rd-frontend:${VERSION_TAG}"
 export BACKEND_IMAGE="stg_rd-backend:${VERSION_TAG}"
 

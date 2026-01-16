@@ -288,12 +288,46 @@ docker compose \
 # Deploy new containers (docker-compose.production.yml will use IMAGE_TAG or FRONTEND_IMAGE/BACKEND_IMAGE)
 log_info "Deploying new containers..."
 log_info "Using IMAGE_TAG: $IMAGE_TAG"
+log_info "Using FRONTEND_IMAGE: $FRONTEND_IMAGE"
+log_info "Using BACKEND_IMAGE: $BACKEND_IMAGE"
+
 # Ensure IMAGE_TAG is exported so docker-compose can use it
 export IMAGE_TAG="$VERSION_TAG"
+export FRONTEND_IMAGE_TAG="${FRONTEND_IMAGE_TAG:-$VERSION_TAG}"
+
+# Create a temporary env file with IMAGE_TAG to ensure it's available to docker-compose
+# This ensures IMAGE_TAG is definitely available even if not in the original env file
+TEMP_ENV_FILE=$(mktemp)
+cat "$ENV_FILE" > "$TEMP_ENV_FILE"
+# Append IMAGE_TAG variables (will override if already in file)
+echo "IMAGE_TAG=$VERSION_TAG" >> "$TEMP_ENV_FILE"
+echo "FRONTEND_IMAGE_TAG=$FRONTEND_IMAGE_TAG" >> "$TEMP_ENV_FILE"
+# Also set FRONTEND_IMAGE and BACKEND_IMAGE if they're set
+if [ -n "${FRONTEND_IMAGE:-}" ]; then
+    echo "FRONTEND_IMAGE=$FRONTEND_IMAGE" >> "$TEMP_ENV_FILE"
+fi
+if [ -n "${BACKEND_IMAGE:-}" ]; then
+    echo "BACKEND_IMAGE=$BACKEND_IMAGE" >> "$TEMP_ENV_FILE"
+fi
+
+log_info "Deploying with docker-compose..."
 docker compose \
-    --env-file "$ENV_FILE" \
+    --env-file "$TEMP_ENV_FILE" \
     -f deploy/docker-compose.production.yml \
     up -d
+
+# Clean up temp file
+rm -f "$TEMP_ENV_FILE"
+
+# Verify containers are using the correct image tags
+log_info "Verifying deployed containers..."
+sleep 2
+if docker ps --format "{{.Names}}\t{{.Image}}" | grep -E "^(frontend|backend)" | grep -v "$VERSION_TAG" | grep -v "latest"; then
+    log_warning "Some containers may not be using the versioned images"
+    docker ps --format "{{.Names}}\t{{.Image}}" | grep -E "^(frontend|backend)" || true
+else
+    log_success "Containers are using versioned images"
+fi
 
 # Wait for services to be healthy
 log_info "Waiting for services to be healthy..."
