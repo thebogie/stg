@@ -47,6 +47,8 @@ export BUILD_DATE
 # Create version tag
 VERSION_TAG="v${GIT_COMMIT}-$(date +%Y%m%d-%H%M%S)"
 export VERSION_TAG
+# Also export as IMAGE_TAG for docker-compose
+export IMAGE_TAG="$VERSION_TAG"
 
 log_info "Build Information:"
 log_info "  Git Commit: $GIT_COMMIT"

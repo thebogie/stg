@@ -98,6 +98,7 @@ services:
       - REDIS_TIMEOUT=${REDIS_TIMEOUT:-30}
       # Build info
       - IMAGE_TAG=${IMAGE_TAG:-latest}
+      - FRONTEND_IMAGE_TAG=${IMAGE_TAG:-latest}
       # API keys and other secrets (from .env.production via --env-file)
       - GOOGLE_LOCATION_API=${GOOGLE_LOCATION_API:-}
       - GOOGLEMAP_API_URL=${GOOGLEMAP_API_URL:-}

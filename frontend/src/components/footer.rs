@@ -110,24 +110,27 @@ pub fn footer() -> Html {
                             </p>
                             <div class="mt-2 text-xs text-blue-200 font-mono">
                                 if let Some(ref info) = *version_info {
-                                    <div>{"Version: "}{&info.version}</div>
-                                    <div>{"Name: "}{&info.name}</div>
+                                    <div>{"Frontend: v"}{crate::version::Version::current()}</div>
+                                    <div>{"Backend: v"}{&info.version}</div>
                                     if let Some(ref build_date) = info.build_date {
-                                        <div>{"Build Date: "}{build_date}</div>
+                                        <div>{"Build: "}{build_date}</div>
+                                    }
+                                    if let Some(ref frontend_tag) = info.frontend_image_tag {
+                                        if frontend_tag != "latest" {
+                                            <div>{"Frontend Tag: "}{frontend_tag}</div>
+                                        }
+                                    }
+                                    if let Some(ref backend_tag) = info.backend_image_tag {
+                                        if backend_tag != "latest" {
+                                            <div>{"Backend Tag: "}{backend_tag}</div>
+                                        }
                                     }
                                     if let Some(ref git_commit) = info.git_commit {
                                         <div>{"Commit: "}{git_commit}</div>
                                     }
-                                    if let Some(ref frontend_tag) = info.frontend_image_tag {
-                                        <div>{"Frontend Image: "}{frontend_tag}</div>
-                                    }
-                                    if let Some(ref backend_tag) = info.backend_image_tag {
-                                        <div>{"Backend Image: "}{backend_tag}</div>
-                                    }
-                                    <div>{"Environment: "}{&info.environment}</div>
                                 } else if let Some(ref err) = *error {
                                     <div class="text-red-300">{"Error loading version: "}{err}</div>
-                                    <div>{"Frontend Version: "}{crate::version::Version::current()}</div>
+                                    <div>{"Frontend Version: v"}{crate::version::Version::current()}</div>
                                 } else {
                                     <div>{"Loading version..."}</div>
                                 }
