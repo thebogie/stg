@@ -24,6 +24,8 @@ config/.env.development
 config/.env.production
 config/.env.*
 !.env.*.template
+# Expanded environment files (generated from templates)
+.env.*.expanded.*
 
 # Docker data
 docker-data/
@@ -32,3 +34,10 @@ docker-data/
 *.old
 *.backup
 *.bak
+
+# Test results and artifacts
+test-results/
+playwright-report/
+*.lcov
+coverage/
+*.profraw
