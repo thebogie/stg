@@ -45,8 +45,11 @@ pub fn nav() -> Html {
     // Navigate to create contest
     let on_create_click = {
         let navigator = navigator.clone();
+        let is_mobile_menu_open = is_mobile_menu_open.clone();
         Callback::from(move |_| {
             navigator.push(&Route::Contest);
+            // Close mobile menu if it's open
+            is_mobile_menu_open.set(false);
         })
     };
 

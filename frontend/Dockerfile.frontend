@@ -138,9 +138,6 @@ server {
     # WASM files
     location ~* \.wasm$ {
         add_header Content-Type "application/wasm";
-        add_header Cross-Origin-Embedder-Policy "require-corp";
-        add_header Cross-Origin-Opener-Policy "same-origin";
-        add_header Access-Control-Allow-Origin "*";
         expires 1y;
         add_header Cache-Control "public, immutable";
     }

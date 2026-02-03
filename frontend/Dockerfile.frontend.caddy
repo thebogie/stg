@@ -121,8 +121,6 @@ RUN cat > /etc/caddy/Caddyfile <<'EOF'
     }
     handle @wasm {
         header Content-Type "application/wasm"
-        header Cross-Origin-Embedder-Policy "require-corp"
-        header Cross-Origin-Opener-Policy "same-origin"
         file_server
     }
     

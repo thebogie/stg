@@ -244,6 +244,36 @@ pub fn auth_provider(props: &AuthProviderProps) -> Html {
         ..Default::default()
     });
 
+    // Immediate session validation on page load - check if stored session is still valid
+    {
+        let auth = auth.clone();
+        let has_stored_session = LocalStorage::get::<String>("session_id").is_ok();
+        use_effect(move || {
+            // Only validate if we have a session_id in localStorage
+            if has_stored_session {
+                let auth = auth.clone();
+                spawn_local(async move {
+                    auth.dispatch(AuthAction::SetLoading(true));
+                    match auth::get_current_player().await {
+                        Ok(player) => {
+                            // Session is valid, update player data
+                            auth.dispatch(AuthAction::HeartbeatSuccess(player));
+                            auth.dispatch(AuthAction::SetLoading(false));
+                        }
+                        Err(_) => {
+                            // Session expired, clear stale data
+                            auth.dispatch(AuthAction::HeartbeatError(
+                                "Session expired".to_string(),
+                            ));
+                            auth.dispatch(AuthAction::SetLoading(false));
+                        }
+                    }
+                });
+            }
+            || {}
+        });
+    }
+
     // Heartbeat effect - runs every 5 minutes (300 seconds)
     {
         let auth = auth.clone();
