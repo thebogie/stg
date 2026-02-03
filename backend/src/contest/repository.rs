@@ -1386,6 +1386,7 @@ impl ContestRepositoryImpl {
         page_size: u32,
         scope: &str,
         player_id: &str,
+        filter_player_id: Option<&str>,
     ) -> Result<serde_json::Value, String> {
         let venue_full = venue_id.map(|v| {
             if v.contains('/') {
@@ -1413,6 +1414,13 @@ impl ContestRepositoryImpl {
                 format!("player/{}", player_id)
             })
         };
+        let filter_player_full = filter_player_id.map(|pid| {
+            if pid.contains('/') {
+                pid.to_string()
+            } else {
+                format!("player/{}", pid)
+            }
+        });
 
         let mut filters = Vec::new();
         if !q.is_empty() {
@@ -1435,6 +1443,10 @@ impl ContestRepositoryImpl {
         }
         if let Some(game_clause) = Self::build_game_filter_clause(&game_full) {
             filters.push(game_clause);
+        }
+        // Add filter for specific player if provided
+        if filter_player_full.is_some() {
+            filters.push("LENGTH(FOR r IN resulted_in FILTER r._from == contest._id AND r._to == @filter_player_id RETURN 1) > 0".to_string());
         }
 
         let _scope_filter = match (scope, &player_full) {
@@ -1523,6 +1535,10 @@ FOR contest IN contest
             bind_vars.insert("player_id", serde_json::Value::String(player));
         } else {
             bind_vars.insert("player_id", serde_json::Value::Null);
+        }
+        // Add filter_player_id to bind_vars if provided
+        if let Some(filter_player) = filter_player_full {
+            bind_vars.insert("filter_player_id", serde_json::Value::String(filter_player));
         }
 
         if let Some(sf) = start_from {

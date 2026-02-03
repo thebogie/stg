@@ -171,27 +171,41 @@ pub async fn search_contests_handler_impl(
     let page_size = query.page_size.unwrap_or(20).min(100);
     let requested_scope = query.scope.clone().unwrap_or_else(|| "mine".into());
 
-    // Extract player ID from authenticated user
-    let player_id = if let Some(email) = req.extensions().get::<String>() {
-        // Look up the player by email to get the actual player ID
-        match player_repo.find_by_email(email).await {
-            Some(player) => player.id,
-            None => {
-                log::warn!("Player not found for email: {}", email);
-                // If unauthenticated or player missing, fall back to public scope
+    // If query.player_id is provided, use it for filtering (searching for a specific player's contests)
+    // Otherwise, use authenticated user's player_id for scope filtering
+    let (filter_player_id, scope_player_id, effective_scope) =
+        if let Some(query_player_id) = &query.player_id {
+            // User is searching for a specific player's contests
+            // Normalize the player_id format
+            let normalized_id = if query_player_id.contains('/') {
+                query_player_id.clone()
+            } else {
+                format!("player/{}", query_player_id)
+            };
+            // When filtering by a specific player, always use "all" scope
+            (Some(normalized_id), String::new(), "all".to_string())
+        } else {
+            // No specific player filter, use authenticated user's player_id for scope
+            let auth_player_id = if let Some(email) = req.extensions().get::<String>() {
+                // Look up the player by email to get the actual player ID
+                match player_repo.find_by_email(email).await {
+                    Some(player) => player.id,
+                    None => {
+                        log::warn!("Player not found for email: {}", email);
+                        String::new()
+                    }
+                }
+            } else {
                 String::new()
-            }
-        }
-    } else {
-        // No auth available; treat as public (no player context)
-        String::new()
-    };
-    // If there's no player context, force scope to 'all' to avoid 400s and allow browsing
-    let effective_scope = if player_id.is_empty() {
-        "all".to_string()
-    } else {
-        requested_scope
-    };
+            };
+            // If there's no player context, force scope to 'all' to avoid 400s and allow browsing
+            let effective_scope = if auth_player_id.is_empty() {
+                "all".to_string()
+            } else {
+                requested_scope
+            };
+            (None, auth_player_id, effective_scope)
+        };
     let venue_id = query.venue_id.clone();
     let game_ids: Vec<String> = query
         .game_ids
@@ -218,7 +232,8 @@ pub async fn search_contests_handler_impl(
             page,
             page_size,
             &effective_scope,
-            &player_id,
+            &scope_player_id,
+            filter_player_id.as_deref(),
         )
         .await
     {
