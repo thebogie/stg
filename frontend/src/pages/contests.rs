@@ -105,11 +105,13 @@ pub fn contests(_props: &ContestsProps) -> Html {
         let search_results = search_results.clone();
         let loading = loading.clone();
         let error = error.clone();
+        let player_search_query = player_search_query.clone();
         Callback::from(move |_| {
             let search_state = search_state.clone();
             let search_results = search_results.clone();
             let loading = loading.clone();
             let error = error.clone();
+            let player_search_query = player_search_query.clone();
 
             loading.set(true);
             error.set(None);
@@ -138,8 +140,17 @@ pub fn contests(_props: &ContestsProps) -> Html {
                     let csv = search_state.game_ids.join(",");
                     params.push(("game_ids", csv));
                 }
+                // Send player_id if selected, or if player_search_query looks like an email
                 if search_state.player_ids.len() == 1 {
                     params.push(("player_id", search_state.player_ids[0].clone()));
+                } else {
+                    // Check if there's a player search query that looks like an email
+                    // This allows users to type an email and search without selecting from dropdown
+                    let player_query = (*player_search_query).clone();
+                    if !player_query.is_empty() && player_query.contains('@') {
+                        // It's an email - send it directly, backend will look it up
+                        params.push(("player_id", player_query));
+                    }
                 }
                 // Scope is already set appropriately in state (defaults to 'all' when unauthenticated)
                 params.push(("scope", search_state.scope.clone()));
