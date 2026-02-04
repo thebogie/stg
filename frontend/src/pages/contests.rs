@@ -155,7 +155,12 @@ pub fn contests(_props: &ContestsProps) -> Html {
                         gloo::console::log!("[DEBUG] Sending email as player_id:", &player_query);
                         params.push(("player_id", player_query));
                     } else {
-                        gloo::console::log!("[DEBUG] No player_id to send. player_ids.len()=", search_state.player_ids.len(), "player_query=", &player_query);
+                        gloo::console::log!(
+                            "[DEBUG] No player_id to send. player_ids.len()=",
+                            search_state.player_ids.len(),
+                            "player_query=",
+                            &player_query
+                        );
                     }
                 }
                 // Scope is already set appropriately in state (defaults to 'all' when unauthenticated)

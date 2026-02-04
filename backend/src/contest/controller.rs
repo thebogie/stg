@@ -231,7 +231,7 @@ pub async fn search_contests_handler_impl(
             };
             (None, auth_player_id, effective_scope, false)
         };
-    
+
     // If player was not found, return empty results immediately
     if player_not_found {
         log::info!("Player not found, returning empty contest results");
@@ -242,7 +242,7 @@ pub async fn search_contests_handler_impl(
             "page_size": page_size
         }));
     }
-    
+
     let venue_id = query.venue_id.clone();
     let game_ids: Vec<String> = query
         .game_ids
