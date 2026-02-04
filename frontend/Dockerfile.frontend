@@ -35,6 +35,10 @@ RUN cargo install trunk --locked && \
 
 WORKDIR /app
 
+# Accept build args early to use for cache busting
+ARG BUILD_DATE
+ARG GIT_COMMIT
+
 # Copy dependency files first for better Docker layer caching
 COPY Cargo.toml Cargo.lock ./
 COPY frontend/package*.json ./frontend/
@@ -61,8 +65,6 @@ WORKDIR /app/frontend
 # Set build-time environment variables for the frontend
 ARG DOCKER_ENV
 ARG FRONTEND_PORT
-ARG GIT_COMMIT
-ARG BUILD_DATE
 ENV DOCKER_ENV=${DOCKER_ENV}
 ENV FRONTEND_PORT=${FRONTEND_PORT:-50003}
 ENV GIT_COMMIT=${GIT_COMMIT}

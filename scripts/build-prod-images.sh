@@ -78,10 +78,29 @@ log_info "Building production Docker images..."
 cd "$PROJECT_ROOT"
 
 # Build images using docker compose
+# IMPORTANT: Use --no-cache for frontend to ensure source code changes are always included
+# Docker's layer caching can reuse old layers even when source files change if:
+# - File timestamps haven't changed
+# - File checksums are the same  
+# - .dockerignore is excluding changed files
+# Using --no-cache ensures a completely fresh build every time (required for CI/CD)
+log_info "Building frontend (using --no-cache to ensure latest source code)..."
 docker compose \
     --env-file "$ENV_FILE" \
     -f deploy/docker-compose.production.yml \
-    build --progress=plain
+    build --progress=plain --no-cache \
+    --build-arg BUILD_DATE="$BUILD_DATE" \
+    --build-arg GIT_COMMIT="$GIT_COMMIT" \
+    frontend
+
+log_info "Building backend..."
+docker compose \
+    --env-file "$ENV_FILE" \
+    -f deploy/docker-compose.production.yml \
+    build --progress=plain \
+    --build-arg BUILD_DATE="$BUILD_DATE" \
+    --build-arg GIT_COMMIT="$GIT_COMMIT" \
+    backend
 
 log_success "Images built successfully"
 
