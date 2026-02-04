@@ -2,7 +2,11 @@
 
 # Deploy tested images to production
 # This script loads and deploys the tested images on the production server
-# Usage: ./scripts/deploy-tested-images.sh [--version TAG] [--image-dir DIR] [--skip-backup] [--skip-migrations] [--skip-load]
+# Usage: ./scripts/deploy-tested-images.sh [--version TAG] [--image-dir DIR] [--skip-backup] [--skip-migrations] [--skip-load] [--docker-hub-user USER]
+#
+# When --skip-load is used, the script will pull images from Docker Hub to ensure
+# the latest version is used (not stale local cache). Set DOCKER_HUB_USER env var
+# or use --docker-hub-user to specify the Docker Hub username (default: therealbogie)
 
 set -e
 
@@ -38,6 +42,7 @@ IMAGE_DIR="/tmp"
 SKIP_BACKUP=false
 SKIP_MIGRATIONS=false
 SKIP_LOAD=false
+DOCKER_HUB_USER=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -61,13 +66,29 @@ while [[ $# -gt 0 ]]; do
             SKIP_LOAD=true
             shift
             ;;
+        --docker-hub-user)
+            DOCKER_HUB_USER="$2"
+            shift 2
+            ;;
         *)
             log_error "Unknown option: $1"
-            echo "Usage: $0 [--version TAG] [--image-dir DIR] [--skip-backup] [--skip-migrations] [--skip-load]"
+            echo "Usage: $0 [--version TAG] [--image-dir DIR] [--skip-backup] [--skip-migrations] [--skip-load] [--docker-hub-user USER]"
             exit 1
             ;;
     esac
 done
+
+# Set Docker Hub user (default: therealbogie, can be overridden by env var or --docker-hub-user)
+# If not set via --docker-hub-user, check environment variable, then use default
+if [ -z "$DOCKER_HUB_USER" ]; then
+    # Check if DOCKER_HUB_USER env var is set (before we assigned the script variable)
+    # Use env var if set, otherwise default to therealbogie
+    if [ -n "${DOCKER_HUB_USER_ENV:-}" ]; then
+        DOCKER_HUB_USER="$DOCKER_HUB_USER_ENV"
+    else
+        DOCKER_HUB_USER="therealbogie"
+    fi
+fi
 
 # Check if we're in the project root
 if [ ! -f "$PROJECT_ROOT/Cargo.toml" ]; then
@@ -173,7 +194,37 @@ if [ "$SKIP_LOAD" = false ]; then
     gunzip -c "$BACKEND_IMAGE_FILE" | docker load
     log_success "Backend image loaded"
 else
-    log_info "Skipping image load (images should already be available from Docker Hub)"
+    log_info "Skipping image load from files (will pull from Docker Hub instead)"
+    
+    # When --skip-load is used, we assume images are on Docker Hub
+    # Pull them to ensure we have the latest version (not stale local cache)
+    FRONTEND_HUB="${DOCKER_HUB_USER}/stg_rd:frontend-${VERSION_TAG}"
+    BACKEND_HUB="${DOCKER_HUB_USER}/stg_rd:backend-${VERSION_TAG}"
+    
+    log_info "Pulling images from Docker Hub to ensure latest version..."
+    log_info "  Docker Hub user: $DOCKER_HUB_USER"
+    log_info "  Frontend: $FRONTEND_HUB"
+    log_info "  Backend: $BACKEND_HUB"
+    
+    # Pull frontend image
+    if docker pull "$FRONTEND_HUB" 2>/dev/null; then
+        log_success "Frontend image pulled from Docker Hub"
+        # Tag it for local use
+        docker tag "$FRONTEND_HUB" "stg_rd-frontend:${VERSION_TAG}" 2>/dev/null || true
+    else
+        log_warning "Could not pull frontend image from Docker Hub: $FRONTEND_HUB"
+        log_info "Will try to use locally cached image if available"
+    fi
+    
+    # Pull backend image
+    if docker pull "$BACKEND_HUB" 2>/dev/null; then
+        log_success "Backend image pulled from Docker Hub"
+        # Tag it for local use
+        docker tag "$BACKEND_HUB" "stg_rd-backend:${VERSION_TAG}" 2>/dev/null || true
+    else
+        log_warning "Could not pull backend image from Docker Hub: $BACKEND_HUB"
+        log_info "Will try to use locally cached image if available"
+    fi
 fi
 
 # Get image names - try common names first, then fall back to project name
