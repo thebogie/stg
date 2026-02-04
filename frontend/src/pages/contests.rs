@@ -140,15 +140,19 @@ pub fn contests(_props: &ContestsProps) -> Html {
                     let csv = search_state.game_ids.join(",");
                     params.push(("game_ids", csv));
                 }
-                // Send player_id if selected, or if player_search_query looks like an email
+                // Send player_id if selected
                 if search_state.player_ids.len() == 1 {
                     params.push(("player_id", search_state.player_ids[0].clone()));
+                } else if search_state.player_ids.len() > 1 {
+                    // Multiple players selected - use the first one (backend currently only supports single player filter)
+                    params.push(("player_id", search_state.player_ids[0].clone()));
                 } else {
-                    // Check if there's a player search query that looks like an email
+                    // No player selected, but check if there's a player search query that looks like an email
                     // This allows users to type an email and search without selecting from dropdown
                     let player_query = (*player_search_query).clone();
                     if !player_query.is_empty() && player_query.contains('@') {
                         // It's an email - send it directly, backend will look it up
+                        gloo::console::log!("Sending email as player_id:", &player_query);
                         params.push(("player_id", player_query));
                     }
                 }
@@ -361,11 +365,36 @@ pub fn contests(_props: &ContestsProps) -> Html {
         let perform_search = perform_search.clone();
         let draft_players = draft_players.clone();
         let selected_players = selected_players.clone();
+        let player_search_query = player_search_query.clone();
+        let player_search_results = player_search_results.clone();
         Callback::from(move |_| {
             let mut next = (*draft_state).clone();
             next.page = 1; // reset to first page on apply
+
+            // Auto-select player if user typed an email and there's exactly one match
+            let mut players_to_add = (*draft_players).clone();
+            let player_query = (*player_search_query).clone();
+            if !player_query.is_empty() && player_query.contains('@') {
+                // User typed an email - check if there's exactly one match
+                let matching_players: Vec<_> = (*player_search_results)
+                    .iter()
+                    .filter(|p| p.email.to_lowercase() == player_query.to_lowercase())
+                    .collect();
+                if matching_players.len() == 1 {
+                    // Auto-select the matching player
+                    let player = matching_players[0].clone();
+                    if !players_to_add.iter().any(|p| p.id == player.id) {
+                        players_to_add.push(player.clone());
+                        next.player_ids.push(player.id.clone());
+                    }
+                } else if matching_players.is_empty() && !next.player_ids.is_empty() {
+                    // No exact match found, but if there's a player_id already, keep it
+                    // (might be from previous selection)
+                }
+            }
+
             search_state.set(next);
-            selected_players.set((*draft_players).clone());
+            selected_players.set(players_to_add);
             perform_search.emit(());
         })
     };
@@ -665,7 +694,7 @@ pub fn contests(_props: &ContestsProps) -> Html {
             };
             chips.push(html!{
                 <span class="inline-flex items-center gap-1 px-2 py-1 bg-purple-100 text-purple-800 text-xs rounded-full">
-                    {format!("Person: {}", p.handle)}
+                    {format!("Player: {} ({})", p.handle, p.email)}
                     <button onclick={remove_player_cb} class="ml-1 text-purple-500 hover:text-purple-700">{"✕"}</button>
                 </span>
             });
@@ -772,7 +801,10 @@ pub fn contests(_props: &ContestsProps) -> Html {
                                     <p class="text-xs text-gray-500 mt-1">{"e.g., 2023-12-31 for all contests until end of 2023"}</p>
                                 </div>
                                 <div>
-                                    <label class="block text-sm font-medium text-gray-700 mb-1">{"Venue"}</label>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">
+                                        {"Venue"}
+                                        <span class="text-xs text-gray-500 ml-1">{"(filter by venue)"}</span>
+                                    </label>
                                     <select
                                         value={draft_state.venue_id.clone()}
                                         onchange={on_venue_filter_change}
@@ -785,14 +817,20 @@ pub fn contests(_props: &ContestsProps) -> Html {
                                     </select>
                                 </div>
                                 <div>
-                                    <label class="block text-sm font-medium text-gray-700 mb-1">{"Games"}</label>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">
+                                        {"Games"}
+                                        <span class="text-xs text-gray-500 ml-1">{"(filter by game)"}</span>
+                                    </label>
                                     <input
                                         type="text"
-                                        placeholder="Search games..."
+                                        placeholder="Search games... (click to select)"
                                         value={(*game_search_query).clone()}
                                         oninput={on_game_search_input}
                                         class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 mb-2"
                                     />
+                                    <p class="text-xs text-gray-500 mb-2">
+                                        {"Click a game from the dropdown to add it as a filter"}
+                                    </p>
                                     {if !game_search_results.is_empty() { html! {
                                         <div class="max-h-40 overflow-auto border border-gray-200 rounded-md">
                                             {for game_search_results.iter().map(|g| {
@@ -821,14 +859,20 @@ pub fn contests(_props: &ContestsProps) -> Html {
                                     </div>
                                 </div>
                                 <div>
-                                    <label class="block text-sm font-medium text-gray-700 mb-1">{"People"}</label>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">
+                                        {"Players"}
+                                        <span class="text-xs text-gray-500 ml-1">{"(search by email or handle)"}</span>
+                                    </label>
                                     <input
                                         type="text"
-                                        placeholder="Search people..."
+                                        placeholder="Type email (e.g., leo@gmail.com) or handle..."
                                         value={(*player_search_query).clone()}
                                         oninput={on_player_search_input}
                                         class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 mb-2"
                                     />
+                                    <p class="text-xs text-gray-500 mb-2">
+                                        {"Tip: Type an email and click 'Search' - it will auto-select if found"}
+                                    </p>
                                     {if !player_search_results.is_empty() { html! {
                                         <div class="max-h-40 overflow-auto border border-gray-200 rounded-md">
                                             {for player_search_results.iter().map(|p| {
