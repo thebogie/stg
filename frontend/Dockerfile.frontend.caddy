@@ -70,6 +70,22 @@ ENV BUILD_DATE=${BUILD_DATE}
 RUN cargo clean --package frontend || true && \
     rm -rf ../_build/frontend-dist .stage dist target/wasm32-unknown-unknown/release/frontend* || true
 
+# Verify source code before building (for debugging)
+# This will FAIL the build if old code is detected, ensuring we catch the issue early
+RUN echo "=== VERIFYING SOURCE CODE ===" && \
+    if grep -q '"People"' src/pages/contests.rs; then \
+        echo "❌ ERROR: Found old 'People' text in source code!" && \
+        echo "This build will fail to prevent deploying old code." && \
+        exit 1; \
+    fi && \
+    if ! grep -q '"Players"' src/pages/contests.rs; then \
+        echo "❌ ERROR: 'Players' text not found in source code!" && \
+        exit 1; \
+    fi && \
+    echo "✅ Source code verification passed - found 'Players' (not 'People')" && \
+    grep -n "Players" src/pages/contests.rs | head -3 && \
+    echo "=== SOURCE VERIFICATION COMPLETE ==="
+
 RUN npm run build:css:prod && \
     trunk build --release --no-default-features
 

@@ -77,6 +77,32 @@ export ENV_FILE
 log_info "Building production Docker images..."
 cd "$PROJECT_ROOT"
 
+# CRITICAL: Verify working directory matches committed code
+# Docker COPY uses working directory, not git, so we must ensure they match
+log_info "Verifying working directory matches committed code..."
+if ! git diff --quiet HEAD -- frontend/src/pages/contests.rs; then
+    log_error "Working directory has uncommitted changes to frontend/src/pages/contests.rs!"
+    log_error "Docker build will use working directory files, not committed code."
+    log_error "Please commit or stash your changes before building."
+    git diff HEAD -- frontend/src/pages/contests.rs | head -20
+    exit 1
+fi
+
+# Verify the committed code has "Players" (not "People")
+if git show HEAD:frontend/src/pages/contests.rs | grep -q '"People"'; then
+    log_error "Committed code still contains 'People' instead of 'Players'!"
+    log_error "Please commit the fix before building."
+    exit 1
+fi
+
+if ! git show HEAD:frontend/src/pages/contests.rs | grep -q '"Players"'; then
+    log_error "Committed code doesn't contain 'Players'!"
+    log_error "Please commit the fix before building."
+    exit 1
+fi
+
+log_success "Working directory matches committed code - build will use correct source"
+
 # Build images using docker compose
 # IMPORTANT: Use --no-cache for frontend to ensure source code changes are always included
 # Docker's layer caching can reuse old layers even when source files change if:
