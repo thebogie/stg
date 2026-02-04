@@ -64,10 +64,11 @@ ENV FRONTEND_PORT=${FRONTEND_PORT:-50003}
 ENV GIT_COMMIT=${GIT_COMMIT}
 ENV BUILD_DATE=${BUILD_DATE}
 
-# CRITICAL: Clean Cargo cache to ensure fresh build
-# Even with Docker --no-cache, Cargo has its own incremental compilation cache
+# CRITICAL: Clean ALL caches to ensure fresh build
+# Even with Docker --no-cache, Cargo and Trunk have their own caches
 # This ensures source code changes are always picked up
-RUN cargo clean --package frontend || true
+RUN cargo clean --package frontend || true && \
+    rm -rf ../_build/frontend-dist .stage dist target/wasm32-unknown-unknown/release/frontend* || true
 
 RUN npm run build:css:prod && \
     trunk build --release --no-default-features

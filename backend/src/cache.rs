@@ -393,8 +393,9 @@ mod tests {
             let result = cache.get::<String>("ttl_key").await.unwrap();
             assert_eq!(result, Some(test_value.clone()));
 
-            // Wait for expiration
-            tokio::time::sleep(Duration::from_millis(1100)).await;
+            // Wait for expiration - Redis expiration is not guaranteed to be exact
+            // Use a longer wait time to account for Redis's lazy expiration mechanism
+            tokio::time::sleep(Duration::from_millis(2000)).await;
 
             // Should be expired
             let result = cache.get::<String>("ttl_key").await.unwrap();
