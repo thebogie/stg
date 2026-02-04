@@ -150,6 +150,38 @@ async fn find_player_with_contests(base_url: &str) -> Result<Option<String>> {
     Ok(None)
 }
 
+/// Helper to find a player's email that has contests in the production data
+async fn find_player_email_with_contests(base_url: &str) -> Result<Option<String>> {
+    // First, get all contests to find players who participated
+    let url = format!("{}/api/contests/search", base_url);
+    let client = reqwest::Client::new();
+    let res = client
+        .get(&url)
+        .query(&[("scope", "all"), ("page_size", "100")])
+        .send()
+        .await
+        .context("Failed to fetch contests")?;
+
+    if !res.status().is_success() {
+        return Ok(None);
+    }
+
+    let body: ContestResponse = res.json().await.context("Failed to parse contests")?;
+
+    // Find first contest with outcomes (players) that has an email
+    for contest in body.items {
+        for outcome in contest.outcomes {
+            if let Some(email) = outcome.email {
+                if !email.is_empty() {
+                    return Ok(Some(email));
+                }
+            }
+        }
+    }
+
+    Ok(None)
+}
+
 /// Helper to find a venue that has contests
 async fn find_venue_with_contests(base_url: &str) -> Result<Option<String>> {
     let url = format!("{}/api/contests/search", base_url);
@@ -715,6 +747,195 @@ async fn e2e_contest_filters_combined_filters_work() -> Result<()> {
             "✅ Combined filters work: player filter gave {} contests, combined filter gave {} contests",
             player_only.total,
             combined.total
+        );
+    }
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn e2e_contest_filters_player_email_lookup_works() -> Result<()> {
+    let base = match skip_if_no_backend() {
+        Some(url) => url,
+        None => {
+            eprintln!("Skipping test: BACKEND_URL not set");
+            return Ok(());
+        }
+    };
+
+    // Find a player email that has contests
+    let player_email = match find_player_email_with_contests(&base).await? {
+        Some(email) => email,
+        None => {
+            eprintln!("Skipping test: No players with email and contests found in production data");
+            return Ok(());
+        }
+    };
+
+    // Get the player_id for this email by searching for the player
+    let player_search_url = format!("{}/api/players/search", base);
+    let client = reqwest::Client::new();
+    let player_search_res = client
+        .get(&player_search_url)
+        .query(&[("query", player_email.as_str())])
+        .send()
+        .await
+        .context("Failed to search for player")?;
+
+    if !player_search_res.status().is_success() {
+        eprintln!("Skipping test: Could not search for player by email");
+        return Ok(());
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct PlayerSearchItem {
+        #[serde(rename = "_id")]
+        pub id: String,
+        pub email: String,
+        pub handle: String,
+    }
+
+    let players: Vec<PlayerSearchItem> = player_search_res
+        .json()
+        .await
+        .context("Failed to parse player search results")?;
+
+    let player_id = players
+        .iter()
+        .find(|p| p.email == player_email)
+        .map(|p| p.id.clone());
+
+    let player_id = match player_id {
+        Some(id) => id,
+        None => {
+            eprintln!(
+                "Skipping test: Could not find player_id for email {}",
+                player_email
+            );
+            return Ok(());
+        }
+    };
+
+    // Get baseline: all contests
+    let url = format!("{}/api/contests/search", base);
+    let all_res = client
+        .get(&url)
+        .query(&[("scope", "all"), ("page_size", "100")])
+        .send()
+        .await
+        .context("Failed to fetch all contests")?;
+
+    assert!(
+        all_res.status().is_success(),
+        "Expected success status for all contests, got: {}",
+        all_res.status()
+    );
+    let all_contests: ContestResponse = all_res
+        .json()
+        .await
+        .context("Failed to parse all contests")?;
+
+    // Filter by player_id (using the ID directly)
+    let filtered_by_id_res = client
+        .get(&url)
+        .query(&[
+            ("player_id", player_id.as_str()),
+            ("scope", "all"),
+            ("page_size", "100"),
+        ])
+        .send()
+        .await
+        .context("Failed to fetch contests filtered by player_id")?;
+
+    assert!(
+        filtered_by_id_res.status().is_success(),
+        "Expected success status for filtered contests, got: {}",
+        filtered_by_id_res.status()
+    );
+    let filtered_by_id: ContestResponse = filtered_by_id_res
+        .json()
+        .await
+        .context("Failed to parse filtered contests")?;
+
+    // Filter by player email (should look up the player and return same results)
+    let filtered_by_email_res = client
+        .get(&url)
+        .query(&[
+            ("player_id", player_email.as_str()),
+            ("scope", "all"),
+            ("page_size", "100"),
+        ])
+        .send()
+        .await
+        .context("Failed to fetch contests filtered by email")?;
+
+    assert!(
+        filtered_by_email_res.status().is_success(),
+        "Expected success status for email-filtered contests, got: {}",
+        filtered_by_email_res.status()
+    );
+    let filtered_by_email: ContestResponse = filtered_by_email_res
+        .json()
+        .await
+        .context("Failed to parse email-filtered contests")?;
+
+    // Verify: Results should be identical (same total, same items)
+    assert_eq!(
+        filtered_by_id.total, filtered_by_email.total,
+        "Filtering by player_id ({}) and email ({}) should return same total. Got: {} vs {}",
+        player_id, player_email, filtered_by_id.total, filtered_by_email.total
+    );
+
+    // Verify: All email-filtered contests must contain the player
+    for contest in &filtered_by_email.items {
+        let has_player = contest
+            .outcomes
+            .iter()
+            .any(|outcome| outcome.player_id == player_id);
+        assert!(
+            has_player,
+            "Contest '{}' (id: {}) does not contain player {} in outcomes when filtered by email {}",
+            contest.name, contest.id, player_id, player_email
+        );
+    }
+
+    // Test: Non-existent email should return empty results
+    let nonexistent_email = "nonexistent_player_xyz123@example.com";
+    let empty_res = client
+        .get(&url)
+        .query(&[
+            ("player_id", nonexistent_email),
+            ("scope", "all"),
+            ("page_size", "100"),
+        ])
+        .send()
+        .await
+        .context("Failed to fetch contests for nonexistent email")?;
+
+    assert!(
+        empty_res.status().is_success(),
+        "Expected success status for nonexistent email, got: {}",
+        empty_res.status()
+    );
+    let empty_contests: ContestResponse = empty_res
+        .json()
+        .await
+        .context("Failed to parse empty contests response")?;
+
+    assert_eq!(
+        empty_contests.total, 0,
+        "Non-existent email should return 0 contests, got: {}",
+        empty_contests.total
+    );
+    assert!(
+        empty_contests.items.is_empty(),
+        "Non-existent email should return empty items list"
+    );
+
+    if filtered_by_email.total > 0 {
+        eprintln!(
+            "✅ Email lookup works: email '{}' correctly filters to {} contests (matches player_id filter)",
+            player_email, filtered_by_email.total
         );
     }
 

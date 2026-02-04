@@ -1455,10 +1455,20 @@ impl ContestRepositoryImpl {
             _ => "my_scope",
         };
 
-        let filter_clause = if filters.is_empty() {
+        // Build the base filter conditions
+        let mut base_filters = vec![
+            "(@scope == \"all\" || mine)".to_string(),
+            "venue_edge != null".to_string(),
+            "game_edge != null".to_string(),
+        ];
+
+        // Add all additional filters
+        base_filters.extend(filters);
+
+        let filter_clause = if base_filters.is_empty() {
             String::new()
         } else {
-            format!("FILTER {}", filters.join(" AND "))
+            format!("FILTER {}", base_filters.join(" AND "))
         };
 
         let sort_field = match sort_by {
@@ -1483,7 +1493,6 @@ FOR contest IN contest
         my_player != null && LENGTH(FOR r IN resulted_in FILTER r._from == contest._id AND r._to == my_player RETURN 1) > 0
     )
     // If scope is 'all', 'mine' evaluates true for everyone; otherwise enforce player-based filter
-    FILTER (@scope == "all" || mine) AND venue_edge != null AND game_edge != null
     {filter_clause}
     SORT {sort_field} {sort_dir}
     LIMIT @skip, @limit
@@ -1537,8 +1546,11 @@ FOR contest IN contest
             bind_vars.insert("player_id", serde_json::Value::Null);
         }
         // Add filter_player_id to bind_vars if provided
-        if let Some(filter_player) = filter_player_full {
-            bind_vars.insert("filter_player_id", serde_json::Value::String(filter_player));
+        if let Some(ref filter_player) = filter_player_full {
+            bind_vars.insert(
+                "filter_player_id",
+                serde_json::Value::String(filter_player.clone()),
+            );
         }
 
         if let Some(sf) = start_from {
@@ -1623,6 +1635,13 @@ FOR contest IN contest
                         .map(serde_json::Value::String)
                         .collect(),
                 ),
+            );
+        }
+        // Add filter_player_id to count_bind_vars if provided (needed for count query)
+        if let Some(ref filter_player) = filter_player_full {
+            count_bind_vars.insert(
+                "filter_player_id",
+                serde_json::Value::String(filter_player.clone()),
             );
         }
 

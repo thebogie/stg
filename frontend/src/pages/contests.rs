@@ -118,6 +118,16 @@ pub fn contests(_props: &ContestsProps) -> Html {
 
             wasm_bindgen_futures::spawn_local(async move {
                 let mut params = Vec::new();
+                let player_query_value = (*player_search_query).clone();
+                gloo::console::log!(
+                    "[DEBUG] perform_search - player_search_query value:",
+                    &player_query_value
+                );
+                gloo::console::log!(
+                    "[DEBUG] perform_search - search_state.player_ids.len():",
+                    search_state.player_ids.len()
+                );
+
                 if !search_state.query.is_empty() {
                     params.push(("q", search_state.query.clone()));
                 }
@@ -142,27 +152,39 @@ pub fn contests(_props: &ContestsProps) -> Html {
                 }
                 // Send player_id if selected
                 if search_state.player_ids.len() == 1 {
+                    gloo::console::log!(
+                        "[DEBUG] Using selected player_id:",
+                        &search_state.player_ids[0]
+                    );
                     params.push(("player_id", search_state.player_ids[0].clone()));
                 } else if search_state.player_ids.len() > 1 {
                     // Multiple players selected - use the first one (backend currently only supports single player filter)
+                    gloo::console::log!(
+                        "[DEBUG] Using first of multiple player_ids:",
+                        &search_state.player_ids[0]
+                    );
                     params.push(("player_id", search_state.player_ids[0].clone()));
                 } else {
                     // No player selected, but check if there's a player search query that looks like an email
                     // This allows users to type an email and search without selecting from dropdown
-                    let player_query = (*player_search_query).clone();
-                    if !player_query.is_empty() && player_query.contains('@') {
+                    if !player_query_value.is_empty() && player_query_value.contains('@') {
                         // It's an email - send it directly, backend will look it up
-                        gloo::console::log!("[DEBUG] Sending email as player_id:", &player_query);
-                        params.push(("player_id", player_query));
+                        gloo::console::log!(
+                            "[DEBUG] Sending email as player_id:",
+                            &player_query_value
+                        );
+                        params.push(("player_id", player_query_value));
                     } else {
                         gloo::console::log!(
                             "[DEBUG] No player_id to send. player_ids.len()=",
                             search_state.player_ids.len(),
                             "player_query=",
-                            &player_query
+                            &player_query_value
                         );
                     }
                 }
+
+                gloo::console::log!("[DEBUG] Final search params:", format!("{:?}", params));
                 // Scope is already set appropriately in state (defaults to 'all' when unauthenticated)
                 params.push(("scope", search_state.scope.clone()));
                 params.push(("page", search_state.page.to_string()));
@@ -309,13 +331,20 @@ pub fn contests(_props: &ContestsProps) -> Html {
         Callback::from(move |e: InputEvent| {
             let input: web_sys::HtmlInputElement = e.target_unchecked_into();
             let q = input.value();
+            gloo::console::log!("[DEBUG] Player search input changed:", &q);
             query_state.set(q.clone());
             let results_state = results_state.clone();
             wasm_bindgen_futures::spawn_local(async move {
                 if q.len() >= 2 {
                     match search_players(&q).await {
-                        Ok(list) => results_state.set(list),
-                        Err(_) => results_state.set(Vec::new()),
+                        Ok(list) => {
+                            gloo::console::log!("[DEBUG] Player search results:", list.len());
+                            results_state.set(list)
+                        }
+                        Err(e) => {
+                            gloo::console::log!("[DEBUG] Player search error:", &e);
+                            results_state.set(Vec::new())
+                        }
                     }
                 } else {
                     results_state.set(Vec::new());
