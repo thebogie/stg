@@ -67,8 +67,15 @@ ENV BUILD_DATE=${BUILD_DATE}
 # CRITICAL: Clean ALL caches to ensure fresh build
 # Even with Docker --no-cache, Cargo and Trunk have their own caches
 # This ensures source code changes are always picked up
-RUN cargo clean --package frontend || true && \
-    rm -rf ../_build/frontend-dist .stage dist target/wasm32-unknown-unknown/release/frontend* || true
+# Trunk caches in .stage/ and dist/, Cargo caches in target/
+RUN echo "=== CLEANING ALL CACHES ===" && \
+    cargo clean --package frontend || true && \
+    rm -rf ../_build/frontend-dist .stage dist target/wasm32-unknown-unknown/release/frontend* target/wasm32-unknown-unknown/debug/frontend* || true && \
+    find . -name "*.wasm" -type f -delete 2>/dev/null || true && \
+    find .. -path "*/frontend/.stage/*" -type f -delete 2>/dev/null || true && \
+    find .. -path "*/frontend/dist/*" -type f -delete 2>/dev/null || true && \
+    echo "✅ All caches cleaned" && \
+    echo "=== CACHE CLEANUP COMPLETE ==="
 
 # Verify source code before building (for debugging)
 # This will FAIL the build if old code is detected, ensuring we catch the issue early
