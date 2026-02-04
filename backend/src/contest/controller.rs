@@ -173,40 +173,42 @@ pub async fn search_contests_handler_impl(
 
     // If query.player_id is provided, use it for filtering (searching for a specific player's contests)
     // Otherwise, use authenticated user's player_id for scope filtering
-    let (filter_player_id, scope_player_id, effective_scope) =
+    let (filter_player_id, scope_player_id, effective_scope, player_not_found) =
         if let Some(query_player_id) = &query.player_id {
             // User is searching for a specific player's contests
             // Check if the provided value is an email (contains '@') or a player ID
-            let normalized_id = if query_player_id.contains('@') {
+            let (normalized_id, not_found) = if query_player_id.contains('@') {
                 // It's an email - look up the player by email to get the actual player ID
                 match player_repo.find_by_email(query_player_id).await {
                     Some(player) => {
                         log::info!("Found player by email '{}': {}", query_player_id, player.id);
-                        player.id
+                        (player.id, false)
                     }
                     None => {
                         log::warn!("Player not found for email: {}", query_player_id);
-                        // Return empty to indicate no filter (will return empty results)
-                        String::new()
+                        // Return a special marker to indicate player not found (will return empty results)
+                        (String::new(), true)
                     }
                 }
             } else if query_player_id.contains('/') {
                 // Already in ArangoDB format (player/xxx)
-                query_player_id.clone()
+                (query_player_id.clone(), false)
             } else {
                 // Assume it's a player ID without the prefix
-                format!("player/{}", query_player_id)
+                (format!("player/{}", query_player_id), false)
             };
 
-            // If we couldn't find the player, don't filter (will return empty results)
-            let filter_id = if normalized_id.is_empty() {
+            // If we couldn't find the player, return None to signal empty results
+            let filter_id = if not_found {
+                None // Will be handled specially to return empty results
+            } else if normalized_id.is_empty() {
                 None
             } else {
                 Some(normalized_id)
             };
 
             // When filtering by a specific player, always use "all" scope
-            (filter_id, String::new(), "all".to_string())
+            (filter_id, String::new(), "all".to_string(), not_found)
         } else {
             // No specific player filter, use authenticated user's player_id for scope
             let auth_player_id = if let Some(email) = req.extensions().get::<String>() {
@@ -227,8 +229,20 @@ pub async fn search_contests_handler_impl(
             } else {
                 requested_scope
             };
-            (None, auth_player_id, effective_scope)
+            (None, auth_player_id, effective_scope, false)
         };
+    
+    // If player was not found, return empty results immediately
+    if player_not_found {
+        log::info!("Player not found, returning empty contest results");
+        return HttpResponse::Ok().json(json!({
+            "items": [],
+            "total": 0,
+            "page": page,
+            "page_size": page_size
+        }));
+    }
+    
     let venue_id = query.venue_id.clone();
     let game_ids: Vec<String> = query
         .game_ids

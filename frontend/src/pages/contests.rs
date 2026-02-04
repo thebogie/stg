@@ -152,8 +152,10 @@ pub fn contests(_props: &ContestsProps) -> Html {
                     let player_query = (*player_search_query).clone();
                     if !player_query.is_empty() && player_query.contains('@') {
                         // It's an email - send it directly, backend will look it up
-                        gloo::console::log!("Sending email as player_id:", &player_query);
+                        gloo::console::log!("[DEBUG] Sending email as player_id:", &player_query);
                         params.push(("player_id", player_query));
+                    } else {
+                        gloo::console::log!("[DEBUG] No player_id to send. player_ids.len()=", search_state.player_ids.len(), "player_query=", &player_query);
                     }
                 }
                 // Scope is already set appropriately in state (defaults to 'all' when unauthenticated)
@@ -387,10 +389,9 @@ pub fn contests(_props: &ContestsProps) -> Html {
                         players_to_add.push(player.clone());
                         next.player_ids.push(player.id.clone());
                     }
-                } else if matching_players.is_empty() && !next.player_ids.is_empty() {
-                    // No exact match found, but if there's a player_id already, keep it
-                    // (might be from previous selection)
                 }
+                // If no match found, we'll send the email directly to backend in perform_search
+                // The backend will look it up and return empty results if player doesn't exist
             }
 
             search_state.set(next);
