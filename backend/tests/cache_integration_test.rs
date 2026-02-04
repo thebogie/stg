@@ -274,7 +274,7 @@ async fn test_cache_ttl_respect() {
         result = cache.get::<String>("ttl_test").await.unwrap();
         retries += 1;
     }
-    
+
     assert_eq!(
         result, None,
         "Value should be expired after TTL (waited 3000ms+ for 1000ms TTL, retried {} times)",
