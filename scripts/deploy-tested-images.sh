@@ -206,24 +206,30 @@ else
     log_info "  Frontend: $FRONTEND_HUB"
     log_info "  Backend: $BACKEND_HUB"
     
-    # Pull frontend image
-    if docker pull "$FRONTEND_HUB" 2>/dev/null; then
+    # Pull frontend image (show output to debug issues)
+    log_info "Attempting to pull frontend image..."
+    if docker pull "$FRONTEND_HUB"; then
         log_success "Frontend image pulled from Docker Hub"
         # Tag it for local use
         docker tag "$FRONTEND_HUB" "stg_rd-frontend:${VERSION_TAG}" 2>/dev/null || true
+        # Verify the pulled image has correct WASM files (for debugging)
+        log_info "Verifying pulled image..."
+        WASM_DATE=$(docker run --rm --entrypoint sh "$FRONTEND_HUB" -c 'stat /usr/share/nginx/html/frontend_bg.optimized.wasm 2>/dev/null | grep Modify | cut -d" " -f2-3' 2>/dev/null || echo "unknown")
+        log_info "WASM file date in pulled image: $WASM_DATE"
     else
-        log_warning "Could not pull frontend image from Docker Hub: $FRONTEND_HUB"
-        log_info "Will try to use locally cached image if available"
+        log_error "Failed to pull frontend image from Docker Hub: $FRONTEND_HUB"
+        log_warning "Will try to use locally cached image if available (may be stale!)"
     fi
     
-    # Pull backend image
-    if docker pull "$BACKEND_HUB" 2>/dev/null; then
+    # Pull backend image (show output to debug issues)
+    log_info "Attempting to pull backend image..."
+    if docker pull "$BACKEND_HUB"; then
         log_success "Backend image pulled from Docker Hub"
         # Tag it for local use
         docker tag "$BACKEND_HUB" "stg_rd-backend:${VERSION_TAG}" 2>/dev/null || true
     else
-        log_warning "Could not pull backend image from Docker Hub: $BACKEND_HUB"
-        log_info "Will try to use locally cached image if available"
+        log_error "Failed to pull backend image from Docker Hub: $BACKEND_HUB"
+        log_warning "Will try to use locally cached image if available (may be stale!)"
     fi
 fi
 
