@@ -18,10 +18,15 @@ struct LoginResponse {
 
 #[derive(Debug, Deserialize)]
 struct PlayerDto {
+    #[serde(rename = "_id")]
     pub id: String,
     pub email: String,
     pub handle: String,
     pub firstname: String,
+    #[serde(rename = "createdAt")]
+    pub created_at: Option<String>, // Optional since we might not always need it
+    #[serde(rename = "isAdmin")]
+    pub is_admin: Option<bool>, // Optional since we might not always need it
 }
 
 #[derive(Debug, Deserialize)]

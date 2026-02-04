@@ -10,16 +10,21 @@ use std::env;
 
 #[derive(Debug, Deserialize)]
 struct VenueDto {
+    #[serde(rename = "_id")]
     pub id: String,
+    #[serde(rename = "displayName")]
     pub display_name: String,
+    #[serde(rename = "formattedAddress")]
     pub formatted_address: String,
     pub place_id: String,
     pub lat: f64,
     pub lng: f64,
+    pub timezone: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 struct GameDto {
+    #[serde(rename = "_id")]
     pub id: String,
     pub name: String,
     pub year_published: Option<i32>,
@@ -33,8 +38,15 @@ struct LoginResponse {
 
 #[derive(Debug, Deserialize)]
 struct PlayerDto {
+    #[serde(rename = "_id")]
     pub id: String,
     pub email: String,
+    pub handle: String,
+    pub firstname: String,
+    #[serde(rename = "createdAt")]
+    pub created_at: Option<String>,
+    #[serde(rename = "isAdmin")]
+    pub is_admin: Option<bool>,
 }
 
 fn base_url() -> Option<String> {

@@ -7,6 +7,7 @@ use std::env;
 
 #[derive(Debug, Deserialize)]
 struct PlayerItem {
+    #[serde(rename = "_id")]
     pub id: String,
     pub email: String,
     pub handle: String,

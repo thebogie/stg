@@ -30,8 +30,9 @@ export default defineConfig({
   /* Reporter to use. See https://playwright.dev/docs/test-reporters */
   /* When using production containers, don't open HTML report (script continues immediately) */
   reporter: USE_PRODUCTION_CONTAINERS ? [
-    ['html', { outputFolder: '_build/playwright-report', open: 'never' }],
+    ['list'], // List reporter shows test progress
     ['junit', { outputFile: '_build/test-results/e2e-results.xml' }],
+    ['html', { outputFolder: '_build/playwright-report', open: 'never' }],
   ] : [
     ['html', { outputFolder: '_build/playwright-report' }],
     ['junit', { outputFile: '_build/test-results/e2e-results.xml' }],
