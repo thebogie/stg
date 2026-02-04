@@ -31,7 +31,7 @@
 ./scripts/test-integration.sh
 ```
 
-### 3. `./scripts/run-tests-setup-prod.sh` - Production Validation (Full Stack)
+### 3. `./scripts/build-test-push.sh` - Production Validation (Full Stack)
 **When to run**: 
 - Before deploying to production
 - Validating production Docker images
@@ -46,7 +46,7 @@
 - **Use case**: Validate production deployment
 
 ```bash
-./scripts/run-tests-setup-prod.sh
+./scripts/build-test-push.sh
 ```
 
 ## Test Categories
@@ -55,8 +55,8 @@
 |-----------|--------|-------------|-------|
 | Unit tests | `test-dev.sh` | None | ⚡ Very fast |
 | Integration (testcontainers) | `test-integration.sh` | Ephemeral | 🚀 Fast |
-| E2E-style (HTTP) | `run-tests-setup-prod.sh` | Production | 🐢 Slow |
-| E2E (Playwright) | `run-tests-setup-prod.sh` | Production | 🐢 Slow |
+| E2E-style (HTTP) | `build-test-push.sh` | Production | 🐢 Slow |
+| E2E (Playwright) | `build-test-push.sh` | Production | 🐢 Slow |
 
 ## Typical Workflow
 
@@ -79,14 +79,14 @@
 ### Before Deploying
 ```bash
 # Full production validation
-./scripts/run-tests-setup-prod.sh
+./scripts/build-test-push.sh
 ```
 
 ## What Each Script Does NOT Run
 
 - **`test-dev.sh`**: Does NOT run integration tests or E2E tests
 - **`test-integration.sh`**: Does NOT run E2E-style HTTP tests or Playwright tests
-- **`run-tests-setup-prod.sh`**: Does NOT run testcontainers-based integration tests (those are in `test-integration.sh`)
+- **`build-test-push.sh`**: Does NOT run testcontainers-based integration tests (those are in `test-integration.sh`)
 
 ## Quick Test Commands
 

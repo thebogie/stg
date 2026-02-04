@@ -82,10 +82,10 @@ cargo nextest run --package backend --test 'database_integration_test'
 - Validating production Docker images
 - End-to-end testing with real production setup
 
-**Script**: `./scripts/run-tests-setup-prod.sh`
+**Script**: `./scripts/build-test-push.sh` (runs all tests as part of build-test-push workflow)
 ```bash
-# Builds production images, starts production containers, runs all tests
-./scripts/run-tests-setup-prod.sh
+# Builds production images, starts production containers, runs all tests, pushes to Docker Hub
+./scripts/build-test-push.sh
 
 # This runs:
 # 1. Unit tests (no containers)

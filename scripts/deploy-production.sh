@@ -1,0 +1,272 @@
+#!/bin/bash
+
+# Production Side: Deploy Tested Containers
+# This script pulls tested containers from Docker Hub and deploys them.
+#
+# Usage: ./scripts/deploy-production.sh --version VERSION_TAG
+#
+# Example:
+#   ./scripts/deploy-production.sh --version v48b71e5-20260204-164600
+#
+# Prerequisites:
+#   - docker login (for pulling from Docker Hub)
+#   - DOCKER_HUB_USER env var (default: therealbogie)
+
+set -e
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+log_info() { echo -e "${BLUE}ℹ️  $1${NC}"; }
+log_success() { echo -e "${GREEN}✅ $1${NC}"; }
+log_warning() { echo -e "${YELLOW}⚠️  $1${NC}"; }
+log_error() { echo -e "${RED}❌ $1${NC}"; }
+
+# Parse arguments
+VERSION_TAG=""
+SKIP_BACKUP=false
+SKIP_MIGRATIONS=false
+DOCKER_HUB_USER=""
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --version)
+            VERSION_TAG="$2"
+            shift 2
+            ;;
+        --skip-backup)
+            SKIP_BACKUP=true
+            shift
+            ;;
+        --skip-migrations)
+            SKIP_MIGRATIONS=true
+            shift
+            ;;
+        --docker-hub-user)
+            DOCKER_HUB_USER="$2"
+            shift 2
+            ;;
+        *)
+            log_error "Unknown option: $1"
+            echo "Usage: $0 --version VERSION_TAG [--skip-backup] [--skip-migrations] [--docker-hub-user USER]"
+            exit 1
+            ;;
+    esac
+done
+
+if [ -z "$VERSION_TAG" ]; then
+    log_error "Version tag is required!"
+    echo "Usage: $0 --version VERSION_TAG"
+    echo ""
+    echo "Example:"
+    echo "  $0 --version v48b71e5-20260204-164600"
+    exit 1
+fi
+
+# Set Docker Hub user
+if [ -z "$DOCKER_HUB_USER" ]; then
+    DOCKER_HUB_USER="${DOCKER_HUB_USER:-therealbogie}"
+fi
+
+# Check prerequisites
+if [ ! -f "$PROJECT_ROOT/Cargo.toml" ]; then
+    log_error "Must be run from project root"
+    exit 1
+fi
+
+ENV_FILE="${PROJECT_ROOT}/config/.env.production"
+if [ ! -f "$ENV_FILE" ]; then
+    log_error "Production environment file not found: $ENV_FILE"
+    exit 1
+fi
+
+# Check Docker login
+if ! docker info >/dev/null 2>&1; then
+    log_error "Docker is not running or you're not logged in"
+    log_info "Please run: docker login"
+    exit 1
+fi
+
+# ============================================================================
+# STEP 1: Pull Images from Docker Hub
+# ============================================================================
+log_info "Pulling tested images from Docker Hub..."
+
+FRONTEND_HUB="${DOCKER_HUB_USER}/stg_rd:frontend-${VERSION_TAG}"
+BACKEND_HUB="${DOCKER_HUB_USER}/stg_rd:backend-${VERSION_TAG}"
+
+log_info "Pulling frontend: $FRONTEND_HUB"
+if ! docker pull "$FRONTEND_HUB"; then
+    log_error "Failed to pull frontend image!"
+    exit 1
+fi
+
+log_info "Pulling backend: $BACKEND_HUB"
+if ! docker pull "$BACKEND_HUB"; then
+    log_error "Failed to pull backend image!"
+    exit 1
+fi
+
+# Tag for local use
+docker tag "$FRONTEND_HUB" "stg_rd-frontend:${VERSION_TAG}"
+docker tag "$BACKEND_HUB" "stg_rd-backend:${VERSION_TAG}"
+
+log_success "Images pulled and tagged"
+
+# ============================================================================
+# STEP 2: Backup Database (if not skipped)
+# ============================================================================
+if [ "$SKIP_BACKUP" = false ]; then
+    log_info "Creating database backup..."
+    if [ -f "$PROJECT_ROOT/scripts/backup-prod-db.sh" ]; then
+        mkdir -p "${PROJECT_ROOT}/_build/backups"
+        "$PROJECT_ROOT/scripts/backup-prod-db.sh" --output-dir "${PROJECT_ROOT}/_build/backups" || {
+            log_warning "Backup failed, but continuing..."
+        }
+    else
+        log_warning "backup-prod-db.sh not found. Skipping backup."
+    fi
+fi
+
+# ============================================================================
+# STEP 3: Deploy Containers
+# ============================================================================
+log_info "Deploying containers..."
+
+# Stop existing containers
+log_info "Stopping existing containers..."
+docker compose \
+    --env-file "$ENV_FILE" \
+    -f deploy/docker-compose.production.yml \
+    down
+
+# Set image tags for deployment
+export IMAGE_TAG="$VERSION_TAG"
+export FRONTEND_IMAGE="stg_rd-frontend:${VERSION_TAG}"
+export BACKEND_IMAGE="stg_rd-backend:${VERSION_TAG}"
+export FRONTEND_IMAGE_TAG="$VERSION_TAG"
+
+# Create temp env file with image tags
+TEMP_ENV_FILE=$(mktemp)
+cat "$ENV_FILE" > "$TEMP_ENV_FILE"
+sed -i '/^IMAGE_TAG=/d' "$TEMP_ENV_FILE" 2>/dev/null || sed -i.bak '/^IMAGE_TAG=/d' "$TEMP_ENV_FILE"
+sed -i '/^FRONTEND_IMAGE_TAG=/d' "$TEMP_ENV_FILE" 2>/dev/null || sed -i.bak '/^FRONTEND_IMAGE_TAG=/d' "$TEMP_ENV_FILE"
+sed -i '/^FRONTEND_IMAGE=/d' "$TEMP_ENV_FILE" 2>/dev/null || sed -i.bak '/^FRONTEND_IMAGE=/d' "$TEMP_ENV_FILE"
+sed -i '/^BACKEND_IMAGE=/d' "$TEMP_ENV_FILE" 2>/dev/null || sed -i.bak '/^BACKEND_IMAGE=/d' "$TEMP_ENV_FILE"
+rm -f "${TEMP_ENV_FILE}.bak" 2>/dev/null || true
+
+echo "IMAGE_TAG=$VERSION_TAG" >> "$TEMP_ENV_FILE"
+echo "FRONTEND_IMAGE_TAG=$VERSION_TAG" >> "$TEMP_ENV_FILE"
+echo "FRONTEND_IMAGE=stg_rd-frontend:${VERSION_TAG}" >> "$TEMP_ENV_FILE"
+echo "BACKEND_IMAGE=stg_rd-backend:${VERSION_TAG}" >> "$TEMP_ENV_FILE"
+
+# Deploy
+log_info "Starting containers with version: $VERSION_TAG"
+docker compose \
+    --env-file "$TEMP_ENV_FILE" \
+    -f deploy/docker-compose.production.yml \
+    up -d --force-recreate frontend backend
+
+rm -f "$TEMP_ENV_FILE"
+
+# Wait for services to be healthy
+log_info "Waiting for services to be healthy..."
+sleep 5
+MAX_WAIT=60
+WAITED=0
+while [ $WAITED -lt $MAX_WAIT ]; do
+    if docker compose \
+        --env-file "$ENV_FILE" \
+        -f deploy/docker-compose.production.yml \
+        ps | grep -q "healthy\|running"; then
+        break
+    fi
+    sleep 2
+    WAITED=$((WAITED + 2))
+done
+
+# ============================================================================
+# STEP 4: Run Migrations (if not skipped)
+# ============================================================================
+if [ "$SKIP_MIGRATIONS" = false ]; then
+    if [ -d "$PROJECT_ROOT/migrations/files" ] && [ -n "$(ls -A "$PROJECT_ROOT/migrations/files" 2>/dev/null)" ]; then
+        log_info "Running migrations..."
+        
+        # Extract ArangoDB port
+        source "$ENV_FILE"
+        if [[ "$ARANGO_URL" =~ arangodb: ]]; then
+            ARANGO_PORT="${ARANGODB_PORT:-50001}"
+        elif [[ "$ARANGO_URL" =~ :([0-9]+) ]]; then
+            ARANGO_PORT="${BASH_REMATCH[1]}"
+        else
+            ARANGO_PORT="${ARANGODB_PORT:-8529}"
+        fi
+        
+        cargo run --package stg-rd-migrations --release -- \
+            --endpoint "http://localhost:${ARANGO_PORT}" \
+            --database "${ARANGO_DB:-smacktalk}" \
+            --username "${ARANGO_USERNAME:-root}" \
+            --password "${ARANGO_PASSWORD:-${ARANGO_ROOT_PASSWORD:-}}" \
+            --migrations-dir "$PROJECT_ROOT/migrations/files" || {
+            log_warning "Migrations failed. Check the output above."
+        }
+    else
+        log_info "No migrations found. Skipping."
+    fi
+fi
+
+# ============================================================================
+# STEP 5: Verify Deployment
+# ============================================================================
+log_info "Verifying deployment..."
+
+# Check containers are using correct images
+FRONTEND_USING_VERSION=$(docker ps --format "{{.Names}}\t{{.Image}}" | grep "^frontend" | grep -c "$VERSION_TAG" || echo "0")
+BACKEND_USING_VERSION=$(docker ps --format "{{.Names}}\t{{.Image}}" | grep "^backend" | grep -c "$VERSION_TAG" || echo "0")
+
+if [ "$FRONTEND_USING_VERSION" -eq "1" ] && [ "$BACKEND_USING_VERSION" -eq "1" ]; then
+    log_success "Containers are using versioned images: $VERSION_TAG"
+else
+    log_warning "Containers may not be using versioned images"
+    log_info "Expected: $VERSION_TAG"
+fi
+
+# Health checks
+log_info "Checking service health..."
+if docker compose \
+    --env-file "$ENV_FILE" \
+    -f deploy/docker-compose.production.yml \
+    ps | grep -q "healthy"; then
+    log_success "Services are healthy"
+else
+    log_warning "Some services may not be healthy yet"
+fi
+
+# Save deployed version
+mkdir -p "${PROJECT_ROOT}/_build"
+cat > "${PROJECT_ROOT}/_build/.deployed-version" <<EOF
+VERSION_TAG="$VERSION_TAG"
+IMAGE_TAG="$VERSION_TAG"
+FRONTEND_IMAGE_TAG="$VERSION_TAG"
+FRONTEND_IMAGE="stg_rd-frontend:${VERSION_TAG}"
+BACKEND_IMAGE="stg_rd-backend:${VERSION_TAG}"
+DEPLOYED_DATE="$(date -u +"%Y-%m-%d %H:%M:%S UTC")"
+EOF
+
+log_success ""
+log_success "✅ Deployment Complete!"
+log_success ""
+log_info "Version: $VERSION_TAG"
+log_info "Services:"
+log_info "  Backend: http://localhost:${BACKEND_PORT:-50002}"
+log_info "  Frontend: http://localhost:${FRONTEND_PORT:-50003}"
+log_info ""
+log_info "To view logs:"
+log_info "  docker compose --env-file $ENV_FILE -f deploy/docker-compose.production.yml logs -f"

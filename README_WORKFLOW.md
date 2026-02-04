@@ -14,16 +14,14 @@ This project uses a **test-then-deploy** workflow to ensure production runs exac
 ./scripts/test-prod-containers.sh --use-test-db
 # Test your changes in browser/API
 
-# 3. Export tested images (1-2 min)
-./scripts/export-tested-images.sh
+# 3. Push to Docker Hub (automatically done by build-test-push.sh)
+# Images are now on Docker Hub
 
-# 4. Transfer to production (2-5 min)
-scp _build/artifacts/*.tar.gz* user@production-server:/tmp/
-
-# 5. Deploy on production server (2-3 min)
+# 4. Deploy on production server (2-3 min)
 ssh production-server
-cd /path/to/stg_rd
-./scripts/deploy-tested-images.sh --version v<version> --image-dir /tmp
+cd ~/stg/repo
+git pull  # Get latest deploy script
+./scripts/deploy-production.sh --version v<version>
 ```
 
 **Total time**: ~15-50 minutes (mostly automated)
@@ -36,29 +34,25 @@ For detailed instructions, see: [TEST_THEN_DEPLOY_WORKFLOW.md](docs/TEST_THEN_DE
 
 ## 🎯 Master Workflow Script
 
-Or use the master script that orchestrates everything:
+Use the simplified workflow:
 
 ```bash
-# Build → Test → Export
-./scripts/workflow-test-then-deploy.sh
-
-# Or skip tests (not recommended)
-./scripts/workflow-test-then-deploy.sh --skip-tests
+# Build → Test → Push to Docker Hub
+./scripts/build-test-push.sh
 ```
 
 ## 📚 Scripts Reference
 
 | Script | Purpose |
 |--------|---------|
-| `build-prod-images.sh` | Build production Docker images locally |
-| `test-prod-containers.sh` | Test production containers with production data |
+| `build-test-push.sh` | **Main dev workflow**: Build, test, push to Docker Hub |
+| `deploy-production.sh` | **Main prod workflow**: Pull from Docker Hub, deploy |
+| `build-prod-images.sh` | Build production Docker images (used by build-test-push.sh) |
 | `test-migrations-workflow.sh` | Test migrations from scratch (wipe → migrate) |
 | `test-migrations-on-existing-data.sh` | Test migrations on existing data (restore → migrate) |
-| `export-tested-images.sh` | Export tested images for deployment |
 | `backup-prod-db.sh` | Backup production database |
-| `deploy-tested-images.sh` | Deploy tested images to production |
-| `deploy-with-migrations.sh` | Deploy with migrations (production workflow) |
-| `workflow-test-then-deploy.sh` | Master workflow script |
+| `test-dev.sh` | Quick unit tests during development |
+| `test-integration.sh` | Integration tests with testcontainers |
 
 ## 🔄 Migration Testing
 

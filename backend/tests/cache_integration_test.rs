@@ -263,22 +263,13 @@ async fn test_cache_ttl_respect() {
 
     // Wait for expiration (add buffer for timing variations)
     // Redis TTL expiration can be slightly delayed, so wait longer than the TTL
-    // Use 3000ms wait for 1000ms TTL to account for Redis's lazy expiration
-    tokio::time::sleep(Duration::from_millis(3000)).await;
+    tokio::time::sleep(Duration::from_millis(2000)).await;
 
-    // Should be expired - retry a few times if needed (Redis lazy expiration)
-    let mut result = cache.get::<String>("ttl_test").await.unwrap();
-    let mut retries = 0;
-    while result.is_some() && retries < 3 {
-        tokio::time::sleep(Duration::from_millis(500)).await;
-        result = cache.get::<String>("ttl_test").await.unwrap();
-        retries += 1;
-    }
-
+    // Should be expired
+    let result = cache.get::<String>("ttl_test").await.unwrap();
     assert_eq!(
         result, None,
-        "Value should be expired after TTL (waited 3000ms+ for 1000ms TTL, retried {} times)",
-        retries
+        "Value should be expired after TTL (waited 2000ms for 1000ms TTL)"
     );
 
     // Cleanup
