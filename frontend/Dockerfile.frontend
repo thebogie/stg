@@ -78,14 +78,20 @@ ENV BUILD_DATE=${BUILD_DATE}
 # Even with Docker --no-cache, Cargo and Trunk have their own caches
 # This ensures source code changes are always picked up
 # Trunk caches in .stage/ and dist/, Cargo caches in target/
+# Trunk outputs to ../_build/frontend-dist per Trunk.toml
 RUN echo "=== CLEANING ALL CACHES ===" && \
     cargo clean --package frontend || true && \
     rm -rf ../_build/frontend-dist .stage dist target/wasm32-unknown-unknown/release/frontend* target/wasm32-unknown-unknown/debug/frontend* || true && \
     find . -name "*.wasm" -type f -delete 2>/dev/null || true && \
     find .. -path "*/frontend/.stage/*" -type f -delete 2>/dev/null || true && \
     find .. -path "*/frontend/dist/*" -type f -delete 2>/dev/null || true && \
-    echo "✅ All caches cleaned" && \
-    echo "=== CACHE CLEANUP COMPLETE ==="
+    find .. -path "*/_build/frontend-dist/*" -type f -delete 2>/dev/null || true && \
+    find .. -name "*.wasm" -type f -delete 2>/dev/null || true && \
+    echo "✅ All caches cleaned (including output directory)" && \
+    echo "=== CACHE CLEANUP COMPLETE ===" && \
+    echo "Verifying no WASM files remain:" && \
+    (find .. -name "*.wasm" -type f 2>/dev/null | wc -l || echo "0") && \
+    echo "WASM files found (should be 0)"
 
 # Verify source code before building (for debugging)
 # This will FAIL the build if old code is detected, ensuring we catch the issue early
@@ -105,8 +111,19 @@ RUN echo "=== VERIFYING SOURCE CODE ===" && \
 
 # Build with version info
 # Note: Trunk.toml sets dist = "../_build/frontend-dist", so output goes to _build/frontend-dist
-RUN npm run build:css:prod && \
-    trunk build --release --no-default-features
+# CRITICAL: Clean Trunk's output directory RIGHT BEFORE building to prevent reusing old WASM files
+# Even with all previous cleaning, Trunk might find old files in the output directory
+RUN echo "=== FINAL CLEAN BEFORE BUILD ===" && \
+    rm -rf ../_build/frontend-dist .stage dist 2>/dev/null || true && \
+    find .. -name "*.wasm" -type f -delete 2>/dev/null || true && \
+    echo "✅ Output directory completely clean - WASM files removed" && \
+    echo "Verifying no WASM files exist:" && \
+    (find .. -name "*.wasm" -type f 2>/dev/null | wc -l || echo "0") && \
+    npm run build:css:prod && \
+    echo "=== STARTING TRUNK BUILD ===" && \
+    trunk build --release --no-default-features && \
+    echo "=== BUILD COMPLETE - CHECKING OUTPUT ===" && \
+    ls -lah ../_build/frontend-dist/*.wasm 2>/dev/null | head -3 || echo "No WASM files found in output"
 
 # Verify build output exists
 # Trunk.toml sets dist = "../_build/frontend-dist" (relative to frontend/), so output is at /app/_build/frontend-dist

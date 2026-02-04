@@ -93,7 +93,12 @@ RUN echo "=== VERIFYING SOURCE CODE ===" && \
     grep -n "Players" src/pages/contests.rs | head -3 && \
     echo "=== SOURCE VERIFICATION COMPLETE ==="
 
-RUN npm run build:css:prod && \
+# CRITICAL: Clean Trunk's output directory RIGHT BEFORE building to prevent reusing old WASM files
+RUN echo "=== CLEANING TRUNK OUTPUT (FINAL CLEAN) ===" && \
+    rm -rf ../_build/frontend-dist .stage dist 2>/dev/null || true && \
+    find .. -name "*.wasm" -type f -delete 2>/dev/null || true && \
+    echo "✅ Output directory cleaned - ready for fresh build" && \
+    npm run build:css:prod && \
     trunk build --release --no-default-features
 
 # Verify build output
