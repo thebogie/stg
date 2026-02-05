@@ -166,22 +166,6 @@ RUN echo "=== FINAL CLEAN BEFORE BUILD ===" && \
     fi && \
     echo "✅ Source verified correct - has 'Players', no 'People'" && \
     npm run build:css:prod && \
-    echo "=== CREATING BUILD METADATA ===" && \
-    mkdir -p ../_build/frontend-dist && \
-    BUILD_TIMESTAMP=$(date +%s) && \
-    PKG_VERSION=$(grep "^version" Cargo.toml | head -1 | cut -d'"' -f2 || echo "unknown") && \
-    cat > ../_build/frontend-dist/version.json <<EOF
-{
-  "name": "frontend",
-  "version": "${PKG_VERSION}",
-  "build_date": "${BUILD_DATE:-unknown}",
-  "git_commit": "${GIT_COMMIT:-unknown}",
-  "build_timestamp": ${BUILD_TIMESTAMP},
-  "wasm_hash": "will-be-calculated-after-build"
-}
-EOF
-    echo "✅ Build metadata created: version.json" && \
-    cat ../_build/frontend-dist/version.json && \
     echo "=== STARTING TRUNK BUILD (NO INCREMENTAL, FORCED CLEAN) ===" && \
     echo "CARGO_INCREMENTAL is set to: ${CARGO_INCREMENTAL:-not set}" && \
     CARGO_INCREMENTAL=0 RUSTFLAGS="-C link-arg=-s" trunk build --release --no-default-features && \
@@ -226,7 +210,16 @@ EOF
         echo "⚠️  No WASM file found after Trunk build (will be created during optimization)"; \
     fi && \
     echo "=== OUTPUT VERIFICATION COMPLETE ===" && \
-    ls -lah ../_build/frontend-dist/*.wasm 2>/dev/null | head -3 || echo "No WASM files found in output"
+    ls -lah ../_build/frontend-dist/*.wasm 2>/dev/null | head -3 || echo "No WASM files found in output" && \
+    echo "=== CREATING BUILD METADATA (after Trunk build) ===" && \
+    BUILD_TIMESTAMP=$(date +%s) && \
+    PKG_VERSION=$(grep "^version" Cargo.toml | head -1 | cut -d'"' -f2 || echo "unknown") && \
+    if echo "$PKG_VERSION" | grep -q "workspace"; then \
+        PKG_VERSION=$(grep "^version" ../Cargo.toml | head -1 | cut -d'"' -f2 || echo "unknown"); \
+    fi && \
+    printf '{\n  "name": "frontend",\n  "version": "%s",\n  "build_date": "%s",\n  "git_commit": "%s",\n  "build_timestamp": %s,\n  "wasm_hash": "will-be-calculated-after-build"\n}' "$PKG_VERSION" "${BUILD_DATE:-unknown}" "${GIT_COMMIT:-unknown}" "$BUILD_TIMESTAMP" > "$DIST_DIR/version.json" && \
+    echo "✅ Build metadata created: version.json" && \
+    cat "$DIST_DIR/version.json"
 
 # CRITICAL: Verify the built WASM/JS actually contains "Players" not "People" for contests filter
 # WASM files are binary, so we need to use 'strings' command to extract readable text

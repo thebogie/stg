@@ -58,8 +58,8 @@ pub fn get_build_info() -> String {
 /// Returns build metadata as JSON string (industry standard)
 #[wasm_bindgen]
 pub fn get_build_metadata() -> String {
-    let version = Self::current();
-    let name = Self::name();
+    let version = Version::current();
+    let name = Version::name();
     let build_date = option_env!("BUILD_DATE").unwrap_or("unknown");
     let git_commit = option_env!("GIT_COMMIT").unwrap_or("unknown");
 
