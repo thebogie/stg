@@ -55,6 +55,28 @@ pub fn get_build_info() -> String {
     Version::build_info()
 }
 
+/// Returns build metadata as JSON string (industry standard)
+#[wasm_bindgen]
+pub fn get_build_metadata() -> String {
+    let version = Self::current();
+    let name = Self::name();
+    let build_date = option_env!("BUILD_DATE").unwrap_or("unknown");
+    let git_commit = option_env!("GIT_COMMIT").unwrap_or("unknown");
+    
+    // Format as JSON (simple, no serde_json dependency needed)
+    format!(
+        r#"{{"name":"{}","version":"{}","build_date":"{}","git_commit":"{}","build_timestamp":{}}}"#,
+        name,
+        version,
+        build_date,
+        git_commit,
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs()
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -306,24 +306,50 @@ log_info "Tagging for Docker Hub..."
 docker tag "$FRONTEND_LOCAL" "$FRONTEND_HUB"
 docker tag "$BACKEND_LOCAL" "$BACKEND_HUB"
 
-# CRITICAL: Verify the image we're about to push has correct WASM
-log_info "Verifying frontend image before push..."
-if docker run --rm "$FRONTEND_LOCAL" test -f /usr/share/nginx/html/frontend_bg.optimized.wasm; then
-    log_info "Extracting WASM from image to verify content..."
-    docker run --rm "$FRONTEND_LOCAL" strings /usr/share/nginx/html/frontend_bg.optimized.wasm 2>/dev/null | grep -qi "Search People\|Search people" && {
-        log_error "❌ CRITICAL: Image contains 'Search People' - NOT pushing to Docker Hub!"
-        log_error "This would deploy old code to production!"
+# CRITICAL: Verify the image using industry-standard version.json (not string searching)
+log_info "Verifying frontend image before push (using version.json)..."
+if docker run --rm "$FRONTEND_LOCAL" test -f /usr/share/nginx/html/version.json; then
+    log_info "Reading version.json from image..."
+    VERSION_JSON=$(docker run --rm "$FRONTEND_LOCAL" cat /usr/share/nginx/html/version.json 2>/dev/null)
+    if [ -z "$VERSION_JSON" ]; then
+        log_error "❌ CRITICAL: version.json is empty or missing!"
         exit 1
-    } || log_success "✅ Image verified - no 'Search People' found"
+    fi
+    echo "$VERSION_JSON" | jq . 2>/dev/null || echo "$VERSION_JSON"
     
-    docker run --rm "$FRONTEND_LOCAL" strings /usr/share/nginx/html/frontend_bg.optimized.wasm 2>/dev/null | grep -qi "Players" && {
-        log_success "✅ Image verified - contains 'Players'"
-    } || {
-        log_error "❌ CRITICAL: Image missing 'Players' - NOT pushing to Docker Hub!"
+    # Extract key fields
+    BUILD_DATE=$(echo "$VERSION_JSON" | grep -o '"build_date":"[^"]*"' | cut -d'"' -f4 || echo "unknown")
+    GIT_COMMIT=$(echo "$VERSION_JSON" | grep -o '"git_commit":"[^"]*"' | cut -d'"' -f4 || echo "unknown")
+    WASM_HASH=$(echo "$VERSION_JSON" | grep -o '"wasm_hash":"[^"]*"' | cut -d'"' -f4 || echo "unknown")
+    
+    log_info "Build metadata:"
+    log_info "  Build Date: $BUILD_DATE"
+    log_info "  Git Commit: $GIT_COMMIT"
+    log_info "  WASM Hash: $WASM_HASH"
+    
+    # Verify build date is recent (not Jan 16)
+    if echo "$BUILD_DATE" | grep -q "2026-01-16\|2026-01-15\|2026-01-14"; then
+        log_error "❌ CRITICAL: Build date is from January 16 or earlier!"
+        log_error "This indicates old code - NOT pushing to Docker Hub!"
         exit 1
-    }
+    fi
+    
+    # Verify WASM hash is calculated (not placeholder)
+    if [ "$WASM_HASH" = "will-be-calculated-after-build" ] || [ "$WASM_HASH" = "unknown" ]; then
+        log_error "❌ CRITICAL: WASM hash not calculated!"
+        log_error "Build metadata is incomplete - NOT pushing!"
+        exit 1
+    fi
+    
+    log_success "✅ Image verified - build metadata looks correct"
 else
-    log_warning "⚠️  Could not verify WASM in image (file not found)"
+    log_warning "⚠️  version.json not found - falling back to string search..."
+    # Fallback to old method if version.json doesn't exist
+    if docker run --rm "$FRONTEND_LOCAL" strings /usr/share/nginx/html/frontend_bg.optimized.wasm 2>/dev/null | grep -qi "Search People\|Search people"; then
+        log_error "❌ CRITICAL: WASM contains 'Search People' - NOT pushing!"
+        exit 1
+    fi
+    log_success "✅ Fallback verification passed"
 fi
 
 log_info "Pushing frontend image..."

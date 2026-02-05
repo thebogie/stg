@@ -166,6 +166,22 @@ RUN echo "=== FINAL CLEAN BEFORE BUILD ===" && \
     fi && \
     echo "✅ Source verified correct - has 'Players', no 'People'" && \
     npm run build:css:prod && \
+    echo "=== CREATING BUILD METADATA ===" && \
+    mkdir -p ../_build/frontend-dist && \
+    BUILD_TIMESTAMP=$(date +%s) && \
+    PKG_VERSION=$(grep "^version" Cargo.toml | head -1 | cut -d'"' -f2 || echo "unknown") && \
+    cat > ../_build/frontend-dist/version.json <<EOF
+{
+  "name": "frontend",
+  "version": "${PKG_VERSION}",
+  "build_date": "${BUILD_DATE:-unknown}",
+  "git_commit": "${GIT_COMMIT:-unknown}",
+  "build_timestamp": ${BUILD_TIMESTAMP},
+  "wasm_hash": "will-be-calculated-after-build"
+}
+EOF
+    echo "✅ Build metadata created: version.json" && \
+    cat ../_build/frontend-dist/version.json && \
     echo "=== STARTING TRUNK BUILD (NO INCREMENTAL, FORCED CLEAN) ===" && \
     echo "CARGO_INCREMENTAL is set to: ${CARGO_INCREMENTAL:-not set}" && \
     CARGO_INCREMENTAL=0 RUSTFLAGS="-C link-arg=-s" trunk build --release --no-default-features && \
@@ -320,6 +336,14 @@ RUN if [ -d "../_build/frontend-dist" ]; then \
         echo "✅ WASM optimized" && \
         echo "Verifying optimized WASM was created:" && \
         ls -lah "$DIST_DIR/frontend_bg.optimized.wasm" && \
+        echo "Calculating WASM file hash (SHA-256)..." && \
+        WASM_HASH=$(sha256sum "$DIST_DIR/frontend_bg.optimized.wasm" 2>/dev/null | cut -d' ' -f1 || md5sum "$DIST_DIR/frontend_bg.optimized.wasm" 2>/dev/null | cut -d' ' -f1 || echo "unknown") && \
+        echo "WASM hash: $WASM_HASH" && \
+        echo "Updating version.json with WASM hash..." && \
+        if [ -f "$DIST_DIR/version.json" ]; then \
+            sed -i "s/\"wasm_hash\": \"will-be-calculated-after-build\"/\"wasm_hash\": \"$WASM_HASH\"/" "$DIST_DIR/version.json" && \
+            echo "✅ version.json updated with WASM hash"; \
+        fi && \
         echo "Checking optimized WASM modification time:" && \
         OPT_WASM_DATE=$(stat -c %y "$DIST_DIR/frontend_bg.optimized.wasm" 2>/dev/null || stat -f "%Sm" "$DIST_DIR/frontend_bg.optimized.wasm" 2>/dev/null || echo "unknown") && \
         echo "Optimized WASM date: $OPT_WASM_DATE" && \
