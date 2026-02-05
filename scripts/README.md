@@ -16,6 +16,15 @@ This directory contains scripts for building, testing, and deploying the applica
 ./scripts/build-test-push.sh
 ```
 
+**`build-push-only.sh`** - Build and push without tests
+- Builds production Docker images (with fresh WASM files)
+- Pushes images to Docker Hub
+- **Skips all tests** (use when tests already passed or for quick pushes)
+
+```bash
+./scripts/build-push-only.sh
+```
+
 ### Production Side (Production Server)
 
 **`deploy-production.sh`** - Deploy tested containers

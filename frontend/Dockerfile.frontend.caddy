@@ -105,6 +105,23 @@ RUN echo "=== CLEANING TRUNK OUTPUT (FINAL CLEAN) ===" && \
 RUN echo "Checking build output..." && \
     ls -lah ../_build/frontend-dist/ 2>/dev/null || ls -lah dist/ 2>/dev/null || (echo "ERROR: No dist directory found" && exit 1)
 
+# CRITICAL: Verify the built WASM/JS actually contains "Players" not "People" for contests filter
+# Check specifically for the problematic "Search People" text
+RUN echo "=== VERIFYING BUILT OUTPUT ===" && \
+    DIST_DIR="../_build/frontend-dist" && \
+    if [ -d "$DIST_DIR" ]; then \
+        echo "Checking built files for contests filter text..." && \
+        if grep -r "Search People\|Search people" "$DIST_DIR" 2>/dev/null | grep -v ".map" | head -1; then \
+            echo "❌ ERROR: Found 'Search People' text in built output!" && \
+            exit 1; \
+        fi && \
+        if ! grep -r "Players" "$DIST_DIR" 2>/dev/null | grep -v ".map" | head -1; then \
+            echo "❌ ERROR: 'Players' text not found!" && \
+            exit 1; \
+        fi && \
+        echo "✅ Built output verification passed"; \
+    fi
+
 # Optimize WASM
 RUN if [ -d "../_build/frontend-dist" ]; then \
         DIST_DIR="../_build/frontend-dist"; \

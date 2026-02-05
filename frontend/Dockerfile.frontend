@@ -2,6 +2,7 @@
 FROM rust:1.88.0-slim as builder
 
 # Install all build dependencies in a single layer
+# binutils provides 'strings' command needed for WASM verification
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     wget \
@@ -9,6 +10,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     build-essential \
     pkg-config \
+    binutils \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Node.js 20 (LTS) - use official NodeSource method
@@ -79,19 +81,37 @@ ENV BUILD_DATE=${BUILD_DATE}
 # This ensures source code changes are always picked up
 # Trunk caches in .stage/ and dist/, Cargo caches in target/
 # Trunk outputs to ../_build/frontend-dist per Trunk.toml
-RUN echo "=== CLEANING ALL CACHES ===" && \
+# NUCLEAR OPTION: Clean everything, including Trunk's internal cache directory
+RUN echo "=== NUCLEAR CACHE CLEANUP ===" && \
+    echo "Cleaning Cargo cache (package and workspace level)..." && \
     cargo clean --package frontend || true && \
-    rm -rf ../_build/frontend-dist .stage dist target/wasm32-unknown-unknown/release/frontend* target/wasm32-unknown-unknown/debug/frontend* || true && \
+    cargo clean --target wasm32-unknown-unknown || true && \
+    echo "Removing all Cargo build artifacts..." && \
+    rm -rf target/wasm32-unknown-unknown/.fingerprint/frontend* || true && \
+    rm -rf target/wasm32-unknown-unknown/incremental || true && \
+    rm -rf target/wasm32-unknown-unknown/release/frontend* || true && \
+    rm -rf target/wasm32-unknown-unknown/debug/frontend* || true && \
+    rm -rf target/wasm32-unknown-unknown/deps/frontend* || true && \
+    echo "Removing Trunk caches and output..." && \
+    rm -rf ../_build/frontend-dist .stage dist || true && \
+    rm -rf ~/.cargo/registry/cache 2>/dev/null || true && \
+    rm -rf ~/.cargo/git/db 2>/dev/null || true && \
+    echo "Finding and removing all WASM files..." && \
     find . -name "*.wasm" -type f -delete 2>/dev/null || true && \
     find .. -path "*/frontend/.stage/*" -type f -delete 2>/dev/null || true && \
     find .. -path "*/frontend/dist/*" -type f -delete 2>/dev/null || true && \
     find .. -path "*/_build/frontend-dist/*" -type f -delete 2>/dev/null || true && \
     find .. -name "*.wasm" -type f -delete 2>/dev/null || true && \
-    echo "✅ All caches cleaned (including output directory)" && \
-    echo "=== CACHE CLEANUP COMPLETE ===" && \
-    echo "Verifying no WASM files remain:" && \
+    find .. -path "*/target/wasm32-unknown-unknown/incremental/*" -type d -exec rm -rf {} + 2>/dev/null || true && \
+    find .. -path "*/target/wasm32-unknown-unknown/.fingerprint/*" -type f -delete 2>/dev/null || true && \
+    echo "✅ NUCLEAR CLEANUP COMPLETE - All caches removed" && \
+    echo "=== VERIFICATION ===" && \
+    echo "WASM files remaining:" && \
     (find .. -name "*.wasm" -type f 2>/dev/null | wc -l || echo "0") && \
-    echo "WASM files found (should be 0)"
+    echo "Trunk .stage directories remaining:" && \
+    (find .. -path "*/.stage" -type d 2>/dev/null | wc -l || echo "0") && \
+    echo "Cargo incremental dirs remaining:" && \
+    (find .. -path "*/target/wasm32-unknown-unknown/incremental" -type d 2>/dev/null | wc -l || echo "0")
 
 # Verify source code before building (for debugging)
 # This will FAIL the build if old code is detected, ensuring we catch the issue early
@@ -111,19 +131,104 @@ RUN echo "=== VERIFYING SOURCE CODE ===" && \
 
 # Build with version info
 # Note: Trunk.toml sets dist = "../_build/frontend-dist", so output goes to _build/frontend-dist
-# CRITICAL: Clean Trunk's output directory RIGHT BEFORE building to prevent reusing old WASM files
-# Even with all previous cleaning, Trunk might find old files in the output directory
+# CRITICAL: Disable ALL forms of caching to force fresh WASM build
+# 1. Disable Cargo incremental compilation (forces full rebuild)
+# 2. Clean everything right before build
+# 3. Verify source files are correct
 RUN echo "=== FINAL CLEAN BEFORE BUILD ===" && \
-    rm -rf ../_build/frontend-dist .stage dist 2>/dev/null || true && \
+    echo "Disabling Cargo incremental compilation (forces full rebuild)..." && \
+    export CARGO_INCREMENTAL=0 && \
+    export RUSTFLAGS="-C link-arg=-s" && \
+    echo "Removing all build artifacts one more time..." && \
+    rm -rf ../_build/frontend-dist .stage dist target/.cargo-cache 2>/dev/null || true && \
+    rm -rf target/wasm32-unknown-unknown/incremental 2>/dev/null || true && \
+    rm -rf target/wasm32-unknown-unknown/.fingerprint 2>/dev/null || true && \
     find .. -name "*.wasm" -type f -delete 2>/dev/null || true && \
+    find .. -path "*/.stage" -type d -exec rm -rf {} + 2>/dev/null || true && \
+    find .. -path "*/target/wasm32-unknown-unknown/*" -name "frontend*" -type f -delete 2>/dev/null || true && \
     echo "✅ Output directory completely clean - WASM files removed" && \
     echo "Verifying no WASM files exist:" && \
     (find .. -name "*.wasm" -type f 2>/dev/null | wc -l || echo "0") && \
+    echo "Verifying source code one more time..." && \
+    echo "Checking contests.rs file:" && \
+    ls -lah src/pages/contests.rs && \
+    echo "First 50 lines of contests.rs:" && \
+    head -50 src/pages/contests.rs | grep -n "People\|Players" || echo "No matches in first 50 lines" && \
+    echo "Searching for 'People' in contests.rs:" && \
+    (grep -n "People" src/pages/contests.rs || echo "✅ No 'People' found") && \
+    echo "Searching for 'Players' in contests.rs:" && \
+    (grep -n "Players" src/pages/contests.rs | head -3 || echo "❌ No 'Players' found!") && \
+    if grep -q '"People"' src/pages/contests.rs; then \
+        echo "❌ ERROR: Source still has 'People'!" && \
+        echo "Full line with People:" && \
+        grep -n '"People"' src/pages/contests.rs && \
+        exit 1; \
+    fi && \
+    if ! grep -q '"Players"' src/pages/contests.rs; then \
+        echo "❌ ERROR: Source missing 'Players'!" && \
+        exit 1; \
+    fi && \
+    echo "✅ Source verified correct - has 'Players', no 'People'" && \
     npm run build:css:prod && \
-    echo "=== STARTING TRUNK BUILD ===" && \
-    trunk build --release --no-default-features && \
+    echo "=== STARTING TRUNK BUILD (NO INCREMENTAL, FORCED CLEAN) ===" && \
+    echo "CARGO_INCREMENTAL is set to: ${CARGO_INCREMENTAL:-not set}" && \
+    CARGO_INCREMENTAL=0 RUSTFLAGS="-C link-arg=-s" trunk build --release --no-default-features && \
     echo "=== BUILD COMPLETE - CHECKING OUTPUT ===" && \
     ls -lah ../_build/frontend-dist/*.wasm 2>/dev/null | head -3 || echo "No WASM files found in output"
+
+# CRITICAL: Verify the built WASM/JS actually contains "Players" not "People" for contests filter
+# WASM files are binary, so we need to use 'strings' command to extract readable text
+# JS files might be minified, so we search both minified and readable forms
+RUN echo "=== VERIFYING BUILT OUTPUT ===" && \
+    DIST_DIR="../_build/frontend-dist" && \
+    if [ -d "$DIST_DIR" ]; then \
+        echo "Checking built files for contests filter text..." && \
+        echo "Listing all files in dist:" && \
+        find "$DIST_DIR" -type f \( -name "*.js" -o -name "*.wasm" -o -name "*.html" \) | head -10 && \
+        echo "" && \
+        echo "Extracting strings from WASM files and searching..." && \
+        # Search JS/HTML files with grep (text files) && \
+        JS_HTML_SEARCH_PEOPLE=$(grep -r "Search People\|Search people" "$DIST_DIR" 2>/dev/null | grep -v ".map" || true) && \
+        # Extract strings from WASM files and search && \
+        WASM_SEARCH_PEOPLE=$(find "$DIST_DIR" -name "*.wasm" -type f -exec strings {} \; 2>/dev/null | grep -i "Search People\|Search people" || true) && \
+        if [ -n "$JS_HTML_SEARCH_PEOPLE" ] || [ -n "$WASM_SEARCH_PEOPLE" ]; then \
+            echo "❌ ERROR: Found 'Search People' text in built output!" && \
+            if [ -n "$JS_HTML_SEARCH_PEOPLE" ]; then \
+                echo "Found in JS/HTML files:" && \
+                echo "$JS_HTML_SEARCH_PEOPLE"; \
+            fi && \
+            if [ -n "$WASM_SEARCH_PEOPLE" ]; then \
+                echo "Found in WASM files:" && \
+                echo "$WASM_SEARCH_PEOPLE"; \
+            fi && \
+            exit 1; \
+        fi && \
+        echo "✅ No 'Search People' found" && \
+        echo "" && \
+        echo "Verifying 'Players' is present..." && \
+        # Search JS/HTML files && \
+        JS_HTML_PLAYERS=$(grep -r "Players" "$DIST_DIR" 2>/dev/null | grep -v ".map" | head -5 || true) && \
+        # Extract strings from WASM files && \
+        WASM_PLAYERS=$(find "$DIST_DIR" -name "*.wasm" -type f -exec strings {} \; 2>/dev/null | grep -i "Players" | head -5 || true) && \
+        if [ -z "$JS_HTML_PLAYERS" ] && [ -z "$WASM_PLAYERS" ]; then \
+            echo "❌ ERROR: 'Players' text not found in built output!" && \
+            echo "Searched JS/HTML files and WASM files (using strings command)" && \
+            echo "This means the contests filter doesn't have the correct text." && \
+            exit 1; \
+        fi && \
+        echo "✅ Built output verification passed - found 'Players' for contests filter" && \
+        if [ -n "$JS_HTML_PLAYERS" ]; then \
+            echo "Found 'Players' in JS/HTML files:" && \
+            echo "$JS_HTML_PLAYERS"; \
+        fi && \
+        if [ -n "$WASM_PLAYERS" ]; then \
+            echo "Found 'Players' in WASM files:" && \
+            echo "$WASM_PLAYERS"; \
+        fi; \
+    else \
+        echo "⚠️  Could not verify output (dist directory not found)"; \
+    fi && \
+    echo "=== OUTPUT VERIFICATION COMPLETE ==="
 
 # Verify build output exists
 # Trunk.toml sets dist = "../_build/frontend-dist" (relative to frontend/), so output is at /app/_build/frontend-dist
