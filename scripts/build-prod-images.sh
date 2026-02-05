@@ -113,6 +113,9 @@ log_success "Working directory matches committed code - build will use correct s
 log_info "Building frontend (using --no-cache to ensure latest source code)..."
 # SOURCE_DATE_EPOCH forces Docker layer invalidation (industry standard for fresh builds)
 SOURCE_DATE_EPOCH=$(date +%s)
+# CRITICAL: Add a random string to force layer invalidation
+RANDOM_BUILD_ID=$(openssl rand -hex 16 || date +%s%N)
+log_info "Build ID: $RANDOM_BUILD_ID (forces layer invalidation)"
 docker compose \
     --env-file "$ENV_FILE" \
     -f deploy/docker-compose.production.yml \
@@ -120,6 +123,7 @@ docker compose \
     --build-arg BUILD_DATE="$BUILD_DATE" \
     --build-arg GIT_COMMIT="$GIT_COMMIT" \
     --build-arg SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" \
+    --build-arg RANDOM_BUILD_ID="$RANDOM_BUILD_ID" \
     frontend
 
 log_info "Building backend..."

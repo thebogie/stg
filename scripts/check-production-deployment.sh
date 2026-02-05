@@ -40,15 +40,18 @@ log_info ""
 log_info "=== Container Image Info ==="
 docker inspect "$FRONTEND_CONTAINER" --format '{{.Config.Image}}' || log_warning "Could not get image name"
 
-# Check WASM file modification time
+# Check WASM file modification time (hashed *_bg.wasm or legacy optimized name)
 log_info ""
 log_info "=== WASM File Info ==="
 WASM_FILE=""
-if docker exec "$FRONTEND_CONTAINER" test -f /usr/share/nginx/html/frontend_bg.optimized.wasm 2>/dev/null; then
+WASM_FILE=$(docker exec "$FRONTEND_CONTAINER" find /usr/share/nginx/html -name '*_bg.wasm' -type f 2>/dev/null | head -1 || echo "")
+if [ -z "$WASM_FILE" ]; then
+    WASM_FILE=$(docker exec "$FRONTEND_CONTAINER" find /usr/share/caddy -name '*_bg.wasm' -type f 2>/dev/null | head -1 || echo "")
+fi
+if [ -z "$WASM_FILE" ] && docker exec "$FRONTEND_CONTAINER" test -f /usr/share/nginx/html/frontend_bg.optimized.wasm 2>/dev/null; then
     WASM_FILE="/usr/share/nginx/html/frontend_bg.optimized.wasm"
-elif docker exec "$FRONTEND_CONTAINER" test -f /usr/share/caddy/frontend_bg.optimized.wasm 2>/dev/null; then
-    WASM_FILE="/usr/share/caddy/frontend_bg.optimized.wasm"
-else
+fi
+if [ -z "$WASM_FILE" ]; then
     log_error "WASM file not found!"
     exit 1
 fi

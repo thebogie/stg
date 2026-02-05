@@ -99,11 +99,15 @@ ENV BUILD_DATE=${BUILD_DATE}
     # 4. Remove any pre-existing WASM files anywhere in the filesystem
     # SOURCE_DATE_EPOCH is passed as build arg to force Docker layer invalidation
     ARG SOURCE_DATE_EPOCH
+    ARG RANDOM_BUILD_ID
     ENV SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH}
 RUN echo "=== INDUSTRY-STANDARD FRESH WASM BUILD ===" && \
     echo "SOURCE_DATE_EPOCH: ${SOURCE_DATE_EPOCH}" && \
     echo "BUILD_DATE: ${BUILD_DATE}" && \
     echo "GIT_COMMIT: ${GIT_COMMIT}" && \
+    echo "RANDOM_BUILD_ID: ${RANDOM_BUILD_ID}" && \
+    echo "Build ID file: ${BUILD_DATE}-${GIT_COMMIT}-${SOURCE_DATE_EPOCH}-${RANDOM_BUILD_ID}" > /tmp/.docker-build-id && \
+    cat /tmp/.docker-build-id && \
     echo "" && \
     echo "Step 1: Delete ENTIRE target directory (forces Cargo to rebuild everything)..." && \
     rm -rf /app/target 2>/dev/null || true && \
@@ -314,7 +318,7 @@ RUN if [ -d "../_build/frontend-dist" ]; then \
         echo "ERROR: No dist directory found"; \
         exit 1; \
     fi && \
-    echo "Removing any existing optimized WASM files to force fresh optimization..." && \
+    echo "Removing any stray optimized WASM (we optimize in place)..." && \
     rm -f "$DIST_DIR/frontend_bg.optimized.wasm" "$DIST_DIR"/*.optimized.wasm 2>/dev/null || true && \
     if [ -n "$(find "$DIST_DIR" -name '*_bg.wasm' -type f | head -1)" ]; then \
         WASM_INPUT=$(find "$DIST_DIR" -name '*_bg.wasm' -type f | head -1) && \
@@ -328,11 +332,6 @@ RUN if [ -d "../_build/frontend-dist" ]; then \
             echo "The build will fail to prevent deploying old code." && \
             exit 1; \
         fi && \
-        if echo "$WASM_DATE" | grep -q "2026-02-05"; then \
-            echo "✅ WASM file is from today (Feb 5, 2026) - fresh build confirmed"; \
-        else \
-            echo "⚠️  WASM file date is: $WASM_DATE (verifying it's recent...)"; \
-        fi && \
         echo "Verifying WASM content before optimization..." && \
         if strings "$WASM_INPUT" 2>/dev/null | grep -qi "Search People\|Search people"; then \
             echo "❌ ERROR: Source WASM contains 'Search People'!" && \
@@ -345,28 +344,28 @@ RUN if [ -d "../_build/frontend-dist" ]; then \
             exit 1; \
         fi && \
         echo "✅ Source WASM verified - contains 'Players', no 'Search People'" && \
-        echo "Optimizing WASM..." && \
+        echo "Optimizing WASM in place (so JS keeps loading same hashed filename, cache-bust works)..." && \
         wasm-opt --enable-bulk-memory --enable-nontrapping-float-to-int -Oz \
             -o "$DIST_DIR/frontend_bg.optimized.wasm" "$WASM_INPUT" && \
-        echo "✅ WASM optimized" && \
-        echo "Verifying optimized WASM was created:" && \
-        ls -lah "$DIST_DIR/frontend_bg.optimized.wasm" && \
+        mv "$DIST_DIR/frontend_bg.optimized.wasm" "$WASM_INPUT" && \
+        echo "✅ WASM optimized and replaced in place: $WASM_INPUT" && \
+        ls -lah "$WASM_INPUT" && \
         echo "Calculating WASM file hash (SHA-256)..." && \
-        WASM_HASH=$(sha256sum "$DIST_DIR/frontend_bg.optimized.wasm" 2>/dev/null | cut -d' ' -f1 || md5sum "$DIST_DIR/frontend_bg.optimized.wasm" 2>/dev/null | cut -d' ' -f1 || echo "unknown") && \
+        WASM_HASH=$(sha256sum "$WASM_INPUT" 2>/dev/null | cut -d' ' -f1 || md5sum "$WASM_INPUT" 2>/dev/null | cut -d' ' -f1 || echo "unknown") && \
         echo "WASM hash: $WASM_HASH" && \
         echo "Updating version.json with WASM hash..." && \
         if [ -f "$DIST_DIR/version.json" ]; then \
             sed -i "s/\"wasm_hash\": \"will-be-calculated-after-build\"/\"wasm_hash\": \"$WASM_HASH\"/" "$DIST_DIR/version.json" && \
             echo "✅ version.json updated with WASM hash"; \
         fi && \
-        echo "Checking optimized WASM modification time:" && \
-        OPT_WASM_DATE=$(stat -c %y "$DIST_DIR/frontend_bg.optimized.wasm" 2>/dev/null || stat -f "%Sm" "$DIST_DIR/frontend_bg.optimized.wasm" 2>/dev/null || echo "unknown") && \
-        echo "Optimized WASM date: $OPT_WASM_DATE" && \
+        echo "Checking WASM modification time:" && \
+        OPT_WASM_DATE=$(stat -c %y "$WASM_INPUT" 2>/dev/null || stat -f "%Sm" "$WASM_INPUT" 2>/dev/null || echo "unknown") && \
+        echo "WASM date: $OPT_WASM_DATE" && \
         if echo "$OPT_WASM_DATE" | grep -q "2026-01-16"; then \
-            echo "❌ ERROR: Optimized WASM is from Jan 16 (OLD!)" && \
+            echo "❌ ERROR: WASM is from Jan 16 (OLD!)" && \
             exit 1; \
         fi && \
-        echo "✅ Optimized WASM is fresh"; \
+        echo "✅ WASM is fresh"; \
     else \
         echo "⚠️  No WASM file found to optimize (Trunk may have already optimized it)"; \
     fi
@@ -381,6 +380,7 @@ RUN apk add --no-cache gettext binutils
 # CRITICAL: Accept build args to use as cache busters
 ARG BUILD_DATE
 ARG GIT_COMMIT
+ARG RANDOM_BUILD_ID
 
 # Copy built files from builder stage
 # Trunk.toml sets dist = "../_build/frontend-dist", so output is at _build/frontend-dist (relative to frontend/)
@@ -395,12 +395,13 @@ RUN echo "=== PREPARING FOR FRESH COPY ===" && \
 COPY --from=builder /app/_build/frontend-dist /usr/share/nginx/html
 
 # CRITICAL: NUCLEAR VERIFICATION - Fail build if ANY old WASM is detected
+# WASM is the hashed file (e.g. frontend-abc123_bg.wasm) after in-place optimization
 RUN echo "=== NUCLEAR WASM VERIFICATION (FAILS BUILD IF OLD CODE FOUND) ===" && \
     echo "Checking ALL WASM files in /usr/share/nginx/html..." && \
     find /usr/share/nginx/html -name "*.wasm" -type f -exec ls -lah {} \; && \
     echo "" && \
-    if [ -f /usr/share/nginx/html/frontend_bg.optimized.wasm ]; then \
-        WASM_FILE="/usr/share/nginx/html/frontend_bg.optimized.wasm"; \
+    WASM_FILE=$(find /usr/share/nginx/html -name '*_bg.wasm' -type f | head -1) && \
+    if [ -n "$WASM_FILE" ] && [ -f "$WASM_FILE" ]; then \
         echo "Checking WASM file: $WASM_FILE" && \
         echo "File modification time:" && \
         WASM_STAT=$(stat "$WASM_FILE" 2>/dev/null || echo "stat failed") && \
@@ -433,7 +434,7 @@ RUN echo "=== NUCLEAR WASM VERIFICATION (FAILS BUILD IF OLD CODE FOUND) ===" && 
         echo "  - Contains 'Players'" && \
         echo "  - Does NOT contain 'Search People'"; \
     else \
-        echo "❌ ERROR: frontend_bg.optimized.wasm not found in /usr/share/nginx/html!" && \
+        echo "❌ ERROR: No *_bg.wasm file found in /usr/share/nginx/html!" && \
         echo "Listing directory contents:" && \
         ls -lah /usr/share/nginx/html/ && \
         exit 1; \
@@ -453,19 +454,26 @@ server {
     root /usr/share/nginx/html;
     index index.html;
 
-    # SPA routing - all routes go to index.html (for Yew router)
+    # CRITICAL: Never cache index.html so browser always gets fresh hashed asset URLs
+    location = /index.html {
+        add_header Cache-Control "no-cache, no-store, must-revalidate";
+        try_files $uri =404;
+    }
+
+    # SPA routing - all other routes go to index.html (for Yew router)
     location / {
         try_files $uri $uri/ /index.html;
     }
 
     # Note: API routing handled by external Traefik (routes /api/ to backend container)
 
+    # Hashed filenames (Trunk filehash) - long cache is safe; URL changes per deploy
     location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg)$ {
         expires 1y;
         add_header Cache-Control "public, immutable";
     }
 
-    # WASM files
+    # WASM (hashed filenames) - long cache safe; URL changes per deploy
     location ~* \.wasm$ {
         add_header Content-Type "application/wasm";
         expires 1y;

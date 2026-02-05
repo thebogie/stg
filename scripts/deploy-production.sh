@@ -118,33 +118,37 @@ if docker run --rm "$FRONTEND_HUB" test -f /usr/share/nginx/html/version.json 2>
         exit 1
     fi
     
-    # Extract key fields
-    BUILD_DATE=$(echo "$VERSION_JSON" | grep -o '"build_date":"[^"]*"' | cut -d'"' -f4 || echo "unknown")
-    GIT_COMMIT=$(echo "$VERSION_JSON" | grep -o '"git_commit":"[^"]*"' | cut -d'"' -f4 || echo "unknown")
+    # Extract key fields (from pulled image)
+    CONTAINER_BUILD_DATE=$(echo "$VERSION_JSON" | grep -o '"build_date":"[^"]*"' | cut -d'"' -f4 || echo "unknown")
+    CONTAINER_GIT_COMMIT=$(echo "$VERSION_JSON" | grep -o '"git_commit":"[^"]*"' | cut -d'"' -f4 || echo "unknown")
     EXPECTED_COMMIT=$(echo "$VERSION_TAG" | cut -d'-' -f1 | sed 's/^v//' || echo "unknown")
     
     log_info "Pulled image metadata:"
-    log_info "  Build Date: $BUILD_DATE"
-    log_info "  Git Commit: $GIT_COMMIT"
+    log_info "  Build Date: $CONTAINER_BUILD_DATE"
+    log_info "  Git Commit: $CONTAINER_GIT_COMMIT"
     log_info "  Expected Commit: $EXPECTED_COMMIT"
     
     # Verify build date is recent (not Jan 16)
-    if echo "$BUILD_DATE" | grep -q "2026-01-16\|2026-01-15\|2026-01-14"; then
+    if echo "$CONTAINER_BUILD_DATE" | grep -q "2026-01-16\|2026-01-15\|2026-01-14"; then
         log_error "❌ CRITICAL: Pulled image build date is from January 16 or earlier!"
         log_error "Docker Hub has old code - DO NOT DEPLOY!"
         exit 1
     fi
     
     # Verify git commit matches (if we can extract it from version tag)
-    if [ "$EXPECTED_COMMIT" != "unknown" ] && [ "$GIT_COMMIT" != "$EXPECTED_COMMIT" ]; then
-        log_warning "⚠️  Git commit mismatch: expected $EXPECTED_COMMIT, got $GIT_COMMIT"
+    if [ "$EXPECTED_COMMIT" != "unknown" ] && [ "$CONTAINER_GIT_COMMIT" != "$EXPECTED_COMMIT" ]; then
+        log_warning "⚠️  Git commit mismatch: expected $EXPECTED_COMMIT, got $CONTAINER_GIT_COMMIT"
         log_warning "This might be OK if the tag format is different"
     fi
     
     log_success "✅ Pulled image verified - build metadata looks correct"
 else
     log_warning "⚠️  version.json not found - falling back to string search..."
-    if docker run --rm "$FRONTEND_HUB" strings /usr/share/nginx/html/frontend_bg.optimized.wasm 2>/dev/null | grep -qi "Search People\|Search people"; then
+    WASM_PATH=$(docker run --rm "$FRONTEND_HUB" find /usr/share/nginx/html -name '*_bg.wasm' -type f 2>/dev/null | head -1)
+    if [ -z "$WASM_PATH" ]; then
+        WASM_PATH="/usr/share/nginx/html/frontend_bg.optimized.wasm"
+    fi
+    if docker run --rm "$FRONTEND_HUB" strings "$WASM_PATH" 2>/dev/null | grep -qi "Search People\|Search people"; then
         log_error "❌ CRITICAL: Pulled image WASM contains 'Search People'!"
         exit 1
     fi

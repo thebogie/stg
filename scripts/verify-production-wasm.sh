@@ -41,17 +41,18 @@ fi
 
 log_info "Checking container: $FRONTEND_CONTAINER"
 
-# Check WASM file in container
+# Check WASM file in container (hashed *_bg.wasm first, then legacy optimized name)
 log_info "Checking WASM file in container..."
 WASM_FILE=""
-if docker exec "$FRONTEND_CONTAINER" test -f /usr/share/nginx/html/frontend_bg.optimized.wasm 2>/dev/null; then
+WASM_FILE=$(docker exec "$FRONTEND_CONTAINER" find /usr/share/nginx/html -name '*_bg.wasm' -type f 2>/dev/null | head -1 || echo "")
+if [ -z "$WASM_FILE" ]; then
+    WASM_FILE=$(docker exec "$FRONTEND_CONTAINER" find /usr/share/caddy -name '*_bg.wasm' -type f 2>/dev/null | head -1 || echo "")
+fi
+if [ -z "$WASM_FILE" ] && docker exec "$FRONTEND_CONTAINER" test -f /usr/share/nginx/html/frontend_bg.optimized.wasm 2>/dev/null; then
     WASM_FILE="/usr/share/nginx/html/frontend_bg.optimized.wasm"
-elif docker exec "$FRONTEND_CONTAINER" test -f /usr/share/caddy/frontend_bg.optimized.wasm 2>/dev/null; then
-    WASM_FILE="/usr/share/caddy/frontend_bg.optimized.wasm"
-else
-    log_warning "Optimized WASM not found, checking for other WASM files..."
+elif [ -z "$WASM_FILE" ]; then
+    log_warning "WASM not found, listing..."
     docker exec "$FRONTEND_CONTAINER" find /usr/share -name "*.wasm" -type f 2>/dev/null | head -5
-    WASM_FILE=$(docker exec "$FRONTEND_CONTAINER" find /usr/share -name "*_bg.wasm" -type f 2>/dev/null | head -1 || echo "")
 fi
 
 if [ -z "$WASM_FILE" ]; then

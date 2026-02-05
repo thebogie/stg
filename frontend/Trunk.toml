@@ -5,6 +5,8 @@ features = ["bulk-memory", "mutable-globals", "nontrapping-fptoint"]
 [build]
 # Explicitly enable bulk memory for wasm-opt
 wasm_opt = false
+# Content-hashed filenames so each deploy gets unique URLs (browser fetches new WASM)
+filehash = true
 target = "index.html"
 release = true
 dist = "../_build/frontend-dist"  # All generated objects in _build/

@@ -307,6 +307,7 @@ docker tag "$FRONTEND_LOCAL" "$FRONTEND_HUB"
 docker tag "$BACKEND_LOCAL" "$BACKEND_HUB"
 
 # CRITICAL: Verify the image using industry-standard version.json (not string searching)
+# Use CONTAINER_* vars so we don't overwrite GIT_COMMIT/BUILD_DATE (needed for deploy-info)
 log_info "Verifying frontend image before push (using version.json)..."
 if docker run --rm "$FRONTEND_LOCAL" test -f /usr/share/nginx/html/version.json; then
     log_info "Reading version.json from image..."
@@ -317,18 +318,18 @@ if docker run --rm "$FRONTEND_LOCAL" test -f /usr/share/nginx/html/version.json;
     fi
     echo "$VERSION_JSON" | jq . 2>/dev/null || echo "$VERSION_JSON"
     
-    # Extract key fields
-    BUILD_DATE=$(echo "$VERSION_JSON" | grep -o '"build_date":"[^"]*"' | cut -d'"' -f4 || echo "unknown")
-    GIT_COMMIT=$(echo "$VERSION_JSON" | grep -o '"git_commit":"[^"]*"' | cut -d'"' -f4 || echo "unknown")
+    # Extract key fields (use CONTAINER_* so deploy-info keeps host's GIT_COMMIT/BUILD_DATE)
+    CONTAINER_BUILD_DATE=$(echo "$VERSION_JSON" | grep -o '"build_date":"[^"]*"' | cut -d'"' -f4 || echo "unknown")
+    CONTAINER_GIT_COMMIT=$(echo "$VERSION_JSON" | grep -o '"git_commit":"[^"]*"' | cut -d'"' -f4 || echo "unknown")
     WASM_HASH=$(echo "$VERSION_JSON" | grep -o '"wasm_hash":"[^"]*"' | cut -d'"' -f4 || echo "unknown")
     
-    log_info "Build metadata:"
-    log_info "  Build Date: $BUILD_DATE"
-    log_info "  Git Commit: $GIT_COMMIT"
+    log_info "Build metadata (from image):"
+    log_info "  Build Date: $CONTAINER_BUILD_DATE"
+    log_info "  Git Commit: $CONTAINER_GIT_COMMIT"
     log_info "  WASM Hash: $WASM_HASH"
     
     # Verify build date is recent (not Jan 16)
-    if echo "$BUILD_DATE" | grep -q "2026-01-16\|2026-01-15\|2026-01-14"; then
+    if echo "$CONTAINER_BUILD_DATE" | grep -q "2026-01-16\|2026-01-15\|2026-01-14"; then
         log_error "❌ CRITICAL: Build date is from January 16 or earlier!"
         log_error "This indicates old code - NOT pushing to Docker Hub!"
         exit 1
@@ -344,8 +345,12 @@ if docker run --rm "$FRONTEND_LOCAL" test -f /usr/share/nginx/html/version.json;
     log_success "✅ Image verified - build metadata looks correct"
 else
     log_warning "⚠️  version.json not found - falling back to string search..."
-    # Fallback to old method if version.json doesn't exist
-    if docker run --rm "$FRONTEND_LOCAL" strings /usr/share/nginx/html/frontend_bg.optimized.wasm 2>/dev/null | grep -qi "Search People\|Search people"; then
+    # Fallback: find hashed *_bg.wasm (in-place optimized)
+    WASM_PATH=$(docker run --rm "$FRONTEND_LOCAL" find /usr/share/nginx/html -name '*_bg.wasm' -type f 2>/dev/null | head -1)
+    if [ -z "$WASM_PATH" ]; then
+        WASM_PATH="/usr/share/nginx/html/frontend_bg.optimized.wasm"
+    fi
+    if docker run --rm "$FRONTEND_LOCAL" strings "$WASM_PATH" 2>/dev/null | grep -qi "Search People\|Search people"; then
         log_error "❌ CRITICAL: WASM contains 'Search People' - NOT pushing!"
         exit 1
     fi
