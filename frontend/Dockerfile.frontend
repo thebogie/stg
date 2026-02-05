@@ -237,6 +237,7 @@ RUN echo "Checking build output..." && \
 
 # Manually optimize the WASM (find the WASM file that Trunk generated)
 # Trunk outputs to ../_build/frontend-dist per Trunk.toml (relative to frontend/ directory)
+# CRITICAL: Remove any existing optimized WASM to ensure fresh optimization
 RUN if [ -d "../_build/frontend-dist" ]; then \
         DIST_DIR="../_build/frontend-dist"; \
     elif [ -d "dist" ]; then \
@@ -245,12 +246,21 @@ RUN if [ -d "../_build/frontend-dist" ]; then \
         echo "ERROR: No dist directory found"; \
         exit 1; \
     fi && \
+    echo "Removing any existing optimized WASM files to force fresh optimization..." && \
+    rm -f "$DIST_DIR/frontend_bg.optimized.wasm" "$DIST_DIR"/*.optimized.wasm 2>/dev/null || true && \
     if [ -n "$(find "$DIST_DIR" -name '*_bg.wasm' -type f | head -1)" ]; then \
         WASM_INPUT=$(find "$DIST_DIR" -name '*_bg.wasm' -type f | head -1) && \
         echo "Found WASM file: $WASM_INPUT" && \
+        echo "Checking WASM file modification time:" && \
+        stat "$WASM_INPUT" | grep -E "Modify|Change" || true && \
+        echo "Optimizing WASM..." && \
         wasm-opt --enable-bulk-memory --enable-nontrapping-float-to-int -Oz \
             -o "$DIST_DIR/frontend_bg.optimized.wasm" "$WASM_INPUT" && \
-        echo "✅ WASM optimized"; \
+        echo "✅ WASM optimized" && \
+        echo "Verifying optimized WASM was created:" && \
+        ls -lah "$DIST_DIR/frontend_bg.optimized.wasm" && \
+        echo "Checking optimized WASM modification time:" && \
+        stat "$DIST_DIR/frontend_bg.optimized.wasm" | grep -E "Modify|Change" || true; \
     else \
         echo "⚠️  No WASM file found to optimize (Trunk may have already optimized it)"; \
     fi
@@ -260,12 +270,48 @@ FROM nginx:alpine
 
 # Install gettext for envsubst (needed for template substitution)
 # Use --no-cache to keep image small
-RUN apk add --no-cache gettext
+RUN apk add --no-cache gettext binutils
+
+# CRITICAL: Accept build args to use as cache busters
+ARG BUILD_DATE
+ARG GIT_COMMIT
 
 # Copy built files from builder stage
 # Trunk.toml sets dist = "../_build/frontend-dist", so output is at _build/frontend-dist (relative to frontend/)
 # Since we're in /app/frontend when building, the output is at /app/_build/frontend-dist
+# CRITICAL: Remove any existing files first to prevent Docker from reusing cached layers
+RUN echo "=== PREPARING FOR FRESH COPY ===" && \
+    echo "Build date: ${BUILD_DATE:-unknown}" && \
+    echo "Git commit: ${GIT_COMMIT:-unknown}" && \
+    rm -rf /usr/share/nginx/html/* 2>/dev/null || true && \
+    echo "✅ Directory cleaned, ready for fresh copy"
+
 COPY --from=builder /app/_build/frontend-dist /usr/share/nginx/html
+
+# CRITICAL: Verify the copied files are fresh and correct
+RUN echo "=== VERIFYING COPIED FILES ===" && \
+    echo "Listing copied files:" && \
+    ls -lah /usr/share/nginx/html/*.wasm 2>/dev/null | head -5 || echo "No WASM files found" && \
+    if [ -f /usr/share/nginx/html/frontend_bg.optimized.wasm ]; then \
+        echo "" && \
+        echo "WASM file modification time:" && \
+        stat /usr/share/nginx/html/frontend_bg.optimized.wasm | grep -E "Modify|Change" || true && \
+        echo "" && \
+        echo "Extracting strings to verify content..." && \
+        if strings /usr/share/nginx/html/frontend_bg.optimized.wasm 2>/dev/null | grep -qi "Search People\|Search people"; then \
+            echo "❌ ERROR: Found 'Search People' in copied WASM!" && \
+            echo "This means an old WASM file was copied." && \
+            exit 1; \
+        fi && \
+        if ! strings /usr/share/nginx/html/frontend_bg.optimized.wasm 2>/dev/null | grep -qi "Players"; then \
+            echo "❌ ERROR: 'Players' not found in copied WASM!" && \
+            echo "This means the WASM doesn't have the correct code." && \
+            exit 1; \
+        fi && \
+        echo "✅ Copied WASM verified - contains 'Players', no 'Search People'"; \
+    else \
+        echo "⚠️  Optimized WASM file not found!"; \
+    fi
 
 # Create templates directory (nginx:alpine's entrypoint processes .template files from here)
 RUN mkdir -p /etc/nginx/templates
