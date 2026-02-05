@@ -56,6 +56,14 @@ RUN npm ci --production=false --prefer-offline --no-audit
 # CRITICAL: Remove any pre-built WASM files before copying to ensure fresh build
 WORKDIR /app
 RUN rm -rf _build/frontend-dist frontend/.stage frontend/dist 2>/dev/null || true
+
+# CRITICAL: Add a unique build marker file to force Docker layer invalidation
+# This ensures COPY steps are never cached, even if file checksums match
+ARG BUILD_DATE
+ARG GIT_COMMIT
+RUN echo "Build marker: ${BUILD_DATE}-${GIT_COMMIT}" > /tmp/.build-marker-${GIT_COMMIT}-${BUILD_DATE} && \
+    cat /tmp/.build-marker-* 2>/dev/null | head -1 || true
+
 COPY backend ./backend
 COPY shared ./shared
 COPY dataload ./dataload
@@ -63,6 +71,14 @@ COPY testing ./testing
 COPY migrations ./migrations
 COPY scripts ./scripts
 COPY frontend ./frontend
+
+# CRITICAL: Touch all source files to ensure Trunk sees them as changed
+# This forces Trunk to rebuild even if file contents are identical
+RUN echo "Touching all source files to force rebuild..." && \
+    find frontend/src -name "*.rs" -type f -exec touch {} \; 2>/dev/null || true && \
+    find shared/src -name "*.rs" -type f -exec touch {} \; 2>/dev/null || true && \
+    echo "Source files touched - modification times updated"
+
 # Ensure no WASM files were accidentally copied
 RUN find . -name "*.wasm" -type f -delete 2>/dev/null || true
 
@@ -94,7 +110,9 @@ RUN echo "=== INDUSTRY-STANDARD FRESH WASM BUILD ===" && \
     rm -rf target 2>/dev/null || true && \
     rm -rf ../target 2>/dev/null || true && \
     echo "Step 2: Delete all Trunk caches and output..." && \
-    rm -rf ../_build/frontend-dist .stage dist ~/.trunk 2>/dev/null || true && \
+    rm -rf ../_build/frontend-dist .stage dist ~/.trunk ~/.cache/trunk ~/.local/share/trunk 2>/dev/null || true && \
+    find /root -name ".trunk" -type d -exec rm -rf {} + 2>/dev/null || true && \
+    find /home -name ".trunk" -type d -exec rm -rf {} + 2>/dev/null || true && \
     echo "Step 3: Delete all WASM files in entire filesystem..." && \
     find /app -name "*.wasm" -type f -delete 2>/dev/null || true && \
     find /root -name "*.wasm" -type f -delete 2>/dev/null || true && \
@@ -168,6 +186,10 @@ RUN echo "=== FINAL CLEAN BEFORE BUILD ===" && \
     npm run build:css:prod && \
     echo "=== STARTING TRUNK BUILD (NO INCREMENTAL, FORCED CLEAN) ===" && \
     echo "CARGO_INCREMENTAL is set to: ${CARGO_INCREMENTAL:-not set}" && \
+    echo "Touching all source files to force Trunk to see them as changed..." && \
+    find src -name "*.rs" -type f -exec touch {} \; 2>/dev/null || true && \
+    find ../shared/src -name "*.rs" -type f -exec touch {} \; 2>/dev/null || true && \
+    echo "Running Trunk build with forced clean..." && \
     CARGO_INCREMENTAL=0 RUSTFLAGS="-C link-arg=-s" trunk build --release --no-default-features && \
     echo "=== BUILD COMPLETE - VERIFYING TRUNK OUTPUT ===" && \
     echo "Checking where Trunk output files are..." && \
