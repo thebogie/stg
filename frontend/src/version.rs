@@ -62,7 +62,7 @@ pub fn get_build_metadata() -> String {
     let name = Self::name();
     let build_date = option_env!("BUILD_DATE").unwrap_or("unknown");
     let git_commit = option_env!("GIT_COMMIT").unwrap_or("unknown");
-    
+
     // Format as JSON (simple, no serde_json dependency needed)
     format!(
         r#"{{"name":"{}","version":"{}","build_date":"{}","git_commit":"{}","build_timestamp":{}}}"#,
