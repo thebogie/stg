@@ -108,6 +108,25 @@ if ! docker pull "$FRONTEND_HUB"; then
     exit 1
 fi
 
+# CRITICAL: Verify the pulled image has correct WASM
+log_info "Verifying pulled frontend image..."
+if docker run --rm "$FRONTEND_HUB" test -f /usr/share/nginx/html/frontend_bg.optimized.wasm 2>/dev/null; then
+    log_info "Checking WASM content in pulled image..."
+    if docker run --rm "$FRONTEND_HUB" strings /usr/share/nginx/html/frontend_bg.optimized.wasm 2>/dev/null | grep -qi "Search People\|Search people"; then
+        log_error "❌ CRITICAL: Pulled image contains 'Search People'!"
+        log_error "Docker Hub has old code - DO NOT DEPLOY!"
+        exit 1
+    fi
+    if ! docker run --rm "$FRONTEND_HUB" strings /usr/share/nginx/html/frontend_bg.optimized.wasm 2>/dev/null | grep -qi "Players"; then
+        log_error "❌ CRITICAL: Pulled image missing 'Players'!"
+        log_error "Docker Hub has incorrect code - DO NOT DEPLOY!"
+        exit 1
+    fi
+    log_success "✅ Pulled image verified - correct WASM content"
+else
+    log_warning "⚠️  Could not verify WASM in pulled image (file not found or binutils missing)"
+fi
+
 log_info "Pulling backend: $BACKEND_HUB"
 if ! docker pull "$BACKEND_HUB"; then
     log_error "Failed to pull backend image!"

@@ -306,6 +306,26 @@ log_info "Tagging for Docker Hub..."
 docker tag "$FRONTEND_LOCAL" "$FRONTEND_HUB"
 docker tag "$BACKEND_LOCAL" "$BACKEND_HUB"
 
+# CRITICAL: Verify the image we're about to push has correct WASM
+log_info "Verifying frontend image before push..."
+if docker run --rm "$FRONTEND_LOCAL" test -f /usr/share/nginx/html/frontend_bg.optimized.wasm; then
+    log_info "Extracting WASM from image to verify content..."
+    docker run --rm "$FRONTEND_LOCAL" strings /usr/share/nginx/html/frontend_bg.optimized.wasm 2>/dev/null | grep -qi "Search People\|Search people" && {
+        log_error "❌ CRITICAL: Image contains 'Search People' - NOT pushing to Docker Hub!"
+        log_error "This would deploy old code to production!"
+        exit 1
+    } || log_success "✅ Image verified - no 'Search People' found"
+    
+    docker run --rm "$FRONTEND_LOCAL" strings /usr/share/nginx/html/frontend_bg.optimized.wasm 2>/dev/null | grep -qi "Players" && {
+        log_success "✅ Image verified - contains 'Players'"
+    } || {
+        log_error "❌ CRITICAL: Image missing 'Players' - NOT pushing to Docker Hub!"
+        exit 1
+    }
+else
+    log_warning "⚠️  Could not verify WASM in image (file not found)"
+fi
+
 log_info "Pushing frontend image..."
 if ! docker push "$FRONTEND_HUB"; then
     log_error "Failed to push frontend image!"

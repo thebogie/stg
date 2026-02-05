@@ -355,30 +355,51 @@ RUN echo "=== PREPARING FOR FRESH COPY ===" && \
 
 COPY --from=builder /app/_build/frontend-dist /usr/share/nginx/html
 
-# CRITICAL: Verify the copied files are fresh and correct
-RUN echo "=== VERIFYING COPIED FILES ===" && \
-    echo "Listing copied files:" && \
-    ls -lah /usr/share/nginx/html/*.wasm 2>/dev/null | head -5 || echo "No WASM files found" && \
+# CRITICAL: NUCLEAR VERIFICATION - Fail build if ANY old WASM is detected
+RUN echo "=== NUCLEAR WASM VERIFICATION (FAILS BUILD IF OLD CODE FOUND) ===" && \
+    echo "Checking ALL WASM files in /usr/share/nginx/html..." && \
+    find /usr/share/nginx/html -name "*.wasm" -type f -exec ls -lah {} \; && \
+    echo "" && \
     if [ -f /usr/share/nginx/html/frontend_bg.optimized.wasm ]; then \
-        echo "" && \
-        echo "WASM file modification time:" && \
-        stat /usr/share/nginx/html/frontend_bg.optimized.wasm | grep -E "Modify|Change" || true && \
-        echo "" && \
-        echo "Extracting strings to verify content..." && \
-        if strings /usr/share/nginx/html/frontend_bg.optimized.wasm 2>/dev/null | grep -qi "Search People\|Search people"; then \
-            echo "❌ ERROR: Found 'Search People' in copied WASM!" && \
-            echo "This means an old WASM file was copied." && \
+        WASM_FILE="/usr/share/nginx/html/frontend_bg.optimized.wasm"; \
+        echo "Checking WASM file: $WASM_FILE" && \
+        echo "File modification time:" && \
+        WASM_STAT=$(stat "$WASM_FILE" 2>/dev/null || echo "stat failed") && \
+        echo "$WASM_STAT" && \
+        WASM_DATE=$(stat -c %y "$WASM_FILE" 2>/dev/null || stat -f "%Sm" "$WASM_FILE" 2>/dev/null || echo "unknown") && \
+        echo "WASM date string: $WASM_DATE" && \
+        if echo "$WASM_DATE" | grep -q "2026-01-16"; then \
+            echo "❌❌❌ CRITICAL ERROR: WASM file is from Jan 16, 2026!" && \
+            echo "This build MUST FAIL - old WASM detected!" && \
+            echo "Full stat output:" && \
+            stat "$WASM_FILE" && \
             exit 1; \
         fi && \
-        if ! strings /usr/share/nginx/html/frontend_bg.optimized.wasm 2>/dev/null | grep -qi "Players"; then \
-            echo "❌ ERROR: 'Players' not found in copied WASM!" && \
-            echo "This means the WASM doesn't have the correct code." && \
+        echo "Extracting strings from WASM to verify content..." && \
+        WASM_STRINGS=$(strings "$WASM_FILE" 2>/dev/null || echo "") && \
+        if echo "$WASM_STRINGS" | grep -qi "Search People\|Search people"; then \
+            echo "❌❌❌ CRITICAL ERROR: Found 'Search People' in WASM strings!" && \
+            echo "Matching lines:" && \
+            echo "$WASM_STRINGS" | grep -i "Search People\|Search people" | head -5 && \
+            echo "This build MUST FAIL - old code detected in WASM!" && \
             exit 1; \
         fi && \
-        echo "✅ Copied WASM verified - contains 'Players', no 'Search People'"; \
+        if ! echo "$WASM_STRINGS" | grep -qi "Players"; then \
+            echo "❌❌❌ CRITICAL ERROR: 'Players' not found in WASM strings!" && \
+            echo "This build MUST FAIL - correct code not found in WASM!" && \
+            exit 1; \
+        fi && \
+        echo "✅✅✅ WASM VERIFICATION PASSED:" && \
+        echo "  - File date is NOT Jan 16" && \
+        echo "  - Contains 'Players'" && \
+        echo "  - Does NOT contain 'Search People'"; \
     else \
-        echo "⚠️  Optimized WASM file not found!"; \
-    fi
+        echo "❌ ERROR: frontend_bg.optimized.wasm not found in /usr/share/nginx/html!" && \
+        echo "Listing directory contents:" && \
+        ls -lah /usr/share/nginx/html/ && \
+        exit 1; \
+    fi && \
+    echo "=== VERIFICATION COMPLETE ==="
 
 # Create templates directory (nginx:alpine's entrypoint processes .template files from here)
 RUN mkdir -p /etc/nginx/templates
