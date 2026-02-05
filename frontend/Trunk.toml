@@ -24,13 +24,9 @@ BUILD_DATE = { value = "", from_env = "BUILD_DATE" }
 [watch]
 watch = ["src", "../shared/src"]
 
-[[hooks]]
-stage = "pre_build"
-command = "cargo"
-# CRITICAL: Build without incremental compilation (prevents stale WASM)
-# CARGO_INCREMENTAL=0 is set in Dockerfile to disable incremental compilation
-# This ensures Cargo doesn't use cached incremental artifacts which can contain old code
-command_arguments = ["build", "--package=frontend", "--target", "wasm32-unknown-unknown"]
+# REMOVED pre_build hook - let Trunk handle the entire build process
+# The pre_build hook was causing Cargo to potentially reuse old WASM files
+# Trunk will build the WASM from scratch when we run `trunk build`
 
 [clean]
 cargo = true

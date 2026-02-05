@@ -18,6 +18,7 @@ services:
         FRONTEND_PORT: "${FRONTEND_PORT:-50003}"
         GIT_COMMIT: "${GIT_COMMIT:-unknown}"
         BUILD_DATE: "${BUILD_DATE:-unknown}"
+        SOURCE_DATE_EPOCH: "${SOURCE_DATE_EPOCH:-$(date +%s)}"
     ports:
       - "${FRONTEND_PORT:-50003}:${FRONTEND_PORT:-50003}"
     # Environment variables are loaded via --env-file from prod-compose.sh (expanded file)

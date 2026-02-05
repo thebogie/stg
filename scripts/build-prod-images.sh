@@ -111,12 +111,15 @@ log_success "Working directory matches committed code - build will use correct s
 # - .dockerignore is excluding changed files
 # Using --no-cache ensures a completely fresh build every time (required for CI/CD)
 log_info "Building frontend (using --no-cache to ensure latest source code)..."
+# SOURCE_DATE_EPOCH forces Docker layer invalidation (industry standard for fresh builds)
+SOURCE_DATE_EPOCH=$(date +%s)
 docker compose \
     --env-file "$ENV_FILE" \
     -f deploy/docker-compose.production.yml \
     build --progress=plain --no-cache \
     --build-arg BUILD_DATE="$BUILD_DATE" \
     --build-arg GIT_COMMIT="$GIT_COMMIT" \
+    --build-arg SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" \
     frontend
 
 log_info "Building backend..."

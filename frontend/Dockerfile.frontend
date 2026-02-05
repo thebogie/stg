@@ -76,42 +76,37 @@ ENV FRONTEND_PORT=${FRONTEND_PORT:-50003}
 ENV GIT_COMMIT=${GIT_COMMIT}
 ENV BUILD_DATE=${BUILD_DATE}
 
-# CRITICAL: Clean ALL caches to ensure fresh build
-# Even with Docker --no-cache, Cargo and Trunk have their own caches
-# This ensures source code changes are always picked up
-# Trunk caches in .stage/ and dist/, Cargo caches in target/
-# Trunk outputs to ../_build/frontend-dist per Trunk.toml
-# NUCLEAR OPTION: Clean everything, including Trunk's internal cache directory
-RUN echo "=== NUCLEAR CACHE CLEANUP ===" && \
-    echo "Cleaning Cargo cache (package and workspace level)..." && \
-    cargo clean --package frontend || true && \
-    cargo clean --target wasm32-unknown-unknown || true && \
-    echo "Removing all Cargo build artifacts..." && \
-    rm -rf target/wasm32-unknown-unknown/.fingerprint/frontend* || true && \
-    rm -rf target/wasm32-unknown-unknown/incremental || true && \
-    rm -rf target/wasm32-unknown-unknown/release/frontend* || true && \
-    rm -rf target/wasm32-unknown-unknown/debug/frontend* || true && \
-    rm -rf target/wasm32-unknown-unknown/deps/frontend* || true && \
-    echo "Removing Trunk caches and output..." && \
-    rm -rf ../_build/frontend-dist .stage dist || true && \
+# CRITICAL: Industry-standard approach for fresh WASM builds
+# 1. Delete ENTIRE target directory (forces complete rebuild)
+# 2. Delete all Trunk caches and output directories
+# 3. Use SOURCE_DATE_EPOCH to force Docker layer invalidation
+# 4. Remove any pre-existing WASM files anywhere in the filesystem
+ARG SOURCE_DATE_EPOCH
+ENV SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH:-$(date +%s)}
+RUN echo "=== INDUSTRY-STANDARD FRESH WASM BUILD ===" && \
+    echo "SOURCE_DATE_EPOCH: ${SOURCE_DATE_EPOCH}" && \
+    echo "BUILD_DATE: ${BUILD_DATE}" && \
+    echo "GIT_COMMIT: ${GIT_COMMIT}" && \
+    echo "" && \
+    echo "Step 1: Delete ENTIRE target directory (forces Cargo to rebuild everything)..." && \
+    rm -rf /app/target 2>/dev/null || true && \
+    rm -rf target 2>/dev/null || true && \
+    rm -rf ../target 2>/dev/null || true && \
+    echo "Step 2: Delete all Trunk caches and output..." && \
+    rm -rf ../_build/frontend-dist .stage dist ~/.trunk 2>/dev/null || true && \
+    echo "Step 3: Delete all WASM files in entire filesystem..." && \
+    find /app -name "*.wasm" -type f -delete 2>/dev/null || true && \
+    find /root -name "*.wasm" -type f -delete 2>/dev/null || true && \
+    find /tmp -name "*.wasm" -type f -delete 2>/dev/null || true && \
+    echo "Step 4: Delete Cargo registry cache..." && \
     rm -rf ~/.cargo/registry/cache 2>/dev/null || true && \
     rm -rf ~/.cargo/git/db 2>/dev/null || true && \
-    echo "Finding and removing all WASM files..." && \
-    find . -name "*.wasm" -type f -delete 2>/dev/null || true && \
-    find .. -path "*/frontend/.stage/*" -type f -delete 2>/dev/null || true && \
-    find .. -path "*/frontend/dist/*" -type f -delete 2>/dev/null || true && \
-    find .. -path "*/_build/frontend-dist/*" -type f -delete 2>/dev/null || true && \
-    find .. -name "*.wasm" -type f -delete 2>/dev/null || true && \
-    find .. -path "*/target/wasm32-unknown-unknown/incremental/*" -type d -exec rm -rf {} + 2>/dev/null || true && \
-    find .. -path "*/target/wasm32-unknown-unknown/.fingerprint/*" -type f -delete 2>/dev/null || true && \
-    echo "✅ NUCLEAR CLEANUP COMPLETE - All caches removed" && \
-    echo "=== VERIFICATION ===" && \
-    echo "WASM files remaining:" && \
-    (find .. -name "*.wasm" -type f 2>/dev/null | wc -l || echo "0") && \
-    echo "Trunk .stage directories remaining:" && \
-    (find .. -path "*/.stage" -type d 2>/dev/null | wc -l || echo "0") && \
-    echo "Cargo incremental dirs remaining:" && \
-    (find .. -path "*/target/wasm32-unknown-unknown/incremental" -type d 2>/dev/null | wc -l || echo "0")
+    echo "Step 5: Verify everything is deleted..." && \
+    echo "  WASM files remaining: $(find /app -name '*.wasm' -type f 2>/dev/null | wc -l || echo '0')" && \
+    echo "  Target directories remaining: $(find /app -name 'target' -type d 2>/dev/null | wc -l || echo '0')" && \
+    echo "  Trunk .stage dirs remaining: $(find /app -path '*/.stage' -type d 2>/dev/null | wc -l || echo '0')" && \
+    echo "" && \
+    echo "✅ COMPLETE CLEANUP - Ready for 100% fresh WASM build"
 
 # Verify source code before building (for debugging)
 # This will FAIL the build if old code is detected, ensuring we catch the issue early
