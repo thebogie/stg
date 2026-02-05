@@ -80,9 +80,10 @@ ENV BUILD_DATE=${BUILD_DATE}
 # 1. Delete ENTIRE target directory (forces complete rebuild)
 # 2. Delete all Trunk caches and output directories
 # 3. Use SOURCE_DATE_EPOCH to force Docker layer invalidation
-# 4. Remove any pre-existing WASM files anywhere in the filesystem
-ARG SOURCE_DATE_EPOCH
-ENV SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH:-$(date +%s)}
+    # 4. Remove any pre-existing WASM files anywhere in the filesystem
+    # SOURCE_DATE_EPOCH is passed as build arg to force Docker layer invalidation
+    ARG SOURCE_DATE_EPOCH
+    ENV SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH}
 RUN echo "=== INDUSTRY-STANDARD FRESH WASM BUILD ===" && \
     echo "SOURCE_DATE_EPOCH: ${SOURCE_DATE_EPOCH}" && \
     echo "BUILD_DATE: ${BUILD_DATE}" && \
