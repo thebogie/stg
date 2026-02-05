@@ -150,25 +150,44 @@ COMPOSE_PROJECT_NAME=$(basename "$PROJECT_ROOT" | tr '[:upper:]' '[:lower:]' | t
 FRONTEND_FULL="${COMPOSE_PROJECT_NAME}-frontend"
 BACKEND_FULL="${COMPOSE_PROJECT_NAME}-backend"
 
-# Tag with version
-docker tag "${FRONTEND_FULL}:latest" "${FRONTEND_FULL}:${VERSION_TAG}" 2>/dev/null || \
-docker tag "${FRONTEND_IMAGE}:latest" "${FRONTEND_IMAGE}:${VERSION_TAG}" 2>/dev/null || \
-log_warning "Could not tag frontend image (may already be tagged)"
+# Tag with version (find which image name was actually used)
+FRONTEND_SOURCE=""
+if docker image inspect "${FRONTEND_FULL}:latest" > /dev/null 2>&1; then
+    FRONTEND_SOURCE="${FRONTEND_FULL}:latest"
+elif docker image inspect "${FRONTEND_IMAGE}:latest" > /dev/null 2>&1; then
+    FRONTEND_SOURCE="${FRONTEND_IMAGE}:latest"
+elif docker image inspect "stg_rd-frontend:latest" > /dev/null 2>&1; then
+    FRONTEND_SOURCE="stg_rd-frontend:latest"
+else
+    log_error "Could not find frontend image to tag!"
+    docker images | grep -i frontend | head -5
+    exit 1
+fi
 
-docker tag "${BACKEND_FULL}:latest" "${BACKEND_FULL}:${VERSION_TAG}" 2>/dev/null || \
-docker tag "${BACKEND_IMAGE}:latest" "${BACKEND_IMAGE}:${VERSION_TAG}" 2>/dev/null || \
-log_warning "Could not tag backend image (may already be tagged)"
+BACKEND_SOURCE=""
+if docker image inspect "${BACKEND_FULL}:latest" > /dev/null 2>&1; then
+    BACKEND_SOURCE="${BACKEND_FULL}:latest"
+elif docker image inspect "${BACKEND_IMAGE}:latest" > /dev/null 2>&1; then
+    BACKEND_SOURCE="${BACKEND_IMAGE}:latest"
+elif docker image inspect "stg_rd-backend:latest" > /dev/null 2>&1; then
+    BACKEND_SOURCE="stg_rd-backend:latest"
+else
+    log_error "Could not find backend image to tag!"
+    docker images | grep -i backend | head -5
+    exit 1
+fi
+
+# Tag with version (standardize on stg_rd-* names for consistency)
+docker tag "$FRONTEND_SOURCE" "stg_rd-frontend:${VERSION_TAG}"
+docker tag "$BACKEND_SOURCE" "stg_rd-backend:${VERSION_TAG}"
 
 # Also tag as 'tested' for easy reference
-docker tag "${FRONTEND_FULL}:${VERSION_TAG}" "${FRONTEND_FULL}:tested" 2>/dev/null || \
-docker tag "${FRONTEND_IMAGE}:${VERSION_TAG}" "${FRONTEND_IMAGE}:tested" 2>/dev/null || true
-
-docker tag "${BACKEND_FULL}:${VERSION_TAG}" "${BACKEND_FULL}:tested" 2>/dev/null || \
-docker tag "${BACKEND_IMAGE}:${VERSION_TAG}" "${BACKEND_IMAGE}:tested" 2>/dev/null || true
+docker tag "stg_rd-frontend:${VERSION_TAG}" "stg_rd-frontend:tested"
+docker tag "stg_rd-backend:${VERSION_TAG}" "stg_rd-backend:tested"
 
 log_success "Images tagged:"
-log_info "  Frontend: ${FRONTEND_FULL}:${VERSION_TAG} (also tagged as 'tested')"
-log_info "  Backend: ${BACKEND_FULL}:${VERSION_TAG} (also tagged as 'tested')"
+log_info "  Frontend: stg_rd-frontend:${VERSION_TAG} (also tagged as 'tested')"
+log_info "  Backend: stg_rd-backend:${VERSION_TAG} (also tagged as 'tested')"
 
 # Save version info to file for other scripts
 mkdir -p "${PROJECT_ROOT}/_build"
@@ -177,14 +196,13 @@ cat > "$VERSION_FILE" <<EOF
 GIT_COMMIT="$GIT_COMMIT"
 BUILD_DATE="$BUILD_DATE"
 VERSION_TAG="$VERSION_TAG"
-FRONTEND_IMAGE="${FRONTEND_FULL}"
-BACKEND_IMAGE="${BACKEND_FULL}"
+FRONTEND_IMAGE="stg_rd-frontend"
+BACKEND_IMAGE="stg_rd-backend"
 EOF
 
 log_success "Version info saved to: $VERSION_FILE"
 log_info ""
 log_info "Next steps:"
-log_info "  1. Load production data: ./scripts/load-prod-data.sh"
-log_info "  2. Test containers: ./scripts/test-prod-containers.sh"
-log_info "  3. Export tested images: ./scripts/export-tested-images.sh"
+log_info "  Run full CI/CD workflow: ./scripts/build-test-push.sh"
+log_info "  (This will test the images and push to Docker Hub)"
 
