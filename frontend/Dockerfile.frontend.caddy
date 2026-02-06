@@ -83,7 +83,8 @@ RUN echo "=== CLEANING TRUNK OUTPUT (FINAL CLEAN) ===" && \
     find .. -name "*.wasm" -type f -delete 2>/dev/null || true && \
     echo "✅ Output directory cleaned - ready for fresh build" && \
     npm run build:css:prod && \
-    trunk build --release --no-default-features
+    mkdir -p /app/_build/frontend-dist && \
+    trunk build --release --no-default-features --dist /app/_build/frontend-dist
 
 # Verify build output
 RUN echo "Checking build output..." && \
