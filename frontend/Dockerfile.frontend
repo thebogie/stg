@@ -163,7 +163,11 @@ RUN echo "=== FINAL CLEAN BEFORE BUILD ===" && \
     CARGO_INCREMENTAL=0 RUSTFLAGS="-C link-arg=-s" trunk build --release --no-default-features && \
     echo "=== BUILD COMPLETE - VERIFYING TRUNK OUTPUT ===" && \
     echo "Checking where Trunk output files are..." && \
-    if [ -d "../_build/frontend-dist" ]; then \
+    if [ -f "../_build/frontend-dist/index.html" ] || [ -f "../_build/frontend-dist/version.json" ]; then \
+        DIST_DIR="../_build/frontend-dist"; \
+    elif [ -f "dist/index.html" ] || [ -f "dist/version.json" ]; then \
+        DIST_DIR="dist"; \
+    elif [ -d "../_build/frontend-dist" ]; then \
         DIST_DIR="../_build/frontend-dist"; \
     elif [ -d "dist" ]; then \
         DIST_DIR="dist"; \
@@ -217,7 +221,15 @@ RUN echo "=== FINAL CLEAN BEFORE BUILD ===" && \
 # WASM files are binary, so we need to use 'strings' command to extract readable text
 # JS files might be minified, so we search both minified and readable forms
 RUN echo "=== VERIFYING BUILT OUTPUT ===" && \
-    DIST_DIR="../_build/frontend-dist" && \
+    if [ -f "../_build/frontend-dist/index.html" ] || [ -f "../_build/frontend-dist/version.json" ]; then \
+        DIST_DIR="../_build/frontend-dist"; \
+    elif [ -f "dist/index.html" ] || [ -f "dist/version.json" ]; then \
+        DIST_DIR="dist"; \
+    elif [ -d "../_build/frontend-dist" ]; then \
+        DIST_DIR="../_build/frontend-dist"; \
+    elif [ -d "dist" ]; then \
+        DIST_DIR="dist"; \
+    fi && \
     if [ -d "$DIST_DIR" ]; then \
         echo "Checking built files for contests filter text..." && \
         echo "Listing all files in dist:" && \
@@ -270,13 +282,23 @@ RUN echo "=== VERIFYING BUILT OUTPUT ===" && \
 # Verify build output exists
 # Trunk.toml sets dist = "../_build/frontend-dist" (relative to frontend/), so output is at /app/_build/frontend-dist
 RUN echo "Checking build output..." && \
-    ls -lah ../_build/frontend-dist/ 2>/dev/null || ls -lah dist/ 2>/dev/null || (echo "ERROR: No dist directory found" && exit 1)
+    if [ -f "../_build/frontend-dist/index.html" ] || [ -f "../_build/frontend-dist/version.json" ]; then \
+        ls -lah ../_build/frontend-dist/; \
+    elif [ -f "dist/index.html" ] || [ -f "dist/version.json" ]; then \
+        ls -lah dist/; \
+    else \
+        ls -lah ../_build/frontend-dist/ 2>/dev/null || ls -lah dist/ 2>/dev/null || (echo "ERROR: No dist directory found" && exit 1); \
+    fi
 
 # Manually optimize the WASM (find the WASM file that Trunk generated)
 # Trunk outputs to ../_build/frontend-dist per Trunk.toml (relative to frontend/ directory)
 # CRITICAL: Remove any existing optimized WASM to ensure fresh optimization
 # CRITICAL: Verify the source WASM is fresh (not from Jan 16!)
-RUN if [ -d "../_build/frontend-dist" ]; then \
+RUN if [ -f "../_build/frontend-dist/index.html" ] || [ -f "../_build/frontend-dist/version.json" ]; then \
+        DIST_DIR="../_build/frontend-dist"; \
+    elif [ -f "dist/index.html" ] || [ -f "dist/version.json" ]; then \
+        DIST_DIR="dist"; \
+    elif [ -d "../_build/frontend-dist" ]; then \
         DIST_DIR="../_build/frontend-dist"; \
     elif [ -d "dist" ]; then \
         DIST_DIR="dist"; \
@@ -338,7 +360,11 @@ RUN if [ -d "../_build/frontend-dist" ]; then \
 
 # Normalize output: ensure /app/_build/frontend-dist always contains final assets
 RUN echo "=== NORMALIZING FRONTEND DIST OUTPUT ===" && \
-    if [ -d "../_build/frontend-dist" ]; then \
+    if [ -f "../_build/frontend-dist/index.html" ] || [ -f "../_build/frontend-dist/version.json" ]; then \
+        DIST_DIR="../_build/frontend-dist"; \
+    elif [ -f "dist/index.html" ] || [ -f "dist/version.json" ]; then \
+        DIST_DIR="dist"; \
+    elif [ -d "../_build/frontend-dist" ]; then \
         DIST_DIR="../_build/frontend-dist"; \
     elif [ -d "dist" ]; then \
         DIST_DIR="dist"; \

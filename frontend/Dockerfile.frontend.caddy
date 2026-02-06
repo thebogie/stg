@@ -92,7 +92,15 @@ RUN echo "Checking build output..." && \
 # CRITICAL: Verify the built WASM/JS actually contains "Players" not "People" for contests filter
 # Check specifically for the problematic "Search People" text
 RUN echo "=== VERIFYING BUILT OUTPUT ===" && \
-    DIST_DIR="../_build/frontend-dist" && \
+    if [ -f "../_build/frontend-dist/index.html" ] || [ -f "../_build/frontend-dist/version.json" ]; then \
+        DIST_DIR="../_build/frontend-dist"; \
+    elif [ -f "dist/index.html" ] || [ -f "dist/version.json" ]; then \
+        DIST_DIR="dist"; \
+    elif [ -d "../_build/frontend-dist" ]; then \
+        DIST_DIR="../_build/frontend-dist"; \
+    elif [ -d "dist" ]; then \
+        DIST_DIR="dist"; \
+    fi && \
     if [ -d "$DIST_DIR" ]; then \
         echo "Checking built files for contests filter text..." && \
         if grep -r "Search People\|Search people" "$DIST_DIR" 2>/dev/null | grep -v ".map" | head -1; then \
@@ -108,7 +116,11 @@ RUN echo "=== VERIFYING BUILT OUTPUT ===" && \
     fi
 
 # Optimize WASM
-RUN if [ -d "../_build/frontend-dist" ]; then \
+RUN if [ -f "../_build/frontend-dist/index.html" ] || [ -f "../_build/frontend-dist/version.json" ]; then \
+        DIST_DIR="../_build/frontend-dist"; \
+    elif [ -f "dist/index.html" ] || [ -f "dist/version.json" ]; then \
+        DIST_DIR="dist"; \
+    elif [ -d "../_build/frontend-dist" ]; then \
         DIST_DIR="../_build/frontend-dist"; \
     elif [ -d "dist" ]; then \
         DIST_DIR="dist"; \
@@ -128,7 +140,11 @@ RUN if [ -d "../_build/frontend-dist" ]; then \
 
 # Normalize output: ensure /app/_build/frontend-dist always contains final assets
 RUN echo "=== NORMALIZING FRONTEND DIST OUTPUT ===" && \
-    if [ -d "../_build/frontend-dist" ]; then \
+    if [ -f "../_build/frontend-dist/index.html" ] || [ -f "../_build/frontend-dist/version.json" ]; then \
+        DIST_DIR="../_build/frontend-dist"; \
+    elif [ -f "dist/index.html" ] || [ -f "dist/version.json" ]; then \
+        DIST_DIR="dist"; \
+    elif [ -d "../_build/frontend-dist" ]; then \
         DIST_DIR="../_build/frontend-dist"; \
     elif [ -d "dist" ]; then \
         DIST_DIR="dist"; \
