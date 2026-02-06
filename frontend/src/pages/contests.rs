@@ -5,10 +5,13 @@ use crate::api::venues::get_all_venues;
 use crate::auth::AuthContext;
 use crate::Route;
 use chrono::DateTime;
+use gloo_timers::callback::Timeout;
 use shared::dto::player::PlayerDto;
 use shared::{GameDto, VenueDto};
+use std::rc::Rc;
 use wasm_bindgen::JsCast;
 use web_sys::js_sys;
+use yew::functional::use_mut_ref;
 use yew::prelude::*;
 use yew_router::prelude::*;
 
@@ -73,6 +76,11 @@ pub fn contests(_props: &ContestsProps) -> Html {
     let player_search_query = use_state(|| String::new());
     let player_search_results = use_state(|| Vec::<PlayerDto>::new());
     let show_filters = use_state(|| false);
+    let show_undo = use_state(|| false);
+    let last_applied_state = use_state(|| SearchState::default());
+    let last_applied_players = use_state(|| Vec::<PlayerDto>::new());
+    let undo_timeout = use_mut_ref(|| None::<Timeout>);
+    let apply_timeout = use_mut_ref(|| None::<Timeout>);
 
     let on_create_contest = {
         let navigator = navigator.clone();
@@ -99,14 +107,12 @@ pub fn contests(_props: &ContestsProps) -> Html {
         });
     }
 
-    // Search function (uses active search_state)
+    // Search function (uses provided state)
     let perform_search = {
-        let search_state = search_state.clone();
         let search_results = search_results.clone();
         let loading = loading.clone();
         let error = error.clone();
-        Callback::from(move |_| {
-            let search_state = search_state.clone();
+        Callback::from(move |state: SearchState| {
             let search_results = search_results.clone();
             let loading = loading.clone();
             let error = error.clone();
@@ -117,39 +123,39 @@ pub fn contests(_props: &ContestsProps) -> Html {
             wasm_bindgen_futures::spawn_local(async move {
                 let mut params = Vec::new();
 
-                if !search_state.query.is_empty() {
-                    params.push(("q", search_state.query.clone()));
+                if !state.query.is_empty() {
+                    params.push(("q", state.query.clone()));
                 }
-                if !search_state.start_from.is_empty() {
-                    params.push(("start_from", search_state.start_from.clone()));
+                if !state.start_from.is_empty() {
+                    params.push(("start_from", state.start_from.clone()));
                 }
-                if !search_state.start_to.is_empty() {
-                    params.push(("start_to", search_state.start_to.clone()));
+                if !state.start_to.is_empty() {
+                    params.push(("start_to", state.start_to.clone()));
                 }
-                if !search_state.stop_from.is_empty() {
-                    params.push(("stop_from", search_state.stop_from.clone()));
+                if !state.stop_from.is_empty() {
+                    params.push(("stop_from", state.stop_from.clone()));
                 }
-                if !search_state.stop_to.is_empty() {
-                    params.push(("stop_to", search_state.stop_to.clone()));
+                if !state.stop_to.is_empty() {
+                    params.push(("stop_to", state.stop_to.clone()));
                 }
-                if !search_state.venue_id.is_empty() {
-                    params.push(("venue_id", search_state.venue_id.clone()));
+                if !state.venue_id.is_empty() {
+                    params.push(("venue_id", state.venue_id.clone()));
                 }
-                if !search_state.game_ids.is_empty() {
-                    let csv = search_state.game_ids.join(",");
+                if !state.game_ids.is_empty() {
+                    let csv = state.game_ids.join(",");
                     params.push(("game_ids", csv));
                 }
                 // Send player_id only when a player has been selected
-                if !search_state.player_ids.is_empty() {
+                if !state.player_ids.is_empty() {
                     // Backend currently supports a single player_id; use the first selected
-                    params.push(("player_id", search_state.player_ids[0].clone()));
+                    params.push(("player_id", state.player_ids[0].clone()));
                 }
                 // Scope is already set appropriately in state (defaults to 'all' when unauthenticated)
-                params.push(("scope", search_state.scope.clone()));
-                params.push(("page", search_state.page.to_string()));
-                params.push(("page_size", search_state.page_size.to_string()));
-                params.push(("sort_by", search_state.sort_by.clone()));
-                params.push(("sort_dir", search_state.sort_dir.clone()));
+                params.push(("scope", state.scope.clone()));
+                params.push(("page", state.page.to_string()));
+                params.push(("page_size", state.page_size.to_string()));
+                params.push(("sort_by", state.sort_by.clone()));
+                params.push(("sort_dir", state.sort_dir.clone()));
 
                 match search_contests(&params).await {
                     Ok(results) => {
@@ -169,11 +175,65 @@ pub fn contests(_props: &ContestsProps) -> Html {
         })
     };
 
+    let apply_instant = {
+        let search_state = search_state.clone();
+        let draft_state = draft_state.clone();
+        let draft_players = draft_players.clone();
+        let selected_players = selected_players.clone();
+        let last_applied_state = last_applied_state.clone();
+        let last_applied_players = last_applied_players.clone();
+        let perform_search = perform_search.clone();
+        let show_undo = show_undo.clone();
+        let undo_timeout = undo_timeout.clone();
+        Callback::from(
+            move |(next_state, next_players): (SearchState, Vec<PlayerDto>)| {
+                let prev_state = (*search_state).clone();
+                let prev_players = (*selected_players).clone();
+                last_applied_state.set(prev_state);
+                last_applied_players.set(prev_players);
+
+                search_state.set(next_state.clone());
+                draft_state.set(next_state.clone());
+                selected_players.set(next_players.clone());
+                draft_players.set(next_players);
+                perform_search.emit(next_state);
+
+                show_undo.set(true);
+                if let Some(timeout) = undo_timeout.borrow_mut().take() {
+                    timeout.cancel();
+                }
+                let show_undo = show_undo.clone();
+                *undo_timeout.borrow_mut() = Some(Timeout::new(5000, move || {
+                    show_undo.set(false);
+                }));
+            },
+        )
+    };
+
+    let schedule_apply = {
+        let apply_timeout = apply_timeout.clone();
+        let apply_instant = apply_instant.clone();
+        Rc::new(
+            move |next_state: SearchState, next_players: Vec<PlayerDto>, delay_ms: u32| {
+                if let Some(timeout) = apply_timeout.borrow_mut().take() {
+                    timeout.cancel();
+                }
+                *apply_timeout.borrow_mut() = Some(Timeout::new(delay_ms, move || {
+                    apply_instant.emit((next_state, next_players));
+                }));
+            },
+        )
+    };
+
     // Initial search on mount
     {
         let perform_search = perform_search.clone();
+        let search_state = search_state.clone();
+        let last_applied_state = last_applied_state.clone();
         use_effect_with((), move |_| {
-            perform_search.emit(());
+            let initial = (*search_state).clone();
+            last_applied_state.set(initial.clone());
+            perform_search.emit(initial);
         });
     }
 
@@ -198,31 +258,41 @@ pub fn contests(_props: &ContestsProps) -> Html {
     // Input handlers (write to draft_state only)
     let on_query_change = {
         let draft_state = draft_state.clone();
+        let draft_players = draft_players.clone();
+        let schedule_apply = schedule_apply.clone();
         Callback::from(move |e: InputEvent| {
             let input: web_sys::HtmlInputElement = e.target_unchecked_into();
             let mut state = (*draft_state).clone();
             state.query = input.value();
+            state.page = 1;
             draft_state.set(state);
+            schedule_apply(state, (*draft_players).clone(), 300);
         })
     };
 
     let on_scope_change = {
         let draft_state = draft_state.clone();
+        let draft_players = draft_players.clone();
         Callback::from(move |e: Event| {
             let input: web_sys::HtmlSelectElement = e.target_unchecked_into();
             let mut state = (*draft_state).clone();
             state.scope = input.value();
+            state.page = 1;
             draft_state.set(state);
+            apply_instant.emit((state, (*draft_players).clone()));
         })
     };
 
     let on_venue_filter_change = {
         let draft_state = draft_state.clone();
+        let draft_players = draft_players.clone();
         Callback::from(move |e: Event| {
             let input: web_sys::HtmlSelectElement = e.target_unchecked_into();
             let mut state = (*draft_state).clone();
             state.venue_id = input.value();
+            state.page = 1;
             draft_state.set(state);
+            apply_instant.emit((state, (*draft_players).clone()));
         })
     };
 
@@ -273,14 +343,17 @@ pub fn contests(_props: &ContestsProps) -> Html {
         let draft_state = draft_state.clone();
         let query_state = game_search_query.clone();
         let results_state = game_search_results.clone();
+        let draft_players = draft_players.clone();
         Callback::from(move |game: GameDto| {
             let mut state = (*draft_state).clone();
             if !state.game_ids.iter().any(|id| id == &game.id) {
                 state.game_ids.push(game.id.clone());
             }
+            state.page = 1;
             draft_state.set(state);
             query_state.set(String::new());
             results_state.set(Vec::new());
+            apply_instant.emit((state, (*draft_players).clone()));
         })
     };
 
@@ -322,92 +395,80 @@ pub fn contests(_props: &ContestsProps) -> Html {
             if !ids_state.player_ids.iter().any(|id| id == &player.id) {
                 ids_state.player_ids.push(player.id.clone());
             }
+            ids_state.page = 1;
             draft_state.set(ids_state);
             let mut players = (*draft_players).clone();
             if !players.iter().any(|p| p.id == player.id) {
                 players.push(player);
-                draft_players.set(players);
             }
+            draft_players.set(players.clone());
             query_state.set(String::new());
             results_state.set(Vec::new());
+            apply_instant.emit((ids_state, players));
         })
     };
 
     let on_start_from_change = {
         let draft_state = draft_state.clone();
+        let draft_players = draft_players.clone();
+        let schedule_apply = schedule_apply.clone();
         Callback::from(move |e: Event| {
             let input: web_sys::HtmlInputElement = e.target_unchecked_into();
             let mut state = (*draft_state).clone();
             state.start_from = input.value();
+            state.page = 1;
             draft_state.set(state);
+            schedule_apply(state, (*draft_players).clone(), 300);
         })
     };
 
     let on_start_to_change = {
         let draft_state = draft_state.clone();
+        let draft_players = draft_players.clone();
+        let schedule_apply = schedule_apply.clone();
         Callback::from(move |e: Event| {
             let input: web_sys::HtmlInputElement = e.target_unchecked_into();
             let mut state = (*draft_state).clone();
             state.start_to = input.value();
+            state.page = 1;
             draft_state.set(state);
-        })
-    };
-
-    // Apply and Clear actions
-    let apply_filters = {
-        let draft_state = draft_state.clone();
-        let search_state = search_state.clone();
-        let perform_search = perform_search.clone();
-        let draft_players = draft_players.clone();
-        let selected_players = selected_players.clone();
-        Callback::from(move |_| {
-            let mut next = (*draft_state).clone();
-            next.page = 1; // reset to first page on apply
-            search_state.set(next);
-            selected_players.set((*draft_players).clone());
-            perform_search.emit(());
+            schedule_apply(state, (*draft_players).clone(), 300);
         })
     };
 
     let clear_filters = {
         let draft_state = draft_state.clone();
-        let search_state = search_state.clone();
-        let perform_search = perform_search.clone();
-        let draft_players = draft_players.clone();
-        let selected_players = selected_players.clone();
+        let apply_instant = apply_instant.clone();
         Callback::from(move |_| {
             let mut cleared = SearchState::default();
             // Preserve current scope if user has no admin access guard below
             cleared.scope = (*draft_state).scope.clone();
             draft_state.set(cleared.clone());
-            search_state.set(cleared);
-            draft_players.set(Vec::new());
-            selected_players.set(Vec::new());
-            perform_search.emit(());
+            apply_instant.emit((cleared, Vec::new()));
         })
     };
 
     let on_page_change = {
         let search_state = search_state.clone();
-        let perform_search = perform_search.clone();
+        let selected_players = selected_players.clone();
+        let apply_instant = apply_instant.clone();
         Callback::from(move |page: u32| {
             let mut state = (*search_state).clone();
             state.page = page;
-            search_state.set(state);
-            perform_search.emit(());
+            apply_instant.emit((state, (*selected_players).clone()));
         })
     };
 
     let on_sort_change = {
         let search_state = search_state.clone();
-        let perform_search = perform_search.clone();
+        let selected_players = selected_players.clone();
+        let apply_instant = apply_instant.clone();
         Callback::from(move |(sort_by, sort_dir): (String, String)| {
             let mut state = (*search_state).clone();
             state.sort_by = sort_by;
             state.sort_dir = sort_dir;
             state.page = 1; // Reset to first page
-            search_state.set(state);
-            perform_search.emit(());
+            apply_instant.emit((state, (*selected_players).clone()));
         })
     };
 
@@ -493,126 +554,122 @@ pub fn contests(_props: &ContestsProps) -> Html {
         c + (search_state.game_ids.len() as u32) + (selected_players.len() as u32)
     };
 
-    let has_filter_values = {
-        !draft_state.query.is_empty()
-            || !draft_state.start_from.is_empty()
-            || !draft_state.start_to.is_empty()
-            || !draft_state.stop_from.is_empty()
-            || !draft_state.stop_to.is_empty()
-            || !draft_state.venue_id.is_empty()
-            || !draft_state.game_ids.is_empty()
-            || !draft_state.player_ids.is_empty()
+    let undo_changes = {
+        let last_applied_state = last_applied_state.clone();
+        let last_applied_players = last_applied_players.clone();
+        let search_state = search_state.clone();
+        let draft_state = draft_state.clone();
+        let draft_players = draft_players.clone();
+        let selected_players = selected_players.clone();
+        let perform_search = perform_search.clone();
+        let show_undo = show_undo.clone();
+        Callback::from(move |_| {
+            let prev_state = (*last_applied_state).clone();
+            let prev_players = (*last_applied_players).clone();
+            search_state.set(prev_state.clone());
+            draft_state.set(prev_state.clone());
+            selected_players.set(prev_players.clone());
+            draft_players.set(prev_players.clone());
+            perform_search.emit(prev_state);
+            show_undo.set(false);
+        })
     };
-
-    let filters_dirty = *draft_state != *search_state || *draft_players != *selected_players;
-
-    let player_selection_pending =
-        !player_search_query.is_empty() && draft_state.player_ids.is_empty();
-
-    let can_search = has_filter_values && filters_dirty && !player_selection_pending;
 
     // Removal handlers update both draft and active states and trigger a search
     let remove_query = {
         let draft_state = draft_state.clone();
-        let search_state = search_state.clone();
-        let perform_search = perform_search.clone();
+        let selected_players = selected_players.clone();
+        let apply_instant = apply_instant.clone();
         Callback::from(move |_| {
             let mut next_draft = (*draft_state).clone();
             next_draft.query.clear();
             draft_state.set(next_draft.clone());
-            let mut next_active = (*search_state).clone();
+            let mut next_active = (*draft_state).clone();
             next_active.query.clear();
             next_active.page = 1;
-            search_state.set(next_active);
-            perform_search.emit(());
+            apply_instant.emit((next_active, (*selected_players).clone()));
         })
     };
 
     let remove_start_from = {
         let draft_state = draft_state.clone();
-        let search_state = search_state.clone();
-        let perform_search = perform_search.clone();
+        let selected_players = selected_players.clone();
+        let apply_instant = apply_instant.clone();
         Callback::from(move |_| {
             let mut d = (*draft_state).clone();
             d.start_from.clear();
             draft_state.set(d.clone());
-            let mut s = (*search_state).clone();
+            let mut s = (*draft_state).clone();
             s.start_from.clear();
             s.page = 1;
-            search_state.set(s);
-            perform_search.emit(());
+            apply_instant.emit((s, (*selected_players).clone()));
         })
     };
 
     let remove_start_to = {
         let draft_state = draft_state.clone();
-        let search_state = search_state.clone();
-        let perform_search = perform_search.clone();
+        let selected_players = selected_players.clone();
+        let apply_instant = apply_instant.clone();
         Callback::from(move |_| {
             let mut d = (*draft_state).clone();
             d.start_to.clear();
             draft_state.set(d.clone());
-            let mut s = (*search_state).clone();
+            let mut s = (*draft_state).clone();
             s.start_to.clear();
             s.page = 1;
-            search_state.set(s);
-            perform_search.emit(());
+            apply_instant.emit((s, (*selected_players).clone()));
         })
     };
 
     let remove_venue = {
         let draft_state = draft_state.clone();
-        let search_state = search_state.clone();
-        let perform_search = perform_search.clone();
+        let selected_players = selected_players.clone();
+        let apply_instant = apply_instant.clone();
         Callback::from(move |_| {
             let mut d = (*draft_state).clone();
             d.venue_id.clear();
             draft_state.set(d.clone());
-            let mut s = (*search_state).clone();
+            let mut s = (*draft_state).clone();
             s.venue_id.clear();
             s.page = 1;
-            search_state.set(s);
-            perform_search.emit(());
+            apply_instant.emit((s, (*selected_players).clone()));
         })
     };
 
     let remove_game = {
         let draft_state = draft_state.clone();
-        let search_state = search_state.clone();
-        let perform_search = perform_search.clone();
+        let selected_players = selected_players.clone();
+        let apply_instant = apply_instant.clone();
         Callback::from(move |game_id: String| {
             let mut d = (*draft_state).clone();
             d.game_ids.retain(|g| g != &game_id);
             draft_state.set(d.clone());
-            let mut s = (*search_state).clone();
+            let mut s = (*draft_state).clone();
             s.game_ids.retain(|g| g != &game_id);
             s.page = 1;
-            search_state.set(s);
-            perform_search.emit(());
+            apply_instant.emit((s, (*selected_players).clone()));
         })
     };
 
     let remove_player = {
         let draft_state = draft_state.clone();
-        let search_state = search_state.clone();
         let draft_players = draft_players.clone();
         let selected_players = selected_players.clone();
-        let perform_search = perform_search.clone();
+        let apply_instant = apply_instant.clone();
         Callback::from(move |player_id: String| {
             let mut d = (*draft_state).clone();
             d.player_ids.retain(|g| g != &player_id);
             draft_state.set(d.clone());
-            let mut s = (*search_state).clone();
-            s.player_ids.retain(|g| g != &player_id);
-            s.page = 1;
-            search_state.set(s);
             let mut dp = (*draft_players).clone();
             dp.retain(|p| p.id != player_id);
-            draft_players.set(dp.clone());
             let mut sp = (*selected_players).clone();
             sp.retain(|p| p.id != player_id);
+            let mut s = (*draft_state).clone();
+            s.player_ids.retain(|g| g != &player_id);
+            s.page = 1;
+            apply_instant.emit((s, sp.clone()));
+            draft_players.set(dp);
             selected_players.set(sp);
-            perform_search.emit(());
         })
     };
 
@@ -742,11 +799,14 @@ pub fn contests(_props: &ContestsProps) -> Html {
                                 } else { html! {} }}
                             </button>
                             <button
-                                onclick={apply_filters.reform(|_| ())}
-                                disabled={*loading || !can_search}
-                                class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                                onclick={undo_changes.reform(|_| ())}
+                                class={classes!(
+                                    "px-4", "py-2", "border", "border-gray-300",
+                                    "rounded-lg", "hover:bg-gray-50",
+                                    if *show_undo { "" } else { "hidden" }
+                                )}
                             >
-                                {if *loading { "Searching..." } else { "Search" }}
+                                {"Undo"}
                             </button>
                             <button
                                 onclick={clear_filters.reform(|_| ())}
@@ -756,10 +816,10 @@ pub fn contests(_props: &ContestsProps) -> Html {
                             </button>
                         </div>
                     </div>
-                    {if !can_search && !*loading {
+                    {if *loading {
                         html! {
                             <p class="mt-2 text-xs text-gray-500">
-                                {"Choose filters and select any players from the dropdown to enable Search."}
+                                {"Updating results..."}
                             </p>
                         }
                     } else { html! {} }}
