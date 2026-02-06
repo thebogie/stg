@@ -20,7 +20,7 @@ echo "  Git Commit: $GIT_COMMIT"
 echo "  Build Date: $BUILD_DATE"
 
 # If called with --export, export the variables
-if [[ "$1" == "--export" ]]; then
+if [[ "${1:-}" == "--export" ]]; then
     echo "export GIT_COMMIT=\"$GIT_COMMIT\""
     echo "export BUILD_DATE=\"$BUILD_DATE\""
 fi 

@@ -1,0 +1,158 @@
+# Industry-Standard Dockerfile for Rust WASM with Trunk
+# Follows Docker best practices: proper layer caching, multi-stage builds
+
+FROM rust:1.88.0-slim as builder
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl wget tar ca-certificates build-essential pkg-config binutils \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Node.js 20
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Binaryen
+RUN LATEST_URL=$(curl -s https://api.github.com/repos/WebAssembly/binaryen/releases/latest | \
+    grep "browser_download_url.*x86_64-linux.tar.gz\"" | grep -v "sha256" | head -1 | cut -d '"' -f 4) && \
+    wget -q -O binaryen.tar.gz "$LATEST_URL" && \
+    tar -xzf binaryen.tar.gz && \
+    mv binaryen-* /opt/binaryen && \
+    rm binaryen.tar.gz
+
+ENV PATH="/opt/binaryen/bin:${PATH}"
+
+# Install Trunk and WASM target (cache this layer)
+RUN cargo install trunk --locked && \
+    rustup target add wasm32-unknown-unknown
+
+WORKDIR /app
+
+# Build args
+ARG BUILD_DATE
+ARG GIT_COMMIT
+ARG DOCKER_ENV
+ARG FRONTEND_PORT
+
+# Copy dependency files FIRST (Docker caches this layer)
+COPY Cargo.toml Cargo.lock ./
+COPY frontend/package*.json ./frontend/
+COPY frontend/Trunk.toml ./frontend/
+
+# Install npm dependencies (cached if package.json unchanged)
+WORKDIR /app/frontend
+RUN npm ci --production=false --no-audit
+
+# Copy workspace Cargo.toml files (for workspace resolution)
+WORKDIR /app
+COPY backend/Cargo.toml ./backend/
+COPY shared/Cargo.toml ./shared/
+COPY dataload/Cargo.toml ./dataload/
+COPY testing/Cargo.toml ./testing/
+COPY migrations/Cargo.toml ./migrations/
+
+# Build dependencies only (cached unless Cargo.toml changes)
+WORKDIR /app/frontend
+RUN cargo build --release --target wasm32-unknown-unknown --no-default-features || true
+
+# NOW copy source code (this layer invalidates when source changes)
+WORKDIR /app
+COPY backend ./backend
+COPY shared ./shared
+COPY frontend ./frontend
+
+# Set build environment
+WORKDIR /app/frontend
+ENV GIT_COMMIT=${GIT_COMMIT}
+ENV BUILD_DATE=${BUILD_DATE}
+ENV DOCKER_ENV=${DOCKER_ENV}
+ENV FRONTEND_PORT=${FRONTEND_PORT:-50003}
+
+# Build CSS
+RUN npm run build:css:prod
+
+# Build with Trunk (Trunk handles cache busting via filehash)
+RUN trunk build --release --no-default-features
+
+# Optimize WASM in-place
+RUN if [ -d "../_build/frontend-dist" ]; then \
+        DIST_DIR="../_build/frontend-dist"; \
+    elif [ -d "dist" ]; then \
+        DIST_DIR="dist"; \
+    else \
+        echo "ERROR: No dist directory found" && exit 1; \
+    fi && \
+    WASM_FILE=$(find "$DIST_DIR" -name '*_bg.wasm' -type f | head -1) && \
+    if [ -n "$WASM_FILE" ]; then \
+        wasm-opt --enable-bulk-memory --enable-nontrapping-float-to-int -Oz \
+            -o "${WASM_FILE}.tmp" "$WASM_FILE" && \
+        mv "${WASM_FILE}.tmp" "$WASM_FILE" && \
+        echo "✅ WASM optimized: $WASM_FILE"; \
+    fi
+
+# Create version.json
+RUN DIST_DIR="../_build/frontend-dist" && \
+    if [ ! -d "$DIST_DIR" ]; then DIST_DIR="dist"; fi && \
+    BUILD_TIMESTAMP=$(date +%s) && \
+    PKG_VERSION=$(grep "^version" Cargo.toml | head -1 | cut -d'"' -f2 || echo "unknown") && \
+    WASM_HASH=$(find "$DIST_DIR" -name '*_bg.wasm' -type f -exec sha256sum {} \; 2>/dev/null | cut -d' ' -f1 | head -1 || echo "unknown") && \
+    printf '{\n  "name": "frontend",\n  "version": "%s",\n  "build_date": "%s",\n  "git_commit": "%s",\n  "build_timestamp": %s,\n  "wasm_hash": "%s"\n}' \
+        "$PKG_VERSION" "${BUILD_DATE:-unknown}" "${GIT_COMMIT:-unknown}" "$BUILD_TIMESTAMP" "$WASM_HASH" \
+        > "$DIST_DIR/version.json"
+
+# Runtime stage
+FROM nginx:alpine
+
+RUN apk add --no-cache gettext binutils
+
+COPY --from=builder /app/_build/frontend-dist /usr/share/nginx/html
+
+# Simple verification
+RUN WASM_FILE=$(find /usr/share/nginx/html -name '*_bg.wasm' -type f | head -1) && \
+    if [ -z "$WASM_FILE" ]; then \
+        echo "❌ ERROR: No WASM file found!" && exit 1; \
+    fi && \
+    echo "✅ Found WASM: $WASM_FILE" && \
+    if strings "$WASM_FILE" 2>/dev/null | grep -qi "Search People"; then \
+        echo "❌ ERROR: WASM contains old code!" && exit 1; \
+    fi && \
+    echo "✅ WASM verified"
+
+# Nginx config
+RUN cat > /etc/nginx/templates/default.conf.template <<'EOF'
+server {
+    listen ${FRONTEND_PORT};
+    server_name localhost;
+    root /usr/share/nginx/html;
+    index index.html;
+
+    location = /index.html {
+        add_header Cache-Control "no-cache, no-store, must-revalidate";
+        try_files $uri =404;
+    }
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg)$ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+
+    location ~* \.wasm$ {
+        add_header Content-Type "application/wasm";
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+
+    add_header X-Content-Type-Options "nosniff" always;
+    server_tokens off;
+}
+EOF
+
+ENV FRONTEND_PORT=50003
+EXPOSE 50003
+
+CMD ["nginx", "-g", "daemon off;"]

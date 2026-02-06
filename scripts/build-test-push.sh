@@ -343,18 +343,57 @@ if docker run --rm "$FRONTEND_LOCAL" test -f /usr/share/nginx/html/version.json;
     fi
     
     log_success "✅ Image verified - build metadata looks correct"
+    
+    # CRITICAL: Also verify WASM content directly (double-check)
+    log_info "Double-checking WASM content for old code..."
+    WASM_FILES=$(docker run --rm "$FRONTEND_LOCAL" find /usr/share/nginx/html -name '*.wasm' -type f 2>/dev/null || echo "")
+    if [ -n "$WASM_FILES" ]; then
+        for WASM_PATH in $WASM_FILES; do
+            if docker run --rm "$FRONTEND_LOCAL" strings "$WASM_PATH" 2>/dev/null | grep -qi "Search People\|Search people"; then
+                log_error "❌ CRITICAL: WASM file '$WASM_PATH' contains 'Search People'!"
+                log_error "Build metadata passed but WASM content is wrong - NOT pushing!"
+                exit 1
+            fi
+        done
+        log_success "✅ WASM content verified - no old code found"
+    else
+        log_warning "⚠️  No WASM files found for content verification"
+    fi
 else
     log_warning "⚠️  version.json not found - falling back to string search..."
     # Fallback: find hashed *_bg.wasm (in-place optimized)
-    WASM_PATH=$(docker run --rm "$FRONTEND_LOCAL" find /usr/share/nginx/html -name '*_bg.wasm' -type f 2>/dev/null | head -1)
-    if [ -z "$WASM_PATH" ]; then
-        WASM_PATH="/usr/share/nginx/html/frontend_bg.optimized.wasm"
-    fi
-    if docker run --rm "$FRONTEND_LOCAL" strings "$WASM_PATH" 2>/dev/null | grep -qi "Search People\|Search people"; then
-        log_error "❌ CRITICAL: WASM contains 'Search People' - NOT pushing!"
+    WASM_FILES=$(docker run --rm "$FRONTEND_LOCAL" find /usr/share/nginx/html -name '*.wasm' -type f 2>/dev/null || echo "")
+    if [ -z "$WASM_FILES" ]; then
+        log_error "❌ CRITICAL: No WASM files found in image!"
+        log_error "Image is corrupted or built incorrectly - NOT pushing!"
         exit 1
     fi
-    log_success "✅ Fallback verification passed"
+    
+    log_info "Found WASM files: $WASM_FILES"
+    OLD_CODE_FOUND=false
+    for WASM_PATH in $WASM_FILES; do
+        if docker run --rm "$FRONTEND_LOCAL" strings "$WASM_PATH" 2>/dev/null | grep -qi "Search People\|Search people"; then
+            log_error "❌ CRITICAL: WASM file '$WASM_PATH' contains 'Search People' - NOT pushing!"
+            OLD_CODE_FOUND=true
+        fi
+    done
+    
+    if [ "$OLD_CODE_FOUND" = true ]; then
+        log_error ""
+        log_error "❌❌❌ PUSH BLOCKED ❌❌❌"
+        log_error ""
+        log_error "The image contains OLD code. This means:"
+        log_error "  1. Source code still has 'People' instead of 'Players', OR"
+        log_error "  2. Docker build used cached layers with old code"
+        log_error ""
+        log_error "SOLUTION:"
+        log_error "  1. Verify source code: grep -r 'Search People' frontend/src/"
+        log_error "  2. Rebuild with --no-cache: ./scripts/build-prod-images.sh"
+        log_error "  3. Then run this script again"
+        log_error ""
+        exit 1
+    fi
+    log_success "✅ Fallback verification passed - no old code found"
 fi
 
 log_info "Pushing frontend image..."

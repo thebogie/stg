@@ -16,7 +16,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # Load environment variables
-ENV_FILE="${PROJECT_ROOT}/config/.env.development"
+# Allow caller to override ENV_FILE (e.g., production workflow)
+ENV_FILE="${ENV_FILE:-${PROJECT_ROOT}/config/.env.development}"
 if [ ! -f "$ENV_FILE" ]; then
   echo -e "${RED}❌ Error: Environment file not found: $ENV_FILE${NC}"
   echo -e "${YELLOW}💡 Run: ./config/setup-env.sh development${NC}"
@@ -59,6 +60,38 @@ log_warning() {
 
 log_error() {
   echo -e "${RED}❌ $1${NC}"
+}
+
+# Restore using the running ArangoDB container (no local tools required)
+restore_via_container() {
+  local db_dir="$1"
+  local container_name=""
+
+  container_name=$(docker ps --format "{{.Names}}" | grep -E "^arangodb(-dev)?$" | head -1 || true)
+  if [ -z "$container_name" ]; then
+    log_warning "ArangoDB container not found (expected 'arangodb' or 'arangodb-dev')"
+    return 1
+  fi
+
+  local db_basename
+  db_basename=$(basename "$db_dir")
+
+  log_info "Using ArangoDB container: $container_name"
+  docker exec "$container_name" sh -c "rm -rf /tmp/prod-restore && mkdir -p /tmp/prod-restore" || return 1
+  docker cp "$db_dir" "${container_name}:/tmp/prod-restore/" || return 1
+
+  if docker exec "$container_name" arangorestore \
+    --server.endpoint "http://localhost:8529" \
+    --server.username "${ARANGO_USERNAME}" \
+    --server.password "${ARANGO_PASSWORD}" \
+    --server.database "${ARANGO_DB}" \
+    --create-database true \
+    --input-directory "/tmp/prod-restore/${db_basename}"; then
+    docker exec "$container_name" rm -rf /tmp/prod-restore || true
+    return 0
+  fi
+
+  return 1
 }
 
 # Check if ArangoDB is running
@@ -138,72 +171,48 @@ if [[ "$DUMP_FILE" == *.zip ]]; then
   fi
   
   log_info "Restoring from: $DB_DIR"
-  
-  # Try to find the correct Docker network name
-  # Docker Compose prefixes with directory name (e.g., deploy_hybrid_dev_env)
-  # Check both the explicit name and the prefixed version
-  NETWORK_NAME=""
-  for net in "hybrid_dev_env" "deploy_hybrid_dev_env" "deploy_hybridDevEnv" "hybridDevEnv" "deploy_stg_rd_net" "stg_rd_net" "stg_rd_stg_rd_net"; do
-    if docker network inspect "$net" > /dev/null 2>&1; then
-      NETWORK_NAME="$net"
-      log_info "Using Docker network: $NETWORK_NAME"
-      break
-    fi
-  done
-  
+
   RESTORE_SUCCESS=false
-  
-  if [ -n "$NETWORK_NAME" ]; then
-    log_info "Attempting Docker restore via network..."
-    if docker run --rm \
-      --network "$NETWORK_NAME" \
-      -v "${DB_DIR}:/dump" \
-      arangodb:3.12.5 \
-      arangorestore \
-      --server.endpoint "http://arangodb-dev:8529" \
-      --server.username "${ARANGO_USERNAME}" \
-      --server.password "${ARANGO_PASSWORD}" \
-      --server.database "${ARANGO_DB}" \
-      --create-database true \
-      --input-directory /dump; then
-      log_success "Docker restore completed successfully"
-      RESTORE_SUCCESS=true
-    else
-      log_warning "Docker restore via network failed, trying direct restore..."
-    fi
+
+  log_info "Attempting restore inside ArangoDB container..."
+  if restore_via_container "$DB_DIR"; then
+    log_success "Container restore completed successfully"
+    RESTORE_SUCCESS=true
   else
-    log_warning "Docker network not found, trying direct restore..."
+    log_warning "Container restore failed, trying Docker network restore..."
   fi
-  
-  # Try direct restore if Docker network restore didn't succeed
+
   if [ "$RESTORE_SUCCESS" = false ]; then
-    if command -v arangorestore > /dev/null 2>&1; then
-      log_info "Attempting direct restore using local arangorestore..."
-      if arangorestore \
-        --server.endpoint "tcp://localhost:${ARANGODB_PORT:-50001}" \
+    NETWORK_NAME=""
+    for net in "hybrid_dev_env" "deploy_hybrid_dev_env" "deploy_hybridDevEnv" "hybridDevEnv" "deploy_stg_rd_net" "stg_rd_net" "stg_rd_stg_rd_net"; do
+      if docker network inspect "$net" > /dev/null 2>&1; then
+        NETWORK_NAME="$net"
+        log_info "Using Docker network: $NETWORK_NAME"
+        break
+      fi
+    done
+
+    if [ -n "$NETWORK_NAME" ]; then
+      if docker run --rm \
+        --network "$NETWORK_NAME" \
+        -v "${DB_DIR}:/dump" \
+        arangodb:3.12.5 \
+        arangorestore \
+        --server.endpoint "http://arangodb-dev:8529" \
         --server.username "${ARANGO_USERNAME}" \
         --server.password "${ARANGO_PASSWORD}" \
         --server.database "${ARANGO_DB}" \
         --create-database true \
-        --input-directory "$DB_DIR"; then
-        log_success "Direct restore completed successfully"
+        --input-directory /dump; then
+        log_success "Docker restore completed successfully"
         RESTORE_SUCCESS=true
       else
-        log_error "Direct restore failed"
-        rm -rf "$TEMP_DIR"
-        exit 1
+        log_error "Docker restore failed"
       fi
     else
-      log_error "arangorestore command not found and Docker restore failed"
-      log_info "Please install arangodb-client tools or ensure Docker network is accessible"
-      log_info "Install: sudo apt-get install arangodb3-client (Debian/Ubuntu)"
-      log_info "Or: brew install arangodb (macOS)"
-      rm -rf "$TEMP_DIR"
-      exit 1
+      log_error "Docker network not found for restore"
     fi
   fi
-  
-  rm -rf "$TEMP_DIR"
   
   rm -rf "$TEMP_DIR"
   
@@ -224,68 +233,46 @@ elif [[ "$DUMP_FILE" == *.tar ]]; then
   fi
   
   log_info "Restoring from: $DB_DIR"
-  
-  # Try to find the correct Docker network name
-  # Docker Compose prefixes with directory name (e.g., deploy_hybrid_dev_env)
-  # Check both the explicit name and the prefixed version
-  NETWORK_NAME=""
-  for net in "hybrid_dev_env" "deploy_hybrid_dev_env" "deploy_hybridDevEnv" "hybridDevEnv" "deploy_stg_rd_net" "stg_rd_net" "stg_rd_stg_rd_net"; do
-    if docker network inspect "$net" > /dev/null 2>&1; then
-      NETWORK_NAME="$net"
-      log_info "Using Docker network: $NETWORK_NAME"
-      break
-    fi
-  done
-  
+
   RESTORE_SUCCESS=false
-  
-  if [ -n "$NETWORK_NAME" ]; then
-    log_info "Attempting Docker restore via network..."
-    if docker run --rm \
-      --network "$NETWORK_NAME" \
-      -v "${DB_DIR}:/dump" \
-      arangodb:3.12.5 \
-      arangorestore \
-      --server.endpoint "http://arangodb-dev:8529" \
-      --server.username "${ARANGO_USERNAME}" \
-      --server.password "${ARANGO_PASSWORD}" \
-      --server.database "${ARANGO_DB}" \
-      --create-database true \
-      --input-directory /dump; then
-      log_success "Docker restore completed successfully"
-      RESTORE_SUCCESS=true
-    else
-      log_warning "Docker restore via network failed, trying direct restore..."
-    fi
+
+  log_info "Attempting restore inside ArangoDB container..."
+  if restore_via_container "$DB_DIR"; then
+    log_success "Container restore completed successfully"
+    RESTORE_SUCCESS=true
   else
-    log_warning "Docker network not found, trying direct restore..."
+    log_warning "Container restore failed, trying Docker network restore..."
   fi
-  
-  # Try direct restore if Docker network restore didn't succeed
+
   if [ "$RESTORE_SUCCESS" = false ]; then
-    if command -v arangorestore > /dev/null 2>&1; then
-      log_info "Attempting direct restore using local arangorestore..."
-      if arangorestore \
-        --server.endpoint "tcp://localhost:${ARANGODB_PORT:-50001}" \
+    NETWORK_NAME=""
+    for net in "hybrid_dev_env" "deploy_hybrid_dev_env" "deploy_hybridDevEnv" "hybridDevEnv" "deploy_stg_rd_net" "stg_rd_net" "stg_rd_stg_rd_net"; do
+      if docker network inspect "$net" > /dev/null 2>&1; then
+        NETWORK_NAME="$net"
+        log_info "Using Docker network: $NETWORK_NAME"
+        break
+      fi
+    done
+
+    if [ -n "$NETWORK_NAME" ]; then
+      if docker run --rm \
+        --network "$NETWORK_NAME" \
+        -v "${DB_DIR}:/dump" \
+        arangodb:3.12.5 \
+        arangorestore \
+        --server.endpoint "http://arangodb-dev:8529" \
         --server.username "${ARANGO_USERNAME}" \
         --server.password "${ARANGO_PASSWORD}" \
         --server.database "${ARANGO_DB}" \
         --create-database true \
-        --input-directory "$DB_DIR"; then
-        log_success "Direct restore completed successfully"
+        --input-directory /dump; then
+        log_success "Docker restore completed successfully"
         RESTORE_SUCCESS=true
       else
-        log_error "Direct restore failed"
-        rm -rf "$TEMP_DIR"
-        exit 1
+        log_error "Docker restore failed"
       fi
     else
-      log_error "arangorestore command not found and Docker restore failed"
-      log_info "Please install arangodb-client tools or ensure Docker network is accessible"
-      log_info "Install: sudo apt-get install arangodb3-client (Debian/Ubuntu)"
-      log_info "Or: brew install arangodb (macOS)"
-      rm -rf "$TEMP_DIR"
-      exit 1
+      log_error "Docker network not found for restore"
     fi
   fi
   

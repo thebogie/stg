@@ -110,7 +110,9 @@ fi
 
 # CRITICAL: Verify the pulled image using industry-standard version.json
 log_info "Verifying pulled frontend image (using version.json)..."
+log_info "Checking if version.json exists in image..."
 if docker run --rm "$FRONTEND_HUB" test -f /usr/share/nginx/html/version.json 2>/dev/null; then
+    log_info "✅ version.json found"
     log_info "Reading version.json from pulled image..."
     VERSION_JSON=$(docker run --rm "$FRONTEND_HUB" cat /usr/share/nginx/html/version.json 2>/dev/null)
     if [ -z "$VERSION_JSON" ]; then
@@ -143,16 +145,56 @@ if docker run --rm "$FRONTEND_HUB" test -f /usr/share/nginx/html/version.json 2>
     
     log_success "✅ Pulled image verified - build metadata looks correct"
 else
-    log_warning "⚠️  version.json not found - falling back to string search..."
-    WASM_PATH=$(docker run --rm "$FRONTEND_HUB" find /usr/share/nginx/html -name '*_bg.wasm' -type f 2>/dev/null | head -1)
-    if [ -z "$WASM_PATH" ]; then
-        WASM_PATH="/usr/share/nginx/html/frontend_bg.optimized.wasm"
-    fi
-    if docker run --rm "$FRONTEND_HUB" strings "$WASM_PATH" 2>/dev/null | grep -qi "Search People\|Search people"; then
-        log_error "❌ CRITICAL: Pulled image WASM contains 'Search People'!"
+    log_warning "⚠️  version.json not found at /usr/share/nginx/html/version.json"
+    log_info "This might mean the image was built before version.json was added, or it's in a different location."
+    log_info "Falling back to WASM content verification..."
+    log_info "Listing all files in /usr/share/nginx/html to debug..."
+    docker run --rm "$FRONTEND_HUB" ls -lah /usr/share/nginx/html/ 2>/dev/null | head -20 || true
+    
+    # Find ALL WASM files and check each one
+    log_info "Finding all WASM files in image..."
+    WASM_FILES=$(docker run --rm "$FRONTEND_HUB" find /usr/share/nginx/html -name '*.wasm' -type f 2>/dev/null || echo "")
+    
+    if [ -z "$WASM_FILES" ]; then
+        log_error "❌ CRITICAL: No WASM files found in pulled image!"
+        log_error "This image is corrupted or was built incorrectly."
         exit 1
     fi
-    log_success "✅ Fallback verification passed"
+    
+    log_info "Found WASM files:"
+    echo "$WASM_FILES"
+    
+    # Check each WASM file for old code
+    OLD_CODE_FOUND=false
+    for WASM_PATH in $WASM_FILES; do
+        log_info "Checking WASM file: $WASM_PATH"
+        if docker run --rm "$FRONTEND_HUB" strings "$WASM_PATH" 2>/dev/null | grep -qi "Search People\|Search people"; then
+            log_error "❌ CRITICAL: WASM file '$WASM_PATH' contains 'Search People'!"
+            OLD_CODE_FOUND=true
+        fi
+    done
+    
+    if [ "$OLD_CODE_FOUND" = true ]; then
+        log_error ""
+        log_error "❌❌❌ DEPLOYMENT BLOCKED ❌❌❌"
+        log_error ""
+        log_error "The pulled image contains OLD code (has 'Search People' instead of 'Players')."
+        log_error "This means the image was built with outdated source code or used cached layers."
+        log_error ""
+        log_error "SOLUTION:"
+        log_error "  1. On your dev machine, ensure you have the latest code:"
+        log_error "     git pull"
+        log_error "     git status  # verify no uncommitted changes"
+        log_error ""
+        log_error "  2. Rebuild and push a fresh image:"
+        log_error "     ./scripts/build-test-push.sh"
+        log_error ""
+        log_error "  3. Then deploy the NEW version tag from the output"
+        log_error ""
+        exit 1
+    fi
+    
+    log_success "✅ Fallback verification passed - no old code found in WASM files"
 fi
 
 log_info "Pulling backend: $BACKEND_HUB"
