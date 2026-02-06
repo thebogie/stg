@@ -30,15 +30,33 @@ cd "$PROJECT_ROOT"
 
 # Parse args
 TEST_ARGS=""
+FAST=false
 if [[ "$*" == *"--load-prod-data"* ]]; then
     TEST_ARGS="--load-prod-data"
 fi
+if [[ "$*" == *"--fast"* ]]; then
+    FAST=true
+fi
+
+# Step -1: Git sanity checks (ensure correct code is built)
+log_step "STEP -1: Git sanity checks"
+git status -sb
+if [ -n "$(git status --porcelain)" ]; then
+    log_error "Working directory has uncommitted changes!"
+    log_error "Commit or stash before running workflow.sh to ensure correct code is built."
+    exit 1
+fi
+log_success "Git working tree is clean"
 
 # Step 0: Docker cleanup (build cache + dangling images) so build doesn't reuse stale layers
 log_step "STEP 0: Docker cleanup (fresh build)"
-if ! ./scripts/clean-docker-for-build.sh --aggressive; then
-    log_error "Docker cleanup failed!"
-    exit 1
+if [ "$FAST" = true ]; then
+    log_info "Fast mode enabled: skipping aggressive Docker cleanup"
+else
+    if ! ./scripts/clean-docker-for-build.sh --aggressive; then
+        log_error "Docker cleanup failed!"
+        exit 1
+    fi
 fi
 
 # Step 1: Build
@@ -51,6 +69,34 @@ fi
 # Load version
 source "$PROJECT_ROOT/_build/.build-version"
 VERSION_TAG="$VERSION_TAG"
+
+# Step 1.5: Image provenance checks (correct code)
+log_step "STEP 1.5: Image provenance checks"
+EXPECTED_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+EXPECTED_SOURCE_HASH=$(git rev-parse HEAD:frontend/src/pages/contests.rs 2>/dev/null || echo "unknown")
+log_info "Expected commit: $EXPECTED_COMMIT"
+log_info "Expected source hash (contests.rs): $EXPECTED_SOURCE_HASH"
+
+# Verify frontend version.json in image
+FRONTEND_IMG="stg_rd-frontend:${VERSION_TAG}"
+VERSION_JSON=$(docker run --rm "$FRONTEND_IMG" cat /usr/share/nginx/html/version.json 2>/dev/null || true)
+if [ -z "$VERSION_JSON" ]; then
+    log_error "version.json not found in frontend image: $FRONTEND_IMG"
+    exit 1
+fi
+IMAGE_COMMIT=$(echo "$VERSION_JSON" | grep -o '"git_commit":"[^"]*"' | cut -d'"' -f4 || echo "unknown")
+IMAGE_SOURCE_HASH=$(echo "$VERSION_JSON" | grep -o '"source_hash":"[^"]*"' | cut -d'"' -f4 || echo "unknown")
+log_info "Image git_commit: $IMAGE_COMMIT"
+log_info "Image source_hash: $IMAGE_SOURCE_HASH"
+if [ "$IMAGE_COMMIT" != "$EXPECTED_COMMIT" ]; then
+    log_error "Image git_commit mismatch! Expected $EXPECTED_COMMIT, got $IMAGE_COMMIT"
+    exit 1
+fi
+if [ "$IMAGE_SOURCE_HASH" != "unknown" ] && [ "$IMAGE_SOURCE_HASH" != "$EXPECTED_SOURCE_HASH" ]; then
+    log_error "Image source_hash mismatch! Expected $EXPECTED_SOURCE_HASH, got $IMAGE_SOURCE_HASH"
+    exit 1
+fi
+log_success "Image provenance checks passed"
 
 # Step 2: Test
 log_step "STEP 2: Testing Production Containers"

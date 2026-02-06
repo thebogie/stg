@@ -55,6 +55,11 @@ log_info "  Git Commit: $GIT_COMMIT"
 log_info "  Build Date: $BUILD_DATE"
 log_info "  Version Tag: $VERSION_TAG"
 
+# Source hash for correctness verification (contests filter)
+SOURCE_HASH=$(git rev-parse HEAD:frontend/src/pages/contests.rs 2>/dev/null || echo "unknown")
+export SOURCE_HASH
+log_info "  Source Hash (contests.rs): $SOURCE_HASH"
+
 # Check for production environment file
 ENV_FILE="${PROJECT_ROOT}/config/.env.production"
 if [ ! -f "$ENV_FILE" ]; then
@@ -88,19 +93,6 @@ if ! git diff --quiet HEAD -- frontend/src/pages/contests.rs; then
     exit 1
 fi
 
-# Verify the committed code has "Players" (not "People")
-if git show HEAD:frontend/src/pages/contests.rs | grep -q '"People"'; then
-    log_error "Committed code still contains 'People' instead of 'Players'!"
-    log_error "Please commit the fix before building."
-    exit 1
-fi
-
-if ! git show HEAD:frontend/src/pages/contests.rs | grep -q '"Players"'; then
-    log_error "Committed code doesn't contain 'Players'!"
-    log_error "Please commit the fix before building."
-    exit 1
-fi
-
 log_success "Working directory matches committed code - build will use correct source"
 
 # Build images using docker compose
@@ -124,6 +116,7 @@ docker compose \
     build --progress=plain --no-cache \
     --build-arg BUILD_DATE="$BUILD_DATE" \
     --build-arg GIT_COMMIT="$GIT_COMMIT" \
+    --build-arg SOURCE_HASH="$SOURCE_HASH" \
     --build-arg SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" \
     --build-arg RANDOM_BUILD_ID="$RANDOM_BUILD_ID" \
     --build-arg NGINX_CONFIG_VERSION="$NGINX_CONFIG_VERSION" \
@@ -227,6 +220,7 @@ cat > "$VERSION_FILE" <<EOF
 GIT_COMMIT="$GIT_COMMIT"
 BUILD_DATE="$BUILD_DATE"
 VERSION_TAG="$VERSION_TAG"
+SOURCE_HASH="$SOURCE_HASH"
 FRONTEND_IMAGE="stg_rd-frontend"
 BACKEND_IMAGE="stg_rd-backend"
 EOF

@@ -97,6 +97,108 @@ export ARANGO_DB="${ARANGO_DB:-_system}"
 
 mkdir -p "$PROJECT_ROOT/_build/test-results"
 
+# Smoke checks (runtime endpoints)
+log_info "Running smoke checks..."
+SMOKE_MAX_WAIT=30
+SMOKE_WAITED=0
+while [ $SMOKE_WAITED -lt $SMOKE_MAX_WAIT ]; do
+    if curl -fsS "http://localhost:${BACKEND_PORT}/api/version" >/dev/null 2>&1 && \
+       curl -fsS "http://localhost:${FRONTEND_PORT}/version.json" >/dev/null 2>&1; then
+        break
+    fi
+    sleep 2
+    SMOKE_WAITED=$((SMOKE_WAITED + 2))
+done
+
+if ! curl -fsS "http://localhost:${BACKEND_PORT}/api/version" >/dev/null 2>&1; then
+    log_error "Smoke check failed: /api/version not reachable"
+    docker compose --env-file "$ENV_FILE" -f deploy/docker-compose.production.yml down 2>/dev/null || true
+    exit 1
+fi
+
+FRONTEND_VERSION_JSON=$(curl -fsS "http://localhost:${FRONTEND_PORT}/version.json" 2>/dev/null || true)
+if [ -z "$FRONTEND_VERSION_JSON" ]; then
+    log_error "Smoke check failed: /version.json not reachable"
+    docker compose --env-file "$ENV_FILE" -f deploy/docker-compose.production.yml down 2>/dev/null || true
+    exit 1
+fi
+
+IMAGE_COMMIT=$(echo "$FRONTEND_VERSION_JSON" | grep -o '"git_commit":"[^"]*"' | cut -d'"' -f4 || echo "unknown")
+if [ "$IMAGE_COMMIT" != "$GIT_COMMIT" ]; then
+    log_error "Smoke check failed: frontend git_commit mismatch (expected $GIT_COMMIT, got $IMAGE_COMMIT)"
+    docker compose --env-file "$ENV_FILE" -f deploy/docker-compose.production.yml down 2>/dev/null || true
+    exit 1
+fi
+log_success "Smoke checks passed"
+
+# Smoke checks (runtime endpoints)
+log_info "Running smoke checks..."
+SMOKE_MAX_WAIT=30
+SMOKE_WAITED=0
+while [ $SMOKE_WAITED -lt $SMOKE_MAX_WAIT ]; do
+    if curl -fsS "http://localhost:${BACKEND_PORT}/api/version" >/dev/null 2>&1 && \
+       curl -fsS "http://localhost:${FRONTEND_PORT}/version.json" >/dev/null 2>&1; then
+        break
+    fi
+    sleep 2
+    SMOKE_WAITED=$((SMOKE_WAITED + 2))
+done
+
+if ! curl -fsS "http://localhost:${BACKEND_PORT}/api/version" >/dev/null 2>&1; then
+    log_error "Smoke check failed: /api/version not reachable"
+    docker compose --env-file "$ENV_FILE" -f deploy/docker-compose.production.yml down 2>/dev/null || true
+    exit 1
+fi
+
+FRONTEND_VERSION_JSON=$(curl -fsS "http://localhost:${FRONTEND_PORT}/version.json" 2>/dev/null || true)
+if [ -z "$FRONTEND_VERSION_JSON" ]; then
+    log_error "Smoke check failed: /version.json not reachable"
+    docker compose --env-file "$ENV_FILE" -f deploy/docker-compose.production.yml down 2>/dev/null || true
+    exit 1
+fi
+
+IMAGE_COMMIT=$(echo "$FRONTEND_VERSION_JSON" | grep -o '"git_commit":"[^"]*"' | cut -d'"' -f4 || echo "unknown")
+if [ "$IMAGE_COMMIT" != "$GIT_COMMIT" ]; then
+    log_error "Smoke check failed: frontend git_commit mismatch (expected $GIT_COMMIT, got $IMAGE_COMMIT)"
+    docker compose --env-file "$ENV_FILE" -f deploy/docker-compose.production.yml down 2>/dev/null || true
+    exit 1
+fi
+log_success "Smoke checks passed"
+
+# Smoke checks (runtime endpoints)
+log_info "Running smoke checks..."
+SMOKE_MAX_WAIT=30
+SMOKE_WAITED=0
+while [ $SMOKE_WAITED -lt $SMOKE_MAX_WAIT ]; do
+    if curl -fsS "http://localhost:${BACKEND_PORT}/api/version" >/dev/null 2>&1 && \
+       curl -fsS "http://localhost:${FRONTEND_PORT}/version.json" >/dev/null 2>&1; then
+        break
+    fi
+    sleep 2
+    SMOKE_WAITED=$((SMOKE_WAITED + 2))
+done
+
+if ! curl -fsS "http://localhost:${BACKEND_PORT}/api/version" >/dev/null 2>&1; then
+    log_error "Smoke check failed: /api/version not reachable"
+    docker compose --env-file "$ENV_FILE" -f deploy/docker-compose.production.yml down 2>/dev/null || true
+    exit 1
+fi
+
+FRONTEND_VERSION_JSON=$(curl -fsS "http://localhost:${FRONTEND_PORT}/version.json" 2>/dev/null || true)
+if [ -z "$FRONTEND_VERSION_JSON" ]; then
+    log_error "Smoke check failed: /version.json not reachable"
+    docker compose --env-file "$ENV_FILE" -f deploy/docker-compose.production.yml down 2>/dev/null || true
+    exit 1
+fi
+
+IMAGE_COMMIT=$(echo "$FRONTEND_VERSION_JSON" | grep -o '"git_commit":"[^"]*"' | cut -d'"' -f4 || echo "unknown")
+if [ "$IMAGE_COMMIT" != "$GIT_COMMIT" ]; then
+    log_error "Smoke check failed: frontend git_commit mismatch (expected $GIT_COMMIT, got $IMAGE_COMMIT)"
+    docker compose --env-file "$ENV_FILE" -f deploy/docker-compose.production.yml down 2>/dev/null || true
+    exit 1
+fi
+log_success "Smoke checks passed"
+
 # Run tests
 log_info "Running unit tests..."
 if ! cargo nextest run --workspace --lib 2>&1 | tee "$PROJECT_ROOT/_build/test-results/unit-tests.log"; then
