@@ -92,14 +92,15 @@ RUN echo "Checking build output..." && \
 # CRITICAL: Verify the built WASM/JS actually contains "Players" not "People" for contests filter
 # Check specifically for the problematic "Search People" text
 RUN echo "=== VERIFYING BUILT OUTPUT ===" && \
-    if [ -f "../_build/frontend-dist/index.html" ] || [ -f "../_build/frontend-dist/version.json" ]; then \
+    if [ -f "../_build/frontend-dist/index.html" ] || [ -n "$(find ../_build/frontend-dist -name '*.wasm' -type f | head -1)" ]; then \
         DIST_DIR="../_build/frontend-dist"; \
-    elif [ -f "dist/index.html" ] || [ -f "dist/version.json" ]; then \
+    elif [ -f "dist/index.html" ] || [ -n "$(find dist -name '*.wasm' -type f | head -1)" ]; then \
         DIST_DIR="dist"; \
-    elif [ -d "../_build/frontend-dist" ]; then \
-        DIST_DIR="../_build/frontend-dist"; \
-    elif [ -d "dist" ]; then \
-        DIST_DIR="dist"; \
+    else \
+        echo "ERROR: Trunk build output not found (only .stage present)." && \
+        echo "Contents of ../_build/frontend-dist:" && ls -lah ../_build/frontend-dist || true && \
+        echo "Contents of dist:" && ls -lah dist || true && \
+        exit 1; \
     fi && \
     if [ -d "$DIST_DIR" ]; then \
         echo "Checking built files for contests filter text..." && \
@@ -116,16 +117,14 @@ RUN echo "=== VERIFYING BUILT OUTPUT ===" && \
     fi
 
 # Optimize WASM
-RUN if [ -f "../_build/frontend-dist/index.html" ] || [ -f "../_build/frontend-dist/version.json" ]; then \
+RUN if [ -f "../_build/frontend-dist/index.html" ] || [ -n "$(find ../_build/frontend-dist -name '*.wasm' -type f | head -1)" ]; then \
         DIST_DIR="../_build/frontend-dist"; \
-    elif [ -f "dist/index.html" ] || [ -f "dist/version.json" ]; then \
-        DIST_DIR="dist"; \
-    elif [ -d "../_build/frontend-dist" ]; then \
-        DIST_DIR="../_build/frontend-dist"; \
-    elif [ -d "dist" ]; then \
+    elif [ -f "dist/index.html" ] || [ -n "$(find dist -name '*.wasm' -type f | head -1)" ]; then \
         DIST_DIR="dist"; \
     else \
-        echo "ERROR: No dist directory found"; \
+        echo "ERROR: Trunk build output not found (only .stage present)."; \
+        ls -lah ../_build/frontend-dist/ || true; \
+        ls -lah dist/ || true; \
         exit 1; \
     fi && \
     if [ -n "$(find "$DIST_DIR" -name '*_bg.wasm' -type f | head -1)" ]; then \
@@ -140,16 +139,14 @@ RUN if [ -f "../_build/frontend-dist/index.html" ] || [ -f "../_build/frontend-d
 
 # Normalize output: ensure /app/_build/frontend-dist always contains final assets
 RUN echo "=== NORMALIZING FRONTEND DIST OUTPUT ===" && \
-    if [ -f "../_build/frontend-dist/index.html" ] || [ -f "../_build/frontend-dist/version.json" ]; then \
+    if [ -f "../_build/frontend-dist/index.html" ] || [ -n "$(find ../_build/frontend-dist -name '*.wasm' -type f | head -1)" ]; then \
         DIST_DIR="../_build/frontend-dist"; \
-    elif [ -f "dist/index.html" ] || [ -f "dist/version.json" ]; then \
-        DIST_DIR="dist"; \
-    elif [ -d "../_build/frontend-dist" ]; then \
-        DIST_DIR="../_build/frontend-dist"; \
-    elif [ -d "dist" ]; then \
+    elif [ -f "dist/index.html" ] || [ -n "$(find dist -name '*.wasm' -type f | head -1)" ]; then \
         DIST_DIR="dist"; \
     else \
-        echo "ERROR: No dist directory found for normalization"; \
+        echo "ERROR: Trunk build output not found (only .stage present)."; \
+        ls -lah ../_build/frontend-dist/ || true; \
+        ls -lah dist/ || true; \
         exit 1; \
     fi && \
     if [ ! -f "$DIST_DIR/version.json" ]; then \
