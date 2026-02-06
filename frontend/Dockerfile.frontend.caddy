@@ -126,6 +126,30 @@ RUN if [ -d "../_build/frontend-dist" ]; then \
         echo "⚠️  No WASM file found to optimize"; \
     fi
 
+# Normalize output: ensure /app/_build/frontend-dist always contains final assets
+RUN echo "=== NORMALIZING FRONTEND DIST OUTPUT ===" && \
+    if [ -d "../_build/frontend-dist" ]; then \
+        DIST_DIR="../_build/frontend-dist"; \
+    elif [ -d "dist" ]; then \
+        DIST_DIR="dist"; \
+    else \
+        echo "ERROR: No dist directory found for normalization"; \
+        exit 1; \
+    fi && \
+    if [ ! -f "$DIST_DIR/version.json" ]; then \
+        echo "❌ ERROR: version.json missing in build output ($DIST_DIR)"; \
+        ls -lah "$DIST_DIR" || true; \
+        exit 1; \
+    fi && \
+    if [ "$DIST_DIR" != "../_build/frontend-dist" ]; then \
+        echo "Copying build output from $DIST_DIR to ../_build/frontend-dist"; \
+        rm -rf ../_build/frontend-dist && mkdir -p ../_build/frontend-dist; \
+        cp -a "$DIST_DIR/." ../_build/frontend-dist/; \
+    else \
+        echo "Build output already in ../_build/frontend-dist"; \
+    fi && \
+    ls -lah ../_build/frontend-dist/ | head -10
+
 # Final stage: Caddy (much simpler than nginx!)
 FROM caddy:2-alpine
 
