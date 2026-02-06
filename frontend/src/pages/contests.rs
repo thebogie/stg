@@ -264,20 +264,21 @@ pub fn contests(_props: &ContestsProps) -> Html {
             let mut state = (*draft_state).clone();
             state.query = input.value();
             state.page = 1;
-            draft_state.set(state);
-            schedule_apply(state, (*draft_players).clone(), 300);
+            draft_state.set(state.clone());
+            (schedule_apply)(state, (*draft_players).clone(), 300);
         })
     };
 
     let on_scope_change = {
         let draft_state = draft_state.clone();
         let draft_players = draft_players.clone();
+        let apply_instant = apply_instant.clone();
         Callback::from(move |e: Event| {
             let input: web_sys::HtmlSelectElement = e.target_unchecked_into();
             let mut state = (*draft_state).clone();
             state.scope = input.value();
             state.page = 1;
-            draft_state.set(state);
+            draft_state.set(state.clone());
             apply_instant.emit((state, (*draft_players).clone()));
         })
     };
@@ -285,12 +286,13 @@ pub fn contests(_props: &ContestsProps) -> Html {
     let on_venue_filter_change = {
         let draft_state = draft_state.clone();
         let draft_players = draft_players.clone();
+        let apply_instant = apply_instant.clone();
         Callback::from(move |e: Event| {
             let input: web_sys::HtmlSelectElement = e.target_unchecked_into();
             let mut state = (*draft_state).clone();
             state.venue_id = input.value();
             state.page = 1;
-            draft_state.set(state);
+            draft_state.set(state.clone());
             apply_instant.emit((state, (*draft_players).clone()));
         })
     };
@@ -343,13 +345,14 @@ pub fn contests(_props: &ContestsProps) -> Html {
         let query_state = game_search_query.clone();
         let results_state = game_search_results.clone();
         let draft_players = draft_players.clone();
+        let apply_instant = apply_instant.clone();
         Callback::from(move |game: GameDto| {
             let mut state = (*draft_state).clone();
             if !state.game_ids.iter().any(|id| id == &game.id) {
                 state.game_ids.push(game.id.clone());
             }
             state.page = 1;
-            draft_state.set(state);
+            draft_state.set(state.clone());
             query_state.set(String::new());
             results_state.set(Vec::new());
             apply_instant.emit((state, (*draft_players).clone()));
@@ -389,13 +392,14 @@ pub fn contests(_props: &ContestsProps) -> Html {
         let draft_players = draft_players.clone();
         let query_state = player_search_query.clone();
         let results_state = player_search_results.clone();
+        let apply_instant = apply_instant.clone();
         Callback::from(move |player: PlayerDto| {
             let mut ids_state = (*draft_state).clone();
             if !ids_state.player_ids.iter().any(|id| id == &player.id) {
                 ids_state.player_ids.push(player.id.clone());
             }
             ids_state.page = 1;
-            draft_state.set(ids_state);
+            draft_state.set(ids_state.clone());
             let mut players = (*draft_players).clone();
             if !players.iter().any(|p| p.id == player.id) {
                 players.push(player);
@@ -416,8 +420,8 @@ pub fn contests(_props: &ContestsProps) -> Html {
             let mut state = (*draft_state).clone();
             state.start_from = input.value();
             state.page = 1;
-            draft_state.set(state);
-            schedule_apply(state, (*draft_players).clone(), 300);
+            draft_state.set(state.clone());
+            (schedule_apply)(state, (*draft_players).clone(), 300);
         })
     };
 
@@ -430,8 +434,8 @@ pub fn contests(_props: &ContestsProps) -> Html {
             let mut state = (*draft_state).clone();
             state.start_to = input.value();
             state.page = 1;
-            draft_state.set(state);
-            schedule_apply(state, (*draft_players).clone(), 300);
+            draft_state.set(state.clone());
+            (schedule_apply)(state, (*draft_players).clone(), 300);
         })
     };
 
