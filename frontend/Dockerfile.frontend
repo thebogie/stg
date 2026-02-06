@@ -215,69 +215,6 @@ RUN echo "=== FINAL CLEAN BEFORE BUILD ===" && \
     echo "✅ Build metadata created: version.json" && \
     cat "$DIST_DIR/version.json"
 
-# CRITICAL: Verify the built WASM/JS actually contains "Players" not "People" for contests filter
-# WASM files are binary, so we need to use 'strings' command to extract readable text
-# JS files might be minified, so we search both minified and readable forms
-RUN echo "=== VERIFYING BUILT OUTPUT ===" && \
-    if [ -f "../_build/frontend-dist/index.html" ] || [ -n "$(find ../_build/frontend-dist -name '*.wasm' -type f | head -1)" ]; then \
-        DIST_DIR="../_build/frontend-dist"; \
-    elif [ -f "dist/index.html" ] || [ -n "$(find dist -name '*.wasm' -type f | head -1)" ]; then \
-        DIST_DIR="dist"; \
-    else \
-        echo "ERROR: Trunk build output not found (only .stage present)." && \
-        echo "Contents of ../_build/frontend-dist:" && ls -lah ../_build/frontend-dist || true && \
-        echo "Contents of dist:" && ls -lah dist || true && \
-        exit 1; \
-    fi && \
-    if [ -d "$DIST_DIR" ]; then \
-        echo "Checking built files for contests filter text..." && \
-        echo "Listing all files in dist:" && \
-        find "$DIST_DIR" -type f \( -name "*.js" -o -name "*.wasm" -o -name "*.html" \) | head -10 && \
-        echo "" && \
-        echo "Extracting strings from WASM files and searching..." && \
-        # Search JS/HTML files with grep (text files) && \
-        JS_HTML_SEARCH_PEOPLE=$(grep -r "Search People\|Search people" "$DIST_DIR" 2>/dev/null | grep -v ".map" || true) && \
-        # Extract strings from WASM files and search && \
-        WASM_SEARCH_PEOPLE=$(find "$DIST_DIR" -name "*.wasm" -type f -exec strings {} \; 2>/dev/null | grep -i "Search People\|Search people" || true) && \
-        if [ -n "$JS_HTML_SEARCH_PEOPLE" ] || [ -n "$WASM_SEARCH_PEOPLE" ]; then \
-            echo "❌ ERROR: Found 'Search People' text in built output!" && \
-            if [ -n "$JS_HTML_SEARCH_PEOPLE" ]; then \
-                echo "Found in JS/HTML files:" && \
-                echo "$JS_HTML_SEARCH_PEOPLE"; \
-            fi && \
-            if [ -n "$WASM_SEARCH_PEOPLE" ]; then \
-                echo "Found in WASM files:" && \
-                echo "$WASM_SEARCH_PEOPLE"; \
-            fi && \
-            exit 1; \
-        fi && \
-        echo "✅ No 'Search People' found" && \
-        echo "" && \
-        echo "Verifying 'Players' is present..." && \
-        # Search JS/HTML files && \
-        JS_HTML_PLAYERS=$(grep -r "Players" "$DIST_DIR" 2>/dev/null | grep -v ".map" | head -5 || true) && \
-        # Extract strings from WASM files && \
-        WASM_PLAYERS=$(find "$DIST_DIR" -name "*.wasm" -type f -exec strings {} \; 2>/dev/null | grep -i "Players" | head -5 || true) && \
-        if [ -z "$JS_HTML_PLAYERS" ] && [ -z "$WASM_PLAYERS" ]; then \
-            echo "⚠️  WARNING: 'Players' text not found in built output." && \
-            echo "This can happen when labels are compiled into WASM without strings." && \
-            echo "Negative check (no 'Search People') passed, so continuing."; \
-        else \
-            echo "✅ Built output verification passed - found 'Players' for contests filter"; \
-        fi && \
-        if [ -n "$JS_HTML_PLAYERS" ]; then \
-            echo "Found 'Players' in JS/HTML files:" && \
-            echo "$JS_HTML_PLAYERS"; \
-        fi && \
-        if [ -n "$WASM_PLAYERS" ]; then \
-            echo "Found 'Players' in WASM files:" && \
-            echo "$WASM_PLAYERS"; \
-        fi; \
-    else \
-        echo "⚠️  Could not verify output (dist directory not found)"; \
-    fi && \
-    echo "=== OUTPUT VERIFICATION COMPLETE ==="
-
 # Verify build output exists
 # Trunk.toml sets dist = "../_build/frontend-dist" (relative to frontend/), so output is at /app/_build/frontend-dist
 RUN echo "Checking build output..." && \

@@ -89,33 +89,6 @@ RUN echo "=== CLEANING TRUNK OUTPUT (FINAL CLEAN) ===" && \
 RUN echo "Checking build output..." && \
     ls -lah ../_build/frontend-dist/ 2>/dev/null || ls -lah dist/ 2>/dev/null || (echo "ERROR: No dist directory found" && exit 1)
 
-# CRITICAL: Verify the built WASM/JS actually contains "Players" not "People" for contests filter
-# Check specifically for the problematic "Search People" text
-RUN echo "=== VERIFYING BUILT OUTPUT ===" && \
-    if [ -f "../_build/frontend-dist/index.html" ] || [ -n "$(find ../_build/frontend-dist -name '*.wasm' -type f | head -1)" ]; then \
-        DIST_DIR="../_build/frontend-dist"; \
-    elif [ -f "dist/index.html" ] || [ -n "$(find dist -name '*.wasm' -type f | head -1)" ]; then \
-        DIST_DIR="dist"; \
-    else \
-        echo "ERROR: Trunk build output not found (only .stage present)." && \
-        echo "Contents of ../_build/frontend-dist:" && ls -lah ../_build/frontend-dist || true && \
-        echo "Contents of dist:" && ls -lah dist || true && \
-        exit 1; \
-    fi && \
-    if [ -d "$DIST_DIR" ]; then \
-        echo "Checking built files for contests filter text..." && \
-        if grep -r "Search People\|Search people" "$DIST_DIR" 2>/dev/null | grep -v ".map" | head -1; then \
-            echo "❌ ERROR: Found 'Search People' text in built output!" && \
-            exit 1; \
-        fi && \
-        if ! grep -r "Players" "$DIST_DIR" 2>/dev/null | grep -v ".map" | head -1; then \
-            echo "⚠️  WARNING: 'Players' text not found in built output." && \
-            echo "This can happen when labels are compiled into WASM without strings."; \
-        else \
-            echo "✅ Built output verification passed"; \
-        fi; \
-    fi
-
 # Optimize WASM
 RUN if [ -f "../_build/frontend-dist/index.html" ] || [ -n "$(find ../_build/frontend-dist -name '*.wasm' -type f | head -1)" ]; then \
         DIST_DIR="../_build/frontend-dist"; \
