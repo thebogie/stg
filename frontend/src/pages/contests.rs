@@ -9,7 +9,6 @@ use gloo_timers::callback::Timeout;
 use shared::dto::player::PlayerDto;
 use shared::{GameDto, VenueDto};
 use std::rc::Rc;
-use wasm_bindgen::JsCast;
 use web_sys::js_sys;
 use yew::functional::use_mut_ref;
 use yew::prelude::*;
@@ -247,8 +246,8 @@ pub fn contests(_props: &ContestsProps) -> Html {
                 let mut state = (*search_state).clone();
                 if state.scope != "all" {
                     state.scope = "all".to_string();
-                    search_state.set(state);
-                    perform_search.emit(());
+                    search_state.set(state.clone());
+                    perform_search.emit(state);
                 }
             }
             || ()
