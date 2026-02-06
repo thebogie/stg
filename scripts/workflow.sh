@@ -34,6 +34,13 @@ if [[ "$*" == *"--load-prod-data"* ]]; then
     TEST_ARGS="--load-prod-data"
 fi
 
+# Step 0: Docker cleanup (build cache + dangling images) so build doesn't reuse stale layers
+log_step "STEP 0: Docker cleanup (fresh build)"
+if ! ./scripts/clean-docker-for-build.sh --aggressive; then
+    log_error "Docker cleanup failed!"
+    exit 1
+fi
+
 # Step 1: Build
 log_step "STEP 1: Building Production Images"
 if ! ./scripts/build.sh; then

@@ -27,8 +27,15 @@ pub async fn get_version_info() -> Result<VersionInfo, String> {
         ));
     }
 
-    response
-        .json::<VersionInfo>()
+    let text = response
+        .text()
         .await
-        .map_err(|e| format!("Failed to parse version info: {}", e))
+        .map_err(|e| format!("Failed to read response: {}", e))?;
+
+    if text.trim().is_empty() {
+        return Err("Backend returned empty version response".to_string());
+    }
+
+    serde_json::from_str::<VersionInfo>(&text)
+        .map_err(|e| format!("Invalid version response: {}", e))
 }

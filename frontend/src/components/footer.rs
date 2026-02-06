@@ -128,9 +128,9 @@ pub fn footer() -> Html {
                                     if let Some(ref git_commit) = info.git_commit {
                                         <div>{"Commit: "}{git_commit}</div>
                                     }
-                                } else if let Some(ref err) = *error {
-                                    <div class="text-red-300">{"Error loading version: "}{err}</div>
-                                    <div>{"Frontend Version: v"}{crate::version::Version::current()}</div>
+                                } else if let Some(ref _err) = *error {
+                                    <div class="text-blue-200">{"Frontend: v"}{crate::version::Version::current()}</div>
+                                    <div class="text-blue-200/80">{"Backend version unavailable"}</div>
                                 } else {
                                     <div>{"Loading version..."}</div>
                                 }

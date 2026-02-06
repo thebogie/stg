@@ -115,6 +115,8 @@ log_info "Building frontend (using --no-cache to ensure latest source code)..."
 SOURCE_DATE_EPOCH=$(date +%s)
 # CRITICAL: Add a random string to force layer invalidation
 RANDOM_BUILD_ID=$(openssl rand -hex 16 || date +%s%N)
+# Force nginx config layer to rebuild (avoids stale /api/ proxy)
+NGINX_CONFIG_VERSION=$(date +%s)
 log_info "Build ID: $RANDOM_BUILD_ID (forces layer invalidation)"
 docker compose \
     --env-file "$ENV_FILE" \
@@ -124,7 +126,20 @@ docker compose \
     --build-arg GIT_COMMIT="$GIT_COMMIT" \
     --build-arg SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" \
     --build-arg RANDOM_BUILD_ID="$RANDOM_BUILD_ID" \
+    --build-arg NGINX_CONFIG_VERSION="$NGINX_CONFIG_VERSION" \
     frontend
+
+# Verify frontend image has nginx /api/ proxy (required for local stack and some deploys)
+log_info "Verifying frontend image has nginx /api/ proxy..."
+FRONTEND_IMG="stg_rd-frontend:${VERSION_TAG}"
+if ! docker run --rm "$FRONTEND_IMG" cat /etc/nginx/templates/default.conf.template 2>/dev/null | grep -q "location /api/"; then
+    log_error "Frontend image is missing nginx 'location /api/' proxy."
+    log_error "Image checked: $FRONTEND_IMG"
+    log_error "First 25 lines of template in image:"
+    docker run --rm "$FRONTEND_IMG" cat /etc/nginx/templates/default.conf.template 2>/dev/null | head -25 || true
+    exit 1
+fi
+log_success "Frontend image has /api/ proxy"
 
 log_info "Building backend..."
 docker compose \
@@ -158,8 +173,13 @@ FRONTEND_FULL="${COMPOSE_PROJECT_NAME}-frontend"
 BACKEND_FULL="${COMPOSE_PROJECT_NAME}-backend"
 
 # Tag with version (find which image name was actually used)
+# Compose tags the built image as image:value (e.g. stg_rd-frontend:${VERSION_TAG}), so check that first
 FRONTEND_SOURCE=""
-if docker image inspect "${FRONTEND_FULL}:latest" > /dev/null 2>&1; then
+if docker image inspect "stg_rd-frontend:${VERSION_TAG}" > /dev/null 2>&1; then
+    FRONTEND_SOURCE="stg_rd-frontend:${VERSION_TAG}"
+elif docker image inspect "${FRONTEND_IMAGE}:${VERSION_TAG}" > /dev/null 2>&1; then
+    FRONTEND_SOURCE="${FRONTEND_IMAGE}:${VERSION_TAG}"
+elif docker image inspect "${FRONTEND_FULL}:latest" > /dev/null 2>&1; then
     FRONTEND_SOURCE="${FRONTEND_FULL}:latest"
 elif docker image inspect "${FRONTEND_IMAGE}:latest" > /dev/null 2>&1; then
     FRONTEND_SOURCE="${FRONTEND_IMAGE}:latest"
@@ -172,7 +192,11 @@ else
 fi
 
 BACKEND_SOURCE=""
-if docker image inspect "${BACKEND_FULL}:latest" > /dev/null 2>&1; then
+if docker image inspect "stg_rd-backend:${VERSION_TAG}" > /dev/null 2>&1; then
+    BACKEND_SOURCE="stg_rd-backend:${VERSION_TAG}"
+elif docker image inspect "${BACKEND_IMAGE}:${VERSION_TAG}" > /dev/null 2>&1; then
+    BACKEND_SOURCE="${BACKEND_IMAGE}:${VERSION_TAG}"
+elif docker image inspect "${BACKEND_FULL}:latest" > /dev/null 2>&1; then
     BACKEND_SOURCE="${BACKEND_FULL}:latest"
 elif docker image inspect "${BACKEND_IMAGE}:latest" > /dev/null 2>&1; then
     BACKEND_SOURCE="${BACKEND_IMAGE}:latest"
@@ -184,7 +208,7 @@ else
     exit 1
 fi
 
-# Tag with version (standardize on stg_rd-* names for consistency)
+# Add version tag if not already (compose may have tagged with VERSION_TAG already)
 docker tag "$FRONTEND_SOURCE" "stg_rd-frontend:${VERSION_TAG}"
 docker tag "$BACKEND_SOURCE" "stg_rd-backend:${VERSION_TAG}"
 

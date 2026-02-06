@@ -61,6 +61,28 @@ test-frontend-e2e-full:
 test-frontend-e2e-stop:
     ./scripts/stop-e2e-docker.sh
 
+# Start production stack locally for visual testing (run after workflow.sh or build.sh)
+# Opens frontend at http://localhost:50003 (or FRONTEND_PORT from config)
+start-stack-local:
+    ./scripts/start-stack-local.sh
+
+# Same as above but load production data into ArangoDB
+start-stack-local-with-data:
+    ./scripts/start-stack-local.sh --load-prod-data
+
+# Stop the production stack started with start-stack-local.sh
+stop-stack-local:
+    ./scripts/stop-stack-local.sh
+
+# Clean Docker build cache and optional project images so next build is fresh
+# Use after Dockerfile changes or when you suspect stale layers
+clean-docker:
+    ./scripts/clean-docker-for-build.sh
+
+# Same as clean-docker but also remove all local stg_rd-frontend/backend images
+clean-docker-aggressive:
+    ./scripts/clean-docker-for-build.sh --aggressive
+
 # Alias for convenience
 test-frontend:
     just test-frontend-e2e

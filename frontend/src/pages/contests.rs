@@ -105,28 +105,17 @@ pub fn contests(_props: &ContestsProps) -> Html {
         let search_results = search_results.clone();
         let loading = loading.clone();
         let error = error.clone();
-        let player_search_query = player_search_query.clone();
         Callback::from(move |_| {
             let search_state = search_state.clone();
             let search_results = search_results.clone();
             let loading = loading.clone();
             let error = error.clone();
-            let player_search_query = player_search_query.clone();
 
             loading.set(true);
             error.set(None);
 
             wasm_bindgen_futures::spawn_local(async move {
                 let mut params = Vec::new();
-                let player_query_value = (*player_search_query).clone();
-                gloo::console::log!(
-                    "[DEBUG] perform_search - player_search_query value:",
-                    &player_query_value
-                );
-                gloo::console::log!(
-                    "[DEBUG] perform_search - search_state.player_ids.len():",
-                    search_state.player_ids.len()
-                );
 
                 if !search_state.query.is_empty() {
                     params.push(("q", search_state.query.clone()));
@@ -150,41 +139,11 @@ pub fn contests(_props: &ContestsProps) -> Html {
                     let csv = search_state.game_ids.join(",");
                     params.push(("game_ids", csv));
                 }
-                // Send player_id if selected
-                if search_state.player_ids.len() == 1 {
-                    gloo::console::log!(
-                        "[DEBUG] Using selected player_id:",
-                        &search_state.player_ids[0]
-                    );
+                // Send player_id only when a player has been selected
+                if !search_state.player_ids.is_empty() {
+                    // Backend currently supports a single player_id; use the first selected
                     params.push(("player_id", search_state.player_ids[0].clone()));
-                } else if search_state.player_ids.len() > 1 {
-                    // Multiple players selected - use the first one (backend currently only supports single player filter)
-                    gloo::console::log!(
-                        "[DEBUG] Using first of multiple player_ids:",
-                        &search_state.player_ids[0]
-                    );
-                    params.push(("player_id", search_state.player_ids[0].clone()));
-                } else {
-                    // No player selected, but check if there's a player search query that looks like an email
-                    // This allows users to type an email and search without selecting from dropdown
-                    if !player_query_value.is_empty() && player_query_value.contains('@') {
-                        // It's an email - send it directly, backend will look it up
-                        gloo::console::log!(
-                            "[DEBUG] Sending email as player_id:",
-                            &player_query_value
-                        );
-                        params.push(("player_id", player_query_value));
-                    } else {
-                        gloo::console::log!(
-                            "[DEBUG] No player_id to send. player_ids.len()=",
-                            search_state.player_ids.len(),
-                            "player_query=",
-                            &player_query_value
-                        );
-                    }
                 }
-
-                gloo::console::log!("[DEBUG] Final search params:", format!("{:?}", params));
                 // Scope is already set appropriately in state (defaults to 'all' when unauthenticated)
                 params.push(("scope", search_state.scope.clone()));
                 params.push(("page", search_state.page.to_string()));
@@ -401,35 +360,11 @@ pub fn contests(_props: &ContestsProps) -> Html {
         let perform_search = perform_search.clone();
         let draft_players = draft_players.clone();
         let selected_players = selected_players.clone();
-        let player_search_query = player_search_query.clone();
-        let player_search_results = player_search_results.clone();
         Callback::from(move |_| {
             let mut next = (*draft_state).clone();
             next.page = 1; // reset to first page on apply
-
-            // Auto-select player if user typed an email and there's exactly one match
-            let mut players_to_add = (*draft_players).clone();
-            let player_query = (*player_search_query).clone();
-            if !player_query.is_empty() && player_query.contains('@') {
-                // User typed an email - check if there's exactly one match
-                let matching_players: Vec<_> = (*player_search_results)
-                    .iter()
-                    .filter(|p| p.email.to_lowercase() == player_query.to_lowercase())
-                    .collect();
-                if matching_players.len() == 1 {
-                    // Auto-select the matching player
-                    let player = matching_players[0].clone();
-                    if !players_to_add.iter().any(|p| p.id == player.id) {
-                        players_to_add.push(player.clone());
-                        next.player_ids.push(player.id.clone());
-                    }
-                }
-                // If no match found, we'll send the email directly to backend in perform_search
-                // The backend will look it up and return empty results if player doesn't exist
-            }
-
             search_state.set(next);
-            selected_players.set(players_to_add);
+            selected_players.set((*draft_players).clone());
             perform_search.emit(());
         })
     };
@@ -557,6 +492,24 @@ pub fn contests(_props: &ContestsProps) -> Html {
         }
         c + (search_state.game_ids.len() as u32) + (selected_players.len() as u32)
     };
+
+    let has_filter_values = {
+        !draft_state.query.is_empty()
+            || !draft_state.start_from.is_empty()
+            || !draft_state.start_to.is_empty()
+            || !draft_state.stop_from.is_empty()
+            || !draft_state.stop_to.is_empty()
+            || !draft_state.venue_id.is_empty()
+            || !draft_state.game_ids.is_empty()
+            || !draft_state.player_ids.is_empty()
+    };
+
+    let filters_dirty = *draft_state != *search_state || *draft_players != *selected_players;
+
+    let player_selection_pending =
+        !player_search_query.is_empty() && draft_state.player_ids.is_empty();
+
+    let can_search = has_filter_values && filters_dirty && !player_selection_pending;
 
     // Removal handlers update both draft and active states and trigger a search
     let remove_query = {
@@ -762,7 +715,7 @@ pub fn contests(_props: &ContestsProps) -> Html {
                             <input
                                 type="text"
                                 placeholder="Search contests..."
-                                value={search_state.query.clone()}
+                                value={draft_state.query.clone()}
                                 oninput={on_query_change}
                                 class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                             />
@@ -790,7 +743,7 @@ pub fn contests(_props: &ContestsProps) -> Html {
                             </button>
                             <button
                                 onclick={apply_filters.reform(|_| ())}
-                                disabled={*loading}
+                                disabled={*loading || !can_search}
                                 class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
                             >
                                 {if *loading { "Searching..." } else { "Search" }}
@@ -803,6 +756,13 @@ pub fn contests(_props: &ContestsProps) -> Html {
                             </button>
                         </div>
                     </div>
+                    {if !can_search && !*loading {
+                        html! {
+                            <p class="mt-2 text-xs text-gray-500">
+                                {"Choose filters and select any players from the dropdown to enable Search."}
+                            </p>
+                        }
+                    } else { html! {} }}
 
                     // Active filter chips (applied)
                     if active_filter_count > 0 {
@@ -900,13 +860,13 @@ pub fn contests(_props: &ContestsProps) -> Html {
                                     </label>
                                     <input
                                         type="text"
-                                        placeholder="Type email (e.g., leo@gmail.com) or handle..."
+                                        placeholder="Type a name, handle, or email..."
                                         value={(*player_search_query).clone()}
                                         oninput={on_player_search_input}
                                         class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 mb-2"
                                     />
                                     <p class="text-xs text-gray-500 mb-2">
-                                        {"Tip: Type an email and click 'Search' - it will auto-select if found"}
+                                        {"Start typing, then select a player from the dropdown to apply the filter."}
                                     </p>
                                     {if !player_search_results.is_empty() { html! {
                                         <div class="max-h-40 overflow-auto border border-gray-200 rounded-md">

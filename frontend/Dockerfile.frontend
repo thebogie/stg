@@ -394,6 +394,10 @@ RUN echo "=== PREPARING FOR FRESH COPY ===" && \
 
 COPY --from=builder /app/_build/frontend-dist /usr/share/nginx/html
 
+# Fail build if version.json is missing (required for production verification)
+RUN test -f /usr/share/nginx/html/version.json || (echo "❌ CRITICAL: version.json missing in image!" && ls -la /usr/share/nginx/html/ && exit 1) && \
+    echo "✅ version.json present" && cat /usr/share/nginx/html/version.json
+
 # CRITICAL: NUCLEAR VERIFICATION - Fail build if ANY old WASM is detected
 # WASM is the hashed file (e.g. frontend-abc123_bg.wasm) after in-place optimization
 RUN echo "=== NUCLEAR WASM VERIFICATION (FAILS BUILD IF OLD CODE FOUND) ===" && \
@@ -444,10 +448,14 @@ RUN echo "=== NUCLEAR WASM VERIFICATION (FAILS BUILD IF OLD CODE FOUND) ===" && 
 # Create templates directory (nginx:alpine's entrypoint processes .template files from here)
 RUN mkdir -p /etc/nginx/templates
 
+# Build-arg to force this layer to rebuild when Dockerfile or script changes (avoids stale cache)
+ARG NGINX_CONFIG_VERSION=1
+
 # Create nginx config template for static serving (SPA support)
 # nginx:alpine's entrypoint automatically processes .template files using envsubst
 # Files in /etc/nginx/templates/*.template are processed to /etc/nginx/conf.d/*.conf
-RUN cat > /etc/nginx/templates/default.conf.template <<'EOF'
+RUN echo "# nginx config version ${NGINX_CONFIG_VERSION}" > /etc/nginx/templates/default.conf.template && \
+cat >> /etc/nginx/templates/default.conf.template <<'EOF'
 server {
     listen ${FRONTEND_PORT};
     server_name localhost;
@@ -460,12 +468,20 @@ server {
         try_files $uri =404;
     }
 
+    # API proxy: when running without Traefik (e.g. local stack), nginx proxies /api/ to backend
+    location /api/ {
+        proxy_pass http://backend:50002;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
     # SPA routing - all other routes go to index.html (for Yew router)
     location / {
         try_files $uri $uri/ /index.html;
     }
-
-    # Note: API routing handled by external Traefik (routes /api/ to backend container)
 
     # Hashed filenames (Trunk filehash) - long cache is safe; URL changes per deploy
     location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg)$ {
@@ -473,11 +489,18 @@ server {
         add_header Cache-Control "public, immutable";
     }
 
-    # WASM (hashed filenames) - long cache safe; URL changes per deploy
+    # WASM: must set MIME type so WebAssembly.instantiateStreaming works (no fallback to slower path)
     location ~* \.wasm$ {
-        add_header Content-Type "application/wasm";
-        expires 1y;
+        default_type application/wasm;
         add_header Cache-Control "public, immutable";
+        expires 1y;
+    }
+
+    # manifest.json: serve with correct type so PWA manifest parses (avoid Syntax error)
+    location = /manifest.json {
+        default_type application/json;
+        add_header Cache-Control "no-cache";
+        try_files $uri =404;
     }
 
     # Basic security headers (Traefik handles SSL and additional headers)

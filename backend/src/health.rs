@@ -330,7 +330,18 @@ pub async fn version_info() -> impl Responder {
         environment,
     };
 
-    HttpResponse::Ok().json(response)
+    // Serialize explicitly so we never return an empty body (avoids proxy/parse issues in dev)
+    match serde_json::to_string(&response) {
+        Ok(body) => HttpResponse::Ok()
+            .content_type("application/json")
+            .body(body),
+        Err(e) => {
+            log::error!("Failed to serialize version info: {}", e);
+            HttpResponse::InternalServerError()
+                .content_type("application/json")
+                .body(r#"{"error":"version serialization failed"}"#)
+        }
+    }
 }
 
 /// Prometheus metrics endpoint

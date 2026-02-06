@@ -1,16 +1,26 @@
 use crate::api::api_url;
 use gloo_net::http::Request;
 use gloo_storage::Storage;
+use js_sys::Date;
 use log::debug;
 use serde::Deserialize;
 use shared::dto::player::{
     CreatePlayerRequest, LoginRequest, LoginResponse, PlayerDto, UpdateEmailRequest,
     UpdateHandleRequest, UpdatePasswordRequest, UpdateResponse,
 };
+use std::sync::atomic::{AtomicU64, Ordering};
 
 #[derive(Deserialize)]
 struct ErrorResponse {
     error: String,
+}
+
+/// Result of checking current session: either success, session expired (401), or other error (network, 5xx, etc.)
+#[derive(Debug)]
+pub enum SessionCheckResult {
+    Ok(PlayerDto),
+    SessionExpired,
+    Other(String),
 }
 
 pub async fn register(
@@ -111,7 +121,25 @@ pub async fn logout() -> Result<(), String> {
     Ok(())
 }
 
-pub async fn get_current_player() -> Result<PlayerDto, String> {
+/// Min ms between any session check (stops request spam from any caller).
+const SESSION_CHECK_THROTTLE_MS: u64 = 60_000;
+static LAST_SESSION_CHECK_MS: AtomicU64 = AtomicU64::new(0);
+
+/// Reset session-check throttle. Call after login so the next check runs.
+pub fn reset_session_check_throttle() {
+    LAST_SESSION_CHECK_MS.store(0, Ordering::Relaxed);
+}
+
+/// Check current session. Use this for heartbeat/validation: only SessionExpired should trigger logout.
+/// Throttled globally to at most once per SESSION_CHECK_THROTTLE_MS.
+pub async fn get_current_player_result() -> SessionCheckResult {
+    let now_ms = Date::now() as u64;
+    let last = LAST_SESSION_CHECK_MS.load(Ordering::Relaxed);
+    if last != 0 && now_ms.saturating_sub(last) < SESSION_CHECK_THROTTLE_MS {
+        return SessionCheckResult::Other("throttled".to_string());
+    }
+    LAST_SESSION_CHECK_MS.store(now_ms, Ordering::Relaxed);
+
     debug!("Fetching current player");
 
     let session_id = gloo_storage::LocalStorage::get::<String>("session_id").ok();
@@ -120,26 +148,42 @@ pub async fn get_current_player() -> Result<PlayerDto, String> {
         req = req.header("Authorization", &format!("Bearer {}", sid));
     }
 
-    let response = req
-        .send()
-        .await
-        .map_err(|e| format!("Failed to fetch current player: {}", e))?;
+    let response = match req.send().await {
+        Ok(r) => r,
+        Err(e) => {
+            debug!("Session check request failed (network): {}", e);
+            return SessionCheckResult::Other(format!("Connection error: {}", e));
+        }
+    };
 
-    if !response.ok() {
-        let error = response
-            .json::<ErrorResponse>()
-            .await
-            .map_err(|e| format!("Failed to parse error response: {}", e))?;
-        return Err(error.error);
+    if response.status() == 401 || response.status() == 403 {
+        return SessionCheckResult::SessionExpired;
     }
 
-    let player = response
-        .json::<PlayerDto>()
-        .await
-        .map_err(|e| format!("Failed to parse player response: {}", e))?;
+    if !response.ok() {
+        let msg = response
+            .json::<ErrorResponse>()
+            .await
+            .map(|e| e.error)
+            .unwrap_or_else(|_| format!("HTTP {}", response.status()));
+        return SessionCheckResult::Other(msg);
+    }
 
-    debug!("Successfully fetched current player: {}", player.email);
-    Ok(player)
+    match response.json::<PlayerDto>().await {
+        Ok(player) => {
+            debug!("Successfully fetched current player: {}", player.email);
+            SessionCheckResult::Ok(player)
+        }
+        Err(e) => SessionCheckResult::Other(format!("Invalid response: {}", e)),
+    }
+}
+
+pub async fn get_current_player() -> Result<PlayerDto, String> {
+    match get_current_player_result().await {
+        SessionCheckResult::Ok(p) => Ok(p),
+        SessionCheckResult::SessionExpired => Err("Session expired".to_string()),
+        SessionCheckResult::Other(s) => Err(s),
+    }
 }
 
 pub async fn update_profile(profile: PlayerDto) -> Result<PlayerDto, String> {

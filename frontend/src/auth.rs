@@ -1,12 +1,21 @@
 use crate::api::auth;
 use gloo_storage::{LocalStorage, Storage};
 use gloo_timers::callback::Interval;
+use js_sys::Date;
 use log::error;
 use shared::PlayerDto;
 use std::rc::Rc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use wasm_bindgen_futures::spawn_local;
 use yew::functional::use_reducer_eq;
 use yew::prelude::*;
+
+/// Throttle heartbeat session checks to at most once per 60s (avoids spam if effect re-runs).
+const HEARTBEAT_THROTTLE_MS: u64 = 60_000;
+static LAST_HEARTBEAT_CHECK_MS: AtomicU64 = AtomicU64::new(0);
+
+/// Only run initial session validation once per page load (avoids spam if effect re-runs).
+static INITIAL_VALIDATION_STARTED: AtomicBool = AtomicBool::new(false);
 
 #[derive(Clone, Debug)]
 pub struct AuthState {
@@ -244,27 +253,28 @@ pub fn auth_provider(props: &AuthProviderProps) -> Html {
         ..Default::default()
     });
 
-    // Immediate session validation on page load - check if stored session is still valid
+    // Immediate session validation on page load - check if stored session is still valid (once per load)
     {
         let auth = auth.clone();
         let has_stored_session = LocalStorage::get::<String>("session_id").is_ok();
         use_effect(move || {
-            // Only validate if we have a session_id in localStorage
-            if has_stored_session {
+            if has_stored_session && !INITIAL_VALIDATION_STARTED.swap(true, Ordering::Relaxed) {
                 let auth = auth.clone();
                 spawn_local(async move {
                     auth.dispatch(AuthAction::SetLoading(true));
-                    match auth::get_current_player().await {
-                        Ok(player) => {
-                            // Session is valid, update player data
+                    match auth::get_current_player_result().await {
+                        auth::SessionCheckResult::Ok(player) => {
                             auth.dispatch(AuthAction::HeartbeatSuccess(player));
                             auth.dispatch(AuthAction::SetLoading(false));
                         }
-                        Err(_) => {
-                            // Session expired, clear stale data
+                        auth::SessionCheckResult::SessionExpired => {
                             auth.dispatch(AuthAction::HeartbeatError(
                                 "Session expired".to_string(),
                             ));
+                            auth.dispatch(AuthAction::SetLoading(false));
+                        }
+                        auth::SessionCheckResult::Other(_) => {
+                            // Network/5xx or throttled: don't log out; next heartbeat will retry
                             auth.dispatch(AuthAction::SetLoading(false));
                         }
                     }
@@ -281,18 +291,28 @@ pub fn auth_provider(props: &AuthProviderProps) -> Html {
             if *heartbeat_active {
                 let auth = auth.clone();
                 let interval = Interval::new(300_000, move || {
+                    let now_ms = Date::now() as u64;
+                    let last = LAST_HEARTBEAT_CHECK_MS.load(Ordering::Relaxed);
+                    if last != 0 && now_ms.saturating_sub(last) < HEARTBEAT_THROTTLE_MS {
+                        return;
+                    }
+                    LAST_HEARTBEAT_CHECK_MS.store(now_ms, Ordering::Relaxed);
+
                     let auth = auth.clone();
                     spawn_local(async move {
                         auth.dispatch(AuthAction::HeartbeatCheck);
 
-                        match auth::get_current_player().await {
-                            Ok(player) => {
+                        match auth::get_current_player_result().await {
+                            auth::SessionCheckResult::Ok(player) => {
                                 auth.dispatch(AuthAction::HeartbeatSuccess(player));
                             }
-                            Err(_) => {
+                            auth::SessionCheckResult::SessionExpired => {
                                 auth.dispatch(AuthAction::HeartbeatError(
                                     "Session expired".to_string(),
                                 ));
+                            }
+                            auth::SessionCheckResult::Other(_) => {
+                                // Network/transient error: do not log out; next heartbeat will retry
                             }
                         }
                     });
@@ -318,6 +338,7 @@ pub fn auth_provider(props: &AuthProviderProps) -> Html {
 
                 match auth::login(&email, &password).await {
                     Ok(response) => {
+                        auth::reset_session_check_throttle();
                         auth.dispatch(AuthAction::LoginSuccess {
                             player: response.player,
                             session_id: response.session_id,
