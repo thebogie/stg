@@ -143,6 +143,17 @@ FROM caddy:2-alpine
 # Copy built files
 COPY --from=builder /app/_build/frontend-dist /usr/share/caddy
 
+# Inject build metadata into version.json if present
+ARG BUILD_DATE
+ARG GIT_COMMIT
+ARG SOURCE_HASH
+RUN if [ -f /usr/share/caddy/version.json ]; then \
+        sed -i "s/\"git_commit\": \"[^\"]*\"/\"git_commit\": \"${GIT_COMMIT:-unknown}\"/" /usr/share/caddy/version.json && \
+        sed -i "s/\"build_date\": \"[^\"]*\"/\"build_date\": \"${BUILD_DATE:-unknown}\"/" /usr/share/caddy/version.json && \
+        sed -i "s/\"source_hash\": \"[^\"]*\"/\"source_hash\": \"${SOURCE_HASH:-unknown}\"/" /usr/share/caddy/version.json && \
+        echo "✅ version.json metadata updated"; \
+    fi
+
 # Caddyfile - MUCH simpler than nginx config!
 # Caddy automatically handles:
 # - SPA routing (try_files equivalent)

@@ -310,6 +310,7 @@ RUN apk add --no-cache gettext binutils
 # CRITICAL: Accept build args to use as cache busters
 ARG BUILD_DATE
 ARG GIT_COMMIT
+ARG SOURCE_HASH
 ARG RANDOM_BUILD_ID
 
 # Copy built files from builder stage
@@ -327,6 +328,14 @@ COPY --from=builder /app/_build/frontend-dist /usr/share/nginx/html
 # Fail build if version.json is missing (required for production verification)
 RUN test -f /usr/share/nginx/html/version.json || (echo "❌ CRITICAL: version.json missing in image!" && ls -la /usr/share/nginx/html/ && exit 1) && \
     echo "✅ version.json present" && cat /usr/share/nginx/html/version.json
+
+# Ensure build metadata is injected (overrides unknown values if needed)
+RUN if [ -f /usr/share/nginx/html/version.json ]; then \
+        sed -i "s/\"git_commit\": \"[^\"]*\"/\"git_commit\": \"${GIT_COMMIT:-unknown}\"/" /usr/share/nginx/html/version.json && \
+        sed -i "s/\"build_date\": \"[^\"]*\"/\"build_date\": \"${BUILD_DATE:-unknown}\"/" /usr/share/nginx/html/version.json && \
+        sed -i "s/\"source_hash\": \"[^\"]*\"/\"source_hash\": \"${SOURCE_HASH:-unknown}\"/" /usr/share/nginx/html/version.json && \
+        echo "✅ version.json metadata updated" && cat /usr/share/nginx/html/version.json; \
+    fi
 
 # CRITICAL: NUCLEAR VERIFICATION - Fail build if ANY old WASM is detected
 # WASM is the hashed file (e.g. frontend-abc123_bg.wasm) after in-place optimization
