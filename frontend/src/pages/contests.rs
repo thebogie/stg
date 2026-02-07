@@ -217,6 +217,7 @@ pub fn contests(_props: &ContestsProps) -> Html {
                 if let Some(timeout) = apply_timeout.borrow_mut().take() {
                     timeout.cancel();
                 }
+                let apply_instant = apply_instant.clone();
                 *apply_timeout.borrow_mut() = Some(Timeout::new(delay_ms, move || {
                     apply_instant.emit((next_state, next_players));
                 }));
@@ -265,7 +266,7 @@ pub fn contests(_props: &ContestsProps) -> Html {
             state.query = input.value();
             state.page = 1;
             draft_state.set(state.clone());
-            (schedule_apply)(state, (*draft_players).clone(), 300);
+            schedule_apply(state, (*draft_players).clone(), 300);
         })
     };
 
@@ -421,7 +422,7 @@ pub fn contests(_props: &ContestsProps) -> Html {
             state.start_from = input.value();
             state.page = 1;
             draft_state.set(state.clone());
-            (schedule_apply)(state, (*draft_players).clone(), 300);
+            schedule_apply(state, (*draft_players).clone(), 300);
         })
     };
 
@@ -435,7 +436,7 @@ pub fn contests(_props: &ContestsProps) -> Html {
             state.start_to = input.value();
             state.page = 1;
             draft_state.set(state.clone());
-            (schedule_apply)(state, (*draft_players).clone(), 300);
+            schedule_apply(state, (*draft_players).clone(), 300);
         })
     };
 
