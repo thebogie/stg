@@ -313,6 +313,11 @@ ARG GIT_COMMIT
 ARG SOURCE_HASH
 ARG RANDOM_BUILD_ID
 
+# Build metadata labels (fallback if version.json is unavailable/unknown)
+LABEL org.opencontainers.image.revision=$GIT_COMMIT \
+      org.opencontainers.image.created=$BUILD_DATE \
+      org.opencontainers.image.source_hash=$SOURCE_HASH
+
 # Copy built files from builder stage
 # Trunk.toml sets dist = "../_build/frontend-dist", so output is at _build/frontend-dist (relative to frontend/)
 # Since we're in /app/frontend when building, the output is at /app/_build/frontend-dist

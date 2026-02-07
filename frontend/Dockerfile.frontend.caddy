@@ -143,6 +143,11 @@ FROM caddy:2-alpine
 # Copy built files
 COPY --from=builder /app/_build/frontend-dist /usr/share/caddy
 
+# Build metadata labels (fallback if version.json is unavailable/unknown)
+LABEL org.opencontainers.image.revision=$GIT_COMMIT \
+      org.opencontainers.image.created=$BUILD_DATE \
+      org.opencontainers.image.source_hash=$SOURCE_HASH
+
 # Inject build metadata into version.json if present
 ARG BUILD_DATE
 ARG GIT_COMMIT
