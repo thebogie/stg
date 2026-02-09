@@ -62,7 +62,7 @@ export ARANGO_USERNAME="${ARANGO_USERNAME:-root}"
 export ARANGO_PASSWORD="${ARANGO_PASSWORD:-test}"
 export ARANGO_DB="${ARANGO_DB:-_system}"
 
-# Start containers
+# Start containers (deps first to avoid backend failing on missing DB)
 log_info "Starting production containers..."
 docker compose \
     --env-file "$ENV_FILE" \
@@ -72,7 +72,7 @@ docker compose \
 docker compose \
     --env-file "$ENV_FILE" \
     -f deploy/docker-compose.production.yml \
-    up -d
+    up -d arangodb redis
 
 wait_for_http() {
     local name="$1"
@@ -130,7 +130,18 @@ ensure_arango_database() {
 log_info "Waiting for services to be healthy..."
 wait_for_http "ArangoDB" "${ARANGO_URL}/_api/version" "${ARANGO_USERNAME}" "${ARANGO_PASSWORD}" 60
 ensure_arango_database "${ARANGO_DB}"
+
+docker compose \
+    --env-file "$ENV_FILE" \
+    -f deploy/docker-compose.production.yml \
+    up -d backend
+
 wait_for_http "Backend" "http://localhost:${BACKEND_PORT}/health" "" "" 60
+
+docker compose \
+    --env-file "$ENV_FILE" \
+    -f deploy/docker-compose.production.yml \
+    up -d frontend
 
 # Load prod data if requested
 if [[ "$*" == *"--load-prod-data"* ]]; then
