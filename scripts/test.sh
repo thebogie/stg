@@ -99,9 +99,37 @@ wait_for_http() {
     return 1
 }
 
+# Ensure required database exists (prevents backend crash on startup)
+ensure_arango_database() {
+    local db_name="$1"
+    local list_json=""
+    list_json=$(curl -s -u "${ARANGO_USERNAME}:${ARANGO_PASSWORD}" "${ARANGO_URL}/_api/database" || true)
+    if echo "$list_json" | grep -q "\"${db_name}\""; then
+        log_success "ArangoDB database exists: ${db_name}"
+        return 0
+    fi
+
+    log_info "Creating ArangoDB database: ${db_name}"
+    local code=""
+    code=$(curl -s -o /dev/null -w "%{http_code}" \
+        -u "${ARANGO_USERNAME}:${ARANGO_PASSWORD}" \
+        -H "Content-Type: application/json" \
+        -d "{\"name\":\"${db_name}\"}" \
+        "${ARANGO_URL}/_api/database" || true)
+
+    if [ "$code" = "201" ] || [ "$code" = "409" ]; then
+        log_success "ArangoDB database ready: ${db_name} (status ${code})"
+        return 0
+    fi
+
+    log_error "Failed to create ArangoDB database '${db_name}' (status ${code})"
+    return 1
+}
+
 # Wait for services (explicit checks avoid early exit)
 log_info "Waiting for services to be healthy..."
 wait_for_http "ArangoDB" "${ARANGO_URL}/_api/version" "${ARANGO_USERNAME}" "${ARANGO_PASSWORD}" 60
+ensure_arango_database "${ARANGO_DB}"
 wait_for_http "Backend" "http://localhost:${BACKEND_PORT}/health" "" "" 60
 
 # Load prod data if requested
