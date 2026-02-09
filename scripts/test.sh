@@ -45,40 +45,7 @@ export ENV_FILE
 export IMAGE_TAG="$VERSION_TAG"
 export FRONTEND_IMAGE_TAG="$VERSION_TAG"
 
-# Start containers
-log_info "Starting production containers..."
-docker compose \
-    --env-file "$ENV_FILE" \
-    -f deploy/docker-compose.production.yml \
-    down 2>/dev/null || true
-
-docker compose \
-    --env-file "$ENV_FILE" \
-    -f deploy/docker-compose.production.yml \
-    up -d
-
-# Wait for services
-log_info "Waiting for services to be healthy..."
-MAX_WAIT=120
-WAITED=0
-while [ $WAITED -lt $MAX_WAIT ]; do
-    if docker compose \
-        --env-file "$ENV_FILE" \
-        -f deploy/docker-compose.production.yml \
-        ps | grep -q "healthy\|running"; then
-        break
-    fi
-    sleep 2
-    WAITED=$((WAITED + 2))
-done
-
-# Load prod data if requested
-if [[ "$*" == *"--load-prod-data"* ]]; then
-    log_info "Loading production data..."
-    ./scripts/load-prod-data.sh || log_info "Data load skipped or failed"
-fi
-
-# Set test environment
+# Load production environment for port/config values used below
 source "$ENV_FILE"
 FRONTEND_PORT="${FRONTEND_PORT:-50003}"
 BACKEND_PORT="${BACKEND_PORT:-50002}"
@@ -94,6 +61,54 @@ export ARANGO_URL="http://localhost:${ARANGODB_PORT}"
 export ARANGO_USERNAME="${ARANGO_USERNAME:-root}"
 export ARANGO_PASSWORD="${ARANGO_PASSWORD:-test}"
 export ARANGO_DB="${ARANGO_DB:-_system}"
+
+# Start containers
+log_info "Starting production containers..."
+docker compose \
+    --env-file "$ENV_FILE" \
+    -f deploy/docker-compose.production.yml \
+    down 2>/dev/null || true
+
+docker compose \
+    --env-file "$ENV_FILE" \
+    -f deploy/docker-compose.production.yml \
+    up -d
+
+wait_for_http() {
+    local name="$1"
+    local url="$2"
+    local auth_user="${3:-}"
+    local auth_pass="${4:-}"
+    local max_wait="${5:-60}"
+    local waited=0
+    while [ "$waited" -lt "$max_wait" ]; do
+        local code=""
+        if [ -n "$auth_user" ]; then
+            code=$(curl -s -o /dev/null -w "%{http_code}" -u "${auth_user}:${auth_pass}" "$url" || true)
+        else
+            code=$(curl -s -o /dev/null -w "%{http_code}" "$url" || true)
+        fi
+        if [ "$code" = "200" ] || [ "$code" = "401" ]; then
+            log_success "$name is responding ($code)"
+            return 0
+        fi
+        sleep 2
+        waited=$((waited + 2))
+    done
+    log_error "$name not ready after ${max_wait}s: $url"
+    return 1
+}
+
+# Wait for services (explicit checks avoid early exit)
+log_info "Waiting for services to be healthy..."
+wait_for_http "ArangoDB" "${ARANGO_URL}/_api/version" "${ARANGO_USERNAME}" "${ARANGO_PASSWORD}" 60
+wait_for_http "Backend" "http://localhost:${BACKEND_PORT}/health" "" "" 60
+
+# Load prod data if requested
+if [[ "$*" == *"--load-prod-data"* ]]; then
+    log_info "Loading production data..."
+    ./scripts/load-prod-data.sh || log_info "Data load skipped or failed"
+fi
 
 mkdir -p "$PROJECT_ROOT/_build/test-results"
 
