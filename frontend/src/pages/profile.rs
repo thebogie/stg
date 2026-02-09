@@ -1037,10 +1037,8 @@ pub fn profile_page(_props: &ProfilePageProps) -> Html {
                         }
                     }
                     Err(e) => {
-                        glicko_leaderboard_error.set(Some(format!(
-                            "Failed to fetch Glicko2 leaderboard: {}",
-                            e
-                        )));
+                        glicko_leaderboard_error
+                            .set(Some(format!("Failed to fetch Glicko2 leaderboard: {}", e)));
                     }
                 }
                 glicko_leaderboard_loading.set(false);

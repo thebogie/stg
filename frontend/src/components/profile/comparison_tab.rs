@@ -95,10 +95,7 @@ pub fn comparison_tab(props: &ComparisonTabProps) -> Html {
                     }
                     Err(e) => {
                         chart_data.set(None);
-                        chart_error.set(Some(format!(
-                            "Failed to fetch comparison chart: {}",
-                            e
-                        )));
+                        chart_error.set(Some(format!("Failed to fetch comparison chart: {}", e)));
                     }
                 }
 
