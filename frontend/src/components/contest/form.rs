@@ -73,7 +73,6 @@ fn format_utc_offset_label(offset_seconds: i32) -> String {
 pub fn contest_form(props: &ContestFormProps) -> Html {
     let props = props.clone();
     let is_submitting = use_state(|| false);
-    let show_validation_modal = use_state(|| false);
 
     // Reset is_submitting state when component mounts or becomes visible again
     // This fixes the bug where the button stays spinning after returning from confirmation modal
@@ -427,61 +426,74 @@ pub fn contest_form(props: &ContestFormProps) -> Html {
         }
     });
 
-    let on_close_validation_modal = {
-        let show_validation_modal = show_validation_modal.clone();
-        Callback::from(move |_| {
-            show_validation_modal.set(false);
-        })
+    let (
+        venue_missing,
+        venue_invalid_id,
+        games_missing,
+        invalid_game_indices,
+        outcomes_missing,
+        invalid_outcome_indices,
+        stop_before_start,
+    ) = {
+        let venue_missing = props.venue.is_none();
+        let venue_invalid_id = props.venue.as_ref().is_some_and(|venue| {
+            venue.source == shared::models::venue::VenueSource::Database
+                && (venue.id.is_empty() || !venue.id.starts_with("venue/"))
+        });
+        let games_missing = props.games.is_empty();
+        let invalid_game_indices: Vec<usize> = props
+            .games
+            .iter()
+            .enumerate()
+            .filter_map(|(i, game)| {
+                if game.id.is_empty()
+                    || (!game.id.starts_with("game/") && !game.id.starts_with("bgg_"))
+                {
+                    Some(i)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let outcomes_missing = props.outcomes.is_empty();
+        let invalid_outcome_indices: Vec<usize> = props
+            .outcomes
+            .iter()
+            .enumerate()
+            .filter_map(|(i, outcome)| {
+                if !outcome.player_id.is_empty() && !outcome.player_id.starts_with("player/") {
+                    Some(i)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let stop_before_start = props.stop <= props.start;
+
+        (
+            venue_missing,
+            venue_invalid_id,
+            games_missing,
+            invalid_game_indices,
+            outcomes_missing,
+            invalid_outcome_indices,
+            stop_before_start,
+        )
     };
+    let is_form_valid = !venue_missing
+        && !venue_invalid_id
+        && !games_missing
+        && invalid_game_indices.is_empty()
+        && !outcomes_missing
+        && invalid_outcome_indices.is_empty()
+        && !stop_before_start;
 
     let on_submit = {
         let props = props.clone();
         let is_submitting = is_submitting.clone();
-        let show_validation_modal = show_validation_modal.clone();
         Callback::from(move |e: SubmitEvent| {
             e.prevent_default();
-            if !*is_submitting {
-                // Check for validation errors and show modal if needed
-                let mut has_errors = false;
-
-                // Basic validation
-                if props.venue.is_none()
-                    || props.games.is_empty()
-                    || props.outcomes.is_empty()
-                    || props.stop <= props.start
-                {
-                    has_errors = true;
-                }
-
-                // Detailed ID validation
-                if let Some(venue) = &props.venue {
-                    if venue.source == shared::models::venue::VenueSource::Database {
-                        if venue.id.is_empty() || !venue.id.starts_with("venue/") {
-                            has_errors = true;
-                        }
-                    }
-                }
-
-                for game in &props.games {
-                    if game.id.is_empty()
-                        || (!game.id.starts_with("game/") && !game.id.starts_with("bgg_"))
-                    {
-                        has_errors = true;
-                    }
-                }
-
-                for outcome in &props.outcomes {
-                    // Allow empty player_id for new players, but check format for existing players
-                    if !outcome.player_id.is_empty() && !outcome.player_id.starts_with("player/") {
-                        has_errors = true;
-                    }
-                }
-
-                if has_errors {
-                    show_validation_modal.set(true);
-                    return;
-                }
-
+            if !*is_submitting && is_form_valid {
                 is_submitting.set(true);
                 props.on_submit.emit(());
             }
@@ -517,6 +529,13 @@ pub fn contest_form(props: &ContestFormProps) -> Html {
                         on_venue_select={props.on_venue_select.clone()}
                         initial_venue={props.venue.clone()}
                     />
+                    if venue_missing {
+                        <p class="mt-2 text-sm text-red-600">{"Select a venue to continue."}</p>
+                    } else if venue_invalid_id {
+                        <p class="mt-2 text-sm text-red-600">
+                            {"Selected venue is missing an ID. Please re-select it."}
+                        </p>
+                    }
                 </div>
 
                 // Time and Date Section (after venue)
@@ -567,6 +586,11 @@ pub fn contest_form(props: &ContestFormProps) -> Html {
                             />
                         </div>
                     </div>
+                    if stop_before_start {
+                        <p class="mt-3 text-sm text-red-600">
+                            {"End date/time must be after start date/time."}
+                        </p>
+                    }
 
                     // Timezone display removed per requirements; venue timezone is used implicitly
                 </div>
@@ -582,6 +606,21 @@ pub fn contest_form(props: &ContestFormProps) -> Html {
                         on_games_change={props.on_games_change.clone()}
                         preload_last={true}
                     />
+                    if games_missing {
+                        <p class="mt-2 text-sm text-red-600">{"Select at least one game."}</p>
+                    }
+                    if !invalid_game_indices.is_empty() {
+                        <p class="mt-2 text-sm text-red-600">
+                            {format!(
+                                "One or more selected games are missing IDs ({}). Re-select them.",
+                                invalid_game_indices
+                                    .iter()
+                                    .map(|i| format!("#{}", i + 1))
+                                    .collect::<Vec<String>>()
+                                    .join(", ")
+                            )}
+                        </p>
+                    }
                 </div>
 
                 // Outcomes Section
@@ -593,13 +632,30 @@ pub fn contest_form(props: &ContestFormProps) -> Html {
                     <OutcomeSelector
                         on_outcomes_change={props.on_outcomes_change.clone()}
                     />
+                    if outcomes_missing {
+                        <p class="mt-2 text-sm text-red-600">
+                            {"Add at least one player outcome."}
+                        </p>
+                    }
+                    if !invalid_outcome_indices.is_empty() {
+                        <p class="mt-2 text-sm text-red-600">
+                            {format!(
+                                "One or more players have invalid IDs ({}). Re-select them.",
+                                invalid_outcome_indices
+                                    .iter()
+                                    .map(|i| format!("#{}", i + 1))
+                                    .collect::<Vec<String>>()
+                                    .join(", ")
+                            )}
+                        </p>
+                    }
                 </div>
 
                 // Submit Button
                 <div class="flex justify-center pt-4 sm:pt-6">
                     <button
                         type="submit"
-                        disabled={props.locked || *is_submitting}
+                        disabled={props.locked || *is_submitting || !is_form_valid}
                         class="w-full sm:w-auto inline-flex items-center justify-center px-8 py-4 text-lg font-semibold text-white bg-gradient-to-r from-blue-600 to-indigo-600 rounded-xl shadow-mobile-medium hover:shadow-mobile-strong transform hover:-translate-y-1 transition-all duration-200 active:scale-95 min-h-[56px] disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
                     >
                         if *is_submitting {
@@ -612,90 +668,6 @@ pub fn contest_form(props: &ContestFormProps) -> Html {
                     </button>
                 </div>
             </form>
-
-            // Validation Error Modal
-            if *show_validation_modal {
-                <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-                    <div class="bg-white rounded-xl shadow-xl max-w-md w-full p-6">
-                        <div class="flex items-center mb-4">
-                            <span class="text-red-500 text-2xl mr-3">{"⚠️"}</span>
-                            <h3 class="text-lg font-semibold text-gray-900">{"Validation Errors"}</h3>
-                        </div>
-                        <div class="text-gray-700 mb-6">
-                            <p class="mb-3">{"Please fix the following issues:"}</p>
-                            <ul class="space-y-2 text-sm">
-                                if props.venue.is_none() {
-                                    <li class="flex items-start">
-                                        <span class="text-red-500 mr-2">{"•"}</span>
-                                        {"Select a venue for the contest"}
-                                    </li>
-                                }
-                                if let Some(venue) = &props.venue {
-                                    if venue.source == shared::models::venue::VenueSource::Database {
-                                        if venue.id.is_empty() || !venue.id.starts_with("venue/") {
-                                            <li class="flex items-start">
-                                                <span class="text-red-500 mr-2">{"•"}</span>
-                                                {"Selected venue has no ID - please search and select a venue again"}
-                                            </li>
-                                        }
-                                    }
-                                }
-                                if props.games.is_empty() {
-                                    <li class="flex items-start">
-                                        <span class="text-red-500 mr-2">{"•"}</span>
-                                        {"Select at least one game for the contest"}
-                                    </li>
-                                }
-                                {props.games.iter().enumerate().filter_map(|(i, game)| {
-                                    if game.id.is_empty() || (!game.id.starts_with("game/") && !game.id.starts_with("bgg_")) {
-                                        Some(html! {
-                                            <li class="flex items-start">
-                                                <span class="text-red-500 mr-2">{"•"}</span>
-                                                {format!("Game {} has no ID - please search and select games again", i + 1)}
-                                            </li>
-                                        })
-                                    } else {
-                                        None
-                                    }
-                                }).collect::<Html>()}
-                                if props.outcomes.is_empty() {
-                                    <li class="flex items-start">
-                                        <span class="text-red-500 mr-2">{"•"}</span>
-                                        {"Add at least one player outcome"}
-                                    </li>
-                                }
-                                {props.outcomes.iter().enumerate().filter_map(|(i, outcome)| {
-                                    // Allow empty player_id for new players, but check format for existing players
-                                    if !outcome.player_id.is_empty() && !outcome.player_id.starts_with("player/") {
-                                        Some(html! {
-                                            <li class="flex items-start">
-                                                <span class="text-red-500 mr-2">{"•"}</span>
-                                                {format!("Player {} has invalid ID format - please search and select players again", i + 1)}
-                                            </li>
-                                        })
-                                    } else {
-                                        None
-                                    }
-                                }).collect::<Html>()}
-                                if props.stop <= props.start {
-                                    <li class="flex items-start">
-                                        <span class="text-red-500 mr-2">{"•"}</span>
-                                        {"End date/time must be after start date/time"}
-                                    </li>
-                                }
-                            </ul>
-                        </div>
-                        <div class="flex justify-end">
-                            <button
-                                onclick={on_close_validation_modal}
-                                class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors duration-200"
-                            >
-                                {"OK"}
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            }
         </div>
     }
 }
