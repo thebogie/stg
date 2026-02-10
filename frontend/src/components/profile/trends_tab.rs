@@ -175,6 +175,44 @@ pub fn trends_tab(props: &TrendsTabProps) -> Html {
                             </select>
                         </div>
                     </div>
+                    <div class="mt-3 flex flex-wrap items-center gap-2">
+                        <span class="text-xs text-gray-500">{"Active filters:"}</span>
+                        <span class="inline-flex items-center rounded-full bg-gray-200 px-2 py-0.5 text-xs text-gray-700">
+                            {time_range_label}
+                        </span>
+                        {selected_game_label.clone().map(|label| html! {
+                            <span class="inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-xs text-blue-800">
+                                {format!("Game: {}", label)}
+                            </span>
+                        }).unwrap_or_else(|| html! {})}
+                        {selected_venue_label.clone().map(|label| html! {
+                            <span class="inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-xs text-green-800">
+                                {format!("Venue: {}", label)}
+                            </span>
+                        }).unwrap_or_else(|| html! {})}
+                        {if props.selected_game_id.is_some()
+                            || props.selected_venue_id.is_some()
+                            || *time_range != 6 {
+                            let on_game_change = props.on_game_change.clone();
+                            let on_venue_change = props.on_venue_change.clone();
+                            let time_range = time_range.clone();
+                            html! {
+                                <button
+                                    class="ml-auto inline-flex items-center rounded-md border border-gray-300 bg-white px-2 py-1 text-xs text-gray-600 hover:bg-gray-50"
+                                    onclick={Callback::from(move |_| {
+                                        time_range.set(6);
+                                        on_game_change.emit(None);
+                                        on_venue_change.emit(None);
+                                    })}
+                                    type="button"
+                                >
+                                    {"Reset filters"}
+                                </button>
+                            }
+                        } else {
+                            html! {}
+                        }}
+                    </div>
                     {if props.trends_error.is_some() {
                         html! {
                             <p class="text-xs text-red-600 mt-2">{props.trends_error.clone().unwrap_or_default()}</p>
