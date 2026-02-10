@@ -828,9 +828,21 @@ fn generate_radar_chart_html(chart_data: &ChartData) -> String {
                 } else {
                     "middle"
                 };
+                let tooltip = match axis_labels[i].as_str() {
+                    "Win Rate" => "Share of contests you won.",
+                    "Skill Rating" => "Normalized skill rating (Glicko2).",
+                    "Total Contests" => "Normalized total contests played.",
+                    "Best Placement" => "Best finish (1st = 100%).",
+                    "Longest Streak" => "Best consecutive win streak.",
+                    _ => "Metric detail.",
+                };
                 format!(
-                    r#"<text x="{}" y="{}" text-anchor="{}" class="radar-axis-label">{}</text>"#,
-                    x, y, anchor, axis_labels[i]
+                    r#"<text x="{}" y="{}" text-anchor="{}" class="radar-axis-label"><title>{}</title>{}</text>"#,
+                    x,
+                    y,
+                    anchor,
+                    escape_html(tooltip),
+                    axis_labels[i]
                 )
             })
             .collect();
@@ -856,9 +868,11 @@ fn generate_radar_chart_html(chart_data: &ChartData) -> String {
                         format!("{},{}", cx + r * angle.cos(), cy + r * angle.sin())
                     })
                     .collect();
+                let series_id = format!("series-{}", i);
                 format!(
-                    r#"<polygon points="{}" fill="{}" fill-opacity="0.2" stroke="{}" stroke-width="2"/>"#,
+                    r#"<polygon points="{}" data-radar-series="{}" opacity="0.6" fill="{}" fill-opacity="0.2" stroke="{}" stroke-width="2"/>"#,
                     points.join(" "),
+                    series_id,
                     color,
                     color
                 )
@@ -875,8 +889,11 @@ fn generate_radar_chart_html(chart_data: &ChartData) -> String {
                     .clone()
                     .or_else(|| colors.get(i % colors.len()).cloned())
                     .unwrap_or(default_color);
+                let series_id = format!("series-{}", i);
                 format!(
-                    r#"<div class="legend-item"><span class="legend-color" style="background-color: {}"></span><span class="legend-label">{}</span></div>"#,
+                    r#"<div class="legend-item" data-radar-legend="{}" onmouseenter="document.querySelectorAll('[data-radar-series]').forEach(e=>e.setAttribute('opacity','0.15')); document.querySelectorAll('[data-radar-series=&quot;{}&quot;]').forEach(e=>e.setAttribute('opacity','0.9'));" onmouseleave="document.querySelectorAll('[data-radar-series]').forEach(e=>e.setAttribute('opacity','0.6'));"><span class="legend-color" style="background-color: {}"></span><span class="legend-label">{}</span></div>"#,
+                    series_id,
+                    series_id,
                     color,
                     escape_html(&series.name)
                 )

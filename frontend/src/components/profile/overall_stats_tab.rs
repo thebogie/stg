@@ -45,6 +45,51 @@ pub fn overall_stats_tab(props: &OverallStatsTabProps) -> Html {
                 </div>
             </div>
 
+            // Performance Summary (compact)
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div class="bg-white rounded-lg border border-gray-100 p-4">
+                    <p class="text-xs font-medium text-gray-500">{"Win Rate"}</p>
+                    <p class="text-xl font-semibold text-gray-900">
+                        {if let Some(stats) = &core_stats {
+                            format!("{:.1}%", stats.win_rate)
+                        } else {
+                            "0.0%".to_string()
+                        }}
+                    </p>
+                </div>
+                <div class="bg-white rounded-lg border border-gray-100 p-4">
+                    <p class="text-xs font-medium text-gray-500">{"Avg Placement"}</p>
+                    <p class="text-xl font-semibold text-gray-900">
+                        {if let Some(stats) = &core_stats {
+                            format!("{:.1}", stats.average_placement)
+                        } else {
+                            "0.0".to_string()
+                        }}
+                    </p>
+                </div>
+                <div class="bg-white rounded-lg border border-gray-100 p-4">
+                    <p class="text-xs font-medium text-gray-500">{"Streaks"}</p>
+                    <p class="text-xl font-semibold text-gray-900">
+                        {if let Some(stats) = &core_stats {
+                            format!("{} / {}", stats.current_streak, stats.longest_streak)
+                        } else {
+                            "0 / 0".to_string()
+                        }}
+                    </p>
+                    <p class="text-xs text-gray-500">{"current / longest"}</p>
+                </div>
+                <div class="bg-white rounded-lg border border-gray-100 p-4">
+                    <p class="text-xs font-medium text-gray-500">{"Contests"}</p>
+                    <p class="text-xl font-semibold text-gray-900">
+                        {if let Some(stats) = &core_stats {
+                            stats.total_contests.to_string()
+                        } else {
+                            "0".to_string()
+                        }}
+                    </p>
+                </div>
+            </div>
+
             // Core Performance Metrics
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 // Total Contests

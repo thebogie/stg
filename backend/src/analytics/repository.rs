@@ -1983,9 +1983,10 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
                 // Get contest data for this specific month
                 LET month_data = (
                     FOR result IN resulted_in
-                    FILTER result._to == @player_id
+                    FILTER result._to == @player_id OR result._to == @player_key OR LIKE(result._to, CONCAT('%', @player_key))
                     LET contest = DOCUMENT(result._from)
-                    LET contest_month = CONCAT(DATE_YEAR(contest.start), '-', DATE_MONTH(contest.start) < 10 ? CONCAT('0', DATE_MONTH(contest.start)) : TO_STRING(DATE_MONTH(contest.start)))
+                    LET contest_start = contest.start != null ? contest.start : DATE_NOW()
+                    LET contest_month = CONCAT(DATE_YEAR(contest_start), '-', DATE_MONTH(contest_start) < 10 ? CONCAT('0', DATE_MONTH(contest_start)) : TO_STRING(DATE_MONTH(contest_start)))
                     FILTER contest_month == month_key
                     RETURN { result: result, contest: contest }
                 )
@@ -2021,6 +2022,8 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
             "player_id",
             serde_json::Value::String(player_id.to_string()),
         );
+        let player_key = player_id.split('/').last().unwrap_or(player_id).to_string();
+        bind_vars.insert("player_key", serde_json::Value::String(player_key));
 
         let aql = AqlQuery::builder()
             .query(query)

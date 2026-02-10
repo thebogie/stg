@@ -1,6 +1,7 @@
 use crate::api::utils::authenticated_get;
 use crate::auth::AuthContext;
 use crate::components::chart_renderer::ChartRenderer;
+use js_sys::Date;
 use serde_json::Value;
 use wasm_bindgen_futures::spawn_local;
 use yew::prelude::*;
@@ -12,6 +13,7 @@ pub fn comparison_tab() -> Html {
     let chart_data = use_state(|| None::<String>);
     let chart_loading = use_state(|| false);
     let chart_error = use_state(|| None::<String>);
+    let last_updated = use_state(|| None::<String>);
     let leaderboard = use_state(|| None::<Vec<Value>>);
     let leaderboard_loading = use_state(|| false);
     let leaderboard_error = use_state(|| None::<String>);
@@ -91,6 +93,7 @@ pub fn comparison_tab() -> Html {
         let chart_data = chart_data.clone();
         let chart_loading = chart_loading.clone();
         let chart_error = chart_error.clone();
+        let last_updated = last_updated.clone();
         let ids = ids.clone();
 
         use_effect_with(ids, move |ids| -> Box<dyn FnOnce()> {
@@ -100,6 +103,7 @@ pub fn comparison_tab() -> Html {
                 chart_data.set(None);
                 chart_error.set(None);
                 chart_loading.set(false);
+                last_updated.set(None);
                 return Box::new(|| ());
             }
 
@@ -116,7 +120,11 @@ pub fn comparison_tab() -> Html {
                     Ok(response) => {
                         if response.ok() {
                             match response.text().await {
-                                Ok(chart_json) => chart_data.set(Some(chart_json)),
+                                Ok(chart_json) => {
+                                    chart_data.set(Some(chart_json));
+                                    last_updated
+                                        .set(Some(Date::new_0().to_iso_string().as_string().unwrap_or_default()));
+                                }
                                 Err(e) => {
                                     chart_data.set(None);
                                     chart_error
@@ -129,11 +137,13 @@ pub fn comparison_tab() -> Html {
                                 "Comparison chart request failed: {}",
                                 response.status()
                             )));
+                            last_updated.set(None);
                         }
                     }
                     Err(e) => {
                         chart_data.set(None);
                         chart_error.set(Some(format!("Failed to fetch comparison chart: {}", e)));
+                        last_updated.set(None);
                     }
                 }
 
@@ -164,9 +174,15 @@ pub fn comparison_tab() -> Html {
         }
     } else {
         let compare_count = ids.len().saturating_sub(1);
+        let updated_text = if let Some(updated_at) = last_updated.as_ref() {
+            format!("Last updated: {}", updated_at)
+        } else {
+            "Last updated: just now".to_string()
+        };
         html! {
             <div class="mb-4 p-3 bg-blue-50 rounded text-sm text-blue-800">
-                {format!("Comparing you to {} top players from the global leaderboard.", compare_count)}
+                <div>{format!("Comparing you to {} top players from the global leaderboard.", compare_count)}</div>
+                <div class="text-xs text-blue-700 mt-1">{updated_text}</div>
             </div>
         }
     };

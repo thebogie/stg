@@ -14,7 +14,7 @@ dist = "../_build/frontend-dist"  # All generated objects in _build/
 # Serve static files
 [serve]
 addresses = ["0.0.0.0"]  # Replace deprecated 'address'
-port = 50003
+port = 50013
 open = false
 
 # Pass environment variables to the build process
@@ -35,5 +35,5 @@ cargo = true
 
 [[proxy]]
 rewrite = "/api/"
-backend = "http://localhost:50002/api/" 
+backend = "http://localhost:50012/api/" 
 

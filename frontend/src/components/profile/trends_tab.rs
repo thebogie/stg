@@ -9,6 +9,16 @@ pub struct TrendsTabProps {
 
 #[function_component(TrendsTab)]
 pub fn trends_tab(props: &TrendsTabProps) -> Html {
+    let time_range = use_state(|| 6usize);
+
+    let filtered_trends: Option<Vec<PerformanceTrend>> = props.performance_trends.as_ref().map(|trends| {
+        if *time_range == 0 || trends.len() <= *time_range {
+            trends.clone()
+        } else {
+            trends.iter().rev().take(*time_range).cloned().collect::<Vec<_>>().into_iter().rev().collect()
+        }
+    });
+
     html! {
         <div class="space-y-6">
             <div class="bg-white shadow rounded-lg p-6">
@@ -19,7 +29,49 @@ pub fn trends_tab(props: &TrendsTabProps) -> Html {
                     </p>
                 </div>
 
-                {if let Some(trends) = &props.performance_trends {
+                <div class="bg-gray-50 rounded-lg p-4 mb-6">
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div>
+                            <label class="block text-xs font-medium text-gray-500 mb-1">{"Time Range"}</label>
+                            <select
+                                class="w-full border border-gray-200 rounded-md px-2 py-1 text-sm"
+                                value={time_range.to_string()}
+                                onchange={{
+                                    let time_range = time_range.clone();
+                                    Callback::from(move |event: Event| {
+                                        let value = event
+                                            .target_unchecked_into::<web_sys::HtmlSelectElement>()
+                                            .value();
+                                        let parsed = value.parse::<usize>().unwrap_or(6);
+                                        time_range.set(parsed);
+                                    })
+                                }}
+                            >
+                                <option value="3">{"Last 3 months"}</option>
+                                <option value="6">{"Last 6 months"}</option>
+                                <option value="12">{"Last 12 months"}</option>
+                                <option value="0">{"All time"}</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-gray-500 mb-1">{"Game"}</label>
+                            <select class="w-full border border-gray-200 rounded-md px-2 py-1 text-sm" disabled={true}>
+                                <option>{"All games (coming soon)"}</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-gray-500 mb-1">{"Venue"}</label>
+                            <select class="w-full border border-gray-200 rounded-md px-2 py-1 text-sm" disabled={true}>
+                                <option>{"All venues (coming soon)"}</option>
+                            </select>
+                        </div>
+                    </div>
+                    <p class="text-xs text-gray-500 mt-2">
+                        {"Game and venue filters will be enabled once per-game and per-venue trend data is available."}
+                    </p>
+                </div>
+
+                {if let Some(trends) = &filtered_trends {
                     if trends.is_empty() {
                         html! {
                             <div class="text-center py-8">
@@ -65,6 +117,43 @@ pub fn trends_tab(props: &TrendsTabProps) -> Html {
                                         }
                                     } else { html! {} }}
                                 </div>
+
+                                // Compare to previous period
+                                {if *time_range > 0 && trends.len() >= *time_range * 2 {
+                                    let recent_slice: Vec<_> = trends.iter().rev().take(*time_range).collect();
+                                    let previous_slice: Vec<_> = trends.iter().rev().skip(*time_range).take(*time_range).collect();
+                                    let recent_avg_win = recent_slice.iter().map(|t| t.win_rate).sum::<f64>() / recent_slice.len() as f64;
+                                    let prev_avg_win = previous_slice.iter().map(|t| t.win_rate).sum::<f64>() / previous_slice.len() as f64;
+                                    let recent_avg_place = recent_slice.iter().map(|t| t.average_placement).sum::<f64>() / recent_slice.len() as f64;
+                                    let prev_avg_place = previous_slice.iter().map(|t| t.average_placement).sum::<f64>() / previous_slice.len() as f64;
+                                    let recent_contests = recent_slice.iter().map(|t| t.contests_played).sum::<i32>();
+                                    let prev_contests = previous_slice.iter().map(|t| t.contests_played).sum::<i32>();
+                                    html! {
+                                        <div class="bg-white border rounded-lg p-4">
+                                            <h3 class="text-sm font-semibold text-gray-900 mb-2">{"Compare to Previous Period"}</h3>
+                                            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                                                <div>
+                                                    <div class="text-gray-500">{"Win Rate"}</div>
+                                                    <div class="font-medium text-gray-900">
+                                                        {format!("{:.1}% ({:+.1}%)", recent_avg_win, recent_avg_win - prev_avg_win)}
+                                                    </div>
+                                                </div>
+                                                <div>
+                                                    <div class="text-gray-500">{"Avg Placement"}</div>
+                                                    <div class="font-medium text-gray-900">
+                                                        {format!("{:.1} ({:+.1})", recent_avg_place, recent_avg_place - prev_avg_place)}
+                                                    </div>
+                                                </div>
+                                                <div>
+                                                    <div class="text-gray-500">{"Contests"}</div>
+                                                    <div class="font-medium text-gray-900">
+                                                        {format!("{} ({:+})", recent_contests, recent_contests - prev_contests)}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    }
+                                } else { html! {} }}
 
                                 // Win Rate Trend Chart
                                 <div class="bg-white border rounded-lg p-6">
