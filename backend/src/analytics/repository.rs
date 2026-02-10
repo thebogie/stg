@@ -2000,6 +2000,8 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
                 LET month_key = CONCAT(DATE_YEAR(month_date), '-', DATE_MONTH(month_date) < 10 ? CONCAT('0', DATE_MONTH(month_date)) : TO_STRING(DATE_MONTH(month_date)))
                 
                 // Get contest data for this specific month
+                LET selected_game = @game_id_full == null ? null : DOCUMENT(@game_id_full)
+                LET selected_venue = @venue_id_full == null ? null : DOCUMENT(@venue_id_full)
                 LET month_data = (
                     FOR result IN resulted_in
                     FILTER result._to == @player_id OR result._to == @player_key OR LIKE(result._to, CONCAT('%', @player_key))
@@ -2008,14 +2010,22 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
                     LET game_match = @game_id_full == null ? true : LENGTH(
                         FOR e IN played_with
                         FILTER e._from == contest._id
-                        FILTER e._to == @game_id_full OR e._to == CONCAT('game/', @game_key)
+                        LET game_doc = DOCUMENT(e._to)
+                        FILTER e._to == @game_id_full
+                            OR e._to == CONCAT('game/', @game_key)
+                            OR e._to == @game_key
+                            OR (game_doc != null && selected_game != null && game_doc.name == selected_game.name)
                         LIMIT 1
                         RETURN 1
                     ) > 0
                     LET venue_match = @venue_id_full == null ? true : LENGTH(
                         FOR e IN played_at
                         FILTER e._from == contest._id
-                        FILTER e._to == @venue_id_full OR e._to == CONCAT('venue/', @venue_key)
+                        LET venue_doc = DOCUMENT(e._to)
+                        FILTER e._to == @venue_id_full
+                            OR e._to == CONCAT('venue/', @venue_key)
+                            OR e._to == @venue_key
+                            OR (venue_doc != null && selected_venue != null && venue_doc.displayName == selected_venue.displayName)
                         LIMIT 1
                         RETURN 1
                     ) > 0

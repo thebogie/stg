@@ -20,6 +20,31 @@ pub struct TrendsTabProps {
 pub fn trends_tab(props: &TrendsTabProps) -> Html {
     let time_range = use_state(|| 6usize);
 
+    let selected_game_label = props.selected_game_id.as_ref().map(|id| {
+        props
+            .games
+            .as_ref()
+            .and_then(|games| {
+                games
+                    .iter()
+                    .find(|game| game.id == *id || game.id.ends_with(id))
+                    .map(|game| game.name.clone())
+            })
+            .unwrap_or_else(|| id.clone())
+    });
+    let selected_venue_label = props.selected_venue_id.as_ref().map(|id| {
+        props
+            .venues
+            .as_ref()
+            .and_then(|venues| {
+                venues
+                    .iter()
+                    .find(|venue| venue.id == *id || venue.id.ends_with(id))
+                    .map(|venue| venue.display_name.clone())
+            })
+            .unwrap_or_else(|| id.clone())
+    });
+
     let filtered_trends: Option<Vec<PerformanceTrend>> =
         props.performance_trends.as_ref().map(|trends| {
             if *time_range == 0 || trends.len() <= *time_range {
@@ -36,6 +61,26 @@ pub fn trends_tab(props: &TrendsTabProps) -> Html {
                     .collect()
             }
         });
+    let time_range_label = match *time_range {
+        3 => "Last 3 months",
+        6 => "Last 6 months",
+        12 => "Last 12 months",
+        _ => "All available (last 6 months)",
+    };
+    let sorted_games = props.games.as_ref().map(|games| {
+        let mut sorted = games.clone();
+        sorted.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+        sorted
+    });
+    let sorted_venues = props.venues.as_ref().map(|venues| {
+        let mut sorted = venues.clone();
+        sorted.sort_by(|a, b| {
+            a.display_name
+                .to_lowercase()
+                .cmp(&b.display_name.to_lowercase())
+        });
+        sorted
+    });
 
     html! {
         <div class="space-y-6">
@@ -68,7 +113,7 @@ pub fn trends_tab(props: &TrendsTabProps) -> Html {
                                 <option value="3">{"Last 3 months"}</option>
                                 <option value="6">{"Last 6 months"}</option>
                                 <option value="12">{"Last 12 months"}</option>
-                                <option value="0">{"All time"}</option>
+                                <option value="0">{"All available (last 6 months)"}</option>
                             </select>
                         </div>
                         <div>
@@ -91,7 +136,7 @@ pub fn trends_tab(props: &TrendsTabProps) -> Html {
                                 }}
                             >
                                 <option value="">{ "All games" }</option>
-                                {props.games.as_ref().map(|games| {
+                                {sorted_games.as_ref().map(|games| {
                                     games.iter().map(|game| {
                                         html! {
                                             <option value={game.id.clone()}>{game.name.clone()}</option>
@@ -120,7 +165,7 @@ pub fn trends_tab(props: &TrendsTabProps) -> Html {
                                 }}
                             >
                                 <option value="">{ "All venues" }</option>
-                                {props.venues.as_ref().map(|venues| {
+                                {sorted_venues.as_ref().map(|venues| {
                                     venues.iter().map(|venue| {
                                         html! {
                                             <option value={venue.id.clone()}>{venue.display_name.clone()}</option>
@@ -133,6 +178,17 @@ pub fn trends_tab(props: &TrendsTabProps) -> Html {
                     {if props.trends_error.is_some() {
                         html! {
                             <p class="text-xs text-red-600 mt-2">{props.trends_error.clone().unwrap_or_default()}</p>
+                        }
+                    } else {
+                        html! {}
+                    }}
+                    {if selected_game_label.is_some() || selected_venue_label.is_some() {
+                        let game_text = selected_game_label.clone().unwrap_or_else(|| "All games".to_string());
+                        let venue_text = selected_venue_label.clone().unwrap_or_else(|| "All venues".to_string());
+                        html! {
+                            <p class="text-xs text-gray-500 mt-2">
+                                {format!("Filters applied — Game: {}, Venue: {}", game_text, venue_text)}
+                            </p>
                         }
                     } else {
                         html! {}
@@ -155,12 +211,37 @@ pub fn trends_tab(props: &TrendsTabProps) -> Html {
                                     </svg>
                                 </div>
                                 <h3 class="text-lg font-medium text-gray-900 mb-2">{"No Trends Data Yet"}</h3>
-                                <p class="text-gray-500">{"Play more contests to see your performance trends!"}</p>
+                                <p class="text-gray-500">
+                                    {if selected_game_label.is_some() || selected_venue_label.is_some() {
+                                        "No contests match the selected filters."
+                                    } else {
+                                        "Play more contests to see your performance trends!"
+                                    }}
+                                </p>
                             </div>
                         }
                     } else {
+                        let total_contests: i32 = trends.iter().map(|t| t.contests_played).sum();
+                        let total_wins: i32 = trends.iter().map(|t| t.wins).sum();
+                        let avg_win_rate = if total_contests > 0 {
+                            (total_wins as f64 / total_contests as f64) * 100.0
+                        } else {
+                            0.0
+                        };
                         html! {
                             <div class="space-y-6">
+                                <div class="bg-white border rounded-lg p-4">
+                                    <div class="text-sm text-gray-600">
+                                        {format!(
+                                            "Filter summary — {} contests, {} wins, {:.1}% win rate across {} periods ({})",
+                                            total_contests,
+                                            total_wins,
+                                            avg_win_rate,
+                                            trends.len(),
+                                            time_range_label
+                                        )}
+                                    </div>
+                                </div>
                                 // Performance Overview Cards
                                 <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                                     {if let Some(latest_trend) = trends.iter().rev().find(|t| t.contests_played > 0) {

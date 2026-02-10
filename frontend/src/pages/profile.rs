@@ -15,7 +15,9 @@ use crate::components::profile::trends_tab::TrendsTab;
 use chrono::DateTime;
 use js_sys::encode_uri_component;
 use serde_json::Value;
-use shared::dto::analytics::{GamePerformanceDto, HeadToHeadRecordDto, PlayerOpponentDto};
+use shared::dto::analytics::{
+    GamePerformanceDto, HeadToHeadRecordDto, PerformanceTrendDto, PlayerOpponentDto,
+};
 use shared::models::client_analytics::{
     AnalyticsQuery, CoreStats, GamePerformance, PerformanceTrend,
 };
@@ -1076,8 +1078,21 @@ pub fn profile_page(_props: &ProfilePageProps) -> Html {
                     match authenticated_get(&url).send().await {
                         Ok(response) => {
                             if response.ok() {
-                                match response.json::<Vec<PerformanceTrend>>().await {
-                                    Ok(data) => performance_trends.set(Some(data)),
+                                match response.json::<Vec<PerformanceTrendDto>>().await {
+                                    Ok(data) => {
+                                        let mapped: Vec<PerformanceTrend> = data
+                                            .into_iter()
+                                            .map(|dto| PerformanceTrend {
+                                                period: dto.month,
+                                                contests_played: dto.contests_played,
+                                                wins: dto.wins,
+                                                win_rate: dto.win_rate,
+                                                average_placement: dto.average_placement,
+                                                skill_rating: dto.skill_rating,
+                                            })
+                                            .collect();
+                                        performance_trends.set(Some(mapped));
+                                    }
                                     Err(e) => trends_error
                                         .set(Some(format!("Failed to parse trends: {}", e))),
                                 }
