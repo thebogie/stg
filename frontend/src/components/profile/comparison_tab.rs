@@ -122,8 +122,12 @@ pub fn comparison_tab() -> Html {
                             match response.text().await {
                                 Ok(chart_json) => {
                                     chart_data.set(Some(chart_json));
-                                    last_updated
-                                        .set(Some(Date::new_0().to_iso_string().as_string().unwrap_or_default()));
+                                    last_updated.set(Some(
+                                        Date::new_0()
+                                            .to_iso_string()
+                                            .as_string()
+                                            .unwrap_or_default(),
+                                    ));
                                 }
                                 Err(e) => {
                                     chart_data.set(None);

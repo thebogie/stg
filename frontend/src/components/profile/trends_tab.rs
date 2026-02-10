@@ -11,13 +11,22 @@ pub struct TrendsTabProps {
 pub fn trends_tab(props: &TrendsTabProps) -> Html {
     let time_range = use_state(|| 6usize);
 
-    let filtered_trends: Option<Vec<PerformanceTrend>> = props.performance_trends.as_ref().map(|trends| {
-        if *time_range == 0 || trends.len() <= *time_range {
-            trends.clone()
-        } else {
-            trends.iter().rev().take(*time_range).cloned().collect::<Vec<_>>().into_iter().rev().collect()
-        }
-    });
+    let filtered_trends: Option<Vec<PerformanceTrend>> =
+        props.performance_trends.as_ref().map(|trends| {
+            if *time_range == 0 || trends.len() <= *time_range {
+                trends.clone()
+            } else {
+                trends
+                    .iter()
+                    .rev()
+                    .take(*time_range)
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .rev()
+                    .collect()
+            }
+        });
 
     html! {
         <div class="space-y-6">
