@@ -17,6 +17,34 @@ pub struct AnalyticsUseCase<C: ClientExt> {
 }
 
 impl<C: ClientExt> AnalyticsUseCase<C> {
+    fn normalize_player_id(player_id: &str) -> String {
+        if player_id.contains('/') {
+            player_id.to_string()
+        } else {
+            format!("player/{}", player_id)
+        }
+    }
+
+    fn default_player_stats(player_id: &str) -> PlayerStatsDto {
+        PlayerStatsDto {
+            player_id: player_id.to_string(),
+            player_handle: "Unknown".to_string(),
+            player_name: "Unknown Player".to_string(),
+            total_contests: 0,
+            total_wins: 0,
+            total_losses: 0,
+            win_rate: 0.0,
+            average_placement: 0.0,
+            best_placement: 0,
+            skill_rating: 1200.0,
+            rating_confidence: 0.0,
+            total_points: 0,
+            current_streak: 0,
+            longest_streak: 0,
+            last_updated: chrono::Utc::now().into(),
+        }
+    }
+
     /// Creates a new analytics use case
     pub fn new(repo: AnalyticsRepository<C>) -> Self {
         Self {
@@ -522,18 +550,47 @@ impl<C: ClientExt> AnalyticsUseCase<C> {
         let mut player_stats = Vec::new();
 
         for player_id in player_ids {
-            if let Ok(stats) = self
+            let normalized_id = Self::normalize_player_id(player_id);
+            match self
                 .get_player_stats(
-                    player_id,
+                    &normalized_id,
                     &PlayerStatsRequest {
-                        player_id: player_id.clone(),
+                        player_id: normalized_id.clone(),
                         include_achievements: false,
                         include_trends: false,
                     },
                 )
                 .await
             {
-                player_stats.push(stats);
+                Ok(mut stats) => {
+                    if stats.total_contests == 0 {
+                        if let Ok(Some((rating, rd, games_played))) =
+                            self.repo.get_player_rating_latest(&normalized_id).await
+                        {
+                            stats.skill_rating = rating;
+                            stats.rating_confidence = (350.0 - rd).max(0.0);
+                            stats.total_contests = games_played;
+                        }
+                    }
+                    if let Ok(Some(label)) =
+                        self.repo.get_player_display_label(&normalized_id).await
+                    {
+                        stats.player_handle = label.clone();
+                        stats.player_name = label;
+                    } else if stats.player_handle.is_empty() {
+                        stats.player_handle = normalized_id
+                            .split('/')
+                            .last()
+                            .unwrap_or("Unknown")
+                            .to_string();
+                        stats.player_name = stats.player_handle.clone();
+                    }
+                    player_stats.push(stats);
+                }
+                Err(e) => {
+                    log::warn!("Failed to load stats for {}: {}", normalized_id, e);
+                    player_stats.push(Self::default_player_stats(&normalized_id));
+                }
             }
         }
 

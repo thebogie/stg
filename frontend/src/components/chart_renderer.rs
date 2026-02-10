@@ -764,23 +764,158 @@ fn generate_scatter_chart_html(chart_data: &ChartData) -> String {
 }
 
 fn generate_radar_chart_html(chart_data: &ChartData) -> String {
-    let title = &chart_data.config.title;
+    let title = &escape_html(&chart_data.config.title);
+    let colors = &chart_data.config.colors;
 
-    format!(
-        r#"
+    if let Some(series_list) = &chart_data.data.multi_series {
+        if series_list.is_empty() {
+            return format!("<div class='chart-error'>No data available for radar chart</div>");
+        }
+
+        let axis_labels: Vec<String> = series_list[0]
+            .data
+            .iter()
+            .map(|p| escape_html(&p.label))
+            .collect();
+        let axis_count = axis_labels.len();
+        if axis_count == 0 {
+            return format!("<div class='chart-error'>No data available for radar chart</div>");
+        }
+
+        let width = chart_data.config.width as f64;
+        let height = chart_data.config.height as f64;
+        let cx = width / 2.0;
+        let cy = height / 2.0;
+        let radius = (width.min(height) * 0.35).max(1.0);
+        let angle_step = 2.0 * std::f64::consts::PI / axis_count as f64;
+
+        let mut grid_html = String::new();
+        for level in 1..=5 {
+            let r = radius * (level as f64 / 5.0);
+            let points: Vec<String> = (0..axis_count)
+                .map(|i| {
+                    let angle = -std::f64::consts::PI / 2.0 + i as f64 * angle_step;
+                    format!("{},{}", cx + r * angle.cos(), cy + r * angle.sin())
+                })
+                .collect();
+            grid_html.push_str(&format!(
+                "<polygon points='{}' fill='none' stroke='#e5e7eb' stroke-width='1'/>",
+                points.join(" ")
+            ));
+        }
+
+        let axis_html: String = (0..axis_count)
+            .map(|i| {
+                let angle = -std::f64::consts::PI / 2.0 + i as f64 * angle_step;
+                let x = cx + radius * angle.cos();
+                let y = cy + radius * angle.sin();
+                format!(
+                    "<line x1='{}' y1='{}' x2='{}' y2='{}' stroke='#e5e7eb' stroke-width='1'/>",
+                    cx, cy, x, y
+                )
+            })
+            .collect();
+
+        let label_html: String = (0..axis_count)
+            .map(|i| {
+                let angle = -std::f64::consts::PI / 2.0 + i as f64 * angle_step;
+                let x = cx + (radius * 1.15) * angle.cos();
+                let y = cy + (radius * 1.15) * angle.sin();
+                let anchor = if angle.cos() > 0.2 {
+                    "start"
+                } else if angle.cos() < -0.2 {
+                    "end"
+                } else {
+                    "middle"
+                };
+                format!(
+                    r#"<text x="{}" y="{}" text-anchor="{}" class="radar-axis-label">{}</text>"#,
+                    x, y, anchor, axis_labels[i]
+                )
+            })
+            .collect();
+
+        let series_html: String = series_list
+            .iter()
+            .enumerate()
+            .map(|(i, series)| {
+                let default_color = "#3B82F6".to_string();
+                let color = series
+                    .color
+                    .clone()
+                    .or_else(|| colors.get(i % colors.len()).cloned())
+                    .unwrap_or(default_color);
+                let points: Vec<String> = series
+                    .data
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, point)| {
+                        let angle = -std::f64::consts::PI / 2.0 + idx as f64 * angle_step;
+                        let value = point.value.max(0.0).min(100.0) / 100.0;
+                        let r = radius * value;
+                        format!("{},{}", cx + r * angle.cos(), cy + r * angle.sin())
+                    })
+                    .collect();
+                format!(
+                    r#"<polygon points="{}" fill="{}" fill-opacity="0.2" stroke="{}" stroke-width="2"/>"#,
+                    points.join(" "),
+                    color,
+                    color
+                )
+            })
+            .collect();
+
+        let legend_html: String = series_list
+            .iter()
+            .enumerate()
+            .map(|(i, series)| {
+                let default_color = "#3B82F6".to_string();
+                let color = series
+                    .color
+                    .clone()
+                    .or_else(|| colors.get(i % colors.len()).cloned())
+                    .unwrap_or(default_color);
+                format!(
+                    r#"<div class="legend-item"><span class="legend-color" style="background-color: {}"></span><span class="legend-label">{}</span></div>"#,
+                    color,
+                    escape_html(&series.name)
+                )
+            })
+            .collect();
+
+        format!(
+            r#"
         <div class="chart-wrapper">
             <h3 class="chart-title">{}</h3>
             <div class="chart-content">
-                <div class="radar-chart-placeholder">
-                    <p>Radar chart visualization would be rendered here</p>
-                    <p>Chart data: {}</p>
+                <svg width="{}" height="{}" viewBox="0 0 {} {}">
+                    <g class="chart-area">
+                        {}
+                        {}
+                        {}
+                        {}
+                    </g>
+                </svg>
+                <div class="chart-legend">
+                    {}
                 </div>
             </div>
         </div>
         "#,
-        title,
-        serde_json::to_string_pretty(chart_data).unwrap_or_default()
-    )
+            title,
+            chart_data.config.width,
+            chart_data.config.height,
+            chart_data.config.width,
+            chart_data.config.height,
+            grid_html,
+            axis_html,
+            series_html,
+            label_html,
+            legend_html
+        )
+    } else {
+        format!("<div class='chart-error'>No data available for radar chart</div>")
+    }
 }
 
 fn generate_heatmap_chart_html(chart_data: &ChartData) -> String {

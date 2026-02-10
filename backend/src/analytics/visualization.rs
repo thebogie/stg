@@ -502,6 +502,11 @@ impl AnalyticsVisualization {
 
         for (index, player) in players.iter().take(5).enumerate() {
             // Compare top 5 players
+            let best_placement_value = if player.best_placement > 0 {
+                (1.0 / player.best_placement as f64) * 100.0
+            } else {
+                0.0
+            };
             let data_points = vec![
                 DataPoint {
                     label: "Win Rate".to_string(),
@@ -523,7 +528,7 @@ impl AnalyticsVisualization {
                 },
                 DataPoint {
                     label: "Best Placement".to_string(),
-                    value: (1.0 / player.best_placement as f64) * 100.0, // Invert so 1st = 100%
+                    value: best_placement_value, // Invert so 1st = 100%, avoid division by zero
                     color: None,
                     metadata: None,
                 },

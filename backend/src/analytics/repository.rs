@@ -815,15 +815,99 @@ mod tests {
 }
 
 impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
+    /// Get a display label for a player (handle -> email -> name)
+    pub async fn get_player_display_label(&self, player_id: &str) -> Result<Option<String>> {
+        let query = r#"
+            LET player = DOCUMENT(@player_id)
+            RETURN {
+                handle: player != null ? player.handle : null,
+                email: player != null ? player.email : null,
+                firstname: player != null ? player.firstname : null,
+                lastname: player != null ? player.lastname : null
+            }
+        "#;
+
+        let aql = AqlQuery::builder()
+            .query(query)
+            .bind_var("player_id", player_id)
+            .build();
+
+        match self.db.aql_query::<serde_json::Value>(aql).await {
+            Ok(mut results) => {
+                if let Some(row) = results.pop() {
+                    let handle = row.get("handle").and_then(|v| v.as_str());
+                    let email = row.get("email").and_then(|v| v.as_str());
+                    let firstname = row.get("firstname").and_then(|v| v.as_str());
+                    let lastname = row.get("lastname").and_then(|v| v.as_str());
+                    let name = match (firstname, lastname) {
+                        (Some(first), Some(last)) => Some(format!("{} {}", first, last)),
+                        (Some(first), None) => Some(first.to_string()),
+                        _ => None,
+                    };
+                    Ok(handle
+                        .map(|s| s.to_string())
+                        .or_else(|| email.map(|s| s.to_string()))
+                        .or(name))
+                } else {
+                    Ok(None)
+                }
+            }
+            Err(e) => Err(SharedError::Database(format!(
+                "Failed to query player display label: {}",
+                e
+            ))),
+        }
+    }
+
+    /// Get latest global rating info for a player
+    pub async fn get_player_rating_latest(
+        &self,
+        player_id: &str,
+    ) -> Result<Option<(f64, f64, i32)>> {
+        let query = r#"
+            FOR r IN rating_latest
+            FILTER r.player_id == @player_id AND r.scope_type == "global"
+            LIMIT 1
+            RETURN {
+                rating: r.rating,
+                rd: r.rd,
+                games_played: r.games_played
+            }
+        "#;
+
+        let aql = AqlQuery::builder()
+            .query(query)
+            .bind_var("player_id", player_id)
+            .build();
+
+        match self.db.aql_query::<serde_json::Value>(aql).await {
+            Ok(mut results) => {
+                if let Some(row) = results.pop() {
+                    let rating = row.get("rating").and_then(|v| v.as_f64()).unwrap_or(1200.0);
+                    let rd = row.get("rd").and_then(|v| v.as_f64()).unwrap_or(350.0);
+                    let games_played = row
+                        .get("games_played")
+                        .and_then(|v| v.as_i64())
+                        .unwrap_or(0) as i32;
+                    Ok(Some((rating, rd, games_played)))
+                } else {
+                    Ok(None)
+                }
+            }
+            Err(e) => Err(SharedError::Database(format!(
+                "Failed to query rating_latest: {}",
+                e
+            ))),
+        }
+    }
+
     /// Get player statistics
     pub async fn get_player_stats(&self, player_id: &str) -> Result<Option<PlayerStats>> {
-        let query = format!(
-            r#"
-            FOR player IN player
-            FILTER player._id == '{}'
+        let query = r#"
+            LET player = DOCUMENT(@player_id)
             LET contests = (
                 FOR result IN resulted_in
-                FILTER result._to == player._id
+                FILTER result._to == @player_id
                 RETURN result
             )
             LET total_contests = LENGTH(contests)
@@ -842,9 +926,9 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
                 FOR result IN contests
                 RETURN result.place
             ) : 0
-            RETURN {{
-                player_id: player._id,
-                player_handle: player.handle,
+            RETURN {
+                player_id: @player_id,
+                player_handle: player != null ? player.handle : "Unknown",
                 total_contests: total_contests,
                 total_wins: wins,
                 total_losses: losses,
@@ -856,22 +940,22 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
                 total_points: wins * 10,
                 current_streak: 0,
                 longest_streak: 0,
-                last_updated: DATE_NOW()
-            }}
-            "#,
-            player_id
-        );
+                last_updated: DATE_ISO8601(DATE_NOW())
+            }
+        "#;
 
-        let cursor =
-            self.db.aql_str(&query).await.map_err(|e| {
-                SharedError::Database(format!("Failed to query player stats: {}", e))
-            })?;
+        let aql = AqlQuery::builder()
+            .query(query)
+            .bind_var("player_id", player_id)
+            .build();
 
-        let results: Vec<PlayerStats> = cursor
-            .into_iter()
-            .map(|doc: arangors::Document<PlayerStats>| doc.document)
-            .collect();
-        Ok(results.into_iter().next())
+        match self.db.aql_query::<PlayerStats>(aql).await {
+            Ok(results) => Ok(results.into_iter().next()),
+            Err(e) => Err(SharedError::Database(format!(
+                "Failed to query player stats: {}",
+                e
+            ))),
+        }
     }
 
     /// Saves player statistics to database

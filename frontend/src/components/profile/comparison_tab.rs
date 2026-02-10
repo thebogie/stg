@@ -6,19 +6,57 @@ use wasm_bindgen_futures::spawn_local;
 use yew::prelude::*;
 use yew::use_effect_with;
 
-#[derive(Properties, PartialEq)]
-pub struct ComparisonTabProps {
-    pub leaderboard: Option<Vec<Value>>,
-    pub leaderboard_loading: bool,
-    pub leaderboard_error: Option<String>,
-}
-
 #[function_component(ComparisonTab)]
-pub fn comparison_tab(props: &ComparisonTabProps) -> Html {
+pub fn comparison_tab() -> Html {
     let auth_context = use_context::<AuthContext>().expect("AuthContext not found");
     let chart_data = use_state(|| None::<String>);
     let chart_loading = use_state(|| false);
     let chart_error = use_state(|| None::<String>);
+    let leaderboard = use_state(|| None::<Vec<Value>>);
+    let leaderboard_loading = use_state(|| false);
+    let leaderboard_error = use_state(|| None::<String>);
+
+    {
+        let leaderboard = leaderboard.clone();
+        let leaderboard_loading = leaderboard_loading.clone();
+        let leaderboard_error = leaderboard_error.clone();
+
+        use_effect_with((), move |_| {
+            leaderboard_loading.set(true);
+            leaderboard_error.set(None);
+
+            spawn_local(async move {
+                match authenticated_get(
+                    "/api/ratings/leaderboard?scope=global&min_games=3&limit=10",
+                )
+                .send()
+                .await
+                {
+                    Ok(response) => {
+                        if response.ok() {
+                            match response.json::<Vec<Value>>().await {
+                                Ok(rows) => leaderboard.set(Some(rows)),
+                                Err(e) => leaderboard_error
+                                    .set(Some(format!("Failed to parse leaderboard: {}", e))),
+                            }
+                        } else {
+                            leaderboard_error.set(Some(format!(
+                                "Leaderboard request failed: {}",
+                                response.status()
+                            )));
+                        }
+                    }
+                    Err(e) => {
+                        leaderboard_error.set(Some(format!("Failed to fetch leaderboard: {}", e)))
+                    }
+                }
+
+                leaderboard_loading.set(false);
+            });
+
+            || ()
+        });
+    }
 
     // Build player IDs for comparison
     let me_id = auth_context
@@ -33,7 +71,7 @@ pub fn comparison_tab(props: &ComparisonTabProps) -> Html {
     }
 
     // Add other players from leaderboard for comparison
-    if let Some(leaderboard) = &props.leaderboard {
+    if let Some(leaderboard) = &*leaderboard {
         for rating in leaderboard
             .iter()
             .filter_map(|r| r.get("player_id").and_then(|v| v.as_str()))
@@ -55,14 +93,14 @@ pub fn comparison_tab(props: &ComparisonTabProps) -> Html {
         let chart_error = chart_error.clone();
         let ids = ids.clone();
 
-        use_effect_with(ids, move |ids| {
+        use_effect_with(ids, move |ids| -> Box<dyn FnOnce()> {
             let ids = ids.clone();
 
             if ids.len() < 2 {
                 chart_data.set(None);
                 chart_error.set(None);
                 chart_loading.set(false);
-                return || ();
+                return Box::new(|| ());
             }
 
             chart_loading.set(true);
@@ -102,20 +140,17 @@ pub fn comparison_tab(props: &ComparisonTabProps) -> Html {
                 chart_loading.set(false);
             });
 
-            || ()
+            Box::new(|| ())
         });
     }
 
-    let status = if let Some(error) = chart_error
-        .as_ref()
-        .or_else(|| props.leaderboard_error.as_ref())
-    {
+    let status = if let Some(error) = chart_error.as_ref().or_else(|| leaderboard_error.as_ref()) {
         html! {
             <div class="mb-4 p-3 bg-red-50 rounded text-sm text-red-800">
                 {error}
             </div>
         }
-    } else if props.leaderboard_loading || *chart_loading {
+    } else if *leaderboard_loading || *chart_loading {
         html! {
             <div class="mb-4 p-3 bg-blue-50 rounded text-sm text-blue-800">
                 {"Loading comparison data..."}

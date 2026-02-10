@@ -368,11 +368,6 @@ pub fn profile_page(_props: &ProfilePageProps) -> Html {
     let glicko_loading = use_state(|| false);
     let glicko_error = use_state(|| None::<String>);
 
-    // Glicko2 leaderboard states
-    let glicko_leaderboard = use_state(|| None::<Vec<serde_json::Value>>);
-    let glicko_leaderboard_loading = use_state(|| false);
-    let glicko_leaderboard_error = use_state(|| None::<String>);
-
     // Ratings history states
     let rating_history = use_state(|| None::<Vec<serde_json::Value>>);
     let rating_history_loading = use_state(|| false);
@@ -1003,51 +998,6 @@ pub fn profile_page(_props: &ProfilePageProps) -> Html {
         });
     }
 
-    // Load Glicko2 leaderboard for comparison tab
-    {
-        let glicko_leaderboard = glicko_leaderboard.clone();
-        let glicko_leaderboard_loading = glicko_leaderboard_loading.clone();
-        let glicko_leaderboard_error = glicko_leaderboard_error.clone();
-
-        use_effect_with((), move |_| {
-            glicko_leaderboard_loading.set(true);
-            glicko_leaderboard_error.set(None);
-
-            spawn_local(async move {
-                match authenticated_get(
-                    "/api/ratings/leaderboard?scope=global&min_games=3&limit=10",
-                )
-                .send()
-                .await
-                {
-                    Ok(response) => {
-                        if response.ok() {
-                            match response.json::<Vec<Value>>().await {
-                                Ok(leaderboard) => glicko_leaderboard.set(Some(leaderboard)),
-                                Err(e) => glicko_leaderboard_error.set(Some(format!(
-                                    "Failed to parse Glicko2 leaderboard: {}",
-                                    e
-                                ))),
-                            }
-                        } else {
-                            glicko_leaderboard_error.set(Some(format!(
-                                "Glicko2 leaderboard request failed: {}",
-                                response.status()
-                            )));
-                        }
-                    }
-                    Err(e) => {
-                        glicko_leaderboard_error
-                            .set(Some(format!("Failed to fetch Glicko2 leaderboard: {}", e)));
-                    }
-                }
-                glicko_leaderboard_loading.set(false);
-            });
-
-            || ()
-        });
-    }
-
     // Fetch contest details for head-to-head
     let fetch_contest_details = {
         let contest_modal_open = contest_modal_open.clone();
@@ -1207,11 +1157,7 @@ pub fn profile_page(_props: &ProfilePageProps) -> Html {
                                 />
                             },
                             ProfileTab::Comparison => html! {
-                                <ComparisonTab
-                                    leaderboard={(*glicko_leaderboard).clone()}
-                                    leaderboard_loading={*glicko_leaderboard_loading}
-                                    leaderboard_error={(*glicko_leaderboard_error).clone()}
-                                />
+                                <ComparisonTab />
                             },
                             ProfileTab::Settings => html! {
                                 <SettingsTab />
