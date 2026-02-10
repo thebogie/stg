@@ -46,7 +46,7 @@ pub fn overall_stats_tab(props: &OverallStatsTabProps) -> Html {
             </div>
 
             // Performance Summary (compact)
-            <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <div class="bg-white rounded-lg border border-gray-100 p-4">
                     <p class="text-xs font-medium text-gray-500">{"Win Rate"}</p>
                     <p class="text-xl font-semibold text-gray-900">

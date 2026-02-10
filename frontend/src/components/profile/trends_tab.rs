@@ -84,16 +84,19 @@ pub fn trends_tab(props: &TrendsTabProps) -> Html {
 
     html! {
         <div class="space-y-6">
-            <div class="bg-white shadow rounded-lg p-6">
-                <h2 class="text-2xl font-bold text-gray-900 mb-4">{"📈 Performance Trends"}</h2>
-                <div class="mb-4">
-                    <p class="text-gray-600">
-                        <strong>{"Performance Analysis:"}</strong> {"Track your gaming performance trends over time to identify patterns and areas for improvement."}
-                    </p>
+            <div class="bg-white rounded-xl shadow-mobile-soft p-6 border border-gray-100">
+                <div class="flex items-center justify-between mb-4">
+                    <div>
+                        <h2 class="text-2xl font-bold text-gray-900">{"Performance Trends"}</h2>
+                        <p class="mt-1 text-gray-600">
+                            {"Track performance over time to spot patterns and improvement areas."}
+                        </p>
+                    </div>
+                    <div class="text-4xl">{"📈"}</div>
                 </div>
 
                 <div class="bg-gray-50 rounded-lg p-4 mb-6">
-                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
                         <div>
                             <label class="block text-xs font-medium text-gray-500 mb-1">{"Time Range"}</label>
                             <select
@@ -224,7 +227,7 @@ pub fn trends_tab(props: &TrendsTabProps) -> Html {
                         let game_text = selected_game_label.clone().unwrap_or_else(|| "All games".to_string());
                         let venue_text = selected_venue_label.clone().unwrap_or_else(|| "All venues".to_string());
                         html! {
-                            <p class="text-xs text-gray-500 mt-2">
+                            <p class="hidden md:block text-xs text-gray-500 mt-2">
                                 {format!("Filters applied — Game: {}, Venue: {}", game_text, venue_text)}
                             </p>
                         }
@@ -281,7 +284,7 @@ pub fn trends_tab(props: &TrendsTabProps) -> Html {
                                     </div>
                                 </div>
                                 // Performance Overview Cards
-                                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                                     {if let Some(latest_trend) = trends.iter().rev().find(|t| t.contests_played > 0) {
                                         html! {
                                             <>
@@ -324,7 +327,7 @@ pub fn trends_tab(props: &TrendsTabProps) -> Html {
                                     html! {
                                         <div class="bg-white border rounded-lg p-4">
                                             <h3 class="text-sm font-semibold text-gray-900 mb-2">{"Compare to Previous Period"}</h3>
-                                            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                                            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
                                                 <div>
                                                     <div class="text-gray-500">{"Win Rate"}</div>
                                                     <div class="font-medium text-gray-900">
@@ -351,7 +354,8 @@ pub fn trends_tab(props: &TrendsTabProps) -> Html {
                                 // Win Rate Trend Chart
                                 <div class="bg-white border rounded-lg p-6">
                                     <h3 class="text-lg font-semibold text-gray-900 mb-4">{"Win Rate Trend"}</h3>
-                                    <div class="h-64 flex items-end justify-between space-x-2">
+                                    <div class="overflow-x-auto">
+                                        <div class="min-w-[520px] h-64 flex items-end justify-between gap-3">
                                         {trends.iter().map(|trend| {
                                             // Use a better scaling: minimum 8px for any non-zero value, then scale from there
                                             let height_percent = if trend.win_rate > 0.0 {
@@ -362,25 +366,27 @@ pub fn trends_tab(props: &TrendsTabProps) -> Html {
                                                 min_height_px + scaled_height
                                             } else { 0 };
                                             html! {
-                                                <div class="flex flex-col items-center flex-1">
+                                                <div class="flex flex-col items-center flex-1 min-w-[64px]">
                                                     <div
                                                         class="w-full bg-blue-500 rounded-t border border-blue-600"
                                                         style={format!("height: {}px", height_percent)}
                                                     ></div>
                                                     <div class="text-xs text-gray-500 mt-2 text-center">
                                                         <div class="font-medium">{format!("{:.0}%", trend.win_rate)}</div>
-                                                        <div class="text-xs">{trend.period.clone()}</div>
+                                                        <div class="text-xs whitespace-nowrap">{trend.period.clone()}</div>
                                                     </div>
                                                 </div>
                                             }
                                         }).collect::<Html>()}
+                                        </div>
                                     </div>
                                 </div>
 
                                 // Contest Frequency Chart
                                 <div class="bg-white border rounded-lg p-6">
                                     <h3 class="text-lg font-semibold text-gray-900 mb-4">{"Contest Activity"}</h3>
-                                    <div class="h-64 flex items-end justify-between space-x-2">
+                                    <div class="overflow-x-auto">
+                                        <div class="min-w-[520px] h-64 flex items-end justify-between gap-3">
                                         {trends.iter().map(|trend| {
                                             let max_contests = trends.iter().map(|t| t.contests_played).max().unwrap_or(1);
                                             // Use a better scaling: minimum 8px for any non-zero value, then scale from there
@@ -393,18 +399,19 @@ pub fn trends_tab(props: &TrendsTabProps) -> Html {
                                                 min_height_px + scaled_height
                                             } else { 0 };
                                             html! {
-                                                <div class="flex flex-col items-center flex-1">
+                                                <div class="flex flex-col items-center flex-1 min-w-[64px]">
                                                     <div
                                                         class="w-full bg-green-500 rounded-t border border-green-600"
                                                         style={format!("height: {}px", height_px)}
                                                     ></div>
                                                     <div class="text-xs text-gray-500 mt-2 text-center">
                                                         <div class="font-medium">{trend.contests_played}</div>
-                                                        <div class="text-xs">{trend.period.clone()}</div>
+                                                        <div class="text-xs whitespace-nowrap">{trend.period.clone()}</div>
                                                     </div>
                                                 </div>
                                             }
                                         }).collect::<Html>()}
+                                        </div>
                                     </div>
                                 </div>
 

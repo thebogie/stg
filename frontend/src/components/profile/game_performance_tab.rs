@@ -119,10 +119,15 @@ pub fn game_performance_tab(props: &GamePerformanceTabProps) -> Html {
 
     html! {
         <div class="space-y-6">
-            <div class="bg-white shadow rounded-lg p-6">
+            <div class="bg-white rounded-xl shadow-mobile-soft p-6 border border-gray-100">
                 <div class="flex items-center justify-between mb-4">
-                    <h3 class="text-lg font-medium text-gray-900">{"🎮 Game Performance"}</h3>
-                    <p class="text-sm text-gray-600">{"Your performance across all games with sorting and pagination"}</p>
+                    <div>
+                        <h2 class="text-2xl font-bold text-gray-900">{"Game Performance"}</h2>
+                        <p class="mt-1 text-gray-600">
+                            {"Your performance across all games with sorting and pagination."}
+                        </p>
+                    </div>
+                    <div class="text-4xl">{"🎮"}</div>
                 </div>
 
                 {if let Some(games) = &props.game_performance {

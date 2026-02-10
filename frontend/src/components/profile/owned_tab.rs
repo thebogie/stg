@@ -11,12 +11,15 @@ pub struct OwnedTabProps {
 pub fn owned_tab(props: &OwnedTabProps) -> Html {
     html! {
         <div class="space-y-6">
-            <div class="bg-white rounded-lg shadow p-6">
-                <h2 class="text-2xl font-bold text-gray-900 mb-4">{"💪 Players I Own"}</h2>
-                <div class="mb-4">
-                    <p class="text-gray-600">
-                        <strong>{"Players I Beat:"}</strong> {"These opponents struggle against you. Keep dominating and maintain your winning streak!"}
-                    </p>
+            <div class="bg-white rounded-xl shadow-mobile-soft p-6 border border-gray-100">
+                <div class="flex items-center justify-between mb-4">
+                    <div>
+                        <h2 class="text-2xl font-bold text-gray-900">{"Players I Own"}</h2>
+                        <p class="mt-1 text-gray-600">
+                            {"Opponents you regularly beat—keep the streak alive."}
+                        </p>
+                    </div>
+                    <div class="text-4xl">{"💪"}</div>
                 </div>
                 { if let Some(opponents) = &props.opponents_i_beat {
                     if opponents.is_empty() {

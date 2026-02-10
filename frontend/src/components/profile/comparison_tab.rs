@@ -193,12 +193,15 @@ pub fn comparison_tab() -> Html {
 
     html! {
         <div class="space-y-6">
-            <div class="bg-white shadow rounded-lg p-6">
-                <h2 class="text-2xl font-bold text-gray-900 mb-4">{"🧭 Player Comparison"}</h2>
-                <div class="mb-4">
-                    <p class="text-gray-600">
-                        <strong>{"Compare Your Performance:"}</strong> {"Radar chart compares your key metrics to top peers from the leaderboard."}
-                    </p>
+            <div class="bg-white rounded-xl shadow-mobile-soft p-6 border border-gray-100">
+                <div class="flex items-center justify-between mb-4">
+                    <div>
+                        <h2 class="text-2xl font-bold text-gray-900">{"Player Comparison"}</h2>
+                        <p class="mt-1 text-gray-600">
+                            {"Compare your key metrics to top peers from the leaderboard."}
+                        </p>
+                    </div>
+                    <div class="text-4xl">{"🧭"}</div>
                 </div>
 
                 {status}

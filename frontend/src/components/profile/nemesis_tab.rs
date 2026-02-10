@@ -11,12 +11,15 @@ pub struct NemesisTabProps {
 pub fn nemesis_tab(props: &NemesisTabProps) -> Html {
     html! {
         <div class="space-y-6">
-            <div class="bg-white rounded-lg shadow p-6">
-                <h2 class="text-2xl font-bold text-gray-900 mb-4">{"😈 My Nemeses"}</h2>
-                <div class="mb-4">
-                    <p class="text-gray-600">
-                        <strong>{"Players Who Beat Me:"}</strong> {"These opponents have the upper hand. Study their strategies and improve your game to turn the tables!"}
-                    </p>
+            <div class="bg-white rounded-xl shadow-mobile-soft p-6 border border-gray-100">
+                <div class="flex items-center justify-between mb-4">
+                    <div>
+                        <h2 class="text-2xl font-bold text-gray-900">{"My Nemeses"}</h2>
+                        <p class="mt-1 text-gray-600">
+                            {"Opponents with the upper hand—study them to turn the tables."}
+                        </p>
+                    </div>
+                    <div class="text-4xl">{"😈"}</div>
                 </div>
                 { if let Some(opponents) = &props.opponents_who_beat_me {
                     if opponents.is_empty() {

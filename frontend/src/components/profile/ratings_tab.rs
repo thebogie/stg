@@ -16,12 +16,15 @@ pub struct RatingsTabProps {
 pub fn ratings_tab(props: &RatingsTabProps) -> Html {
     html! {
         <div class="space-y-6">
-            <div class="bg-white rounded-lg shadow p-6">
-                <h2 class="text-2xl font-bold text-gray-900 mb-4">{"Glicko2 Ratings"}</h2>
-                <div class="mb-4">
-                    <p class="text-gray-600">
-                        <strong>{"Skill Rating System:"}</strong> {"Your Glicko2 rating represents your skill level. Higher ratings indicate stronger players. Ratings change based on your performance in contests."}
-                    </p>
+            <div class="bg-white rounded-xl shadow-mobile-soft p-6 border border-gray-100">
+                <div class="flex items-center justify-between mb-4">
+                    <div>
+                        <h2 class="text-2xl font-bold text-gray-900">{"Glicko2 Ratings"}</h2>
+                        <p class="mt-1 text-gray-600">
+                            {"Your skill rating adjusts based on contest performance."}
+                        </p>
+                    </div>
+                    <div class="text-4xl">{"🏅"}</div>
                 </div>
 
                 if props.glicko_loading {
