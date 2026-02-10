@@ -760,9 +760,14 @@ impl<C: ClientExt> AnalyticsUseCase<C> {
     pub async fn get_my_performance_trends(
         &self,
         player_id: &str,
+        game_id: Option<&str>,
+        venue_id: Option<&str>,
     ) -> Result<Vec<PerformanceTrendDto>> {
         // Get performance trends over time
-        let trends = self.repo.get_my_performance_trends(player_id).await?;
+        let trends = self
+            .repo
+            .get_my_performance_trends(player_id, game_id, venue_id)
+            .await?;
 
         Ok(trends)
     }

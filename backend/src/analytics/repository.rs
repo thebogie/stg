@@ -1971,8 +1971,27 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
     pub async fn get_my_performance_trends(
         &self,
         player_id: &str,
+        game_id: Option<&str>,
+        venue_id: Option<&str>,
     ) -> Result<Vec<shared::dto::analytics::PerformanceTrendDto>> {
         log::info!("get_my_performance_trends called for player: {}", player_id);
+
+        let game_id_full = game_id.map(|id| {
+            if id.contains('/') {
+                id.to_string()
+            } else {
+                format!("game/{}", id)
+            }
+        });
+        let game_key = game_id.map(|id| id.split('/').last().unwrap_or(id).to_string());
+        let venue_id_full = venue_id.map(|id| {
+            if id.contains('/') {
+                id.to_string()
+            } else {
+                format!("venue/{}", id)
+            }
+        });
+        let venue_key = venue_id.map(|id| id.split('/').last().unwrap_or(id).to_string());
 
         let query = r#"
             // Get performance data for the last 6 months
@@ -1986,8 +2005,23 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
                     FILTER result._to == @player_id OR result._to == @player_key OR LIKE(result._to, CONCAT('%', @player_key))
                     LET contest = DOCUMENT(result._from)
                     LET contest_start = contest.start != null ? contest.start : DATE_NOW()
+                    LET game_match = @game_id_full == null ? true : LENGTH(
+                        FOR e IN played_with
+                        FILTER e._from == contest._id
+                        FILTER e._to == @game_id_full OR e._to == CONCAT('game/', @game_key)
+                        LIMIT 1
+                        RETURN 1
+                    ) > 0
+                    LET venue_match = @venue_id_full == null ? true : LENGTH(
+                        FOR e IN played_at
+                        FILTER e._from == contest._id
+                        FILTER e._to == @venue_id_full OR e._to == CONCAT('venue/', @venue_key)
+                        LIMIT 1
+                        RETURN 1
+                    ) > 0
                     LET contest_month = CONCAT(DATE_YEAR(contest_start), '-', DATE_MONTH(contest_start) < 10 ? CONCAT('0', DATE_MONTH(contest_start)) : TO_STRING(DATE_MONTH(contest_start)))
                     FILTER contest_month == month_key
+                    FILTER game_match AND venue_match
                     RETURN { result: result, contest: contest }
                 )
                 
@@ -2024,6 +2058,34 @@ impl<C: arangors::client::ClientExt> AnalyticsRepository<C> {
         );
         let player_key = player_id.split('/').last().unwrap_or(player_id).to_string();
         bind_vars.insert("player_key", serde_json::Value::String(player_key));
+        bind_vars.insert(
+            "game_id_full",
+            game_id_full
+                .as_ref()
+                .map(|v| serde_json::Value::String(v.clone()))
+                .unwrap_or(serde_json::Value::Null),
+        );
+        bind_vars.insert(
+            "game_key",
+            game_key
+                .as_ref()
+                .map(|v| serde_json::Value::String(v.clone()))
+                .unwrap_or(serde_json::Value::Null),
+        );
+        bind_vars.insert(
+            "venue_id_full",
+            venue_id_full
+                .as_ref()
+                .map(|v| serde_json::Value::String(v.clone()))
+                .unwrap_or(serde_json::Value::Null),
+        );
+        bind_vars.insert(
+            "venue_key",
+            venue_key
+                .as_ref()
+                .map(|v| serde_json::Value::String(v.clone()))
+                .unwrap_or(serde_json::Value::Null),
+        );
 
         let aql = AqlQuery::builder()
             .query(query)

@@ -1,10 +1,19 @@
 use shared::models::client_analytics::PerformanceTrend;
+use shared::{GameDto, VenueDto};
 use yew::prelude::*;
 
 #[derive(Properties, PartialEq)]
 pub struct TrendsTabProps {
     pub performance_trends: Option<Vec<PerformanceTrend>>,
     pub current_rating: Option<f64>,
+    pub games: Option<Vec<GameDto>>,
+    pub venues: Option<Vec<VenueDto>>,
+    pub selected_game_id: Option<String>,
+    pub selected_venue_id: Option<String>,
+    pub on_game_change: Callback<Option<String>>,
+    pub on_venue_change: Callback<Option<String>>,
+    pub trends_loading: bool,
+    pub trends_error: Option<String>,
 }
 
 #[function_component(TrendsTab)]
@@ -64,23 +73,79 @@ pub fn trends_tab(props: &TrendsTabProps) -> Html {
                         </div>
                         <div>
                             <label class="block text-xs font-medium text-gray-500 mb-1">{"Game"}</label>
-                            <select class="w-full border border-gray-200 rounded-md px-2 py-1 text-sm" disabled={true}>
-                                <option>{"All games (coming soon)"}</option>
+                            <select
+                                class="w-full border border-gray-200 rounded-md px-2 py-1 text-sm"
+                                value={props.selected_game_id.clone().unwrap_or_default()}
+                                onchange={{
+                                    let on_game_change = props.on_game_change.clone();
+                                    Callback::from(move |event: Event| {
+                                        let value = event
+                                            .target_unchecked_into::<web_sys::HtmlSelectElement>()
+                                            .value();
+                                        if value.is_empty() {
+                                            on_game_change.emit(None);
+                                        } else {
+                                            on_game_change.emit(Some(value));
+                                        }
+                                    })
+                                }}
+                            >
+                                <option value="">{ "All games" }</option>
+                                {props.games.as_ref().map(|games| {
+                                    games.iter().map(|game| {
+                                        html! {
+                                            <option value={game.id.clone()}>{game.name.clone()}</option>
+                                        }
+                                    }).collect::<Html>()
+                                }).unwrap_or_else(|| html! {})}
                             </select>
                         </div>
                         <div>
                             <label class="block text-xs font-medium text-gray-500 mb-1">{"Venue"}</label>
-                            <select class="w-full border border-gray-200 rounded-md px-2 py-1 text-sm" disabled={true}>
-                                <option>{"All venues (coming soon)"}</option>
+                            <select
+                                class="w-full border border-gray-200 rounded-md px-2 py-1 text-sm"
+                                value={props.selected_venue_id.clone().unwrap_or_default()}
+                                onchange={{
+                                    let on_venue_change = props.on_venue_change.clone();
+                                    Callback::from(move |event: Event| {
+                                        let value = event
+                                            .target_unchecked_into::<web_sys::HtmlSelectElement>()
+                                            .value();
+                                        if value.is_empty() {
+                                            on_venue_change.emit(None);
+                                        } else {
+                                            on_venue_change.emit(Some(value));
+                                        }
+                                    })
+                                }}
+                            >
+                                <option value="">{ "All venues" }</option>
+                                {props.venues.as_ref().map(|venues| {
+                                    venues.iter().map(|venue| {
+                                        html! {
+                                            <option value={venue.id.clone()}>{venue.display_name.clone()}</option>
+                                        }
+                                    }).collect::<Html>()
+                                }).unwrap_or_else(|| html! {})}
                             </select>
                         </div>
                     </div>
-                    <p class="text-xs text-gray-500 mt-2">
-                        {"Game and venue filters will be enabled once per-game and per-venue trend data is available."}
-                    </p>
+                    {if props.trends_error.is_some() {
+                        html! {
+                            <p class="text-xs text-red-600 mt-2">{props.trends_error.clone().unwrap_or_default()}</p>
+                        }
+                    } else {
+                        html! {}
+                    }}
                 </div>
 
-                {if let Some(trends) = &filtered_trends {
+                {if props.trends_loading {
+                    html! {
+                        <div class="text-center py-8 text-gray-500">
+                            <p>{"Loading trends data..."}</p>
+                        </div>
+                    }
+                } else if let Some(trends) = &filtered_trends {
                     if trends.is_empty() {
                         html! {
                             <div class="text-center py-8">

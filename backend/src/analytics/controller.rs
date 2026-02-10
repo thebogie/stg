@@ -1293,6 +1293,7 @@ impl<C: ClientExt> AnalyticsController<C> {
     pub async fn get_my_performance_trends(
         &self,
         req: HttpRequest,
+        query: web::Query<std::collections::HashMap<String, String>>,
     ) -> Result<HttpResponse, actix_web::Error> {
         // Extract current player ID from auth context
         let email = match req.extensions().get::<String>() {
@@ -1316,9 +1317,12 @@ impl<C: ClientExt> AnalyticsController<C> {
             }
         };
 
+        let game_id = query.get("game_id").map(|v| v.as_str());
+        let venue_id = query.get("venue_id").map(|v| v.as_str());
+
         match self
             .usecase
-            .get_my_performance_trends(&current_player_id)
+            .get_my_performance_trends(&current_player_id, game_id, venue_id)
             .await
         {
             Ok(trends) => Ok(HttpResponse::Ok().json(trends)),
@@ -1625,8 +1629,8 @@ pub fn configure_routes<C: ClientExt + 'static>(
                     .route("/game-performance", web::get().to(|req: HttpRequest, controller: web::Data<AnalyticsController<C>>| async move {
                         controller.get_my_game_performance(req).await
                     }))
-                    .route("/performance-trends", web::get().to(|req: HttpRequest, controller: web::Data<AnalyticsController<C>>| async move {
-                        controller.get_my_performance_trends(req).await
+                    .route("/performance-trends", web::get().to(|req: HttpRequest, query: web::Query<std::collections::HashMap<String, String>>, controller: web::Data<AnalyticsController<C>>| async move {
+                        controller.get_my_performance_trends(req, query).await
                     }))
                     // Use a greedy matcher to allow slashes in opponent_id (e.g., "player/...")
                     .route("/head-to-head/{opponent_id:.*}", web::get().to(|path: web::Path<String>, req: HttpRequest, controller: web::Data<AnalyticsController<C>>| async move {

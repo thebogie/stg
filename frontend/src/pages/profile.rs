@@ -1,5 +1,7 @@
 use crate::analytics::client_manager::ClientAnalyticsManager;
+use crate::api::games::get_all_games;
 use crate::api::utils::authenticated_get;
+use crate::api::venues::get_all_venues;
 use crate::components::contests_modal::ContestsModal;
 use crate::components::profile::comparison_tab::ComparisonTab;
 use crate::components::profile::game_performance_tab::GamePerformanceTab;
@@ -11,11 +13,13 @@ use crate::components::profile::ratings_tab::RatingsTab;
 use crate::components::profile::settings_tab::SettingsTab;
 use crate::components::profile::trends_tab::TrendsTab;
 use chrono::DateTime;
+use js_sys::encode_uri_component;
 use serde_json::Value;
 use shared::dto::analytics::{GamePerformanceDto, HeadToHeadRecordDto, PlayerOpponentDto};
 use shared::models::client_analytics::{
     AnalyticsQuery, CoreStats, GamePerformance, PerformanceTrend,
 };
+use shared::{GameDto, VenueDto};
 use wasm_bindgen_futures::spawn_local;
 use web_sys::console;
 use yew::prelude::*;
@@ -361,6 +365,8 @@ pub fn profile_page(_props: &ProfilePageProps) -> Html {
     let opponents_i_beat = use_state(|| None::<Vec<HeadToHeadRecordDto>>);
     let game_performance = use_state(|| None::<Vec<GamePerformance>>);
     let performance_trends = use_state(|| None::<Vec<PerformanceTrend>>);
+    let trends_loading = use_state(|| false);
+    let trends_error = use_state(|| None::<String>);
     let core_stats = use_state(|| None::<CoreStats>);
 
     // Glicko2 ratings states
@@ -372,6 +378,12 @@ pub fn profile_page(_props: &ProfilePageProps) -> Html {
     let rating_history = use_state(|| None::<Vec<serde_json::Value>>);
     let rating_history_loading = use_state(|| false);
     let rating_history_error = use_state(|| None::<String>);
+
+    // Trends filters + lookups
+    let games = use_state(|| None::<Vec<GameDto>>);
+    let venues = use_state(|| None::<Vec<VenueDto>>);
+    let selected_game_id = use_state(|| None::<String>);
+    let selected_venue_id = use_state(|| None::<String>);
 
     // Contest details modal states
     let contest_modal_open = use_state(|| false);
@@ -998,6 +1010,95 @@ pub fn profile_page(_props: &ProfilePageProps) -> Html {
         });
     }
 
+    // Load games and venues for trends filters
+    {
+        let games = games.clone();
+        let venues = venues.clone();
+
+        use_effect_with((), move |_| {
+            spawn_local(async move {
+                if let Ok(all_games) = get_all_games().await {
+                    games.set(Some(all_games));
+                }
+                if let Ok(all_venues) = get_all_venues().await {
+                    venues.set(Some(all_venues));
+                }
+            });
+
+            || ()
+        });
+    }
+
+    // Load performance trends with filters
+    {
+        let performance_trends = performance_trends.clone();
+        let trends_loading = trends_loading.clone();
+        let trends_error = trends_error.clone();
+        let selected_game_id = selected_game_id.clone();
+        let selected_venue_id = selected_venue_id.clone();
+
+        use_effect_with(
+            (selected_game_id.clone(), selected_venue_id.clone()),
+            move |(game_id, venue_id)| {
+                let game_id = game_id.clone();
+                let venue_id = venue_id.clone();
+
+                trends_loading.set(true);
+                trends_error.set(None);
+
+                spawn_local(async move {
+                    let mut params = Vec::new();
+                    if let Some(id) = &*game_id {
+                        if !id.is_empty() {
+                            let encoded = encode_uri_component(id)
+                                .as_string()
+                                .unwrap_or_else(|| id.clone());
+                            params.push(format!("game_id={}", encoded));
+                        }
+                    }
+                    if let Some(id) = &*venue_id {
+                        if !id.is_empty() {
+                            let encoded = encode_uri_component(id)
+                                .as_string()
+                                .unwrap_or_else(|| id.clone());
+                            params.push(format!("venue_id={}", encoded));
+                        }
+                    }
+                    let url = if params.is_empty() {
+                        "/api/analytics/player/performance-trends".to_string()
+                    } else {
+                        format!(
+                            "/api/analytics/player/performance-trends?{}",
+                            params.join("&")
+                        )
+                    };
+
+                    match authenticated_get(&url).send().await {
+                        Ok(response) => {
+                            if response.ok() {
+                                match response.json::<Vec<PerformanceTrend>>().await {
+                                    Ok(data) => performance_trends.set(Some(data)),
+                                    Err(e) => trends_error
+                                        .set(Some(format!("Failed to parse trends: {}", e))),
+                                }
+                            } else {
+                                trends_error.set(Some(format!(
+                                    "Failed to fetch trends: {}",
+                                    response.status()
+                                )));
+                            }
+                        }
+                        Err(e) => trends_error.set(Some(format!("Failed to fetch trends: {}", e))),
+                    }
+
+                    trends_loading.set(false);
+                });
+
+                || ()
+            },
+        );
+    }
+
     // Fetch contest details for head-to-head
     let fetch_contest_details = {
         let contest_modal_open = contest_modal_open.clone();
@@ -1138,23 +1239,46 @@ pub fn profile_page(_props: &ProfilePageProps) -> Html {
                             ProfileTab::GamePerformance => html! {
                                 <GamePerformanceTab game_performance={(*game_performance).clone()} />
                             },
-                            ProfileTab::Trends => html! {
-                                <TrendsTab
-                                    performance_trends={(*performance_trends).clone()}
-                                    current_rating={
-                                        if let Some(ratings) = &*glicko_ratings {
-                                            if let Some(global_rating) = ratings.iter().find(|r| {
-                                                r.get("scope").and_then(|s| s.get("type")).and_then(|t| t.as_str()) == Some("Global")
-                                            }) {
-                                                global_rating.get("rating").and_then(|r| r.as_f64())
-                                            } else {
-                                                None
-                                            }
-                                        } else {
-                                            None
-                                        }
+                            ProfileTab::Trends => {
+                                let current_rating = if let Some(ratings) = &*glicko_ratings {
+                                    if let Some(global_rating) = ratings.iter().find(|r| {
+                                        r.get("scope").and_then(|s| s.get("type")).and_then(|t| t.as_str()) == Some("Global")
+                                    }) {
+                                        global_rating.get("rating").and_then(|r| r.as_f64())
+                                    } else {
+                                        None
                                     }
-                                />
+                                } else {
+                                    None
+                                };
+
+                                let on_game_change = {
+                                    let selected_game_id = selected_game_id.clone();
+                                    Callback::from(move |value: Option<String>| {
+                                        selected_game_id.set(value);
+                                    })
+                                };
+                                let on_venue_change = {
+                                    let selected_venue_id = selected_venue_id.clone();
+                                    Callback::from(move |value: Option<String>| {
+                                        selected_venue_id.set(value);
+                                    })
+                                };
+
+                                html! {
+                                    <TrendsTab
+                                        performance_trends={(*performance_trends).clone()}
+                                        current_rating={current_rating}
+                                        games={(*games).clone()}
+                                        venues={(*venues).clone()}
+                                        selected_game_id={(*selected_game_id).clone()}
+                                        selected_venue_id={(*selected_venue_id).clone()}
+                                        on_game_change={on_game_change}
+                                        on_venue_change={on_venue_change}
+                                        trends_loading={*trends_loading}
+                                        trends_error={(*trends_error).clone()}
+                                    />
+                                }
                             },
                             ProfileTab::Comparison => html! {
                                 <ComparisonTab />
