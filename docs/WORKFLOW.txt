@@ -1,0 +1,28 @@
+WORKFLOW
+clear; cargo fmt --all; cargo clean; cargo update; clear; ./scripts/workflow.sh --load-prod-data
+
+HYBRID DEVELOPMENT
+./scripts/setup-hybrid-dev.sh
+source scripts/load-env.sh
+cargo run --package backend --bin backend
+ ./scripts/start-frontend.sh
+ 📈 Performance Trends
+Performance Analysis:Track your gaming performance trends over time to identify patterns and areas for improvement.
+
+
+
+peed + Reliability
+Cache analytics endpoints per player for 5–10 minutes to avoid re-querying
+Add backend pagination for large lists (leaderboard, contest history, etc.)
+Defer non-critical requests on Profile load (lazy-load tabs not visible)
+Instrument API timing logs for slow endpoints (find real bottlenecks)
+Features (highest value)
+“Compare to previous period” in Trends with delta badges
+Filter persistence + shareable URLs for Profile analytics
+Game/Venue-specific mini stats cards (quick summary above chart)
+“Your best games” and “most improved” sections using win-rate trends
+Add a “Performance Highlights” widget: best month, longest streak, top venue
+Trust + Data Quality
+Add a “Data sources” tooltip explaining contests, ratings, and time ranges
+Show sample contests when filters return 0 to explain why
+Add “last contest played” and “contests counted” badges to avoid confusion

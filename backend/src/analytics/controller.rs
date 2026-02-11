@@ -96,6 +96,48 @@ impl<C: ClientExt> AnalyticsController<C> {
         }
     }
 
+    fn normalize_player_id(key_or_id: &str) -> String {
+        if key_or_id.contains('/') {
+            key_or_id.to_string()
+        } else {
+            format!("player/{}", key_or_id)
+        }
+    }
+
+    async fn resolve_player_id(
+        &self,
+        req: &HttpRequest,
+        query: Option<&std::collections::HashMap<String, String>>,
+    ) -> Result<String, HttpResponse> {
+        if let Some(query) = query {
+            if let Some(player_id) = query.get("player_id") {
+                if !player_id.is_empty() {
+                    return Ok(Self::normalize_player_id(player_id));
+                }
+            }
+        }
+
+        let email = match req.extensions().get::<String>() {
+            Some(email) => email.clone(),
+            None => {
+                log::error!("Not authenticated for resolve_player_id");
+                return Err(HttpResponse::Unauthorized().json(json!({
+                    "error": "Not authenticated"
+                })));
+            }
+        };
+
+        match self.get_player_id_from_email(&email).await {
+            Ok(player_id) => Ok(player_id),
+            Err(_) => {
+                log::error!("Failed to get player ID for email: {}", email);
+                Err(HttpResponse::InternalServerError().json(json!({
+                    "error": "Failed to get player information"
+                })))
+            }
+        }
+    }
+
     /// Get player statistics
     pub async fn get_player_stats(
         &self,
@@ -1117,27 +1159,11 @@ impl<C: ClientExt> AnalyticsController<C> {
     pub async fn get_players_who_beat_me(
         &self,
         req: HttpRequest,
+        query: web::Query<std::collections::HashMap<String, String>>,
     ) -> Result<HttpResponse, actix_web::Error> {
-        // Extract current player ID from auth context
-        let email = match req.extensions().get::<String>() {
-            Some(email) => email.clone(),
-            None => {
-                log::error!("Not authenticated for get_players_who_beat_me");
-                return Ok(HttpResponse::Unauthorized().json(json!({
-                    "error": "Not authenticated"
-                })));
-            }
-        };
-
-        // Get player ID from email
-        let current_player_id = match self.get_player_id_from_email(&email).await {
+        let current_player_id = match self.resolve_player_id(&req, Some(&query)).await {
             Ok(player_id) => player_id,
-            Err(_) => {
-                log::error!("Failed to get player ID for email: {}", email);
-                return Ok(HttpResponse::InternalServerError().json(json!({
-                    "error": "Failed to get player information"
-                })));
-            }
+            Err(resp) => return Ok(resp),
         };
 
         match self
@@ -1159,27 +1185,11 @@ impl<C: ClientExt> AnalyticsController<C> {
     pub async fn get_players_i_beat(
         &self,
         req: HttpRequest,
+        query: web::Query<std::collections::HashMap<String, String>>,
     ) -> Result<HttpResponse, actix_web::Error> {
-        // Extract current player ID from auth context
-        let email = match req.extensions().get::<String>() {
-            Some(email) => email.clone(),
-            None => {
-                log::error!("Not authenticated for get_players_i_beat");
-                return Ok(HttpResponse::Unauthorized().json(json!({
-                    "error": "Not authenticated"
-                })));
-            }
-        };
-
-        // Get player ID from email
-        let current_player_id = match self.get_player_id_from_email(&email).await {
+        let current_player_id = match self.resolve_player_id(&req, Some(&query)).await {
             Ok(player_id) => player_id,
-            Err(_) => {
-                log::error!("Failed to get player ID for email: {}", email);
-                return Ok(HttpResponse::InternalServerError().json(json!({
-                    "error": "Failed to get player information"
-                })));
-            }
+            Err(resp) => return Ok(resp),
         };
 
         match self.usecase.get_players_i_beat(&current_player_id).await {
@@ -1197,27 +1207,11 @@ impl<C: ClientExt> AnalyticsController<C> {
     pub async fn get_my_game_performance(
         &self,
         req: HttpRequest,
+        query: web::Query<std::collections::HashMap<String, String>>,
     ) -> Result<HttpResponse, actix_web::Error> {
-        // Extract current player ID from auth context
-        let email = match req.extensions().get::<String>() {
-            Some(email) => email.clone(),
-            None => {
-                log::error!("Not authenticated for get_my_game_performance");
-                return Ok(HttpResponse::Unauthorized().json(json!({
-                    "error": "Not authenticated"
-                })));
-            }
-        };
-
-        // Get player ID from email
-        let current_player_id = match self.get_player_id_from_email(&email).await {
+        let current_player_id = match self.resolve_player_id(&req, Some(&query)).await {
             Ok(player_id) => player_id,
-            Err(_) => {
-                log::error!("Failed to get player ID for email: {}", email);
-                return Ok(HttpResponse::InternalServerError().json(json!({
-                    "error": "Failed to get player information"
-                })));
-            }
+            Err(resp) => return Ok(resp),
         };
 
         match self
@@ -1240,6 +1234,7 @@ impl<C: ClientExt> AnalyticsController<C> {
         &self,
         path: web::Path<String>,
         req: HttpRequest,
+        query: web::Query<std::collections::HashMap<String, String>>,
     ) -> Result<HttpResponse, actix_web::Error> {
         // Accept either key or full id; normalize to collection/id
         fn normalize_id(collection: &str, key_or_id: &str) -> String {
@@ -1252,26 +1247,9 @@ impl<C: ClientExt> AnalyticsController<C> {
         let opponent_param = path.into_inner();
         let opponent_id = normalize_id("player", &opponent_param);
 
-        // Extract current player ID from auth context
-        let email = match req.extensions().get::<String>() {
-            Some(email) => email.clone(),
-            None => {
-                log::error!("Not authenticated for get_head_to_head_record");
-                return Ok(HttpResponse::Unauthorized().json(json!({
-                    "error": "Not authenticated"
-                })));
-            }
-        };
-
-        // Get player ID from email
-        let current_player_id = match self.get_player_id_from_email(&email).await {
+        let current_player_id = match self.resolve_player_id(&req, Some(&query)).await {
             Ok(player_id) => player_id,
-            Err(_) => {
-                log::error!("Failed to get player ID for email: {}", email);
-                return Ok(HttpResponse::InternalServerError().json(json!({
-                    "error": "Failed to get player information"
-                })));
-            }
+            Err(resp) => return Ok(resp),
         };
 
         match self
@@ -1295,26 +1273,9 @@ impl<C: ClientExt> AnalyticsController<C> {
         req: HttpRequest,
         query: web::Query<std::collections::HashMap<String, String>>,
     ) -> Result<HttpResponse, actix_web::Error> {
-        // Extract current player ID from auth context
-        let email = match req.extensions().get::<String>() {
-            Some(email) => email.clone(),
-            None => {
-                log::error!("Not authenticated for get_my_performance_trends");
-                return Ok(HttpResponse::Unauthorized().json(json!({
-                    "error": "Not authenticated"
-                })));
-            }
-        };
-
-        // Get player ID from email
-        let current_player_id = match self.get_player_id_from_email(&email).await {
+        let current_player_id = match self.resolve_player_id(&req, Some(&query)).await {
             Ok(player_id) => player_id,
-            Err(_) => {
-                log::error!("Failed to get player ID for email: {}", email);
-                return Ok(HttpResponse::InternalServerError().json(json!({
-                    "error": "Failed to get player information"
-                })));
-            }
+            Err(resp) => return Ok(resp),
         };
 
         let game_id = query.get("game_id").map(|v| v.as_str());
@@ -1620,21 +1581,21 @@ pub fn configure_routes<C: ClientExt + 'static>(
             .service(
                 web::scope("/player")
                     .wrap(AuthMiddleware { redis: std::sync::Arc::new((*redis_client).clone()) })
-                    .route("/opponents-who-beat-me", web::get().to(|req: HttpRequest, controller: web::Data<AnalyticsController<C>>| async move {
-                        controller.get_players_who_beat_me(req).await
+                    .route("/opponents-who-beat-me", web::get().to(|req: HttpRequest, query: web::Query<std::collections::HashMap<String, String>>, controller: web::Data<AnalyticsController<C>>| async move {
+                        controller.get_players_who_beat_me(req, query).await
                     }))
-                    .route("/opponents-i-beat", web::get().to(|req: HttpRequest, controller: web::Data<AnalyticsController<C>>| async move {
-                        controller.get_players_i_beat(req).await
+                    .route("/opponents-i-beat", web::get().to(|req: HttpRequest, query: web::Query<std::collections::HashMap<String, String>>, controller: web::Data<AnalyticsController<C>>| async move {
+                        controller.get_players_i_beat(req, query).await
                     }))
-                    .route("/game-performance", web::get().to(|req: HttpRequest, controller: web::Data<AnalyticsController<C>>| async move {
-                        controller.get_my_game_performance(req).await
+                    .route("/game-performance", web::get().to(|req: HttpRequest, query: web::Query<std::collections::HashMap<String, String>>, controller: web::Data<AnalyticsController<C>>| async move {
+                        controller.get_my_game_performance(req, query).await
                     }))
                     .route("/performance-trends", web::get().to(|req: HttpRequest, query: web::Query<std::collections::HashMap<String, String>>, controller: web::Data<AnalyticsController<C>>| async move {
                         controller.get_my_performance_trends(req, query).await
                     }))
                     // Use a greedy matcher to allow slashes in opponent_id (e.g., "player/...")
-                    .route("/head-to-head/{opponent_id:.*}", web::get().to(|path: web::Path<String>, req: HttpRequest, controller: web::Data<AnalyticsController<C>>| async move {
-                        controller.get_head_to_head_record(path, req).await
+                    .route("/head-to-head/{opponent_id:.*}", web::get().to(|path: web::Path<String>, req: HttpRequest, query: web::Query<std::collections::HashMap<String, String>>, controller: web::Data<AnalyticsController<C>>| async move {
+                        controller.get_head_to_head_record(path, req, query).await
                     }))
                     .route("/contests-by-venue", web::get().to(|req: HttpRequest, query: web::Query<std::collections::HashMap<String, String>>, controller: web::Data<AnalyticsController<C>>| async move {
                         controller.get_contests_by_venue(req, query).await

@@ -82,6 +82,20 @@ pub fn nav() -> Html {
 
                             // Desktop navigation - hidden on mobile
                             <div class={classes!("hidden", "md:flex", "space-x-6")}>
+                                <Link<Route>
+                                    to={Route::Leaderboards}
+                                    classes={classes!(
+                                        "px-3", "py-2", "rounded-md", "text-sm", "font-medium",
+                                        "transition-colors", "duration-200", "min-h-[44px]", "flex", "items-center",
+                                        if current_route == Route::Leaderboards {
+                                            classes!("bg-white/20", "text-white")
+                                        } else {
+                                            classes!("text-white/90", "hover:bg-white/10", "hover:text-white")
+                                        }
+                                    )}
+                                >
+                                    {"Leaderboards"}
+                                </Link<Route>>
                                 if let Some(_) = &auth.state.player {
                                     <Link<Route>
                                         to={Route::Profile}
@@ -279,6 +293,24 @@ pub fn nav() -> Html {
                     }
                 )}>
                     <div class={classes!("px-4", "pt-4", "pb-6", "space-y-2", "bg-gradient-to-b", "from-slate-800/95", "to-blue-600/95", "backdrop-blur-sm")}>
+                        <div onclick={close_mobile_menu.clone()}>
+                            <Link<Route>
+                                to={Route::Leaderboards}
+                                classes={classes!(
+                                    "block", "px-4", "py-3", "rounded-lg", "text-base", "font-medium",
+                                    "transition-all", "duration-200", "min-h-[48px]", "flex", "items-center",
+                                    "active:scale-95", "active:bg-white/20",
+                                    if current_route == Route::Leaderboards {
+                                        classes!("bg-white/20", "text-white", "shadow-lg")
+                                    } else {
+                                        classes!("text-white/90", "hover:bg-white/10", "hover:text-white")
+                                    }
+                                )}
+                            >
+                                <span class={classes!("mr-3", "text-lg")}>{"🏆"}</span>
+                                {"Leaderboards"}
+                            </Link<Route>>
+                        </div>
                         if let Some(_) = &auth.state.player {
                             <div onclick={close_mobile_menu.clone()}>
                                 <Link<Route>

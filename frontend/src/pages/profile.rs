@@ -4,6 +4,7 @@ use crate::api::utils::authenticated_get;
 use crate::api::venues::get_all_venues;
 use crate::components::contests_modal::ContestsModal;
 use crate::components::profile::comparison_tab::ComparisonTab;
+use crate::components::profile::achievements_tab::AchievementsTab;
 use crate::components::profile::game_performance_tab::GamePerformanceTab;
 use crate::components::profile::nemesis_tab::NemesisTab;
 use crate::components::profile::overall_stats_tab::OverallStatsTab;
@@ -22,6 +23,7 @@ use shared::models::client_analytics::{
     AnalyticsQuery, CoreStats, GamePerformance, PerformanceTrend,
 };
 use shared::{GameDto, VenueDto};
+use shared::dto::analytics::PlayerAchievementsDto;
 use wasm_bindgen_futures::spawn_local;
 use web_sys::console;
 use yew::prelude::*;
@@ -322,12 +324,16 @@ use gloo_storage::Storage;
 use gloo_utils;
 
 #[derive(Properties, PartialEq)]
-pub struct ProfilePageProps {}
+pub struct ProfilePageProps {
+    #[prop_or_default]
+    pub player_id: Option<String>,
+}
 
 #[derive(PartialEq, Clone)]
 pub enum ProfileTab {
     OverallStats,
     Ratings,
+    Achievements,
     Nemesis,
     Owned,
     GamePerformance,
@@ -337,15 +343,18 @@ pub enum ProfileTab {
 }
 
 #[function_component(ProfilePage)]
-pub fn profile_page(_props: &ProfilePageProps) -> Html {
+pub fn profile_page(props: &ProfilePageProps) -> Html {
     let auth_context = use_context::<AuthContext>().expect("AuthContext not found");
+    let viewing_other_player = props.player_id.is_some();
+    let player_id_override = props.player_id.clone();
     // Restore last selected tab from LocalStorage, default to Ratings
     let current_tab = {
-        let initial = if let Ok(val) = gloo_storage::LocalStorage::get::<String>("profile_last_tab")
+        let mut initial = if let Ok(val) = gloo_storage::LocalStorage::get::<String>("profile_last_tab")
         {
             match val.as_str() {
                 "OverallStats" => ProfileTab::OverallStats,
                 "Ratings" => ProfileTab::Ratings,
+                "Achievements" => ProfileTab::Achievements,
                 "Nemesis" => ProfileTab::Nemesis,
                 "Owned" => ProfileTab::Owned,
                 "GamePerformance" => ProfileTab::GamePerformance,
@@ -357,6 +366,9 @@ pub fn profile_page(_props: &ProfilePageProps) -> Html {
         } else {
             ProfileTab::OverallStats
         };
+        if viewing_other_player && initial == ProfileTab::Settings {
+            initial = ProfileTab::OverallStats;
+        }
         use_state(|| initial)
     };
     let loading = use_state(|| true);
@@ -370,6 +382,9 @@ pub fn profile_page(_props: &ProfilePageProps) -> Html {
     let trends_loading = use_state(|| false);
     let trends_error = use_state(|| None::<String>);
     let core_stats = use_state(|| None::<CoreStats>);
+    let achievements = use_state(|| None::<PlayerAchievementsDto>);
+    let achievements_loading = use_state(|| false);
+    let achievements_error = use_state(|| None::<String>);
 
     // Glicko2 ratings states
     let glicko_ratings = use_state(|| None::<Vec<serde_json::Value>>);
@@ -409,6 +424,9 @@ pub fn profile_page(_props: &ProfilePageProps) -> Html {
                 ProfileTab::Ratings => {
                     gloo_storage::LocalStorage::set("profile_last_tab", "Ratings")
                 }
+                ProfileTab::Achievements => {
+                    gloo_storage::LocalStorage::set("profile_last_tab", "Achievements")
+                }
                 ProfileTab::Nemesis => {
                     gloo_storage::LocalStorage::set("profile_last_tab", "Nemesis")
                 }
@@ -432,6 +450,8 @@ pub fn profile_page(_props: &ProfilePageProps) -> Html {
         let loading = loading.clone();
         let error = error.clone();
         let auth_context = auth_context.clone();
+        let player_id_override = player_id_override.clone();
+        let viewing_other_player = viewing_other_player;
         let opponents_who_beat_me = opponents_who_beat_me.clone();
         let opponents_i_beat = opponents_i_beat.clone();
         let game_performance = game_performance.clone();
@@ -449,9 +469,14 @@ pub fn profile_page(_props: &ProfilePageProps) -> Html {
                 loading.set(true);
                 error.set(None);
 
-                // Get player ID from auth context first
-                let player_id = if let Some(player) = &auth_context.state.player {
-                    // Extract just the ID part if it includes "player/" prefix
+                // Resolve target player ID (override or current auth player)
+                let player_id = if let Some(override_id) = &player_id_override {
+                    if override_id.starts_with("player/") {
+                        override_id.trim_start_matches("player/").to_string()
+                    } else {
+                        override_id.clone()
+                    }
+                } else if let Some(player) = &auth_context.state.player {
                     if player.id.starts_with("player/") {
                         player.id.trim_start_matches("player/").to_string()
                     } else {
@@ -462,23 +487,30 @@ pub fn profile_page(_props: &ProfilePageProps) -> Html {
                     loading.set(false);
                     return;
                 };
+                let player_id_param = encode_uri_component(&player_id)
+                    .as_string()
+                    .unwrap_or_else(|| player_id.clone());
 
-                // Try client analytics first
+                // Try client analytics first (only for the current player)
                 let mut analytics_manager = ClientAnalyticsManager::new();
-                match analytics_manager
-                    .get_analytics(
-                        "current_player",
-                        AnalyticsQuery {
-                            date_range: None,
-                            games: None,
-                            venues: None,
-                            opponents: None,
-                            min_players: None,
-                            max_players: None,
-                        },
-                    )
-                    .await
-                {
+                let analytics_result = if viewing_other_player {
+                    Err("Client analytics not available for other players".to_string())
+                } else {
+                    analytics_manager
+                        .get_analytics(
+                            "current_player",
+                            AnalyticsQuery {
+                                date_range: None,
+                                games: None,
+                                venues: None,
+                                opponents: None,
+                                min_players: None,
+                                max_players: None,
+                            },
+                        )
+                        .await
+                };
+                match analytics_result {
                     Ok(analytics) => {
                         console::log_1(
                             &format!("Client analytics data received: {:?}", analytics).into(),
@@ -549,8 +581,15 @@ pub fn profile_page(_props: &ProfilePageProps) -> Html {
                         // We'll fetch contest history after game performance to ensure proper timing
 
                         // Get game performance
-                        let game_perf_url = "/api/analytics/player/game-performance";
-                        match authenticated_get(game_perf_url).send().await {
+                        let game_perf_url = if viewing_other_player {
+                            format!(
+                                "/api/analytics/player/game-performance?player_id={}",
+                                player_id_param
+                            )
+                        } else {
+                            "/api/analytics/player/game-performance".to_string()
+                        };
+                        match authenticated_get(&game_perf_url).send().await {
                             Ok(response) => {
                                 if response.ok() {
                                     // First try to parse as an array of DTOs (backend returns a raw array)
@@ -640,7 +679,7 @@ pub fn profile_page(_props: &ProfilePageProps) -> Html {
                                         }
                                         Err(_) => {
                                             // Backward compatibility: parse generic JSON and look for wrapped key
-                                            match authenticated_get(game_perf_url).send().await {
+                                            match authenticated_get(&game_perf_url).send().await {
                                                 Ok(resp2) => {
                                                     if resp2.ok() {
                                                         match resp2.json::<Value>().await {
@@ -750,8 +789,15 @@ pub fn profile_page(_props: &ProfilePageProps) -> Html {
                         }
 
                         // Get opponents who beat me
-                        let opponents_who_beat_url = "/api/analytics/player/opponents-who-beat-me";
-                        match authenticated_get(opponents_who_beat_url).send().await {
+                        let opponents_who_beat_url = if viewing_other_player {
+                            format!(
+                                "/api/analytics/player/opponents-who-beat-me?player_id={}",
+                                player_id_param
+                            )
+                        } else {
+                            "/api/analytics/player/opponents-who-beat-me".to_string()
+                        };
+                        match authenticated_get(&opponents_who_beat_url).send().await {
                             Ok(response) => {
                                 if response.ok() {
                                     match response.json::<Value>().await {
@@ -804,8 +850,15 @@ pub fn profile_page(_props: &ProfilePageProps) -> Html {
                         }
 
                         // Get opponents I beat
-                        let opponents_i_beat_url = "/api/analytics/player/opponents-i-beat";
-                        match authenticated_get(opponents_i_beat_url).send().await {
+                        let opponents_i_beat_url = if viewing_other_player {
+                            format!(
+                                "/api/analytics/player/opponents-i-beat?player_id={}",
+                                player_id_param
+                            )
+                        } else {
+                            "/api/analytics/player/opponents-i-beat".to_string()
+                        };
+                        match authenticated_get(&opponents_i_beat_url).send().await {
                             Ok(response) => {
                                 if response.ok() {
                                     match response.json::<Value>().await {
@@ -854,8 +907,15 @@ pub fn profile_page(_props: &ProfilePageProps) -> Html {
                         }
 
                         // Get performance trends
-                        let trends_url = "/api/analytics/player/performance-trends";
-                        match authenticated_get(trends_url).send().await {
+                        let trends_url = if viewing_other_player {
+                            format!(
+                                "/api/analytics/player/performance-trends?player_id={}",
+                                player_id_param
+                            )
+                        } else {
+                            "/api/analytics/player/performance-trends".to_string()
+                        };
+                        match authenticated_get(&trends_url).send().await {
                             Ok(response) => {
                                 if response.ok() {
                                     match response.json::<Value>().await {
@@ -1012,6 +1072,69 @@ pub fn profile_page(_props: &ProfilePageProps) -> Html {
         });
     }
 
+    // Load achievements
+    {
+        let achievements = achievements.clone();
+        let achievements_loading = achievements_loading.clone();
+        let achievements_error = achievements_error.clone();
+        let auth_context = auth_context.clone();
+        let player_id_override = player_id_override.clone();
+
+        use_effect_with(
+            (player_id_override.clone(), auth_context.state.player.clone()),
+            move |(override_id, player)| {
+            let override_id = override_id.clone();
+            let player = player.clone();
+            achievements_loading.set(true);
+            achievements_error.set(None);
+
+            spawn_local(async move {
+                let player_id = if let Some(override_id) = override_id {
+                    if override_id.starts_with("player/") {
+                        override_id.trim_start_matches("player/").to_string()
+                    } else {
+                        override_id
+                    }
+                } else if let Some(player) = player {
+                    if player.id.starts_with("player/") {
+                        player.id.trim_start_matches("player/").to_string()
+                    } else {
+                        player.id.clone()
+                    }
+                } else {
+                    achievements_loading.set(false);
+                    return;
+                };
+
+                let url = format!("/api/analytics/players/{}/achievements", player_id);
+                match authenticated_get(&url).send().await {
+                    Ok(response) => {
+                        if response.ok() {
+                            match response.json::<PlayerAchievementsDto>().await {
+                                Ok(data) => achievements.set(Some(data)),
+                                Err(e) => achievements_error
+                                    .set(Some(format!("Failed to parse achievements: {}", e))),
+                            }
+                        } else {
+                            achievements_error.set(Some(format!(
+                                "Failed to fetch achievements: {}",
+                                response.status()
+                            )));
+                        }
+                    }
+                    Err(e) => {
+                        achievements_error
+                            .set(Some(format!("Failed to fetch achievements: {}", e)))
+                    }
+                }
+
+                achievements_loading.set(false);
+            });
+
+            || ()
+        });
+    }
+
     // Load games and venues for trends filters
     {
         let games = games.clone();
@@ -1038,6 +1161,8 @@ pub fn profile_page(_props: &ProfilePageProps) -> Html {
         let trends_error = trends_error.clone();
         let selected_game_id = selected_game_id.clone();
         let selected_venue_id = selected_venue_id.clone();
+        let player_id_override = player_id_override.clone();
+        let viewing_other_player = viewing_other_player;
 
         use_effect_with(
             (selected_game_id.clone(), selected_venue_id.clone()),
@@ -1050,6 +1175,14 @@ pub fn profile_page(_props: &ProfilePageProps) -> Html {
 
                 spawn_local(async move {
                     let mut params = Vec::new();
+                    if viewing_other_player {
+                        if let Some(player_id) = player_id_override.as_ref() {
+                            let encoded = encode_uri_component(player_id)
+                                .as_string()
+                                .unwrap_or_else(|| player_id.clone());
+                            params.push(format!("player_id={}", encoded));
+                        }
+                    }
                     if let Some(id) = &*game_id {
                         if !id.is_empty() {
                             let encoded = encode_uri_component(id)
@@ -1121,6 +1254,8 @@ pub fn profile_page(_props: &ProfilePageProps) -> Html {
         let contest_modal_error = contest_modal_error.clone();
         let contest_details = contest_details.clone();
         let selected_opponent = selected_opponent.clone();
+        let viewing_other_player = viewing_other_player;
+        let player_id_override = player_id_override.clone();
 
         Callback::from(move |opponent: (String, String, String)| {
             let contest_modal_open = contest_modal_open.clone();
@@ -1128,6 +1263,7 @@ pub fn profile_page(_props: &ProfilePageProps) -> Html {
             let contest_modal_error = contest_modal_error.clone();
             let contest_details = contest_details.clone();
             let selected_opponent = selected_opponent.clone();
+            let player_id_param = player_id_override.as_ref().cloned();
 
             spawn_local(async move {
                 contest_modal_open.set(true);
@@ -1135,7 +1271,15 @@ pub fn profile_page(_props: &ProfilePageProps) -> Html {
                 contest_modal_error.set(None);
                 selected_opponent.set(Some(opponent.clone()));
 
-                let url = format!("/api/analytics/player/head-to-head/{}", opponent.0);
+                let mut url = format!("/api/analytics/player/head-to-head/{}", opponent.0);
+                if viewing_other_player {
+                    if let Some(player_id) = player_id_param {
+                        let encoded = encode_uri_component(&player_id)
+                            .as_string()
+                            .unwrap_or_else(|| player_id.clone());
+                        url = format!("{}?player_id={}", url, encoded);
+                    }
+                }
                 match authenticated_get(&url).send().await {
                     Ok(response) => {
                         if response.ok() {
@@ -1218,6 +1362,7 @@ pub fn profile_page(_props: &ProfilePageProps) -> Html {
                     <ProfileTabs
                         current_tab={(*current_tab).clone()}
                         on_tab_click={on_tab_click}
+                        show_settings={!viewing_other_player}
                     />
 
                     // Tab Content
@@ -1237,6 +1382,13 @@ pub fn profile_page(_props: &ProfilePageProps) -> Html {
                                     rating_history={(*rating_history).clone()}
                                     rating_history_loading={*rating_history_loading}
                                     rating_history_error={(*rating_history_error).clone()}
+                                />
+                            },
+                            ProfileTab::Achievements => html! {
+                                <AchievementsTab
+                                    achievements={(*achievements).clone()}
+                                    loading={*achievements_loading}
+                                    error={(*achievements_error).clone()}
                                 />
                             },
                             ProfileTab::Nemesis => html! {
@@ -1296,10 +1448,19 @@ pub fn profile_page(_props: &ProfilePageProps) -> Html {
                                 }
                             },
                             ProfileTab::Comparison => html! {
-                                <ComparisonTab />
+                                <ComparisonTab player_id={player_id_override.clone()} />
                             },
                             ProfileTab::Settings => html! {
-                                <SettingsTab />
+                                {if viewing_other_player {
+                                    html! {
+                                        <div class="bg-white rounded-xl shadow-mobile-soft p-6 border border-gray-100">
+                                            <h2 class="text-2xl font-bold text-gray-900 mb-2">{"Settings"}</h2>
+                                            <p class="text-gray-600">{"Settings are only available on your own profile."}</p>
+                                        </div>
+                                    }
+                                } else {
+                                    html! { <SettingsTab /> }
+                                }}
                             },
                         }}
                     </div>

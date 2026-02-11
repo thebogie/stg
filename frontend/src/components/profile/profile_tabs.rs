@@ -5,13 +5,15 @@ use yew::prelude::*;
 pub struct ProfileTabsProps {
     pub current_tab: ProfileTab,
     pub on_tab_click: Callback<ProfileTab>,
+    pub show_settings: bool,
 }
 
 #[function_component(ProfileTabs)]
 pub fn profile_tabs(props: &ProfileTabsProps) -> Html {
-    let tabs = vec![
+    let mut tabs = vec![
         (ProfileTab::OverallStats, "📊", "Overall Stats"),
         (ProfileTab::Ratings, "🎖️", "Ratings"),
+        (ProfileTab::Achievements, "🏅", "Achievements"),
         (ProfileTab::Nemesis, "⚔️", "Nemesis"),
         (ProfileTab::Owned, "🎯", "Owned"),
         (ProfileTab::GamePerformance, "🎮", "Game Performance"),
@@ -19,6 +21,9 @@ pub fn profile_tabs(props: &ProfileTabsProps) -> Html {
         (ProfileTab::Comparison, "🧭", "Comparison"),
         (ProfileTab::Settings, "⚙️", "Settings"),
     ];
+    if !props.show_settings {
+        tabs.retain(|(tab, _, _)| *tab != ProfileTab::Settings);
+    }
 
     html! {
         <div class="border-b border-gray-200">

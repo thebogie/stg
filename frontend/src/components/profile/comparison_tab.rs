@@ -7,8 +7,14 @@ use wasm_bindgen_futures::spawn_local;
 use yew::prelude::*;
 use yew::use_effect_with;
 
+#[derive(Properties, PartialEq)]
+pub struct ComparisonTabProps {
+    #[prop_or_default]
+    pub player_id: Option<String>,
+}
+
 #[function_component(ComparisonTab)]
-pub fn comparison_tab() -> Html {
+pub fn comparison_tab(props: &ComparisonTabProps) -> Html {
     let auth_context = use_context::<AuthContext>().expect("AuthContext not found");
     let chart_data = use_state(|| None::<String>);
     let chart_loading = use_state(|| false);
@@ -61,12 +67,16 @@ pub fn comparison_tab() -> Html {
     }
 
     // Build player IDs for comparison
-    let me_id = auth_context
-        .state
-        .player
-        .as_ref()
-        .map(|p| p.id.clone())
-        .unwrap_or_default();
+    let me_id = if let Some(player_id) = props.player_id.as_ref() {
+        player_id.clone()
+    } else {
+        auth_context
+            .state
+            .player
+            .as_ref()
+            .map(|p| p.id.clone())
+            .unwrap_or_default()
+    };
     let mut ids: Vec<String> = Vec::new();
     if !me_id.is_empty() {
         ids.push(me_id.clone());

@@ -346,6 +346,21 @@ redis-cli -h localhost -p 6379 ping
 # Make sure ARANGO_URL and REDIS_URL point to localhost
 ```
 
+### "Address already in use" but no process shows (WSL2 / Linux)
+
+The backend may fail with `Os { code: 98, kind: AddrInUse }` even when `lsof`/`ss`/Task Manager don’t show the port. Common causes:
+
+- **TIME_WAIT** – The kernel holds the port briefly after the last backend exit.
+- **Windows / WSL port proxy** – The port can be reserved on the Windows side.
+
+**Quick fix: use a different port.** In `config/.env.development` set:
+
+```bash
+BACKEND_PORT=50014
+```
+
+(Or any free port, e.g. 50014–50020.) Restart backend and frontend. The frontend proxy (Trunk) reads `BACKEND_PORT` from the same env, so both will use the new port.
+
 ### Frontend won't build
 
 ```bash

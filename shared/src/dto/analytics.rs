@@ -129,7 +129,7 @@ pub struct VenueActivityDto {
 }
 
 /// Data Transfer Object for Achievement
-#[derive(Debug, Clone, Serialize, Deserialize, Validate)]
+#[derive(Debug, Clone, Serialize, Deserialize, Validate, PartialEq)]
 pub struct AchievementDto {
     pub id: String,
     pub name: String,
@@ -142,7 +142,7 @@ pub struct AchievementDto {
 }
 
 /// Data Transfer Object for Achievement Category
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum AchievementCategoryDto {
     #[serde(rename = "wins")]
     Wins,
@@ -172,7 +172,7 @@ impl std::fmt::Display for AchievementCategoryDto {
 }
 
 /// Data Transfer Object for Player Achievements
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct PlayerAchievementsDto {
     pub player_id: String,
     pub player_handle: String,

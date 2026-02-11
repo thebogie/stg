@@ -36,6 +36,8 @@ pub mod pages {
     pub mod contest_details;
     pub mod contests;
     pub mod game_history;
+    pub mod leaderboards;
+    pub mod player_profile;
     pub mod not_found;
     pub mod profile;
     pub mod venue_history;
@@ -45,7 +47,8 @@ use pages::{
     admin::AdminPage, analytics::Analytics, analytics_test::AnalyticsTest, contest::Contest,
     contest_details::ContestDetails, contests::Contests, game_details::GameDetails,
     game_history::GameHistory, games::Games, home::Home, login::Login, not_found::NotFound,
-    profile::ProfilePage, venue_details::VenueDetails, venue_history::VenueHistory, venues::Venues,
+    profile::ProfilePage, leaderboards::Leaderboards, player_profile::PlayerProfilePage,
+    venue_details::VenueDetails, venue_history::VenueHistory, venues::Venues,
 };
 
 // Unit test modules only
@@ -68,6 +71,10 @@ pub enum Route {
     GameDetails { game_id: String },
     #[at("/analytics")]
     Analytics,
+    #[at("/leaderboards")]
+    Leaderboards,
+    #[at("/player/:player_id")]
+    PlayerProfile { player_id: String },
     #[at("/analytics/test")]
     AnalyticsTest,
     #[at("/admin")]
@@ -289,6 +296,18 @@ fn switch(routes: Route) -> Html {
             html! {
                 <ProtectedRoute>
                     <Analytics />
+                </ProtectedRoute>
+            }
+        }
+        Route::Leaderboards => {
+            debug!("Rendering Leaderboards component");
+            html! { <Leaderboards /> }
+        }
+        Route::PlayerProfile { player_id } => {
+            debug!("Rendering Player profile component (protected)");
+            html! {
+                <ProtectedRoute>
+                    <PlayerProfilePage player_id={player_id} />
                 </ProtectedRoute>
             }
         }
