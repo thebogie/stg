@@ -56,12 +56,10 @@ pub fn achievements_tab(props: &AchievementsTabProps) -> Html {
     let filtered: Vec<_> = achievements
         .achievements
         .iter()
-        .filter(|achievement| {
-            match status_filter.as_str() {
-                "unlocked" => achievement.unlocked,
-                "locked" => !achievement.unlocked,
-                _ => true,
-            }
+        .filter(|achievement| match status_filter.as_str() {
+            "unlocked" => achievement.unlocked,
+            "locked" => !achievement.unlocked,
+            _ => true,
         })
         .filter(|achievement| {
             if category_filter.as_str() == "all" {
@@ -81,8 +79,8 @@ pub fn achievements_tab(props: &AchievementsTabProps) -> Html {
         AchievementCategoryDto::Special,
     ];
 
-    let sort_items = |items: &mut Vec<&shared::dto::analytics::AchievementDto>, sort_by: &str| {
-        match sort_by {
+    let sort_items =
+        |items: &mut Vec<&shared::dto::analytics::AchievementDto>, sort_by: &str| match sort_by {
             "name" => items.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase())),
             "recent" => items.sort_by(|a, b| b.unlocked_at.cmp(&a.unlocked_at)),
             _ => items.sort_by(|a, b| {
@@ -94,10 +92,12 @@ pub fn achievements_tab(props: &AchievementsTabProps) -> Html {
                     .partial_cmp(&a_progress)
                     .unwrap_or(std::cmp::Ordering::Equal)
             }),
-        }
-    };
+        };
 
-    let grouped: Vec<(AchievementCategoryDto, Vec<&shared::dto::analytics::AchievementDto>)> = category_order
+    let grouped: Vec<(
+        AchievementCategoryDto,
+        Vec<&shared::dto::analytics::AchievementDto>,
+    )> = category_order
         .iter()
         .map(|category| {
             let items = filtered

@@ -37,8 +37,8 @@ pub mod pages {
     pub mod contests;
     pub mod game_history;
     pub mod leaderboards;
-    pub mod player_profile;
     pub mod not_found;
+    pub mod player_profile;
     pub mod profile;
     pub mod venue_history;
 }
@@ -46,8 +46,8 @@ pub mod pages {
 use pages::{
     admin::AdminPage, analytics::Analytics, analytics_test::AnalyticsTest, contest::Contest,
     contest_details::ContestDetails, contests::Contests, game_details::GameDetails,
-    game_history::GameHistory, games::Games, home::Home, login::Login, not_found::NotFound,
-    profile::ProfilePage, leaderboards::Leaderboards, player_profile::PlayerProfilePage,
+    game_history::GameHistory, games::Games, home::Home, leaderboards::Leaderboards, login::Login,
+    not_found::NotFound, player_profile::PlayerProfilePage, profile::ProfilePage,
     venue_details::VenueDetails, venue_history::VenueHistory, venues::Venues,
 };
 

@@ -3,8 +3,8 @@ use crate::api::games::get_all_games;
 use crate::api::utils::authenticated_get;
 use crate::api::venues::get_all_venues;
 use crate::components::contests_modal::ContestsModal;
-use crate::components::profile::comparison_tab::ComparisonTab;
 use crate::components::profile::achievements_tab::AchievementsTab;
+use crate::components::profile::comparison_tab::ComparisonTab;
 use crate::components::profile::game_performance_tab::GamePerformanceTab;
 use crate::components::profile::nemesis_tab::NemesisTab;
 use crate::components::profile::overall_stats_tab::OverallStatsTab;
@@ -16,6 +16,7 @@ use crate::components::profile::trends_tab::TrendsTab;
 use chrono::DateTime;
 use js_sys::encode_uri_component;
 use serde_json::Value;
+use shared::dto::analytics::PlayerAchievementsDto;
 use shared::dto::analytics::{
     GamePerformanceDto, HeadToHeadRecordDto, PerformanceTrendDto, PlayerOpponentDto,
 };
@@ -23,7 +24,6 @@ use shared::models::client_analytics::{
     AnalyticsQuery, CoreStats, GamePerformance, PerformanceTrend,
 };
 use shared::{GameDto, VenueDto};
-use shared::dto::analytics::PlayerAchievementsDto;
 use wasm_bindgen_futures::spawn_local;
 use web_sys::console;
 use yew::prelude::*;
@@ -349,23 +349,23 @@ pub fn profile_page(props: &ProfilePageProps) -> Html {
     let player_id_override = props.player_id.clone();
     // Restore last selected tab from LocalStorage, default to Ratings
     let current_tab = {
-        let mut initial = if let Ok(val) = gloo_storage::LocalStorage::get::<String>("profile_last_tab")
-        {
-            match val.as_str() {
-                "OverallStats" => ProfileTab::OverallStats,
-                "Ratings" => ProfileTab::Ratings,
-                "Achievements" => ProfileTab::Achievements,
-                "Nemesis" => ProfileTab::Nemesis,
-                "Owned" => ProfileTab::Owned,
-                "GamePerformance" => ProfileTab::GamePerformance,
-                "Trends" => ProfileTab::Trends,
-                "Comparison" => ProfileTab::Comparison,
-                "Settings" => ProfileTab::Settings,
-                _ => ProfileTab::OverallStats,
-            }
-        } else {
-            ProfileTab::OverallStats
-        };
+        let mut initial =
+            if let Ok(val) = gloo_storage::LocalStorage::get::<String>("profile_last_tab") {
+                match val.as_str() {
+                    "OverallStats" => ProfileTab::OverallStats,
+                    "Ratings" => ProfileTab::Ratings,
+                    "Achievements" => ProfileTab::Achievements,
+                    "Nemesis" => ProfileTab::Nemesis,
+                    "Owned" => ProfileTab::Owned,
+                    "GamePerformance" => ProfileTab::GamePerformance,
+                    "Trends" => ProfileTab::Trends,
+                    "Comparison" => ProfileTab::Comparison,
+                    "Settings" => ProfileTab::Settings,
+                    _ => ProfileTab::OverallStats,
+                }
+            } else {
+                ProfileTab::OverallStats
+            };
         if viewing_other_player && initial == ProfileTab::Settings {
             initial = ProfileTab::OverallStats;
         }
@@ -1081,58 +1081,60 @@ pub fn profile_page(props: &ProfilePageProps) -> Html {
         let player_id_override = player_id_override.clone();
 
         use_effect_with(
-            (player_id_override.clone(), auth_context.state.player.clone()),
+            (
+                player_id_override.clone(),
+                auth_context.state.player.clone(),
+            ),
             move |(override_id, player)| {
-            let override_id = override_id.clone();
-            let player = player.clone();
-            achievements_loading.set(true);
-            achievements_error.set(None);
+                let override_id = override_id.clone();
+                let player = player.clone();
+                achievements_loading.set(true);
+                achievements_error.set(None);
 
-            spawn_local(async move {
-                let player_id = if let Some(override_id) = override_id {
-                    if override_id.starts_with("player/") {
-                        override_id.trim_start_matches("player/").to_string()
-                    } else {
-                        override_id
-                    }
-                } else if let Some(player) = player {
-                    if player.id.starts_with("player/") {
-                        player.id.trim_start_matches("player/").to_string()
-                    } else {
-                        player.id.clone()
-                    }
-                } else {
-                    achievements_loading.set(false);
-                    return;
-                };
-
-                let url = format!("/api/analytics/players/{}/achievements", player_id);
-                match authenticated_get(&url).send().await {
-                    Ok(response) => {
-                        if response.ok() {
-                            match response.json::<PlayerAchievementsDto>().await {
-                                Ok(data) => achievements.set(Some(data)),
-                                Err(e) => achievements_error
-                                    .set(Some(format!("Failed to parse achievements: {}", e))),
-                            }
+                spawn_local(async move {
+                    let player_id = if let Some(override_id) = override_id {
+                        if override_id.starts_with("player/") {
+                            override_id.trim_start_matches("player/").to_string()
                         } else {
-                            achievements_error.set(Some(format!(
-                                "Failed to fetch achievements: {}",
-                                response.status()
-                            )));
+                            override_id
                         }
-                    }
-                    Err(e) => {
-                        achievements_error
-                            .set(Some(format!("Failed to fetch achievements: {}", e)))
-                    }
-                }
+                    } else if let Some(player) = player {
+                        if player.id.starts_with("player/") {
+                            player.id.trim_start_matches("player/").to_string()
+                        } else {
+                            player.id.clone()
+                        }
+                    } else {
+                        achievements_loading.set(false);
+                        return;
+                    };
 
-                achievements_loading.set(false);
-            });
+                    let url = format!("/api/analytics/players/{}/achievements", player_id);
+                    match authenticated_get(&url).send().await {
+                        Ok(response) => {
+                            if response.ok() {
+                                match response.json::<PlayerAchievementsDto>().await {
+                                    Ok(data) => achievements.set(Some(data)),
+                                    Err(e) => achievements_error
+                                        .set(Some(format!("Failed to parse achievements: {}", e))),
+                                }
+                            } else {
+                                achievements_error.set(Some(format!(
+                                    "Failed to fetch achievements: {}",
+                                    response.status()
+                                )));
+                            }
+                        }
+                        Err(e) => achievements_error
+                            .set(Some(format!("Failed to fetch achievements: {}", e))),
+                    }
 
-            || ()
-        });
+                    achievements_loading.set(false);
+                });
+
+                || ()
+            },
+        );
     }
 
     // Load games and venues for trends filters

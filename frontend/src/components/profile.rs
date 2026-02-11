@@ -1,5 +1,5 @@
-pub mod comparison_tab;
 pub mod achievements_tab;
+pub mod comparison_tab;
 pub mod game_performance_tab;
 pub mod nemesis_tab;
 pub mod overall_stats_tab;
