@@ -409,6 +409,36 @@ pub fn profile_page(props: &ProfilePageProps) -> Html {
     let contest_details = use_state(|| None::<Vec<Value>>);
     let selected_opponent = use_state(|| None::<(String, String, String)>); // (id, handle, name)
 
+    // When viewing another player, fetch their display label (handle/email) for the header
+    let viewed_player_display_label = use_state(|| None::<String>);
+    {
+        let player_id_override = player_id_override.clone();
+        let viewed_player_display_label = viewed_player_display_label.clone();
+        use_effect_with(player_id_override.clone(), move |pid_opt| {
+            if let Some(pid) = pid_opt {
+                let viewed_player_display_label = viewed_player_display_label.clone();
+                let pid = pid.clone();
+                spawn_local(async move {
+                    viewed_player_display_label.set(None);
+                    let url = format!("/api/analytics/players/{}/display", pid);
+                    match authenticated_get(&url).send().await {
+                        Ok(resp) if resp.ok() => {
+                            if let Ok(data) = resp.json::<serde_json::Value>().await {
+                                if let Some(label) =
+                                    data.get("display_label").and_then(|v| v.as_str())
+                                {
+                                    viewed_player_display_label.set(Some(label.to_string()));
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                });
+            }
+            || ()
+        });
+    }
+
     // Tab click handler
     let on_tab_click = {
         let current_tab = current_tab.clone();
@@ -1356,8 +1386,23 @@ pub fn profile_page(props: &ProfilePageProps) -> Html {
                 <div class="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
                     // Header
                     <div class="mb-8">
-                        <h1 class="text-3xl font-bold text-gray-900">{"Player Profile"}</h1>
-                        <p class="mt-2 text-gray-600">{"Manage your profile, view statistics, and track your gaming progress"}</p>
+                        <h1 class="text-3xl font-bold text-gray-900">
+                            {if viewing_other_player {
+                                match (*viewed_player_display_label).as_ref() {
+                                    Some(label) => format!("Player profile — {}", label),
+                                    None => "Player profile".to_string(),
+                                }
+                            } else {
+                                "Player Profile".to_string()
+                            }}
+                        </h1>
+                        <p class="mt-2 text-gray-600">
+                            {if viewing_other_player {
+                                (*viewed_player_display_label).as_ref().map(|l| format!("Viewing {}", l)).unwrap_or_else(|| "Viewing another player's profile".to_string())
+                            } else {
+                                "Manage your profile, view statistics, and track your gaming progress".to_string()
+                            }}
+                        </p>
                     </div>
 
                     // Profile Tabs

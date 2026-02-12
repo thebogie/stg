@@ -270,6 +270,37 @@ impl<C: ClientExt> AnalyticsController<C> {
         }
     }
 
+    /// Get player display label (handle or email) for showing whose profile is being viewed
+    pub async fn get_player_display(
+        &self,
+        _req: HttpRequest,
+        path: web::Path<String>,
+    ) -> Result<HttpResponse, actix_web::Error> {
+        let player_param = path.into_inner();
+        let player_id = if player_param.contains('/') {
+            player_param
+        } else {
+            format!("player/{}", player_param)
+        };
+        match self
+            .usecase
+            .repo()
+            .get_player_display_label(&player_id)
+            .await
+        {
+            Ok(Some(label)) => Ok(HttpResponse::Ok().json(json!({ "display_label": label }))),
+            Ok(None) => Ok(HttpResponse::NotFound().json(json!({
+                "error": "Player not found"
+            }))),
+            Err(e) => {
+                log::error!("Failed to get player display label: {}", e);
+                Ok(HttpResponse::InternalServerError().json(json!({
+                    "error": "Failed to get player information"
+                })))
+            }
+        }
+    }
+
     /// Get contest statistics
     pub async fn get_contest_stats(
         &self,
@@ -1489,6 +1520,9 @@ pub fn configure_routes<C: ClientExt + 'static>(
                     }))
                     .route("/{player_id}/rankings", web::get().to(|req: HttpRequest, path: web::Path<String>, controller: web::Data<AnalyticsController<C>>| async move {
                         controller.get_player_rankings(req, path).await
+                    }))
+                    .route("/{player_id}/display", web::get().to(|req: HttpRequest, path: web::Path<String>, controller: web::Data<AnalyticsController<C>>| async move {
+                        controller.get_player_display(req, path).await
                     }))
             )
             .service(

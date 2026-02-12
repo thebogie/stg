@@ -5,10 +5,7 @@ HYBRID DEVELOPMENT
 ./scripts/setup-hybrid-dev.sh
 source scripts/load-env.sh
 cargo run --package backend --bin backend
- ./scripts/start-frontend.sh
- 📈 Performance Trends
-Performance Analysis:Track your gaming performance trends over time to identify patterns and areas for improvement.
-
+./scripts/start-frontend.sh
 
 
 peed + Reliability
