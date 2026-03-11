@@ -37,6 +37,7 @@ Thumbs.db
 config/.env.development
 config/.env.production
 config/.env.*
+config/smacktalk.surql
 # Expanded environment files (generated from templates)
 .env.*.expanded.*
 
