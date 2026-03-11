@@ -1,0 +1,42 @@
+[wasm]
+# Enable all necessary WebAssembly features
+features = ["bulk-memory", "mutable-globals", "nontrapping-fptoint"]
+
+[build]
+# Explicitly enable bulk memory for wasm-opt
+wasm_opt = false
+# Content-hashed filenames so each deploy gets unique URLs (browser fetches new WASM)
+filehash = true
+target = "index.html"
+release = true
+dist = "../../_build/frontend-dist"  # All generated objects in _build/
+
+# Serve static files (Tauri dev loads devUrl localhost:50003; browser open must not use 0.0.0.0)
+[serve]
+addresses = ["127.0.0.1"]
+port = 50003
+open = true
+ws_protocol = "ws"
+
+# Pass environment variables to the build process
+[build.env]
+GIT_COMMIT = { value = "", from_env = "GIT_COMMIT" }
+BUILD_DATE = { value = "", from_env = "BUILD_DATE" }
+
+
+[watch]
+watch = ["src", "../../shared/src"]
+
+# REMOVED pre_build hook - let Trunk handle the entire build process
+# The pre_build hook was causing Cargo to potentially reuse old WASM files
+# Trunk will build the WASM from scratch when we run `trunk build`
+
+[clean]
+cargo = true
+
+# Optional: proxy /api/* when frontend uses relative URLs (e.g. if JS fails to detect dev).
+# In dev the frontend calls the backend directly (api_base_url = http://127.0.0.1:50002) so paths stay /api/...
+[[proxy]]
+rewrite = "/api/"
+backend = "http://localhost:50002" 
+

@@ -1,0 +1,4 @@
+# Configure Rust build artifacts to go to _build/target
+# This consolidates all generated objects in one directory
+[build]
+target-dir = "_build/target"

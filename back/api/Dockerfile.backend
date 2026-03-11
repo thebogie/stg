@@ -1,0 +1,87 @@
+# Build stage - optimized for speed and caching
+FROM rust:slim as builder
+
+# Install build dependencies in a single layer
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    pkg-config \
+    libssl-dev \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy workspace files first for better Docker layer caching
+COPY Cargo.toml Cargo.lock ./
+
+# Copy all workspace members (Cargo requires all workspace members to be present)
+COPY front ./front
+COPY back ./back
+COPY shared ./shared
+COPY testing ./testing
+COPY tools ./tools
+
+# Build arguments for version info (available during cargo build)
+ARG GIT_COMMIT
+ARG BUILD_DATE
+ENV GIT_COMMIT=${GIT_COMMIT:-unknown}
+ENV BUILD_DATE=${BUILD_DATE:-unknown}
+
+# Build the backend binary from workspace root
+# Using --package backend (back/api) ensures we only build the backend package
+# Strip binary to reduce size (strip will fail if binary doesn't exist)
+RUN cargo build --release --package backend && \
+    strip /app/target/release/backend && \
+    test -f /app/target/release/backend && \
+    test -x /app/target/release/backend && \
+    ls -lh /app/target/release/backend && \
+    echo "✅ Binary built and stripped successfully"
+
+# Production stage - minimal runtime image
+FROM debian:bookworm-slim
+
+# Install only essential runtime dependencies (wget for healthcheck, iproute2 for entrypoint)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    libssl3 \
+    wget \
+    iproute2 \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+# Create non-root user for security
+RUN useradd -m -u 1000 appuser && \
+    mkdir -p /app/data && \
+    chown -R appuser:appuser /app
+
+# Copy the stripped binary and entrypoint from builder context
+COPY --from=builder /app/target/release/backend /usr/local/bin/backend
+COPY back/api/docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/backend /docker-entrypoint.sh
+
+# Build arguments for environment variables
+ARG RUST_ENV
+ARG RUST_LOG
+ARG RUST_BACKTRACE
+
+# Set default environment variables (can be overridden by .env files)
+ENV RUST_ENV=${RUST_ENV:-production}
+ENV RUST_LOG=${RUST_LOG:-info}
+ENV RUST_BACKTRACE=${RUST_BACKTRACE:-0}
+ENV SERVER_PORT=50002
+ENV SERVER_HOST=0.0.0.0
+ENV BACKEND_URL=http://0.0.0.0:50002
+
+# Switch to non-root user
+USER appuser
+WORKDIR /app
+
+# Expose the default port (will be overridden by environment variables at runtime)
+EXPOSE 50002
+
+# Health check (using wget which is smaller than curl)
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 --start-period=10s \
+    CMD wget --no-verbose --tries=1 --spider http://localhost:${SERVER_PORT:-50002}/health || exit 1
+
+# Entrypoint resolves host via gateway (avoids DNS issues in Docker Desktop)
+ENTRYPOINT ["/docker-entrypoint.sh"]
+CMD []

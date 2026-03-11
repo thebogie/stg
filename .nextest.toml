@@ -1,0 +1,77 @@
+# cargo-nextest configuration
+# See https://nexte.st/book/configuration.html
+
+[profile.default]
+# Test timeout (default: 60s)
+test-timeout = "300s"
+
+# Limit parallelism to avoid overwhelming Docker with too many containers
+# When running 500+ tests, too many parallel containers cause resource contention
+test-threads = 8  # Limit to 8 parallel tests instead of auto (which could be 16+)
+
+# Retry failed tests
+retries = { backoff = "exponential", count = 2 }
+
+# Output format
+status-level = "flaky"
+
+# JUnit XML output
+junit = { path = "_build/test-results.xml" }
+
+# Test grouping
+threads-required = { file = 1 }
+
+[profile.ci]
+# CI-specific settings
+test-timeout = "600s"
+test-threads = 4  # Even more conservative for CI
+retries = { backoff = "exponential", count = 3 }
+status-level = "none"
+
+# Integration tests use the shared official stack (SurrealDB + Redis)
+[[profile.default.overrides]]
+filter = { package = "testing" }
+test-threads = 4
+test-timeout = "180s"
+
+[[profile.ci.overrides]]
+filter = { package = "testing" }
+test-threads = 2  # Even more conservative in CI
+test-timeout = "240s"
+
+# Slower integration tests run with limited parallelism
+# Venue tests (prone to Redis connection timeouts)
+[[profile.default.overrides]]
+filter = { test = "test_delete_venue_success|test_get_venue_not_found|test_get_venue" }
+test-threads = 1  # Run sequentially (one at a time)
+test-timeout = "180s"
+
+[[profile.ci.overrides]]
+filter = { test = "test_delete_venue_success|test_get_venue_not_found|test_get_venue" }
+test-threads = 1  # Run sequentially in CI too
+test-timeout = "300s"
+
+# Contest tests (slow integration tests)
+[[profile.default.overrides]]
+filter = { test = "test_search_contests|test_get_contest" }
+test-threads = 1
+test-timeout = "180s"
+
+[[profile.ci.overrides]]
+filter = { test = "test_search_contests|test_get_contest" }
+test-threads = 1
+test-timeout = "300s"
+
+# Game tests (slow integration tests)
+[[profile.default.overrides]]
+filter = { test = "test_get_all_games" }
+test-threads = 1
+test-timeout = "180s"
+
+[[profile.ci.overrides]]
+filter = { test = "test_get_all_games" }
+test-threads = 1
+test-timeout = "300s"
+
+
+

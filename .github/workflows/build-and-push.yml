@@ -1,0 +1,68 @@
+# Build backend image and push to GitHub Container Registry (GHCR).
+# After push to main (or tag), pull from production with:
+#   docker pull ghcr.io/OWNER/REPO/backend:SHA_OR_TAG
+#
+# See docs/GHCR_SETUP.md for permissions and production setup.
+
+name: Build and push to GHCR
+
+on:
+  push:
+    branches: [main]
+  # Uncomment to also build on version tags (e.g. v1.0.0):
+  # push:
+  #   tags: ['v*']
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: backend
+
+jobs:
+  build-and-push:
+    name: Build and push image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set build date
+        id: build-date
+        run: echo "date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_OUTPUT
+
+      - name: Extract metadata (tags, labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,prefix=
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: back/api/Dockerfile.backend
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            GIT_COMMIT=${{ github.sha }}
+            BUILD_DATE=${{ steps.build-date.outputs.date }}
+            RUST_ENV=production
+            RUST_LOG=info
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

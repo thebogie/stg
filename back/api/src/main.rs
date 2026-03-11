@@ -1,0 +1,549 @@
+use actix_web::{web, App, HttpServer};
+use backend::config::BGGConfig;
+use backend::db::Db;
+use surrealdb::engine::remote::ws::Ws;
+use surrealdb::Surreal;
+use backend::error::ApiError;
+use backend::player::session::RedisSessionStore;
+use backend::third_party::BGGService;
+use log::error;
+use utoipa::OpenApi;
+
+#[actix_web::main]
+async fn main() -> std::io::Result<()> {
+    // Initialize structured logging
+    let env = std::env::var("RUST_ENV").unwrap_or_else(|_| "development".to_string());
+    let is_production = env.eq_ignore_ascii_case("production");
+
+    // Initialize logging based on environment
+    // In production, use structured JSON logging with tracing
+    // In development, use human-readable logging
+    if is_production {
+        // Production: Use JSON logging with tracing
+        // Bridge log crate to tracing (must be done before subscriber init)
+        let bridge_init_result = tracing_log::LogTracer::builder()
+            .with_max_level(log::LevelFilter::Trace)
+            .init();
+
+        // Only initialize tracing subscriber if bridge succeeded or wasn't needed
+        // Use try_init() to avoid panic if subscriber already initialized
+        if let Err(e) = tracing_subscriber::fmt()
+            .json()
+            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+            .try_init()
+        {
+            // If tracing bridge failed, warn but continue
+            if let Err(bridge_err) = bridge_init_result {
+                eprintln!(
+                    "Warning: Failed to initialize tracing bridge: {}. Continuing without log bridge.",
+                    bridge_err
+                );
+            }
+            // If subscriber init failed (already initialized), that's okay - use existing
+            eprintln!(
+                "Warning: Failed to initialize tracing subscriber: {}. Using existing logger.",
+                e
+            );
+        }
+    } else {
+        // Development: Use human-readable logging with tracing
+        // Bridge log crate to tracing
+        let bridge_init_result = tracing_log::LogTracer::builder()
+            .with_max_level(log::LevelFilter::Trace)
+            .init();
+
+        // Only initialize tracing subscriber if bridge succeeded or wasn't needed
+        // Use try_init() to avoid panic if subscriber already initialized
+        if let Err(e) = tracing_subscriber::fmt()
+            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+            .try_init()
+        {
+            // If tracing bridge failed, warn but continue
+            if let Err(bridge_err) = bridge_init_result {
+                eprintln!(
+                    "Warning: Failed to initialize tracing bridge: {}. Continuing without log bridge.",
+                    bridge_err
+                );
+            }
+            // If subscriber init failed (already initialized), that's okay - use existing
+            eprintln!(
+                "Warning: Failed to initialize tracing subscriber: {}. Using existing logger.",
+                e
+            );
+        }
+    }
+
+    // Load configuration from environment variables
+    let config = match backend::config::Config::load() {
+        Ok(config) => config,
+        Err(e) => {
+            error!("Failed to load configuration: {}", e);
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e.to_string(),
+            ));
+        }
+    };
+
+    // Initialize Redis client
+    let redis_client = match redis::Client::open(config.redis.url.clone()) {
+        Ok(client) => client,
+        Err(e) => {
+            error!("Failed to create Redis client: {}", e);
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::ConnectionRefused,
+                e.to_string(),
+            ));
+        }
+    };
+    let redis_data = web::Data::new(redis_client.clone());
+    let session_store = web::Data::new(RedisSessionStore {
+        client: redis_client.clone(),
+    });
+    let redis_client_for_ratings = redis_client.clone();
+
+    // Initialize SurrealDB connection (WebSocket)
+    let ws_url = config
+        .database
+        .url
+        .replace("http://", "ws://")
+        .replace("https://", "wss://");
+    log::info!("Connecting to SurrealDB at {}", ws_url);
+    // Use SocketAddr when host is an IP to avoid DNS lookup (fixes Docker Desktop / WSL2)
+    let db: Db = match url::Url::parse(&ws_url).ok().and_then(|u| {
+        let host = u.host_str()?;
+        let ip: std::net::IpAddr = host.parse().ok()?;
+        let port = u.port().unwrap_or(50001);
+        Some(std::net::SocketAddr::new(ip, port))
+    }) {
+        Some(addr) => match Surreal::new::<Ws>(addr).await {
+            Ok(d) => d,
+            Err(e) => {
+                error!("Failed to connect to SurrealDB at {}: {}", addr, e);
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::ConnectionRefused,
+                    e.to_string(),
+                ));
+            }
+        },
+        None => match Surreal::new::<Ws>(ws_url.as_str()).await {
+            Ok(d) => d,
+            Err(e) => {
+                error!("Failed to connect to SurrealDB: {}", e);
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::ConnectionRefused,
+                    e.to_string(),
+                ));
+            }
+        },
+    };
+    if let Err(e) = db
+        .signin(surrealdb::opt::auth::Root {
+            username: &config.database.root_username,
+            password: &config.database.root_password,
+        })
+        .await
+    {
+        error!("Failed to sign in to SurrealDB: {}", e);
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            e.to_string(),
+        ));
+    }
+    if let Err(e) = db
+        .use_ns(&config.database.ns)
+        .use_db(&config.database.name)
+        .await
+    {
+        error!("Failed to use namespace/database: {}", e);
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            e.to_string(),
+        ));
+    }
+
+    // Initialize Redis cache for repositories
+    use backend::cache::{CacheTTL, RedisCache};
+    use std::sync::Arc;
+    let game_cache = Arc::new(RedisCache::new(
+        redis_client.clone(),
+        "stg:cache:game".to_string(),
+        CacheTTL::game(),
+    ));
+    let venue_cache = Arc::new(RedisCache::new(
+        redis_client.clone(),
+        "stg:cache:venue".to_string(),
+        CacheTTL::venue(),
+    ));
+    let player_cache = Arc::new(RedisCache::new(
+        redis_client.clone(),
+        "stg:cache:player".to_string(),
+        CacheTTL::player(),
+    ));
+    log::info!("Redis cache initialized for games, venues, and players");
+
+    let player_repo = web::Data::new(
+        backend::player::repository::PlayerRepositoryImpl::new_with_cache(
+            db.clone(),
+            player_cache.clone(),
+        ),
+    );
+
+    // Initialize venue repository with Google Places API if configured
+    let google_config = if let Some(api_key) = &config.google.location_api_key {
+        log::info!(
+            "Google Places API configured with URL: {}",
+            config.google.api_url
+        );
+        Some((config.google.api_url.clone(), api_key.clone()))
+    } else {
+        log::warn!("Google Places API not configured - no API key provided");
+        None
+    };
+    let venue_repo = web::Data::new(
+        backend::venue::repository::VenueRepositoryImpl::new_with_cache(
+            db.clone(),
+            google_config.clone(),
+            venue_cache.clone(),
+        ),
+    );
+
+    // Initialize game repository with BGG service
+    let bgg_service = BGGService::new_with_config(&BGGConfig {
+        api_url: config.bgg.api_url.clone(),
+        api_token: config.bgg.api_token.clone(),
+    });
+    log::info!("BGG API configured with URL: {}", config.bgg.api_url);
+    if config.bgg.api_token.is_some() {
+        log::info!("BGG API token configured (Bearer authentication enabled)");
+    } else {
+        log::warn!("BGG API token not configured - requests will be unauthenticated");
+    }
+
+    let game_repo = web::Data::new(
+        backend::game::repository::GameRepositoryImpl::new_with_bgg_and_cache(
+            db.clone(),
+            bgg_service,
+            game_cache.clone(),
+        ),
+    );
+
+    // Initialize contest repository
+    let contest_repo = web::Data::new(
+        backend::contest::repository::ContestRepositoryImpl::new_with_google_config(
+            db.clone(),
+            google_config,
+        ),
+    );
+
+    // Initialize client analytics components
+    let client_analytics_repo =
+        backend::client_analytics::repository::ClientAnalyticsRepositoryImpl::new(db.clone());
+    let client_analytics_usecase =
+        backend::client_analytics::usecase::ClientAnalyticsUseCaseImpl::new(client_analytics_repo);
+    let client_analytics_controller = web::Data::new(
+        backend::client_analytics::controller::ClientAnalyticsController::new(
+            client_analytics_usecase,
+            db.clone(),
+        ),
+    );
+
+    // Initialize ratings scheduler
+    let ratings_repo = backend::ratings::repository::RatingsRepository::new(db.clone());
+    let ratings_usecase = backend::ratings::usecase::RatingsUsecase::new(ratings_repo);
+    let mut ratings_scheduler =
+        backend::ratings::scheduler::RatingsScheduler::new(ratings_usecase.clone());
+
+    // Start the ratings scheduler in the background
+    if let Err(e) = ratings_scheduler.start().await {
+        log::error!("Failed to start ratings scheduler: {}", e);
+    } else {
+        log::info!("Glicko2 ratings scheduler started successfully");
+    }
+
+    // Store scheduler in web::Data for health checks
+    let scheduler_data = web::Data::new(ratings_scheduler.clone());
+
+    // Analytics components will be initialized in the route configuration
+
+    // Start HTTP server
+    log::info!(
+        "Starting server on {}:{}",
+        config.server.host,
+        config.server.port
+    );
+
+    // Store database in web::Data for health checks
+    let db_data = web::Data::new(db.clone());
+
+    // Initialize metrics (this will initialize the global instance)
+    let metrics = match backend::metrics::Metrics::new() {
+        Ok(m) => {
+            log::info!("Metrics initialized successfully");
+            let metrics_arc = std::sync::Arc::new(m);
+            // Set global metrics instance
+            backend::metrics::Metrics::set_global(metrics_arc.clone());
+            metrics_arc
+        }
+        Err(e) => {
+            log::error!("Failed to initialize metrics: {}", e);
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Failed to initialize metrics: {}", e),
+            ));
+        }
+    };
+    let metrics_data = web::Data::new(metrics.clone());
+
+    HttpServer::new(move || {
+        // Configure JSON error handler to always return JSON (not HTML)
+        let json_config = actix_web::web::JsonConfig::default()
+            .limit(256 * 1024)
+            .error_handler(|err, _req| {
+                // Convert JSON deserialization errors to JSON responses
+                let error = ApiError::bad_request(&format!("Invalid JSON: {}", err));
+                error.into()
+            });
+
+        App::new()
+            .wrap(backend::middleware::Logger::with_metrics(metrics.clone()))
+            .wrap(backend::middleware::SecurityHeaders)
+            .wrap(backend::middleware::cors_middleware())
+            .app_data(metrics_data.clone())
+            .app_data(json_config)
+            .app_data(redis_data.clone())
+            .app_data(db_data.clone())
+            .app_data(scheduler_data.clone())
+            .app_data(player_repo.clone())
+            .app_data(venue_repo.clone())
+            .app_data(game_repo.clone())
+            .app_data(contest_repo.clone())
+            .app_data(session_store.clone())
+            .service(utoipa_swagger_ui::SwaggerUi::new("/swagger-ui/{_:.*}").url(
+                "/api-docs/openapi.json",
+                <backend::openapi::ApiDoc as OpenApi>::openapi(),
+            ))
+            .service(backend::health::health_check)
+            .service(backend::health::surreal_db_check)
+            .service(backend::health::detailed_health_check)
+            .service(backend::health::scheduler_health_check)
+            .service(backend::health::version_info)
+            .service(backend::health::version_info_root)
+            .service(backend::health::metrics_endpoint)
+            .service(
+                web::scope("/api/players")
+                    .service(backend::player::controller::register_handler_prod)
+                    .service(backend::player::controller::login_handler_prod)
+                    .service(backend::player::controller::logout_handler_prod)
+                    .service(backend::player::controller::search_players_handler)
+                    .service(backend::player::controller::search_players_db_handler)
+                    .service(
+                        web::scope("/me")
+                            .wrap(backend::auth::AuthMiddleware {
+                                redis: std::sync::Arc::new(redis_data.get_ref().clone()),
+                            })
+                            .service(backend::player::controller::me_handler_prod)
+                            .service(backend::player::controller::update_email_handler_prod)
+                            .service(backend::player::controller::update_handle_handler_prod)
+                            .service(backend::player::controller::update_password_handler_prod),
+                    ),
+            )
+            .service(
+                web::scope("/players")
+                    .service(backend::player::controller::register_handler_prod)
+                    .service(backend::player::controller::login_handler_prod)
+                    .service(backend::player::controller::logout_handler_prod)
+                    .service(backend::player::controller::search_players_handler)
+                    .service(backend::player::controller::search_players_db_handler)
+                    .service(
+                        web::scope("/me")
+                            .wrap(backend::auth::AuthMiddleware {
+                                redis: std::sync::Arc::new(redis_data.get_ref().clone()),
+                            })
+                            .service(backend::player::controller::me_handler_prod)
+                            .service(backend::player::controller::update_email_handler_prod)
+                            .service(backend::player::controller::update_handle_handler_prod)
+                            .service(backend::player::controller::update_password_handler_prod),
+                    ),
+            )
+            .service(
+                web::scope("/api/venues")
+                    .wrap(backend::auth::AuthMiddleware {
+                        redis: std::sync::Arc::new(redis_data.get_ref().clone()),
+                    })
+                    .app_data(actix_web::web::JsonConfig::default().limit(64 * 1024))
+                    .service(backend::venue::controller::get_all_venues_handler)
+                    .service(backend::venue::controller::search_venues_handler)
+                    .service(backend::venue::controller::search_venues_db_handler)
+                    .service(backend::venue::controller::search_venues_create_handler)
+                    .service(backend::venue::controller::get_venue_handler)
+                    .service(backend::venue::controller::create_venue_handler)
+                    .service(backend::venue::controller::update_venue_handler)
+                    .service(backend::venue::controller::delete_venue_handler),
+            )
+            .service(
+                web::scope("/venues")
+                    .wrap(backend::auth::AuthMiddleware {
+                        redis: std::sync::Arc::new(redis_data.get_ref().clone()),
+                    })
+                    .app_data(actix_web::web::JsonConfig::default().limit(64 * 1024))
+                    .service(backend::venue::controller::get_all_venues_handler)
+                    .service(backend::venue::controller::search_venues_handler)
+                    .service(backend::venue::controller::search_venues_db_handler)
+                    .service(backend::venue::controller::search_venues_create_handler)
+                    .service(backend::venue::controller::get_venue_handler)
+                    .service(backend::venue::controller::create_venue_handler)
+                    .service(backend::venue::controller::update_venue_handler)
+                    .service(backend::venue::controller::delete_venue_handler),
+            )
+            .service(
+                web::scope("/api/games")
+                    .wrap(backend::auth::AuthMiddleware {
+                        redis: std::sync::Arc::new(redis_data.get_ref().clone()),
+                    })
+                    .app_data(actix_web::web::JsonConfig::default().limit(64 * 1024))
+                    .service(backend::game::controller::get_all_games_handler)
+                    .service(backend::game::controller::search_games_handler)
+                    .service(backend::game::controller::search_games_db_handler)
+                    .service(backend::game::controller::get_game_handler)
+                    .service(backend::game::controller::create_game_handler)
+                    .service(backend::game::controller::update_game_handler)
+                    .service(backend::game::controller::delete_game_handler),
+            )
+            .service(
+                web::scope("/games")
+                    .wrap(backend::auth::AuthMiddleware {
+                        redis: std::sync::Arc::new(redis_data.get_ref().clone()),
+                    })
+                    .app_data(actix_web::web::JsonConfig::default().limit(64 * 1024))
+                    .service(backend::game::controller::get_all_games_handler)
+                    .service(backend::game::controller::search_games_handler)
+                    .service(backend::game::controller::search_games_db_handler)
+                    .service(backend::game::controller::get_game_handler)
+                    .service(backend::game::controller::create_game_handler)
+                    .service(backend::game::controller::update_game_handler)
+                    .service(backend::game::controller::delete_game_handler),
+            )
+            .service(
+                web::scope("/api/contests")
+                    .wrap(backend::auth::AuthMiddleware {
+                        redis: std::sync::Arc::new(redis_data.get_ref().clone()),
+                    })
+                    .app_data(actix_web::web::JsonConfig::default().limit(128 * 1024))
+                    .app_data(player_repo.clone())
+                    .service(backend::contest::controller::create_contest_handler)
+                    .service(backend::contest::controller::get_player_game_contests_handler)
+                    .service(backend::contest::controller::search_contests_handler)
+                    .service(backend::contest::controller::get_contest_handler),
+            )
+            .service(
+                web::scope("/contests")
+                    .wrap(backend::auth::AuthMiddleware {
+                        redis: std::sync::Arc::new(redis_data.get_ref().clone()),
+                    })
+                    .app_data(actix_web::web::JsonConfig::default().limit(128 * 1024))
+                    .app_data(player_repo.clone())
+                    .service(backend::contest::controller::create_contest_handler)
+                    .service(backend::contest::controller::get_player_game_contests_handler)
+                    .service(backend::contest::controller::search_contests_handler)
+                    .service(backend::contest::controller::get_contest_handler),
+            )
+            .configure(|cfg| {
+                log::debug!("Registering /api/analytics routes");
+                backend::analytics::controller::configure_routes(
+                    cfg,
+                    db.clone(),
+                    config.database.clone(),
+                    std::sync::Arc::new(redis_data.get_ref().clone()),
+                    "/api",
+                );
+            })
+            .configure(|cfg| {
+                log::debug!("Registering /analytics routes (Trunk proxy)");
+                backend::analytics::controller::configure_routes(
+                    cfg,
+                    db.clone(),
+                    config.database.clone(),
+                    std::sync::Arc::new(redis_data.get_ref().clone()),
+                    "",
+                );
+            })
+            .configure(|cfg| {
+                log::debug!("Registering /api/client routes");
+                backend::client_analytics::controller::configure_routes(
+                    cfg,
+                    client_analytics_controller.clone(),
+                    std::sync::Arc::new(redis_data.get_ref().clone()),
+                    "/api",
+                );
+            })
+            .configure(|cfg| {
+                log::debug!("Registering /client routes (Trunk proxy)");
+                backend::client_analytics::controller::configure_routes(
+                    cfg,
+                    client_analytics_controller.clone(),
+                    std::sync::Arc::new(redis_data.get_ref().clone()),
+                    "",
+                );
+            })
+            .configure(|cfg| {
+                log::debug!("Registering enhanced analytics routes at /api");
+                backend::client_analytics::controller::configure_enhanced_routes(
+                    cfg,
+                    client_analytics_controller.clone(),
+                    std::sync::Arc::new(redis_data.get_ref().clone()),
+                    "/api",
+                );
+            })
+            .configure(|cfg| {
+                log::debug!("Registering enhanced analytics routes (Trunk proxy)");
+                backend::client_analytics::controller::configure_enhanced_routes(
+                    cfg,
+                    client_analytics_controller.clone(),
+                    std::sync::Arc::new(redis_data.get_ref().clone()),
+                    "",
+                );
+            })
+            .configure(|cfg| {
+                log::debug!("Registering /api/ratings routes");
+                backend::ratings::controller::RatingsController::configure_routes(
+                    cfg,
+                    db.clone(),
+                    ratings_scheduler.clone(),
+                    redis_client_for_ratings.clone(),
+                    "/api",
+                );
+            })
+            .configure(|cfg| {
+                log::debug!("Registering /ratings routes (Trunk proxy)");
+                backend::ratings::controller::RatingsController::configure_routes(
+                    cfg,
+                    db.clone(),
+                    ratings_scheduler.clone(),
+                    redis_client_for_ratings.clone(),
+                    "",
+                );
+            })
+            .configure(|cfg| {
+                log::debug!("Registering /api/timezone routes");
+                backend::timezone::controller::configure_routes(
+                    cfg,
+                    std::env::var("GOOGLEMAP_API_TIMEZONE_URL").unwrap_or_default(),
+                    std::env::var("GOOGLE_LOCATION_API").unwrap_or_default(),
+                    "/api",
+                );
+            })
+            .configure(|cfg| {
+                log::debug!("Registering /timezone routes (Trunk proxy)");
+                backend::timezone::controller::configure_routes(
+                    cfg,
+                    std::env::var("GOOGLEMAP_API_TIMEZONE_URL").unwrap_or_default(),
+                    std::env::var("GOOGLE_LOCATION_API").unwrap_or_default(),
+                    "",
+                );
+            })
+    })
+    .bind((config.server.host.as_str(), config.server.port))?
+    .run()
+    .await
+}

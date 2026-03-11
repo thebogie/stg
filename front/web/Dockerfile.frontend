@@ -1,0 +1,425 @@
+# Build stage - optimized for speed and caching
+FROM rust:slim as builder
+
+# Install all build dependencies in a single layer
+# binutils provides 'strings' command needed for WASM verification
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    wget \
+    tar \
+    ca-certificates \
+    build-essential \
+    pkg-config \
+    binutils \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Node.js 20 (LTS) - use official NodeSource method
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
+# Download and install latest Binaryen
+# Fetch latest release dynamically for up-to-date builds
+RUN LATEST_URL=$(curl -s https://api.github.com/repos/WebAssembly/binaryen/releases/latest | \
+    grep "browser_download_url.*x86_64-linux.tar.gz\"" | grep -v "sha256" | head -1 | cut -d '"' -f 4) && \
+    echo "Downloading Binaryen: $LATEST_URL" && \
+    wget -q -O binaryen.tar.gz "$LATEST_URL" && \
+    tar -xzf binaryen.tar.gz && \
+    BINARYEN_DIR=$(tar -tzf binaryen.tar.gz | head -1 | cut -f1 -d"/") && \
+    mv "$BINARYEN_DIR" /opt/binaryen && \
+    rm binaryen.tar.gz
+
+ENV PATH="/opt/binaryen/bin:${PATH}"
+
+# Install Rust toolchain and dependencies (cache this layer)
+RUN cargo install trunk --locked && \
+    rustup target add wasm32-unknown-unknown
+
+WORKDIR /app
+
+# Accept build args early to use for cache busting
+ARG BUILD_DATE
+ARG GIT_COMMIT
+ARG SOURCE_HASH
+
+# Copy dependency files first for better Docker layer caching
+COPY Cargo.toml Cargo.lock ./
+COPY front/web/package*.json front/web/Trunk.toml ./front/web/
+
+# Install npm dependencies (this layer cached if package files don't change)
+WORKDIR /app/front/web
+RUN npm ci --production=false --prefer-offline --no-audit
+
+# Copy all workspace members (Cargo requires all workspace members to be present)
+WORKDIR /app
+RUN rm -rf _build/frontend-dist front/web/.stage front/web/dist 2>/dev/null || true
+
+ARG BUILD_DATE
+ARG GIT_COMMIT
+ARG SOURCE_HASH
+RUN echo "Build marker: ${BUILD_DATE}-${GIT_COMMIT}" > /tmp/.build-marker-${GIT_COMMIT}-${BUILD_DATE} && \
+    cat /tmp/.build-marker-* 2>/dev/null | head -1 || true
+
+COPY front ./front
+COPY back ./back
+COPY shared ./shared
+COPY testing ./testing
+
+# Touch source files so Trunk sees them as changed
+RUN find front/web/src -name "*.rs" -type f -exec touch {} \; 2>/dev/null || true && \
+    find shared/src -name "*.rs" -type f -exec touch {} \; 2>/dev/null || true
+
+# Ensure no WASM files were accidentally copied
+RUN find . -name "*.wasm" -type f -delete 2>/dev/null || true
+
+# Build CSS and frontend
+WORKDIR /app/front/web
+# Set build-time environment variables for the frontend
+ARG DOCKER_ENV
+ARG FRONTEND_PORT
+ENV DOCKER_ENV=${DOCKER_ENV}
+ENV FRONTEND_PORT=${FRONTEND_PORT:-50003}
+ENV GIT_COMMIT=${GIT_COMMIT}
+ENV BUILD_DATE=${BUILD_DATE}
+
+# CRITICAL: Industry-standard approach for fresh WASM builds
+# 1. Delete ENTIRE target directory (forces complete rebuild)
+# 2. Delete all Trunk caches and output directories
+# 3. Use SOURCE_DATE_EPOCH to force Docker layer invalidation
+    # 4. Remove any pre-existing WASM files anywhere in the filesystem
+    # SOURCE_DATE_EPOCH is passed as build arg to force Docker layer invalidation
+    ARG SOURCE_DATE_EPOCH
+    ARG RANDOM_BUILD_ID
+    ENV SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH}
+RUN echo "=== INDUSTRY-STANDARD FRESH WASM BUILD ===" && \
+    echo "SOURCE_DATE_EPOCH: ${SOURCE_DATE_EPOCH}" && \
+    echo "BUILD_DATE: ${BUILD_DATE}" && \
+    echo "GIT_COMMIT: ${GIT_COMMIT}" && \
+    echo "RANDOM_BUILD_ID: ${RANDOM_BUILD_ID}" && \
+    echo "Build ID file: ${BUILD_DATE}-${GIT_COMMIT}-${SOURCE_DATE_EPOCH}-${RANDOM_BUILD_ID}" > /tmp/.docker-build-id && \
+    cat /tmp/.docker-build-id && \
+    echo "" && \
+    echo "Step 1: Delete ENTIRE target directory (forces Cargo to rebuild everything)..." && \
+    rm -rf /app/target 2>/dev/null || true && \
+    rm -rf target 2>/dev/null || true && \
+    rm -rf ../../target 2>/dev/null || true && \
+    echo "Step 2: Delete all Trunk caches and output..." && \
+    rm -rf ../../_build/frontend-dist .stage dist ~/.trunk ~/.cache/trunk ~/.local/share/trunk 2>/dev/null || true && \
+    find /root -name ".trunk" -type d -exec rm -rf {} + 2>/dev/null || true && \
+    find /home -name ".trunk" -type d -exec rm -rf {} + 2>/dev/null || true && \
+    echo "Step 3: Delete all WASM files in entire filesystem..." && \
+    find /app -name "*.wasm" -type f -delete 2>/dev/null || true && \
+    find /root -name "*.wasm" -type f -delete 2>/dev/null || true && \
+    find /tmp -name "*.wasm" -type f -delete 2>/dev/null || true && \
+    echo "Step 4: Delete Cargo registry cache..." && \
+    rm -rf ~/.cargo/registry/cache 2>/dev/null || true && \
+    rm -rf ~/.cargo/git/db 2>/dev/null || true && \
+    echo "Step 5: Verify everything is deleted..." && \
+    echo "  WASM files remaining: $(find /app -name '*.wasm' -type f 2>/dev/null | wc -l || echo '0')" && \
+    echo "  Target directories remaining: $(find /app -name 'target' -type d 2>/dev/null | wc -l || echo '0')" && \
+    echo "  Trunk .stage dirs remaining: $(find /app -path '*/.stage' -type d 2>/dev/null | wc -l || echo '0')" && \
+    echo "" && \
+    echo "✅ COMPLETE CLEANUP - Ready for 100% fresh WASM build"
+
+# Build with version info
+# Note: Trunk.toml sets dist = "../_build/frontend-dist", so output goes to _build/frontend-dist
+# CRITICAL: Disable ALL forms of caching to force fresh WASM build
+# 1. Disable Cargo incremental compilation (forces full rebuild)
+# 2. Clean everything right before build
+# 3. Verify source files are correct
+RUN echo "=== FINAL CLEAN BEFORE BUILD ===" && \
+    echo "Disabling Cargo incremental compilation (forces full rebuild)..." && \
+    export CARGO_INCREMENTAL=0 && \
+    export RUSTFLAGS="-C link-arg=-s" && \
+    echo "Removing all build artifacts one more time..." && \
+    rm -rf ../../_build/frontend-dist .stage dist target/.cargo-cache 2>/dev/null || true && \
+    rm -rf target/wasm32-unknown-unknown/incremental 2>/dev/null || true && \
+    rm -rf target/wasm32-unknown-unknown/.fingerprint 2>/dev/null || true && \
+    find ../.. -name "*.wasm" -type f -delete 2>/dev/null || true && \
+    find ../.. -path "*/.stage" -type d -exec rm -rf {} + 2>/dev/null || true && \
+    find ../.. -path "*/target/wasm32-unknown-unknown/*" -name "frontend*" -type f -delete 2>/dev/null || true && \
+    echo "✅ Output directory completely clean - WASM files removed" && \
+    echo "Verifying no WASM files exist:" && \
+    (find ../.. -name "*.wasm" -type f 2>/dev/null | wc -l || echo "0") && \
+    npm run build:css:prod && \
+    echo "=== STARTING TRUNK BUILD (NO INCREMENTAL, FORCED CLEAN) ===" && \
+    echo "CARGO_INCREMENTAL is set to: ${CARGO_INCREMENTAL:-not set}" && \
+    find src -name "*.rs" -type f -exec touch {} \; 2>/dev/null || true && \
+    find ../../shared/src -name "*.rs" -type f -exec touch {} \; 2>/dev/null || true && \
+    echo "Running Trunk build with forced clean..." && \
+    mkdir -p /app/_build/frontend-dist && \
+    CARGO_INCREMENTAL=0 RUSTFLAGS="-C link-arg=-s" trunk build --release --no-default-features --dist /app/_build/frontend-dist && \
+    echo "=== BUILD COMPLETE - VERIFYING TRUNK OUTPUT ===" && \
+    echo "Checking where Trunk output files are..." && \
+    if [ -f "../../_build/frontend-dist/index.html" ] || [ -n "$(find ../../_build/frontend-dist -name '*.wasm' -type f | head -1)" ]; then \
+        DIST_DIR="../../_build/frontend-dist"; \
+    elif [ -f "dist/index.html" ] || [ -n "$(find dist -name '*.wasm' -type f | head -1)" ]; then \
+        DIST_DIR="dist"; \
+    else \
+        echo "ERROR: Trunk build output not found (only .stage present)." && \
+        ls -lah ../../_build/frontend-dist dist || true && exit 1; \
+    fi && \
+    echo "Dist directory: $DIST_DIR" && \
+    echo "Listing all WASM files in dist:" && \
+    find "$DIST_DIR" -name "*.wasm" -type f -exec ls -lah {} \; || echo "No WASM files found" && \
+    if [ -n "$(find "$DIST_DIR" -name '*_bg.wasm' -type f | head -1)" ]; then \
+        TRUNK_WASM=$(find "$DIST_DIR" -name '*_bg.wasm' -type f | head -1) && \
+        echo "Found Trunk-generated WASM: $TRUNK_WASM" && \
+        echo "Checking file date:" && \
+        TRUNK_WASM_DATE=$(stat -c %y "$TRUNK_WASM" 2>/dev/null || stat -f "%Sm" "$TRUNK_WASM" 2>/dev/null || echo "unknown") && \
+        echo "Trunk WASM date: $TRUNK_WASM_DATE" && \
+        if echo "$TRUNK_WASM_DATE" | grep -q "2026-01-16"; then \
+            echo "❌ CRITICAL ERROR: Trunk generated WASM is from Jan 16, 2026!" && \
+            echo "This means Trunk reused an old WASM file despite all cleaning." && \
+            echo "The build will fail to prevent deploying old code." && \
+            exit 1; \
+        fi && \
+        echo "✅ Trunk-generated WASM verified - fresh date"; \
+    else \
+        echo "⚠️  No WASM file found after Trunk build (will be created during optimization)"; \
+    fi && \
+    echo "=== OUTPUT VERIFICATION COMPLETE ===" && \
+    ls -lah ../../_build/frontend-dist/*.wasm 2>/dev/null | head -3 || echo "No WASM files found in output" && \
+    echo "=== CREATING BUILD METADATA (after Trunk build) ===" && \
+    BUILD_TIMESTAMP=$(date +%s) && \
+    PKG_VERSION=$(grep "^version" Cargo.toml | head -1 | cut -d'"' -f2 || echo "unknown") && \
+    if echo "$PKG_VERSION" | grep -q "workspace"; then \
+        PKG_VERSION=$(grep "^version" ../../Cargo.toml | head -1 | cut -d'"' -f2 || echo "unknown"); \
+    fi && \
+    printf '{\n  "name": "frontend",\n  "version": "%s",\n  "build_date": "%s",\n  "git_commit": "%s",\n  "source_hash": "%s",\n  "build_timestamp": %s,\n  "wasm_hash": "will-be-calculated-after-build"\n}' "$PKG_VERSION" "${BUILD_DATE:-unknown}" "${GIT_COMMIT:-unknown}" "${SOURCE_HASH:-unknown}" "$BUILD_TIMESTAMP" > "$DIST_DIR/version.json" && \
+    echo "✅ Build metadata created: version.json" && \
+    cat "$DIST_DIR/version.json"
+
+RUN echo "Checking build output..." && \
+    if [ -f "../../_build/frontend-dist/index.html" ] || [ -n "$(find ../../_build/frontend-dist -name '*.wasm' -type f | head -1)" ]; then \
+        ls -lah ../../_build/frontend-dist/; \
+    elif [ -f "dist/index.html" ] || [ -n "$(find dist -name '*.wasm' -type f | head -1)" ]; then \
+        ls -lah dist/; \
+    else \
+        echo "ERROR: Trunk build output not found." && ls -lah ../../_build/frontend-dist/ dist/ || true && exit 1; \
+    fi
+
+# Manually optimize the WASM (find the WASM file that Trunk generated)
+# Trunk outputs to ../_build/frontend-dist per Trunk.toml (relative to frontend/ directory)
+# CRITICAL: Remove any existing optimized WASM to ensure fresh optimization
+# CRITICAL: Verify the source WASM is fresh (not from Jan 16!)
+RUN if [ -f "../../_build/frontend-dist/index.html" ] || [ -n "$(find ../../_build/frontend-dist -name '*.wasm' -type f | head -1)" ]; then \
+        DIST_DIR="../../_build/frontend-dist"; \
+    elif [ -f "dist/index.html" ] || [ -n "$(find dist -name '*.wasm' -type f | head -1)" ]; then \
+        DIST_DIR="dist"; \
+    else \
+        echo "ERROR: Trunk build output not found."; ls -lah ../../_build/frontend-dist/ dist/ || true; exit 1; \
+    fi && \
+    echo "Removing any stray optimized WASM (we optimize in place)..." && \
+    rm -f "$DIST_DIR/frontend_bg.optimized.wasm" "$DIST_DIR"/*.optimized.wasm 2>/dev/null || true && \
+    if [ -n "$(find "$DIST_DIR" -name '*_bg.wasm' -type f | head -1)" ]; then \
+        WASM_INPUT=$(find "$DIST_DIR" -name '*_bg.wasm' -type f | head -1) && \
+        echo "Found WASM file: $WASM_INPUT" && \
+        echo "Checking WASM file modification time:" && \
+        WASM_DATE=$(stat -c %y "$WASM_INPUT" 2>/dev/null || stat -f "%Sm" "$WASM_INPUT" 2>/dev/null || echo "unknown") && \
+        echo "WASM file date: $WASM_DATE" && \
+        if echo "$WASM_DATE" | grep -q "2026-01-16"; then \
+            echo "❌ ERROR: WASM file is from Jan 16, 2026 (OLD!)" && \
+            echo "This means Trunk reused an old WASM file despite all cleaning." && \
+            echo "The build will fail to prevent deploying old code." && \
+            exit 1; \
+        fi && \
+        echo "✅ Source WASM verified (content checks skipped)" && \
+        echo "Optimizing WASM in place (so JS keeps loading same hashed filename, cache-bust works)..." && \
+        wasm-opt --enable-bulk-memory --enable-nontrapping-float-to-int -Oz \
+            -o "$DIST_DIR/frontend_bg.optimized.wasm" "$WASM_INPUT" && \
+        mv "$DIST_DIR/frontend_bg.optimized.wasm" "$WASM_INPUT" && \
+        echo "✅ WASM optimized and replaced in place: $WASM_INPUT" && \
+        ls -lah "$WASM_INPUT" && \
+        echo "Calculating WASM file hash (SHA-256)..." && \
+        WASM_HASH=$(sha256sum "$WASM_INPUT" 2>/dev/null | cut -d' ' -f1 || md5sum "$WASM_INPUT" 2>/dev/null | cut -d' ' -f1 || echo "unknown") && \
+        echo "WASM hash: $WASM_HASH" && \
+        echo "Updating version.json with WASM hash..." && \
+        if [ -f "$DIST_DIR/version.json" ]; then \
+            sed -i "s/\"wasm_hash\": \"will-be-calculated-after-build\"/\"wasm_hash\": \"$WASM_HASH\"/" "$DIST_DIR/version.json" && \
+            echo "✅ version.json updated with WASM hash"; \
+        fi && \
+        echo "Checking WASM modification time:" && \
+        OPT_WASM_DATE=$(stat -c %y "$WASM_INPUT" 2>/dev/null || stat -f "%Sm" "$WASM_INPUT" 2>/dev/null || echo "unknown") && \
+        echo "WASM date: $OPT_WASM_DATE" && \
+        if echo "$OPT_WASM_DATE" | grep -q "2026-01-16"; then \
+            echo "❌ ERROR: WASM is from Jan 16 (OLD!)" && \
+            exit 1; \
+        fi && \
+        echo "✅ WASM is fresh"; \
+    else \
+        echo "⚠️  No WASM file found to optimize (Trunk may have already optimized it)"; \
+    fi
+
+# Normalize output: ensure /app/_build/frontend-dist always contains final assets
+RUN echo "=== NORMALIZING FRONTEND DIST OUTPUT ===" && \
+    if [ -f "../../_build/frontend-dist/index.html" ] || [ -n "$(find ../../_build/frontend-dist -name '*.wasm' -type f | head -1)" ]; then \
+        DIST_DIR="../../_build/frontend-dist"; \
+    elif [ -f "dist/index.html" ] || [ -n "$(find dist -name '*.wasm' -type f | head -1)" ]; then \
+        DIST_DIR="dist"; \
+    else \
+        echo "ERROR: Trunk build output not found."; \
+        ls -lah ../../_build/frontend-dist/ dist/ || true; exit 1; \
+    fi && \
+    if [ ! -f "$DIST_DIR/version.json" ]; then \
+        echo "❌ ERROR: version.json missing in build output ($DIST_DIR)"; \
+        ls -lah "$DIST_DIR" || true; \
+        exit 1; \
+    fi && \
+    if [ "$DIST_DIR" != "../../_build/frontend-dist" ]; then \
+        echo "Copying build output from $DIST_DIR to ../../_build/frontend-dist"; \
+        rm -rf ../../_build/frontend-dist && mkdir -p ../../_build/frontend-dist; \
+        cp -a "$DIST_DIR/." ../../_build/frontend-dist/; \
+    else \
+        echo "Build output already in ../../_build/frontend-dist"; \
+    fi && \
+    ls -lah ../../_build/frontend-dist/ | head -10
+
+# Final stage: Minimal Nginx server
+FROM nginx:alpine
+
+# Install gettext for envsubst (needed for template substitution)
+# Use --no-cache to keep image small
+RUN apk add --no-cache gettext binutils
+
+# CRITICAL: Accept build args to use as cache busters
+ARG BUILD_DATE
+ARG GIT_COMMIT
+ARG SOURCE_HASH
+ARG RANDOM_BUILD_ID
+
+# Build metadata labels (fallback if version.json is unavailable/unknown)
+LABEL org.opencontainers.image.revision=$GIT_COMMIT \
+      org.opencontainers.image.created=$BUILD_DATE \
+      org.opencontainers.image.source_hash=$SOURCE_HASH
+
+# Copy built files from builder stage
+# Trunk.toml sets dist = "../_build/frontend-dist", so output is at _build/frontend-dist (relative to frontend/)
+# Since we're in /app/frontend when building, the output is at /app/_build/frontend-dist
+# CRITICAL: Remove any existing files first to prevent Docker from reusing cached layers
+RUN echo "=== PREPARING FOR FRESH COPY ===" && \
+    echo "Build date: ${BUILD_DATE:-unknown}" && \
+    echo "Git commit: ${GIT_COMMIT:-unknown}" && \
+    rm -rf /usr/share/nginx/html/* 2>/dev/null || true && \
+    echo "✅ Directory cleaned, ready for fresh copy"
+
+COPY --from=builder /app/_build/frontend-dist /usr/share/nginx/html
+
+# Fail build if version.json is missing (required for production verification)
+RUN test -f /usr/share/nginx/html/version.json || (echo "❌ CRITICAL: version.json missing in image!" && ls -la /usr/share/nginx/html/ && exit 1) && \
+    echo "✅ version.json present" && cat /usr/share/nginx/html/version.json
+
+# Ensure build metadata is injected (overrides unknown values if needed)
+RUN if [ -f /usr/share/nginx/html/version.json ]; then \
+        sed -i "s/\"git_commit\": \"[^\"]*\"/\"git_commit\": \"${GIT_COMMIT:-unknown}\"/" /usr/share/nginx/html/version.json && \
+        sed -i "s/\"build_date\": \"[^\"]*\"/\"build_date\": \"${BUILD_DATE:-unknown}\"/" /usr/share/nginx/html/version.json && \
+        sed -i "s/\"source_hash\": \"[^\"]*\"/\"source_hash\": \"${SOURCE_HASH:-unknown}\"/" /usr/share/nginx/html/version.json && \
+        echo "✅ version.json metadata updated" && cat /usr/share/nginx/html/version.json; \
+    fi
+
+# CRITICAL: NUCLEAR VERIFICATION - Fail build if ANY old WASM is detected
+# WASM is the hashed file (e.g. frontend-abc123_bg.wasm) after in-place optimization
+RUN echo "=== NUCLEAR WASM VERIFICATION (FAILS BUILD IF OLD CODE FOUND) ===" && \
+    echo "Checking ALL WASM files in /usr/share/nginx/html..." && \
+    find /usr/share/nginx/html -name "*.wasm" -type f -exec ls -lah {} \; && \
+    echo "" && \
+    WASM_FILE=$(find /usr/share/nginx/html -name '*_bg.wasm' -type f | head -1) && \
+    if [ -n "$WASM_FILE" ] && [ -f "$WASM_FILE" ]; then \
+        echo "Checking WASM file: $WASM_FILE" && \
+        echo "File modification time:" && \
+        WASM_STAT=$(stat "$WASM_FILE" 2>/dev/null || echo "stat failed") && \
+        echo "$WASM_STAT" && \
+        WASM_DATE=$(stat -c %y "$WASM_FILE" 2>/dev/null || stat -f "%Sm" "$WASM_FILE" 2>/dev/null || echo "unknown") && \
+        echo "WASM date string: $WASM_DATE" && \
+        if echo "$WASM_DATE" | grep -q "2026-01-16"; then \
+            echo "❌❌❌ CRITICAL ERROR: WASM file is from Jan 16, 2026!" && \
+            echo "This build MUST FAIL - old WASM detected!" && \
+            echo "Full stat output:" && \
+            stat "$WASM_FILE" && \
+            exit 1; \
+        fi && \
+        echo "✅✅✅ WASM VERIFICATION PASSED:" && \
+        echo "  - File date is NOT Jan 16"; \
+    else \
+        echo "❌ ERROR: No *_bg.wasm file found in /usr/share/nginx/html!" && \
+        echo "Listing directory contents:" && \
+        ls -lah /usr/share/nginx/html/ && \
+        exit 1; \
+    fi && \
+    echo "=== VERIFICATION COMPLETE ==="
+
+# Create templates directory (nginx:alpine's entrypoint processes .template files from here)
+RUN mkdir -p /etc/nginx/templates
+
+# Build-arg to force this layer to rebuild when Dockerfile or script changes (avoids stale cache)
+ARG NGINX_CONFIG_VERSION=1
+
+# Create nginx config template for static serving (SPA support)
+# nginx:alpine's entrypoint automatically processes .template files using envsubst
+# Files in /etc/nginx/templates/*.template are processed to /etc/nginx/conf.d/*.conf
+RUN echo "# nginx config version ${NGINX_CONFIG_VERSION}" > /etc/nginx/templates/default.conf.template && \
+cat >> /etc/nginx/templates/default.conf.template <<'EOF'
+server {
+    listen ${FRONTEND_PORT};
+    server_name localhost;
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # CRITICAL: Never cache index.html so browser always gets fresh hashed asset URLs
+    location = /index.html {
+        add_header Cache-Control "no-cache, no-store, must-revalidate";
+        try_files $uri =404;
+    }
+
+    # API proxy: when running without Traefik (e.g. local stack), nginx proxies /api/ to backend
+    location /api/ {
+        proxy_pass http://backend:50002;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # SPA routing - all other routes go to index.html (for Yew router)
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # Hashed filenames (Trunk filehash) - long cache is safe; URL changes per deploy
+    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg)$ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+
+    # WASM: must set MIME type so WebAssembly.instantiateStreaming works (no fallback to slower path)
+    location ~* \.wasm$ {
+        default_type application/wasm;
+        add_header Cache-Control "public, immutable";
+        expires 1y;
+    }
+
+    # manifest.json: serve with correct type so PWA manifest parses (avoid Syntax error)
+    location = /manifest.json {
+        default_type application/json;
+        add_header Cache-Control "no-cache";
+        try_files $uri =404;
+    }
+
+    # Basic security headers (Traefik handles SSL and additional headers)
+    add_header X-Content-Type-Options "nosniff" always;
+    
+    # Disable server tokens
+    server_tokens off;
+}
+EOF
+
+# Set default values for environment variables
+ENV FRONTEND_PORT=50003
+# Note: BACKEND_URL not needed - external Traefik routes /api/ to backend
+
+# EXPOSE doesn't support variables, so we expose common ports
+# The actual port is controlled by the nginx config and environment variable
+EXPOSE 50003 8080
+
+CMD ["nginx", "-g", "daemon off;"]

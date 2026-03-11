@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="theme-color" content="#2563eb" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="STG" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="format-detection" content="telephone=no" />
+    <meta name="msapplication-tap-highlight" content="no" />
+    
+    <title>STG – Tournament & Contest Management</title>
+    <meta name="description" content="Create and manage tournaments with ease. Brackets, venues, live results, and analytics in one place." />
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="STG – Tournament & Contest Management" />
+    <meta property="og:description" content="Create and manage tournaments with ease. Brackets, venues, live results, and analytics in one place." />
+    <meta property="og:image" content="/public/og-image.png" />
+    <meta property="og:url" content="/" />
+
+    <!-- Twitter Cards -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="STG – Tournament & Contest Management" />
+    <meta name="twitter:description" content="Create and manage tournaments with ease. Brackets, venues, live results, and analytics in one place." />
+    <meta name="twitter:image" content="/public/og-image.png" />
+    
+    <!-- Preconnect to external resources -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+    
+    <!-- Favicon and app icons -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="manifest" href="/manifest.json" />
+    
+    <!-- Styles -->
+    <link data-trunk rel="css" href="public/styles.css" />
+    <link data-trunk rel="css" href="src/styles/analytics.css" />
+    <link data-trunk rel="css" href="src/styles/analytics_dashboard.css" />
+    <link data-trunk rel="css" href="src/styles/profile.css" />
+    <link data-trunk rel="copy-dir" href="public" />
+    <base data-trunk-public-url />
+    
+    <!-- Flatpickr CSS and JS -->
+    <link rel="stylesheet" href="public/flatpickr.min.css">
+    <script src="public/flatpickr.min.js"></script>
+    <script src="public/flatpickr.js"></script>
+    
+    <!-- Mobile-specific styles -->
+    <style>
+      /* Prevent zoom on input focus on iOS */
+      input[type="text"], input[type="email"], input[type="password"], textarea, select {
+        font-size: 16px !important;
+      }
+      
+      /* Smooth scrolling for mobile */
+      html {
+        scroll-behavior: smooth;
+        -webkit-overflow-scrolling: touch;
+      }
+      
+      /* Remove tap highlight on mobile */
+      * {
+        -webkit-tap-highlight-color: transparent;
+      }
+      
+      /* Ensure nested scroll areas work smoothly on mobile */
+      .mobile-scroll {
+        -webkit-overflow-scrolling: touch;
+        overscroll-behavior: contain;
+        touch-action: pan-y;
+      }
+      
+      /* Safe area support for notched devices */
+      @supports (padding: max(0px)) {
+        .mobile-safe-area {
+          padding-left: max(1rem, env(safe-area-inset-left));
+          padding-right: max(1rem, env(safe-area-inset-right));
+          padding-top: max(1rem, env(safe-area-inset-top));
+          padding-bottom: max(1rem, env(safe-area-inset-bottom));
+        }
+      }
+    </style>
+  </head>
+  <body class="mobile-tap-highlight mobile-scroll-smooth mobile-text-size-adjust">
+    <div id="app"></div>
+  </body>
+</html> 

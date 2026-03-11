@@ -1,0 +1,13 @@
+# Integration tests: run against official stack (SurrealDB + Redis)
+
+[profile.default]
+test-threads = 4
+test-timeout = "180s"
+retries = { backoff = "exponential", count = 1 }
+output = { type = "pretty", immediate = false }
+failure-output = { type = "pretty", immediate = true }
+
+[profile.ci]
+test-threads = 2
+test-timeout = "240s"
+retries = { backoff = "exponential", count = 2 }

@@ -1,0 +1,32 @@
+WORKFLOW — Three scenarios only
+
+1. CI (run all tests locally against production-like Docker)
+   ./ci-local.sh [all|build|unit|integration|e2e]
+   Uses: config/.env.prod, deploy/docker-compose.yml
+
+2. Backend (terminal 1 — production-like Docker)
+   ./scripts/start-back.sh              # start (build if needed)
+   ./scripts/start-back.sh --no-build    # start existing images only, no rebuild
+   ./scripts/stop-back.sh                # stop stack
+   Uses: config/.env.dev (or .env.prod), deploy/docker-compose.yml
+
+3. Frontend (terminal 2 — standalone Yew or Tauri)
+   ./scripts/start-front.sh       # browser: Yew/Trunk at FRONTEND_PORT
+   ./scripts/start-tauri.sh       # desktop app: Tauri window (embeds same Yew)
+   Uses: config/.env.dev (BACKEND_URL, FRONTEND_PORT). Tauri needs: cargo install tauri-cli
+
+4. Production (pull backend from GHCR after push to main)
+   See docs/GHCR_SETUP.md. Summary: push to main → Actions build and push image →
+   on production: docker pull ghcr.io/OWNER/REPO/backend:latest then compose up.
+
+Note: deploy/ has a single docker-compose.yml (SurrealDB, Redis, backend). Frontend
+runs standalone via scripts/start-front.sh or start-tauri.sh, not in this compose.
+
+Env files (use either per run)
+  config/.env.dev   — create: ./config/setup-env.sh dev
+  config/.env.prod  — create: ./config/setup-env.sh prod
+
+  Choose which env a script uses:
+  • Argument: ./scripts/start-back.sh dev   or   ./scripts/ci.sh all prod
+  • Variable: ENV=dev ./scripts/start-back.sh   or   ENV=prod ./scripts/start-front.sh
+  Defaults: all scripts use dev unless you pass prod or set ENV=prod.

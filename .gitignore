@@ -1,0 +1,60 @@
+# All generated objects consolidated in _build/
+_build/
+
+# Rust (kept at root for Rust conventions, but will be in _build/target via CARGO_TARGET_DIR)
+target/
+**/*.rs.bk
+Cargo.lock
+
+# Node
+node_modules/
+package-lock.json
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Frontend / Trunk build output
+dist/
+
+# IDE / editor
+.vscode/
+.idea/
+.cursor/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment files (keep templates, ignore actual .env files)
+.env
+.env.*
+.env.*.*
+!.env.*.template
+config/.env.development
+config/.env.production
+config/.env.*
+# Expanded environment files (generated from templates)
+.env.*.expanded.*
+
+# Docker data
+docker-data/
+
+# Logs
+*.log
+logs/
+
+# Cleanup artifacts
+*.old
+*.backup
+*.bak
+
+# Test results and artifacts
+test-results/
+playwright-report/
+*.lcov
+coverage/
+*.profraw

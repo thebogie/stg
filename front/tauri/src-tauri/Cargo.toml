@@ -1,0 +1,29 @@
+[package]
+name = "stg-tauri"
+version = "0.2.11"
+edition = "2021"
+description = "Tauri shell for STG (Yew frontend)"
+authors = ["The Bogie <thebogie@example.com>"]
+license = "MIT"
+repository = "https://github.com/thebogie/stg_rd"
+publish = false
+
+[lib]
+name = "stg_tauri_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "stg-tauri"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-shell = "2"
+serde = { version = "1", features = ["derive"] }
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]

@@ -1,0 +1,18 @@
+[package]
+name = "arango-to-surreal"
+version = "0.1.0"
+edition = "2021"
+description = "Convert ArangoDB smacktalk dump (zip) to SurrealDB .surql import file"
+
+[[bin]]
+name = "arango-to-surreal"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+flate2 = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+uuid = { version = "1.0", features = ["v4"] }
+zip = "2.2"

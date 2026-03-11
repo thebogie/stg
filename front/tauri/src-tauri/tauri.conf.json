@@ -1,0 +1,32 @@
+{
+  "productName": "STG",
+  "version": "0.2.11",
+  "identifier": "com.smacktalk.stg",
+  "build": {
+    "beforeDevCommand": "cd ../web && trunk serve",
+    "beforeBuildCommand": "cd ../web && trunk build",
+    "devUrl": "http://localhost:50003",
+    "frontendDist": "../../../_build/frontend-dist"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "title": "STG – Tournament & Contest Management",
+        "width": 1200,
+        "height": 800,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ]
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [],
+    "shortDescription": "Tournament & Contest Management",
+    "longDescription": "Create and manage tournaments with ease. Brackets, venues, live results, and analytics in one place.",
+    "category": "Game"
+  },
+  "plugins": {}
+}
