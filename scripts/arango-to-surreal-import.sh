@@ -40,6 +40,7 @@ PORT="${SURREALDB_PORT:-50001}"
 CONN="http://host.docker.internal:${PORT}"
 
 mkdir -p "$(dirname "$SURQL_PATH")"
+rm -f "$SURQL_PATH"
 
 echo "==> Converting $BACKUP_ZIP to .surql (full schema + data, --remap-all-ids) ..."
 CONVERT_ARGS=(-o "$SURQL_PATH" --remap-all-ids)
@@ -55,9 +56,9 @@ fi
 echo "==> Resetting SurrealDB namespace/database at $CONN (--fresh) ..."
 FRESH_SQL="DEFINE NAMESPACE ${SURREAL_NS}; USE NS ${SURREAL_NS}; REMOVE DATABASE ${SURREAL_DB}; DEFINE DATABASE ${SURREAL_DB};"
 if ! echo "$FRESH_SQL" | docker run -i --rm --add-host=host.docker.internal:host-gateway \
-  surrealdb/surrealdb:v2 sql \
-  --conn "$CONN" --user "$SURREAL_USER" --pass "$SURREAL_PASSWORD" \
-  --ns "$SURREAL_NS" --db "$SURREAL_DB" \
+  surrealdb/surrealdb:v3 sql \
+  --endpoint "$CONN" --username "$SURREAL_USER" --password "$SURREAL_PASSWORD" \
+  --namespace "$SURREAL_NS" --database "$SURREAL_DB" \
   --hide-welcome 2>/dev/null; then
   echo "Warning: Fresh reset failed (namespace may not have existed). Trying import anyway." >&2
 fi
@@ -67,9 +68,9 @@ SURQL_DIR="$(cd "$(dirname "$SURQL_PATH")" && pwd)"
 SURQL_FILE="$(basename "$SURQL_PATH")"
 if docker run --rm --add-host=host.docker.internal:host-gateway \
   -v "$SURQL_DIR:/import:ro" \
-  surrealdb/surrealdb:v2 import \
-  --conn "$CONN" --user "$SURREAL_USER" --pass "$SURREAL_PASSWORD" \
-  --ns "$SURREAL_NS" --db "$SURREAL_DB" \
+  surrealdb/surrealdb:v3 import \
+  --endpoint "$CONN" --username "$SURREAL_USER" --password "$SURREAL_PASSWORD" \
+  --namespace "$SURREAL_NS" --database "$SURREAL_DB" \
   "/import/$SURQL_FILE"; then
   echo "==> Import completed. SurrealDB at http://localhost:${PORT}"
 else

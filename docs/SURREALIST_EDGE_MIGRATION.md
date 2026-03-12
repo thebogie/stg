@@ -1,12 +1,14 @@
 # Fix SurrealDB edge type via Surrealist (no backend rebuild)
 
-If **contest list**, **contest detail**, **leaderboard**, or **analytics** are empty or wrong because edge `out`/`in` were imported as **strings** instead of record ids (Thing), run the edge migration once. No backend restart needed.
+If **contest list**, **contest detail**, **leaderboard**, or **analytics** are empty or wrong because edge `out`/`in` were imported as **strings** instead of record ids, run the edge migration once. No backend restart needed.
+
+**SurrealDB v3:** We use `type::record(...)` in SurrealQL (v2 used `type::thing`). The migration script and backend use the v3 form.
 
 ---
 
 ## Standard we follow
 
-We store all record references as **record id (Thing)** in SurrealDB. See **docs/SURREALDB_EDGES.md** for the full convention, converter behavior, and backend query patterns.
+We store all record references as **record id type** in SurrealDB. See **docs/SURREALDB_EDGES.md** for the full convention, converter behavior, and backend query patterns.
 
 ---
 
@@ -29,7 +31,7 @@ Open the Query tab, select the correct namespace and database, then run the cont
 | Issue | Fix |
 |--------|-----|
 | Contest list empty | Edge `out`/`in` become record ids so `id INSIDE (SELECT out FROM played_at)` etc. match. |
-| Contest detail (no venue, games, outcomes) | `WHERE out = type::thing($contest_rid)` and similar match. |
+| Contest detail (no venue, games, outcomes) | `WHERE out = type::record($contest_rid)` and similar match. |
 | Leaderboard / analytics empty | `resulted_in.in = player.id` and other edge comparisons work. |
 | **Achievements empty or 500** | Achievements need `resulted_in` (and optionally `played_with` / `played_at`) with record id `out`/`in`. Run this migration if edges were ever imported as strings. |
 
@@ -38,7 +40,7 @@ Open the Query tab, select the correct namespace and database, then run the cont
 ## After running
 
 - Backend restart is **not** required.
-- New imports from **arango-to-surreal** already emit `type::thing()` for edges, so no migration is needed for freshly imported data.
+- New imports from **arango-to-surreal** already emit `type::record()` (SurrealDB v3) for edges, so no migration is needed for freshly imported data.
 
 ---
 

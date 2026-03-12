@@ -3,8 +3,12 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use validator::Validate;
 
+#[cfg(feature = "surrealdb")]
+use surrealdb_types::SurrealValue;
+
 /// Represents the source of game data
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "surrealdb", derive(surrealdb_types::SurrealValue))]
 pub enum GameSource {
     #[serde(rename = "database")]
     Database,
@@ -14,6 +18,7 @@ pub enum GameSource {
 
 /// Represents a board game
 #[derive(Debug, Clone, Serialize, Deserialize, Validate, PartialEq)]
+#[cfg_attr(feature = "surrealdb", derive(surrealdb_types::SurrealValue))]
 pub struct Game {
     /// Game's ID
     #[serde(rename = "_id")]

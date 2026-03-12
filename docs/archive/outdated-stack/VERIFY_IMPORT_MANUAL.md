@@ -16,9 +16,9 @@ Paste the whole thing into the query box and run. (Use a real player key if you 
 SELECT string::concat(id) AS contest_id_str FROM contest LIMIT 1;
 SELECT string::concat(out) AS edge_out_str FROM resulted_in LIMIT 1;
 SELECT in, string::concat(in) AS in_str FROM resulted_in LIMIT 3;
-SELECT out AS contest_rid FROM resulted_in WHERE in = type::thing("player", "2025041711441879938520500");
+SELECT out AS contest_rid FROM resulted_in WHERE in = type::record("player", "2025041711441879938520500");
 SELECT * FROM contest WHERE id IN (SELECT VALUE out FROM resulted_in LIMIT 10);
-SELECT * FROM contest WHERE id IN (SELECT VALUE out FROM resulted_in WHERE in = type::thing("player", "2025041711441879938520500"));
+SELECT * FROM contest WHERE id IN (SELECT VALUE out FROM resulted_in WHERE in = type::record("player", "2025041711441879938520500"));
 SELECT count() AS players FROM player GROUP ALL;
 SELECT count() AS contests FROM contest GROUP ALL;
 SELECT count() AS resulted_in_edges FROM resulted_in GROUP ALL;
@@ -42,7 +42,7 @@ Copy **all** the result sets (or a screenshot) and paste it here. From that we�
 
 If anything doesn’t match, we’ll fix the converter or re-import and you run this again until it’s right.
 
-**If queries 5 and 6 return []:** Some SurrealDB setups don’t match `id IN (SELECT VALUE out FROM ...)`. The backend now uses a two-query approach: (1) `SELECT out FROM resulted_in WHERE in = type::thing('player', $player_key)` to get contest ids, (2) `SELECT * FROM contest WHERE id INSIDE $contest_ids`, so the app still gets the contest list. To confirm the first step works in Surrealist, run only query 4 above; if it returns rows, the backend will work.
+**If queries 5 and 6 return []:** Some SurrealDB setups don’t match `id IN (SELECT VALUE out FROM ...)`. The backend now uses a two-query approach: (1) `SELECT out FROM resulted_in WHERE in = type::record('player', $player_key)` to get contest ids, (2) `SELECT * FROM contest WHERE id INSIDE $contest_ids`, so the app still gets the contest list. To confirm the first step works in Surrealist, run only query 4 above; if it returns rows, the backend will work.
 
 ---
 
@@ -127,18 +127,18 @@ SELECT id, name, start, stop, created_at FROM contest ORDER BY start DESC LIMIT 
 **Step 2 — Confirm datetime comparison works (e.g. “last 30 days”)**
 
 ```sql
-SELECT id, name, start FROM contest WHERE start >= time::now() - duration::from::days(30) ORDER BY start DESC;
+SELECT id, name, start FROM contest WHERE start >= time::now() - duration::from_days(30) ORDER BY start DESC;
 ```
 
 - **What you want:** You get at least one row for any contest that actually started in the last 30 days. If you know you have such a contest (e.g. created 2026-03-07) but this returns **no rows**, then `start` is likely stored as a string and comparisons with `time::now()` are wrong — re-import with the arango-to-surreal converter (which normalizes dates to `type::datetime(...)`) or fix the backend to write datetime.
-- **Optional check:** Run the same query with `duration::from::days(365)`; you should see more (or the same) rows.
+- **Optional check:** Run the same query with `duration::from_days(365)`; you should see more (or the same) rows.
 
 **Step 3 — Optional: explicit type of `start`**
 
 Some SurrealDB clients or versions let you inspect value types. You can try:
 
 ```sql
-SELECT id, type::string(start) AS start_str, start >= time::now() - duration::from::days(30) AS in_last_30 FROM contest LIMIT 3;
+SELECT id, type::string(start) AS start_str, start >= time::now() - duration::from_days(30) AS in_last_30 FROM contest LIMIT 3;
 ```
 
 - If `in_last_30` is `false` for a contest you know is recent, the stored type or value is wrong.

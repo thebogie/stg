@@ -1,10 +1,14 @@
 use crate::{Result, SharedError};
-use chrono::{DateTime, FixedOffset};
+use chrono::{DateTime, FixedOffset, Utc};
 use serde::{Deserialize, Serialize};
 use validator::Validate;
 
+#[cfg(feature = "surrealdb")]
+use surrealdb_types::SurrealValue;
+
 /// Represents a contest in the system
 #[derive(Debug, Serialize, Deserialize, Validate, Clone)]
+#[cfg_attr(feature = "surrealdb", derive(surrealdb_types::SurrealValue))]
 pub struct Contest {
     /// ArangoDB document ID (format: "contest/{timestamp}")
     #[serde(rename = "_id")]
@@ -22,17 +26,17 @@ pub struct Contest {
     ))]
     pub name: String,
 
-    /// Contest start time (UTC)
-    pub start: DateTime<FixedOffset>,
+    /// Contest start time (UTC; stored as Utc for SurrealDB)
+    pub start: DateTime<Utc>,
 
-    /// Contest end time (UTC)
-    pub stop: DateTime<FixedOffset>,
+    /// Contest end time (UTC; stored as Utc for SurrealDB)
+    pub stop: DateTime<Utc>,
 
     /// ID of the player who created this contest
     pub creator_id: String,
 
-    /// When this contest was created (UTC)
-    pub created_at: DateTime<FixedOffset>,
+    /// When this contest was created (UTC; stored as Utc for SurrealDB)
+    pub created_at: DateTime<Utc>,
 }
 
 impl Contest {
@@ -49,11 +53,11 @@ impl Contest {
         let contest = Self {
             id,
             rev,
-            start,
-            stop,
+            start: start.with_timezone(&Utc),
+            stop: stop.with_timezone(&Utc),
             name,
             creator_id,
-            created_at,
+            created_at: created_at.with_timezone(&Utc),
         };
         contest.validate_fields()?;
         Ok(contest)

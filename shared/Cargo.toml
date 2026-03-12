@@ -25,6 +25,10 @@ log = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 
+# SurrealDB v3: SurrealValue for types used in backend .take() (Contest, Game, Venue, Player)
+surrealdb-types = { version = "3", optional = true }
+surrealdb = { version = "3", optional = true }
+
 # Validation
 validator = { version = "0.16", features = ["derive"] }
 
@@ -35,6 +39,11 @@ once_cell = "1.19"
 
 # Added from the code block
 argon2 = "0.5.2"
+
+[features]
+default = []
+# Enable for backend: derive SurrealValue for Player, Game, Contest, Venue
+surrealdb = ["dep:surrealdb-types", "dep:surrealdb"]
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 actix-web = "4.4"

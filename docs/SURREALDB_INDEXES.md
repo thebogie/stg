@@ -1,11 +1,11 @@
 # SurrealDB indexes for search and order
 
-Indexes in SurrealDB speed up **WHERE** filters and can help **ORDER BY** (though as of recent versions, ORDER BY does not always use indexes; use `EXPLAIN` to verify).
+**SurrealDB v3.** Record-id lookups use `type::record('table', $key)`. Indexes in SurrealDB speed up **WHERE** filters and can help **ORDER BY** (though as of recent versions, ORDER BY does not always use indexes; use `EXPLAIN` to verify).
 
 ## How it helps
 
-- **Primary lookups by record id** (`WHERE id = type::thing('table', $key)`) already use the primary index; no extra index needed.
-- **Filters on other columns** (e.g. `WHERE email = $email`, `WHERE \`in\` = type::thing('player', $key)`) do a table scan unless you add a **secondary index** on that column.
+- **Primary lookups by record id** (`WHERE id = type::record('table', $key)` in SurrealDB v3) already use the primary index; no extra index needed.
+- **Filters on other columns** (e.g. `WHERE email = $email`, `WHERE \`in\` = type::record('player', $key)`) do a table scan unless you add a **secondary index** on that column.
 - **ORDER BY** on indexed columns can be faster in some cases; SurrealDB is still improving this. Prefer filtering first and limiting result set size.
 
 Define indexes with:

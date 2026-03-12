@@ -148,7 +148,7 @@ pub async fn surreal_db_check(db: web::Data<Db>) -> impl Responder {
     }
     let player_res = db
         .query(format!(
-            "SELECT * FROM player WHERE id = type::thing('player', '{}') LIMIT 1",
+            "SELECT * FROM player WHERE id = type::record('player', '{}') LIMIT 1",
             key
         ))
         .await;

@@ -3,8 +3,8 @@
 # Usage: ./scripts/start-deps.sh [dev] [--no-build]
 #        Then run: just backend-watch (terminal 2) and ./scripts/start-tauri.sh (terminal 3)
 #
-# Data import (dev): same as start-back.sh — if _build/smacktalk.surql or backup zip exists,
-# SurrealDB is reset and data is imported. Never runs in production.
+# Data import (dev): same as start-back.sh — if backup zip exists, smacktalk.surql is removed,
+# regenerated from the zip, then imported. Never use a cached .surql; never runs in production.
 # Requires: config/.env.dev (./config/setup-env.sh dev)
 
 set -e
@@ -30,7 +30,7 @@ WIPED=""
 if [ "$RUST_ENV" = "dev" ] || [ "$RUST_ENV" = "development" ]; then
   SURQL_PATH="${SURREAL_IMPORT_SURQL:-$ROOT/_build/smacktalk.surql}"
   BACKUP_ZIP="${ARANGO_BACKUP_ZIP:-$HOME/work/_backups/smacktalk.zip}"
-  if [ -f "$SURQL_PATH" ] || [ -f "$BACKUP_ZIP" ]; then
+  if [ -f "$BACKUP_ZIP" ]; then
     echo "==> Dev: resetting SurrealDB for clean import..."
     docker run --rm -v "$VOLUME_PATH/surrealdb_data:/data" busybox:1.36 sh -c "rm -rf /data/*"
     chmod 777 "$VOLUME_PATH/surrealdb_data" 2>/dev/null || true
@@ -57,16 +57,18 @@ if [ "$RUST_ENV" = "dev" ] || [ "$RUST_ENV" = "development" ]; then
   SURREAL_USER="${SURREAL_USER:-root}"
   SURREAL_PASSWORD="${SURREAL_PASSWORD:-root}"
 
+  SURREAL_ENDPOINT="http://127.0.0.1:${SURREALDB_PORT:-50001}"
+
   do_import() {
     SURQL_DIR="$(cd "$(dirname "$SURQL_PATH")" && pwd)"
     SURQL_FILE="$(basename "$SURQL_PATH")"
-    if docker run --rm --network stg \
+    if docker run --rm --network host \
       -v "$SURQL_DIR:/import:ro" \
-      surrealdb/surrealdb:v2 \
+      surrealdb/surrealdb:v3 \
       import \
-      --conn "http://stg-surrealdb:8000" \
-      --user "$SURREAL_USER" --pass "$SURREAL_PASSWORD" \
-      --ns "$SURREAL_NS" --db "$SURREAL_DB" \
+      --endpoint "$SURREAL_ENDPOINT" \
+      --username "$SURREAL_USER" --password "$SURREAL_PASSWORD" \
+      --namespace "$SURREAL_NS" --database "$SURREAL_DB" \
       "/import/$SURQL_FILE"; then
       echo "==> SurrealDB import completed successfully."
     else
@@ -75,24 +77,43 @@ if [ "$RUST_ENV" = "dev" ] || [ "$RUST_ENV" = "development" ]; then
   }
 
   wait_surrealdb() {
-    for i in 1 2 3 4 5 6 7 8 9 10; do
-      if wget -q -O- --tries=1 "http://127.0.0.1:${SURREALDB_PORT}" >/dev/null 2>&1; then return 0; fi
-      sleep 2
+    echo "==> Waiting for SurrealDB at $SURREAL_ENDPOINT (up to 60s)..."
+    for i in $(seq 1 20); do
+      if wget -q -O- --tries=1 "http://127.0.0.1:${SURREALDB_PORT}" >/dev/null 2>&1; then
+        echo "==> SurrealDB is ready."
+        return 0
+      fi
+      sleep 3
     done
-    echo "Warning: SurrealDB not ready; skipping import."
+    echo "Warning: SurrealDB not ready after 60s; skipping import." >&2
     return 1
   }
 
-  if [ -f "$SURQL_PATH" ]; then
-    echo "==> Importing SurrealDB data from $SURQL_PATH ..."
-    ( wait_surrealdb && do_import ) || true
-  elif [ -f "$BACKUP_ZIP" ]; then
-    echo "==> No .surql found; converting $BACKUP_ZIP and importing ..."
+  if [ -f "$BACKUP_ZIP" ]; then
+    rm -f "$SURQL_PATH"
+    echo "==> Converting $BACKUP_ZIP to .surql (fresh) and importing ..."
     mkdir -p "$(dirname "$SURQL_PATH")"
     if cargo run -p arango-to-surreal -- "$BACKUP_ZIP" -o "$SURQL_PATH"; then
       ( wait_surrealdb && do_import ) || true
     else
       echo "Warning: Conversion failed; skipping import." >&2
+    fi
+  fi
+
+  # Apply optional SurrealDB functions (contest_row, contest_with_edges); use host network so we hit 127.0.0.1
+  if [ -f "$ROOT/docs/surreal-functions.surql" ]; then
+    echo "==> Applying SurrealDB functions (docs/surreal-functions.surql)..."
+    if docker run --rm --network host \
+      -v "$ROOT/docs:/import:ro" \
+      surrealdb/surrealdb:v3 \
+      import \
+      --endpoint "$SURREAL_ENDPOINT" \
+      --username "$SURREAL_USER" --password "$SURREAL_PASSWORD" \
+      --namespace "$SURREAL_NS" --database "$SURREAL_DB" \
+      "/import/surreal-functions.surql"; then
+      echo "==> SurrealDB functions applied."
+    else
+      echo "==> SurrealDB functions failed (run manually once DB is up: ./scripts/apply-surreal-functions.sh)." >&2
     fi
   fi
 fi

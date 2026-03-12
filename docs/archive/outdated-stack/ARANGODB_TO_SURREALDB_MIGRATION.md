@@ -101,10 +101,10 @@ See `tools/arango-to-surreal/README.md` for usage and import details.
 
 **Goal**: One-off conversion of production backup into a SurrealDB-importable file.
 
-- **Done**: The `arango-to-surreal` binary reads `smacktalk.zip`, converts document and edge collections to SurrealQL `INSERT` statements, and writes a single `.surql` file. Document tables are emitted first, then edge tables (`played_at`, `played_with`, `resulted_in`) with `in`/`out` as `type::thing(...)` record links.
+- **Done**: The `arango-to-surreal` binary reads `smacktalk.zip`, converts document and edge collections to SurrealQL `INSERT` statements, and writes a single `.surql` file. Document tables are emitted first, then edge tables (`played_at`, `played_with`, `resulted_in`) with `in`/`out` as `type::record(...)` record links (SurrealDB v3).
 - **Production**: Use the latest prod backup (e.g. `~/work/_backups/smacktalk.zip` or a fresh dump before cutover). Run the converter, then `surreal import` into the target SurrealDB (staging or production).
 - **Validate**: Row counts are printed by the converter; after import, run key SurrealQL queries and spot-check against expected data.
-- **Achievements / leaderboard / contest list empty?** If edges were ever imported as **strings** (e.g. from an older export or a different import path), run the one-time edge migration so `out`/`in` become record ids: see **docs/SURREALIST_EDGE_MIGRATION.md** and run **docs/surreal-migrate-edge-strings-to-things.surql**. The current converter already emits `type::thing()` for edges, so a fresh import does not need this step.
+- **Achievements / leaderboard / contest list empty?** If edges were ever imported as **strings** (e.g. from an older export or a different import path), run the one-time edge migration so `out`/`in` become record ids: see **docs/SURREALIST_EDGE_MIGRATION.md** and run **docs/surreal-migrate-edge-strings-to-things.surql**. The current converter already emits `type::record()` for edges (SurrealDB v3), so a fresh import does not need this step.
 
 ---
 

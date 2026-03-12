@@ -4,7 +4,7 @@
 
 The Player Profile page is the single place for a player to see their stats, ratings, achievements, nemeses, game performance, trends, and comparison. Data is provided in a **Tauri-standard way**: one clear contract and one load path, whether the app runs in the browser (fetch) or in the Tauri desktop shell (optional invoke).
 
-Each tab is backed by SurrealDB with industry patterns: typed record IDs (`type::thing('player', $key)`), schemafull tables/edges, no table aliases in SurrealQL, repository layer, and scalar extraction helpers.
+Each tab is backed by SurrealDB with industry patterns: typed record IDs (`type::record('player', $key)` in v3), schemafull tables/edges, no table aliases in SurrealQL, repository layer, and scalar extraction helpers.
 
 ---
 
@@ -59,7 +59,7 @@ Settings tab is local/preferences (no SurrealDB).
 
 ## SurrealDB Industry Patterns (Backend)
 
-- **Record IDs:** Use `type::thing('player', $key)` (and `contest`, `game`, `venue`) with raw key from `record_id_to_key()` / `player_id_to_key()`. Canonical string format in app/DTOs is `"table/key"`; for `INSIDE $ids` bindings use `"table:key"`. See **docs/SURREALDB_ID_CONVENTIONS.md** for the full project standard.
+- **Record IDs:** Use `type::record('player', $key)` (SurrealDB v3; and `contest`, `game`, `venue`) with raw key from `record_id_to_key()` / `player_id_to_key()`. Canonical string format in app/DTOs is `"table/key"`; for `INSIDE $ids` bindings use `"table:key"`. See **docs/SURREALDB_ID_CONVENTIONS.md** for the full project standard.
 - **No table/edge aliases:** SurrealQL uses full table names (e.g. `FROM resulted_in`, `INNER JOIN contest ON contest.id = resulted_in.\`out\``). No `FROM resulted_in result` or `AS result`.
 - **Scalar extraction:** Use shared helpers (`scalar_i64`, `scalar_f64`) for `count()`, `math::*` and other aggregates that may return objects.
 - **Typed rows:** Deserialize into structs with `Option<Thing>` for record IDs; use `thing_to_record_id()` to get `"table/key"` strings.
@@ -80,6 +80,6 @@ Settings tab is local/preferences (no SurrealDB).
 
 - **Contract (DTOs):** `shared/src/dto/analytics.rs` — `ProfileBundleDto`, `PlayerStatsDto`, `PlayerAchievementsDto`, `GamePerformanceDto`, `PerformanceTrendDto`, `PlayerOpponentDto`.
 - **Backend use case:** `back/api/src/analytics/usecase.rs` — `get_profile_bundle()` runs repo methods in parallel.
-- **Backend repo:** `back/api/src/analytics/repository.rs` — all `get_*` methods above; SurrealQL follows no-alias, type::thing, scalar helpers.
+- **Backend repo:** `back/api/src/analytics/repository.rs` — all `get_*` methods above; SurrealQL follows no-alias, type::record (v3), scalar helpers.
 - **Backend controller:** `back/api/src/analytics/controller.rs` — `get_profile_bundle`, ratings routes, head-to-head, performance-trends.
 - **Frontend:** `front/web/src/pages/profile.rs` — Profile page; can use a single `use_profile_data` hook that returns bundle + ratings + history.

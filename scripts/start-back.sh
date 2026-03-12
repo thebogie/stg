@@ -4,10 +4,8 @@
 #        ./scripts/start-back.sh --no-build    # start only, no image rebuild (uses dev)
 # Default: dev. Use --no-build to start existing images without rebuilding.
 #
-# Data import (dev only): SurrealDB is reset (data wiped) when .surql or backup zip exists, then
-# .surql is imported so you always get a clean snapshot. If _build/smacktalk.surql exists we use it;
-# else if ARANGO_BACKUP_ZIP (or ~/work/_backups/smacktalk.zip) exists we convert then import.
-# Never runs in production. Set SURREAL_IMPORT_SURQL to use a different .surql path.
+# Data import (dev only): SurrealDB is reset when backup zip exists; smacktalk.surql is removed,
+# regenerated from the zip, then imported. Never use a cached .surql. Never runs in production.
 
 set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -43,7 +41,7 @@ docker network rm stg 2>/dev/null || true
 if [ "$RUST_ENV" = "dev" ] || [ "$RUST_ENV" = "development" ]; then
   SURQL_PATH="${SURREAL_IMPORT_SURQL:-$ROOT/_build/smacktalk.surql}"
   BACKUP_ZIP="${ARANGO_BACKUP_ZIP:-$HOME/work/_backups/smacktalk.zip}"
-  if [ -f "$SURQL_PATH" ] || [ -f "$BACKUP_ZIP" ]; then
+  if [ -f "$BACKUP_ZIP" ]; then
     echo "==> Dev: resetting SurrealDB for clean import..."
     # Wipe volume via container (files are root-owned from SurrealDB container)
     docker run --rm -v "$VOLUME_PATH/surrealdb_data:/data" busybox:1.36 sh -c "rm -rf /data/*"
@@ -71,14 +69,14 @@ if [ "$RUST_ENV" = "dev" ] || [ "$RUST_ENV" = "development" ]; then
   do_import() {
   SURQL_DIR="$(cd "$(dirname "$SURQL_PATH")" && pwd)"
   SURQL_FILE="$(basename "$SURQL_PATH")"
-  if docker run --rm --network stg \
-    -v "$SURQL_DIR:/import:ro" \
-    surrealdb/surrealdb:v2 \
-    import \
-    --conn "http://stg-surrealdb:8000" \
-    --user "$SURREAL_USER" --pass "$SURREAL_PASSWORD" \
-    --ns "$SURREAL_NS" --db "$SURREAL_DB" \
-    "/import/$SURQL_FILE"; then
+    if docker run --rm --network stg \
+      -v "$SURQL_DIR:/import:ro" \
+      surrealdb/surrealdb:v3 \
+      import \
+      --endpoint "http://surrealdb:8000" \
+      --username "$SURREAL_USER" --password "$SURREAL_PASSWORD" \
+      --namespace "$SURREAL_NS" --database "$SURREAL_DB" \
+      "/import/$SURQL_FILE"; then
     echo "==> SurrealDB import completed successfully."
   else
     echo "==> SurrealDB import failed (see above)." >&2
@@ -94,17 +92,15 @@ wait_surrealdb() {
   return 1
 }
 
-if [ -f "$SURQL_PATH" ]; then
-  echo "==> Importing SurrealDB data from $SURQL_PATH ..."
-  ( wait_surrealdb && do_import ) || true
-elif [ -f "$BACKUP_ZIP" ]; then
-  echo "==> No .surql found; converting $BACKUP_ZIP to .surql and importing ..."
-  mkdir -p "$(dirname "$SURQL_PATH")"
-  if cargo run -p arango-to-surreal -- "$BACKUP_ZIP" -o "$SURQL_PATH"; then
-    ( wait_surrealdb && do_import ) || true
-  else
-    echo "Warning: Conversion failed; skipping import." >&2
-  fi
+  if [ -f "$BACKUP_ZIP" ]; then
+    rm -f "$SURQL_PATH"
+    echo "==> Converting $BACKUP_ZIP to .surql (fresh) and importing ..."
+    mkdir -p "$(dirname "$SURQL_PATH")"
+    if cargo run -p arango-to-surreal -- "$BACKUP_ZIP" -o "$SURQL_PATH"; then
+      ( wait_surrealdb && do_import ) || true
+    else
+      echo "Warning: Conversion failed; skipping import." >&2
+    fi
   fi
 fi
 

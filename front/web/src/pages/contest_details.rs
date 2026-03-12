@@ -1,4 +1,5 @@
 use crate::api::utils::authenticated_get;
+use crate::api::contests::contest_key_from_any;
 use crate::auth::AuthContext;
 use crate::Route;
 use gloo_storage::Storage;
@@ -130,18 +131,14 @@ pub fn contest_details(props: &ContestDetailsProps) -> Html {
 
                 gloo::console::log!("Fetching contest details for ID:", &contest_id);
 
-                // Extract just the numeric part from contest IDs like "contest/4127490"
-                let numeric_id = if contest_id.starts_with("contest/") {
-                    contest_id.strip_prefix("contest/").unwrap_or(&contest_id)
-                } else {
-                    &contest_id
-                };
+                // Normalize contest id from route/list (supports `contest:<uuid>`, backticks, etc.)
+                let contest_key = contest_key_from_any(&contest_id);
 
                 // First get contest stats
-                let stats_url = format!("/api/analytics/contests/{}/stats", numeric_id);
+                let stats_url = format!("/api/analytics/contests/{}/stats", contest_key);
                 let stats_result = authenticated_get(&stats_url).send().await;
 
-                let contest_url = format!("/api/contests/{}", numeric_id);
+                let contest_url = format!("/api/contests/{}", contest_key);
                 gloo::console::log!("Fetching from URL:", &contest_url);
                 let contest_result = authenticated_get(&contest_url).send().await;
 

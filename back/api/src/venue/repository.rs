@@ -1,7 +1,8 @@
 use crate::cache::{CacheKeys, CacheTTL, RedisCache};
+use crate::db::Db;
+use crate::surreal_helpers::{record_id_from_row, select_one_by_record_id};
 use crate::third_party::{google::timezone::GoogleTimezoneService, GooglePlacesService};
 use anyhow::Result;
-use crate::db::Db;
 use log;
 use shared::dto::venue::VenueDto;
 use shared::models::venue::Venue;
@@ -15,26 +16,9 @@ fn default_timezone() -> String {
 const VENUE_SELECT: &str =
     "SELECT string::concat(id) AS id, displayName, formattedAddress, place_id, lat, lng, timezone FROM venue";
 
-/// SurrealDB can return record id as string or Thing { tb, id } with id as string or number.
-fn json_id_part_to_string(v: &serde_json::Value) -> Option<String> {
-    v.as_str()
-        .map(String::from)
-        .or_else(|| v.as_i64().map(|n| n.to_string()))
-        .or_else(|| v.as_u64().map(|n| n.to_string()))
-}
-
-/// Extract record id from SurrealDB row (id may be string "venue:key" or Thing { tb, id }).
+/// Extract record id from SurrealDB row (canonical "table/key"). Uses shared helper for v3 compatibility.
 fn record_id_to_string(v: &serde_json::Value) -> Option<String> {
-    let id_val = v.get("id").or_else(|| v.get("_id"))?;
-    if let Some(s) = id_val.as_str() {
-        return Some(s.replace("venue:", "venue/"));
-    }
-    if let Some(tb) = id_val.get("tb").and_then(|x| x.as_str()) {
-        if let Some(id_part) = id_val.get("id").and_then(json_id_part_to_string) {
-            return Some(format!("{}/{}", tb, id_part));
-        }
-    }
-    None
+    record_id_from_row(v, Some("venue"))
 }
 
 fn value_to_venue(v: &serde_json::Value) -> Option<Venue> {
@@ -136,7 +120,7 @@ impl VenueRepositoryImpl {
         let key = venue_id.trim_start_matches("venue/").trim_start_matches("venue:").to_string();
         let tz = timezone.to_string();
         self.db
-            .query("UPDATE type::thing('venue', $key) SET timezone = $timezone")
+            .query("UPDATE type::record('venue', $key) SET timezone = $timezone")
             .bind(("key", key))
             .bind(("timezone", tz))
             .await
@@ -332,20 +316,9 @@ impl VenueRepository for VenueRepositoryImpl {
             }
         }
 
-        let key = id.trim_start_matches("venue/").trim_start_matches("venue:").to_string();
-        let mut res = match self.db
-            .query(format!("{} WHERE id = type::thing('venue', $key)", VENUE_SELECT))
-            .bind(("key", key))
+        let venue = select_one_by_record_id(&self.db, "venue", id)
             .await
-        {
-            Ok(r) => r,
-            Err(e) => {
-                log::error!("❌ Database query failed for venue ID '{}': {}", id, e);
-                return None;
-            }
-        };
-        let rows: Vec<serde_json::Value> = res.take(0).unwrap_or_default();
-        let venue = rows.into_iter().next().and_then(|v| value_to_venue(&v));
+            .and_then(|row| value_to_venue(&row));
         if let Some(ref v) = venue {
             log::info!("✅ Found venue by ID: '{}' -> '{}'", id, v.display_name);
             if let Some(ref cache) = self.cache {
@@ -505,7 +478,7 @@ impl VenueRepository for VenueRepositoryImpl {
             "timezone": venue_with_timezone.timezone,
         });
         self.db
-            .query("CREATE type::thing('venue', $key) CONTENT $doc")
+            .query("CREATE type::record('venue', $key) CONTENT $doc")
             .bind(("key", key.clone()))
             .bind(("doc", doc))
             .await
@@ -539,7 +512,7 @@ impl VenueRepository for VenueRepositoryImpl {
             "timezone": venue.timezone,
         });
         self.db
-            .query("UPDATE type::thing('venue', $key) MERGE $doc")
+            .query("UPDATE type::record('venue', $key) MERGE $doc")
             .bind(("key", key))
             .bind(("doc", doc))
             .await
@@ -554,7 +527,7 @@ impl VenueRepository for VenueRepositoryImpl {
     async fn delete(&self, id: &str) -> Result<(), String> {
         let key = id.trim_start_matches("venue/").trim_start_matches("venue:").to_string();
         self.db
-            .query("DELETE type::thing('venue', $key)")
+            .query("DELETE type::record('venue', $key)")
             .bind(("key", key))
             .await
             .map_err(|e| format!("Failed to delete venue: {}", e))?;

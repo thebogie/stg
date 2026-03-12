@@ -1,34 +1,13 @@
 use crate::cache::{CacheKeys, CacheTTL, RedisCache};
-use crate::third_party::BGGService;
 use crate::db::Db;
+use crate::surreal_helpers::{record_id_from_row, select_one_by_record_id};
+use crate::third_party::BGGService;
 use shared::dto::game::GameDto;
 use shared::models::game::Game;
 use std::sync::Arc;
 
-/// SurrealDB can return record id as string or Thing { tb, id } with id as string or number.
-fn json_id_part_to_string(v: &serde_json::Value) -> Option<String> {
-    v.as_str()
-        .map(String::from)
-        .or_else(|| v.as_i64().map(|n| n.to_string()))
-        .or_else(|| v.as_u64().map(|n| n.to_string()))
-}
-
-/// Extract record id from SurrealDB row (id may be string "game:key" or Thing { tb, id }).
-fn record_id_to_string(v: &serde_json::Value) -> Option<String> {
-    let id_val = v.get("id").or_else(|| v.get("_id"))?;
-    if let Some(s) = id_val.as_str() {
-        return Some(s.replace("game:", "game/"));
-    }
-    if let Some(tb) = id_val.get("tb").and_then(|x| x.as_str()) {
-        if let Some(id_part) = id_val.get("id").and_then(json_id_part_to_string) {
-            return Some(format!("{}/{}", tb, id_part));
-        }
-    }
-    None
-}
-
 fn value_to_game(v: &serde_json::Value) -> Option<Game> {
-    let id = record_id_to_string(v)?;
+    let id = record_id_from_row(v, None)?;
     Some(Game {
         id,
         rev: v.get("_rev").or_else(|| v.get("rev")).and_then(|x| x.as_str()).unwrap_or("").to_string(),
@@ -124,13 +103,9 @@ impl GameRepository for GameRepositoryImpl {
             }
         }
 
-        let key = id.trim_start_matches("game/").trim_start_matches("game:").to_string();
-        let mut res = match self.db.query("SELECT * FROM game WHERE id = type::thing('game', $key)").bind(("key", key)).await {
-            Ok(r) => r,
-            Err(_) => return None,
-        };
-        let rows: Vec<serde_json::Value> = res.take(0).unwrap_or_default();
-        let game = rows.into_iter().next().and_then(|v| value_to_game(&v));
+        let game = select_one_by_record_id(&self.db, "game", id)
+            .await
+            .and_then(|v| value_to_game(&v));
         if let Some(ref g) = game {
             if let Some(ref cache) = self.cache {
                 let _ = cache.set_with_ttl(&CacheKeys::game(id), g, CacheTTL::game()).await;
@@ -304,7 +279,7 @@ impl GameRepository for GameRepositoryImpl {
             "description": game.description,
         });
         self.db
-            .query("CREATE type::thing('game', $key) CONTENT $doc")
+            .query("CREATE type::record('game', $key) CONTENT $doc")
             .bind(("key", key.clone()))
             .bind(("doc", doc))
             .await
@@ -335,7 +310,7 @@ impl GameRepository for GameRepositoryImpl {
             "description": game.description,
         });
         self.db
-            .query("UPDATE type::thing('game', $key) MERGE $doc")
+            .query("UPDATE type::record('game', $key) MERGE $doc")
             .bind(("key", key))
             .bind(("doc", doc))
             .await
@@ -351,7 +326,7 @@ impl GameRepository for GameRepositoryImpl {
     async fn delete(&self, id: &str) -> Result<(), String> {
         let key = id.trim_start_matches("game/").trim_start_matches("game:").to_string();
         self.db
-            .query("DELETE type::thing('game', $key)")
+            .query("DELETE type::record('game', $key)")
             .bind(("key", key))
             .await
             .map_err(|e| format!("Failed to delete game: {}", e))?;

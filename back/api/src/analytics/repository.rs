@@ -9,21 +9,21 @@
 //! - Trends: `get_my_performance_trends`
 //! - Comparison: `get_player_stats`, `get_head_to_head_record`
 //!
-//! SurrealDB patterns: `type::thing('table', $key)` for IDs, no table aliases in SurrealQL,
+//! SurrealDB patterns: `type::record('table', $key)` for IDs, no table aliases in SurrealQL,
 //! scalar extraction via helpers, typed rows with `Option<Thing>`.
 
 use crate::analytics::engine::{ContestParticipant, ContestResult, GamePlay, VenueContest};
 use crate::config::DatabaseConfig;
 use crate::db::Db;
-use crate::surreal_helpers::{record_id_to_key, thing_to_record_id};
-use serde::Deserialize;
+use crate::surreal_helpers::{normalize_record_id_string, record_id_from_field, record_id_from_row, record_id_to_key, thing_to_record_id};
 use shared::dto::analytics::{
     GamePerformanceDto, PerformanceTrendDto, PlayerOpponentDto,
 };
 use shared::{dto::analytics::TimePeriod, models::analytics::*, Result, SharedError};
 use std::collections::HashMap;
+use surrealdb::types::SurrealValue;
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize, surrealdb::types::SurrealValue)]
 pub struct HeatRow {
     pub day: i32,
     pub hour: i32,
@@ -41,54 +41,54 @@ struct PlayerDataResult {
     unique_venues: i32,
 }
 
-// Typed query result rows (SurrealDB pattern: use Thing for record ids, map_err on take(0)).
-#[derive(serde::Deserialize)]
+// Typed query result rows (SurrealDB v3: take(0) requires SurrealValue).
+#[derive(serde::Deserialize, serde::Serialize, surrealdb::types::SurrealValue)]
 struct ResultedInRow {
-    contest_id: Option<surrealdb::sql::Thing>,
-    player_id: Option<surrealdb::sql::Thing>,
+    contest_id: Option<surrealdb::types::RecordId>,
+    player_id: Option<surrealdb::types::RecordId>,
     place: Option<i64>,
 }
 
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, serde::Serialize, surrealdb::types::SurrealValue)]
 struct GamePerformanceRow {
     #[allow(dead_code)]
-    contest_id: Option<surrealdb::sql::Thing>,
+    contest_id: Option<surrealdb::types::RecordId>,
     place: Option<i64>,
-    game_id: Option<surrealdb::sql::Thing>,
+    game_id: Option<surrealdb::types::RecordId>,
     contest_start: Option<String>,
 }
 
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, serde::Serialize, surrealdb::types::SurrealValue)]
 struct PerformanceTrendRow {
     place: Option<i64>,
     /// SurrealDB may return datetime as string (RFC3339) or as object; use Value for resilient deserialization.
     contest_start: Option<serde_json::Value>,
 }
 
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, serde::Serialize, surrealdb::types::SurrealValue)]
 struct PlayerDisplayRow {
-    id: Option<surrealdb::sql::Thing>,
+    id: Option<surrealdb::types::RecordId>,
     handle: Option<String>,
     firstname: Option<String>,
     lastname: Option<String>,
 }
 
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, serde::Serialize, surrealdb::types::SurrealValue)]
 struct GameDisplayRow {
-    id: Option<surrealdb::sql::Thing>,
+    id: Option<surrealdb::types::RecordId>,
     name: Option<String>,
 }
 
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, serde::Serialize, surrealdb::types::SurrealValue)]
 struct ContestResultRow {
-    contest_id: Option<surrealdb::sql::Thing>,
+    contest_id: Option<surrealdb::types::RecordId>,
     placement: Option<i64>,
     contest_date: Option<String>,
 }
 
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, serde::Serialize, surrealdb::types::SurrealValue)]
 struct ContestParticipantRow {
-    player_id: Option<surrealdb::sql::Thing>,
+    player_id: Option<surrealdb::types::RecordId>,
     placement: Option<i64>,
 }
 
@@ -102,33 +102,6 @@ fn normalize_player_id(s: &str) -> String {
     } else {
         format!("player/{}", key)
     }
-}
-
-/// Extract record id from SurrealDB value (string "table:key" or Thing object { tb, id }). Returns "table/key" with backticks stripped (SurrealDB may serialize id with backticks).
-fn record_id_from_value(v: &serde_json::Value) -> Option<String> {
-    let id_val = v.get("id").or_else(|| v.get("_id")).or_else(|| v.get("player_id"))?;
-    if let Some(s) = id_val.as_str() {
-        let s = s.replace("player:", "player/").replace("player.", "player/").replace('`', "");
-        return Some(s);
-    }
-    if let Some(n) = id_val.as_i64() {
-        return Some(format!("player/{}", n));
-    }
-    if let Some(n) = id_val.as_u64() {
-        return Some(format!("player/{}", n));
-    }
-    if let Some(tb) = id_val.get("tb").and_then(|x| x.as_str()) {
-        let id_part = id_val
-            .get("id")
-            .and_then(|x| x.as_str().map(String::from))
-            .or_else(|| id_val.get("id").and_then(|x| x.as_i64().map(|n| n.to_string())))
-            .or_else(|| id_val.get("id").and_then(|x| x.as_u64().map(|n| n.to_string())));
-        if let Some(id_part) = id_part {
-            let id_part = id_part.replace('`', "");
-            return Some(format!("{}/{}", tb, id_part));
-        }
-    }
-    None
 }
 
 /// Extract numeric value from SurrealDB result: may be direct number, or { "count": n } from count(), or object with any numeric field.
@@ -203,13 +176,12 @@ fn scalar_f64(v: &serde_json::Value) -> f64 {
     0.0
 }
 
-/// Convert a Thing to "player/key" string (for display and for get_player_display_label).
-/// Uses shared thing_to_record_id so normalization (including backtick stripping) is consistent.
-fn thing_to_player_id_str(t: &surrealdb::sql::Thing) -> String {
-    thing_to_record_id(&Some(t.clone()))
+/// Convert a RecordId to "table/key" string (for display and for get_player_display_label).
+fn record_id_to_player_id_str(t: &surrealdb::types::RecordId) -> String {
+    crate::surreal_helpers::record_id_to_canonical(t)
 }
 
-/// Strip backticks and "player/" / "player:" / "player." prefix to get raw key for type::thing('player', $key).
+/// Strip backticks and "player/" / "player:" / "player." prefix to get raw key for type::record('player', $key).
 /// Handles both slash and colon and case variants so DB id format matches. SurrealDB may return id with backticks.
 fn player_id_to_key(player_id: &str) -> String {
     let s = player_id.trim_matches('`');
@@ -241,7 +213,7 @@ fn extract_month_from_value(v: Option<&serde_json::Value>) -> String {
 
 /// Build an array of Thing from "table:key" or "table/key" strings for INSIDE bindings.
 /// SurrealDB v2 does not coerce string arrays to record id; binding Thing array fixes INSIDE matching.
-fn strings_to_thing_array(ids: &[String]) -> Vec<surrealdb::sql::Thing> {
+fn strings_to_record_id_array(ids: &[String]) -> Vec<surrealdb::types::RecordId> {
     ids.iter()
         .filter_map(|s| {
             let s = s.trim().trim_matches('`');
@@ -250,7 +222,7 @@ fn strings_to_thing_array(ids: &[String]) -> Vec<surrealdb::sql::Thing> {
             if key.is_empty() {
                 return None;
             }
-            Some(surrealdb::sql::Thing::from((tb.trim(), key)))
+            Some(surrealdb::types::RecordId::new(tb.trim(), key))
         })
         .collect()
 }
@@ -277,13 +249,13 @@ impl AnalyticsRepository {
     ) -> Result<Vec<HeatRow>> {
         let contest_ids: Option<Vec<String>> = if let Some(gid) = game_id {
             let key = record_id_to_key(gid, "game");
-            #[derive(serde::Deserialize)]
+            #[derive(serde::Deserialize, serde::Serialize, surrealdb::types::SurrealValue)]
             struct OutRow {
-                out: Option<surrealdb::sql::Thing>,
+                out: Option<surrealdb::types::RecordId>,
             }
             let mut res = self
                 .db
-                .query("SELECT out FROM played_with WHERE in = type::thing('game', $key)")
+                .query("SELECT `in` FROM played_with WHERE `out` = type::record('game', $key)")
                 .bind(("key", key))
                 .await
                 .map_err(|e| SharedError::Database(e.to_string()))?;
@@ -293,7 +265,7 @@ impl AnalyticsRepository {
             let ids: Vec<String> = rows
                 .into_iter()
                 .filter_map(|r| {
-                    let rid = thing_to_record_id(&r.out);
+                    let rid = r.out.as_ref().map(crate::surreal_helpers::record_id_to_canonical).unwrap_or_default();
                     if rid.is_empty() {
                         None
                     } else {
@@ -334,95 +306,115 @@ impl AnalyticsRepository {
     pub async fn get_player_id_by_email(&self, email: &str) -> Result<Option<String>> {
         self.get_player_thing_by_email(email)
             .await
-            .map(|opt| opt.map(|t| thing_to_player_id_str(&t)))
+            .map(|opt| opt.map(|t| record_id_to_player_id_str(&t)))
     }
 
     /// Get player record id (Thing) by email. Use this when you need the exact DB value for queries (e.g. profile stats for "me").
-    pub async fn get_player_thing_by_email(&self, email: &str) -> Result<Option<surrealdb::sql::Thing>> {
+    pub async fn get_player_thing_by_email(&self, email: &str) -> Result<Option<surrealdb::types::RecordId>> {
         let mut res = self.db
             .query("SELECT id FROM player WHERE string::lowercase(email) = string::lowercase($email) LIMIT 1")
             .bind(("email", email.to_string()))
             .await
             .map_err(|e| SharedError::Database(e.to_string()))?;
-        #[derive(serde::Deserialize)]
+        #[derive(serde::Deserialize, serde::Serialize, surrealdb::types::SurrealValue)]
         struct Row {
-            id: Option<surrealdb::sql::Thing>,
+            id: Option<surrealdb::types::RecordId>,
         }
         let rows: Vec<Row> = res.take(0).map_err(|e| SharedError::Database(e.to_string()))?;
         Ok(rows.into_iter().next().and_then(|r| r.id))
     }
 
-    /// Overall statistics for "me": run four aggregates + streak data, then compute current/longest streak in Rust.
-    /// SurrealDB: compare record via = (SELECT VALUE id ...)[0]. Streaks need (place, contest start) ordered by start.
+    /// Overall statistics for "me": resolve player id string from email, then use fn::player_stats_by_id_str when applied, else inline query.
+    /// Tries both resulted_in.`out` and resulted_in.`in` so we match regardless of which column stores the player.
     pub async fn get_player_stats_for_me_by_email(
         &self,
         email: &str,
         player_id: &str,
     ) -> Result<Option<PlayerStats>> {
-        let email = email.to_string();
-        let player_sub = "(SELECT VALUE id FROM player WHERE string::lowercase(email) = string::lowercase($email) LIMIT 1)[0]";
-        let db = &self.db;
+        let id_str = match self.get_player_id_str_by_email(email).await? {
+            Some(s) => s.replace('`', "").replace('/', ":"),
+            None => {
+                log::warn!("get_player_stats_for_me_by_email: no player for email");
+                return Ok(Some(Self::zero_player_stats(player_id)));
+            }
+        };
 
-        // Four aggregates only (fast). Streaks need contest start for 800+ rows and block for 5–10s; return 0 for now so profile loads in ~1–2s.
-        let (tot_rows, win_rows, mean_rows, min_rows) = tokio::join!(
-            db.query(format!(
-                "SELECT count() FROM resulted_in WHERE `in` = {} GROUP ALL",
-                player_sub
-            ))
-            .bind(("email", email.clone())),
-            db.query(format!(
-                "SELECT count() FROM resulted_in WHERE `in` = {} AND place = 1 GROUP ALL",
-                player_sub
-            ))
-            .bind(("email", email.clone())),
-            db.query(format!(
-                "SELECT math::mean(place) FROM resulted_in WHERE `in` = {} GROUP ALL",
-                player_sub
-            ))
-            .bind(("email", email.clone())),
-            db.query(format!(
-                "SELECT math::min(place) FROM resulted_in WHERE `in` = {} GROUP ALL",
-                player_sub
-            ))
-            .bind(("email", email.clone())),
-        );
+        // Prefer SurrealDB function when applied (one round-trip)
+        if let Ok(mut res) = self
+            .db
+            .query("SELECT fn::player_stats_by_id_str($id_str) AS result FROM [1]")
+            .bind(("id_str", id_str.clone()))
+            .await
+        {
+            let rows: Vec<serde_json::Value> = res.take(0).unwrap_or_default();
+            if let Some(first) = rows.into_iter().next() {
+                let row = first
+                    .get("result")
+                    .or_else(|| first.get("fn::player_stats_by_id_str($id_str)"))
+                    .cloned()
+                    .unwrap_or(first);
+                if row.is_object() && (row.get("contests_out").is_some() || row.get("contests_in").is_some()) {
+                    if let Some(stats) = Self::player_stats_from_dual_out_in_row(&row, player_id) {
+                        return Ok(Some(stats));
+                    }
+                }
+            }
+        }
 
-        let total_contests: i32 = tot_rows
-            .map_err(|e| SharedError::Database(e.to_string()))?
-            .take::<Vec<serde_json::Value>>(0)
-            .unwrap_or_default()
-            .into_iter()
-            .next()
-            .map(|v| scalar_i64(&v))
-            .unwrap_or(0) as i32;
-        let total_wins: i32 = win_rows
-            .map_err(|e| SharedError::Database(e.to_string()))?
-            .take::<Vec<serde_json::Value>>(0)
-            .unwrap_or_default()
-            .into_iter()
-            .next()
-            .map(|v| scalar_i64(&v))
-            .unwrap_or(0) as i32;
-        let mean_vec: Vec<serde_json::Value> = mean_rows
-            .map_err(|e| SharedError::Database(e.to_string()))?
-            .take::<Vec<serde_json::Value>>(0)
-            .unwrap_or_default();
-        let average_placement = mean_vec
-            .into_iter()
-            .next()
-            .and_then(|r| r.get("math::mean").or_else(|| r.get("mean")).cloned())
-            .map(|v| scalar_f64(&v))
-            .unwrap_or(0.0);
-        let min_vec: Vec<serde_json::Value> = min_rows
-            .map_err(|e| SharedError::Database(e.to_string()))?
-            .take::<Vec<serde_json::Value>>(0)
-            .unwrap_or_default();
-        let best_placement: i32 = min_vec
-            .into_iter()
-            .next()
-            .and_then(|r| r.get("math::min").or_else(|| r.get("min")).cloned())
-            .map(|v| scalar_i64(&v))
-            .unwrap_or(0) as i32;
+        // Fallback: inline query (counts for both out and in)
+        let sql = r#"
+            SELECT
+                (SELECT count() FROM resulted_in WHERE string::replace(string::concat(`out`), '`', '') = $id_str) AS contests_out,
+                (SELECT count() FROM resulted_in WHERE string::replace(string::concat(`out`), '`', '') = $id_str AND place = 1) AS wins_out,
+                (SELECT math::mean(place) FROM resulted_in WHERE string::replace(string::concat(`out`), '`', '') = $id_str) AS avg_out,
+                (SELECT math::min(place) FROM resulted_in WHERE string::replace(string::concat(`out`), '`', '') = $id_str) AS best_out,
+                (SELECT count() FROM resulted_in WHERE string::replace(string::concat(`in`), '`', '') = $id_str) AS contests_in,
+                (SELECT count() FROM resulted_in WHERE string::replace(string::concat(`in`), '`', '') = $id_str AND place = 1) AS wins_in,
+                (SELECT math::mean(place) FROM resulted_in WHERE string::replace(string::concat(`in`), '`', '') = $id_str) AS avg_in,
+                (SELECT math::min(place) FROM resulted_in WHERE string::replace(string::concat(`in`), '`', '') = $id_str) AS best_in
+        "#;
+        let mut res = self
+            .db
+            .query(sql)
+            .bind(("id_str", id_str.clone()))
+            .await
+            .map_err(|e| SharedError::Database(e.to_string()))?;
+        let rows: Vec<serde_json::Value> = res.take(0).unwrap_or_default();
+        let row = match rows.into_iter().next() {
+            Some(r) => r,
+            None => {
+                log::warn!("get_player_stats_for_me_by_email: no row for id_str");
+                return Ok(Some(Self::zero_player_stats(player_id)));
+            }
+        };
+
+        match Self::player_stats_from_dual_out_in_row(&row, player_id) {
+            Some(stats) => Ok(Some(stats)),
+            None => Ok(Some(Self::zero_player_stats(player_id))),
+        }
+    }
+
+    /// Parse a row with contests_out/wins_out/avg_out/best_out and contests_in/... into PlayerStats (use out if non-zero, else in).
+    fn player_stats_from_dual_out_in_row(row: &serde_json::Value, player_id: &str) -> Option<PlayerStats> {
+        let contests_out = row.get("contests_out").map(scalar_i64).unwrap_or(0) as i32;
+        let contests_in = row.get("contests_in").map(scalar_i64).unwrap_or(0) as i32;
+        let (total_contests, total_wins, average_placement, best_placement) = if contests_out > 0 {
+            (
+                contests_out,
+                row.get("wins_out").map(scalar_i64).unwrap_or(0) as i32,
+                row.get("avg_out").map(scalar_f64).unwrap_or(0.0),
+                row.get("best_out").map(scalar_i64).unwrap_or(0) as i32,
+            )
+        } else if contests_in > 0 {
+            (
+                contests_in,
+                row.get("wins_in").map(scalar_i64).unwrap_or(0) as i32,
+                row.get("avg_in").map(scalar_f64).unwrap_or(0.0),
+                row.get("best_in").map(scalar_i64).unwrap_or(0) as i32,
+            )
+        } else {
+            (0, 0, 0.0, 0)
+        };
 
         let total_losses = total_contests.saturating_sub(total_wins);
         let win_rate = if total_contests > 0 {
@@ -430,11 +422,9 @@ impl AnalyticsRepository {
         } else {
             0.0
         };
-
-        // Streaks disabled for fast profile load (contest subquery over 800+ rows was 5–10s). TODO: materialize or limit to recent N.
         let (current_streak, longest_streak) = (0, 0);
 
-        let stats = PlayerStats {
+        Some(PlayerStats {
             player_id: player_id.to_string(),
             total_contests,
             total_wins,
@@ -447,9 +437,26 @@ impl AnalyticsRepository {
             total_points: total_wins * 10,
             current_streak,
             longest_streak,
-            last_updated: chrono::Utc::now().fixed_offset(),
-        };
-        Ok(Some(stats))
+            last_updated: chrono::Utc::now().into(),
+        })
+    }
+
+    fn zero_player_stats(player_id: &str) -> PlayerStats {
+        PlayerStats {
+            player_id: player_id.to_string(),
+            total_contests: 0,
+            total_wins: 0,
+            total_losses: 0,
+            win_rate: 0.0,
+            average_placement: 0.0,
+            best_placement: 0,
+            skill_rating: 1200.0,
+            rating_confidence: 0.8,
+            total_points: 0,
+            current_streak: 0,
+            longest_streak: 0,
+            last_updated: chrono::Utc::now().into(),
+        }
     }
 
     /// Get the exact string form of player id as SurrealDB stringifies it (string::concat(id)).
@@ -470,7 +477,7 @@ impl AnalyticsRepository {
 
     /// Parse a row from the stats query into PlayerStats.
     fn parse_player_stats_row(row: &serde_json::Value) -> Result<PlayerStats> {
-        let key = record_id_from_value(row)
+        let key = record_id_from_row(row, Some("player"))
             .map(|s| s.replace("player:", "").replace("player/", "").replace('`', ""))
             .unwrap_or_default();
         let total_contests = row.get("total_contests").map(scalar_i64).unwrap_or(0) as i32;
@@ -483,7 +490,7 @@ impl AnalyticsRepository {
         };
         let average_placement = row.get("average_placement").map(scalar_f64).unwrap_or(0.0);
         let best_placement = row.get("best_placement").map(scalar_i64).unwrap_or(0) as i32;
-        let player_id_norm = record_id_from_value(row).unwrap_or_else(|| format!("player/{}", key));
+        let player_id_norm = record_id_from_row(row, Some("player")).unwrap_or_else(|| format!("player/{}", key));
         Ok(PlayerStats {
             player_id: player_id_norm,
             total_contests,
@@ -497,7 +504,7 @@ impl AnalyticsRepository {
             total_points: total_wins * 10,
             current_streak: 0,
             longest_streak: 0,
-            last_updated: chrono::Utc::now().fixed_offset(),
+            last_updated: chrono::Utc::now().into(),
         })
     }
 
@@ -509,10 +516,10 @@ impl AnalyticsRepository {
             SELECT
                 id AS player_id,
                 handle AS player_handle,
-                ((SELECT count() FROM resulted_in WHERE `in` = {} GROUP ALL)[0].count) ?? 0 AS total_contests,
-                ((SELECT count() FROM resulted_in WHERE `in` = {} AND place = 1 GROUP ALL)[0].count) ?? 0 AS total_wins,
-                ((SELECT math::mean(place) FROM resulted_in WHERE `in` = {} GROUP ALL)[0].`math::mean`) ?? 0 AS average_placement,
-                ((SELECT math::min(place) FROM resulted_in WHERE `in` = {} GROUP ALL)[0].`math::min`) ?? 0 AS best_placement
+                ((SELECT count() FROM resulted_in WHERE `out` = {} GROUP ALL)[0].count) ?? 0 AS total_contests,
+                ((SELECT count() FROM resulted_in WHERE `out` = {} AND place = 1 GROUP ALL)[0].count) ?? 0 AS total_wins,
+                ((SELECT math::mean(place) FROM resulted_in WHERE `out` = {} GROUP ALL)[0].`math::mean`) ?? 0 AS average_placement,
+                ((SELECT math::min(place) FROM resulted_in WHERE `out` = {} GROUP ALL)[0].`math::min`) ?? 0 AS best_placement
             FROM (SELECT * FROM player WHERE string::lowercase(email) = string::lowercase($email) LIMIT 1)
             "#,
             pid, pid, pid, pid
@@ -537,7 +544,7 @@ impl AnalyticsRepository {
     }
 
     /// Same as get_player_stats_by_email but with email inlined in the query (no params).
-    /// Use for "me" when parameter binding or type::thing from Rust fails to match the DB.
+    /// Use for "me" when parameter binding or type::record from Rust fails to match the DB.
     pub async fn get_player_stats_by_email_inlined(&self, email: &str) -> Result<Option<PlayerStats>> {
         if email.len() > 256 || !email.chars().all(|c| c.is_ascii_alphanumeric() || "._%+-@".contains(c)) {
             log::warn!("get_player_stats_by_email_inlined: email not safe to inline");
@@ -553,10 +560,10 @@ impl AnalyticsRepository {
             SELECT
                 id AS player_id,
                 handle AS player_handle,
-                ((SELECT count() FROM resulted_in WHERE `in` = {} GROUP ALL)[0].count) ?? 0 AS total_contests,
-                ((SELECT count() FROM resulted_in WHERE `in` = {} AND place = 1 GROUP ALL)[0].count) ?? 0 AS total_wins,
-                ((SELECT math::mean(place) FROM resulted_in WHERE `in` = {} GROUP ALL)[0].`math::mean`) ?? 0 AS average_placement,
-                ((SELECT math::min(place) FROM resulted_in WHERE `in` = {} GROUP ALL)[0].`math::min`) ?? 0 AS best_placement
+                ((SELECT count() FROM resulted_in WHERE `out` = {} GROUP ALL)[0].count) ?? 0 AS total_contests,
+                ((SELECT count() FROM resulted_in WHERE `out` = {} AND place = 1 GROUP ALL)[0].count) ?? 0 AS total_wins,
+                ((SELECT math::mean(place) FROM resulted_in WHERE `out` = {} GROUP ALL)[0].`math::mean`) ?? 0 AS average_placement,
+                ((SELECT math::min(place) FROM resulted_in WHERE `out` = {} GROUP ALL)[0].`math::min`) ?? 0 AS best_placement
             FROM (SELECT * FROM player WHERE string::lowercase(email) = string::lowercase('{}') LIMIT 1)
             "#,
             pid, pid, pid, pid, escaped
@@ -577,7 +584,7 @@ impl AnalyticsRepository {
     }
 
     /// Get player statistics by player record key. Inlines key as literal so SurrealDB matches
-    /// (binding $key in type::thing('player', $key) can fail to match stored record ids from Rust client).
+    /// (binding $key in type::record('player', $key) can fail to match stored record ids from Rust client).
     pub async fn get_player_stats_by_key(&self, player_id: &str) -> Result<Option<PlayerStats>> {
         let key = player_id_to_key(player_id);
         if key.is_empty() {
@@ -589,16 +596,16 @@ impl AnalyticsRepository {
             log::warn!("get_player_stats_by_key: key not safe to inline: {:?}", key);
             return Ok(None);
         }
-        let thing = format!("type::thing('player', '{}')", key);
+        let thing = format!("type::record('player', '{}')", key);
         let sql = format!(
             r#"
             SELECT
                 id AS player_id,
                 handle AS player_handle,
-                ((SELECT count() FROM resulted_in WHERE `in` = {} GROUP ALL)[0].count) ?? 0 AS total_contests,
-                ((SELECT count() FROM resulted_in WHERE `in` = {} AND place = 1 GROUP ALL)[0].count) ?? 0 AS total_wins,
-                ((SELECT math::mean(place) FROM resulted_in WHERE `in` = {} GROUP ALL)[0].`math::mean`) ?? 0 AS average_placement,
-                ((SELECT math::min(place) FROM resulted_in WHERE `in` = {} GROUP ALL)[0].`math::min`) ?? 0 AS best_placement
+                ((SELECT count() FROM resulted_in WHERE `out` = {} GROUP ALL)[0].count) ?? 0 AS total_contests,
+                ((SELECT count() FROM resulted_in WHERE `out` = {} AND place = 1 GROUP ALL)[0].count) ?? 0 AS total_wins,
+                ((SELECT math::mean(place) FROM resulted_in WHERE `out` = {} GROUP ALL)[0].`math::mean`) ?? 0 AS average_placement,
+                ((SELECT math::min(place) FROM resulted_in WHERE `out` = {} GROUP ALL)[0].`math::min`) ?? 0 AS best_placement
             FROM (SELECT * FROM player WHERE id = {} LIMIT 1)
             "#,
             thing, thing, thing, thing, thing
@@ -628,7 +635,7 @@ impl AnalyticsRepository {
         };
         let average_placement = row.get("average_placement").map(scalar_f64).unwrap_or(0.0);
         let best_placement = row.get("best_placement").map(scalar_i64).unwrap_or(0) as i32;
-        let player_id_norm = record_id_from_value(&row).unwrap_or_else(|| format!("player/{}", key));
+        let player_id_norm = record_id_from_row(&row, Some("player")).unwrap_or_else(|| format!("player/{}", key));
         let stats = PlayerStats {
             player_id: player_id_norm,
             total_contests,
@@ -642,7 +649,7 @@ impl AnalyticsRepository {
             total_points: total_wins * 10,
             current_streak: 0,
             longest_streak: 0,
-            last_updated: chrono::Utc::now().fixed_offset(),
+            last_updated: chrono::Utc::now().into(),
         };
         Ok(Some(stats))
     }
@@ -763,12 +770,12 @@ impl AnalyticsRepository {
 
     /// Get active players in the last N days
     async fn get_active_players(&self, days: i32) -> Result<i32> {
-        let sql = r#"SELECT count() FROM (SELECT DISTINCT `in` AS player_id FROM resulted_in WHERE `out` IN (SELECT VALUE id FROM contest WHERE start >= time::now() - duration::from::days($days)))"#;
+        let sql = r#"SELECT count() FROM (SELECT DISTINCT `out` AS player_id FROM resulted_in WHERE `in` IN (SELECT VALUE id FROM contest WHERE start >= time::now() - duration::from_days($days)))"#;
         let mut res = self.db.query(sql).bind(("days", days)).await.map_err(|e| SharedError::Database(e.to_string()))?;
         let rows: Vec<serde_json::Value> = res.take(0).unwrap_or_default();
         let count = rows.into_iter().next().and_then(|v: serde_json::Value| v.get("count").and_then(|c| c.as_u64())).unwrap_or(0) as i32;
         if count == 0 {
-            let fallback_res = self.db.query("SELECT count() FROM contest WHERE start >= time::now() - duration::from::days($days)").bind(("days", days)).await.ok();
+            let fallback_res = self.db.query("SELECT count() FROM contest WHERE start >= time::now() - duration::from_days($days)").bind(("days", days)).await.ok();
             let fb: Vec<serde_json::Value> = fallback_res.and_then(|mut r| r.take(0).ok()).unwrap_or_default();
             let contest_count = fb.into_iter().next().and_then(|v: serde_json::Value| v.get("count").and_then(|c| c.as_u64())).unwrap_or(0);
             return Ok((contest_count * 3).min(contest_count * 4) as i32);
@@ -778,14 +785,14 @@ impl AnalyticsRepository {
 
     /// Get contests in the last N days
     async fn get_contests_in_period(&self, days: i32) -> Result<i32> {
-        let mut res = self.db.query("SELECT count() FROM contest WHERE start >= time::now() - duration::from::days($days)").bind(("days", days)).await.map_err(|e| SharedError::Database(e.to_string()))?;
+        let mut res = self.db.query("SELECT count() FROM contest WHERE start >= time::now() - duration::from_days($days)").bind(("days", days)).await.map_err(|e| SharedError::Database(e.to_string()))?;
         let rows: Vec<serde_json::Value> = res.take(0).unwrap_or_default();
         Ok(rows.into_iter().next().and_then(|v: serde_json::Value| v.get("count").and_then(|c| c.as_u64())).unwrap_or(0) as i32)
     }
 
     /// Get average participants per contest
     async fn get_average_participants_per_contest(&self) -> Result<f64> {
-        let sql = r#"SELECT math::mean(participant_count) AS avg FROM (SELECT count() AS participant_count FROM resulted_in GROUP BY `out`)"#;
+        let sql = r#"SELECT math::mean(participant_count) AS avg FROM (SELECT count() AS participant_count FROM resulted_in GROUP BY `in`)"#;
         let mut res = self.db.query(sql).await.map_err(|e| SharedError::Database(e.to_string()))?;
         let rows: Vec<serde_json::Value> = res.take(0).unwrap_or_default();
         Ok(rows.into_iter().next().and_then(|v: serde_json::Value| v.get("avg").and_then(|x| x.as_f64())).unwrap_or(3.0))
@@ -793,7 +800,7 @@ impl AnalyticsRepository {
 
     /// Get top games by play count. SurrealQL has no INNER JOIN; count from played_with then look up names from game.
     async fn get_top_games(&self, limit: i32) -> Result<Vec<(String, i32)>> {
-        let sql = r#"SELECT string::concat(`in`) AS game_id, count() AS plays FROM played_with GROUP BY game_id ORDER BY plays DESC LIMIT $limit"#;
+        let sql = r#"SELECT string::concat(`out`) AS game_id, count() AS plays FROM played_with GROUP BY game_id ORDER BY plays DESC LIMIT $limit"#;
         let mut res = self.db.query(sql).bind(("limit", limit)).await.map_err(|e| SharedError::Database(e.to_string()))?;
         let rows: Vec<serde_json::Value> = res.take(0).unwrap_or_default();
         let game_ids: Vec<String> = rows
@@ -829,7 +836,7 @@ impl AnalyticsRepository {
 
     /// Get top venues by contest count. SurrealQL has no INNER JOIN; count from played_at then look up names from venue.
     async fn get_top_venues(&self, limit: i32) -> Result<Vec<(String, i32)>> {
-        let sql = r#"SELECT string::concat(`in`) AS venue_id, count() AS contests FROM played_at GROUP BY venue_id ORDER BY contests DESC LIMIT $limit"#;
+        let sql = r#"SELECT string::concat(`out`) AS venue_id, count() AS contests FROM played_at GROUP BY venue_id ORDER BY contests DESC LIMIT $limit"#;
         let mut res = self.db.query(sql).bind(("limit", limit)).await.map_err(|e| SharedError::Database(e.to_string()))?;
         let rows: Vec<serde_json::Value> = res.take(0).unwrap_or_default();
         let venue_ids: Vec<String> = rows
@@ -876,25 +883,25 @@ impl AnalyticsRepository {
 
         let (sql_totals, sql_wins) = match time_period {
             None | Some(TimePeriod::AllTime) => (
-                r#"SELECT string::concat(`in`) AS player_id, count() AS total_plays FROM resulted_in GROUP BY player_id"#.to_string(),
-                r#"SELECT string::concat(`in`) AS player_id, count() AS wins FROM resulted_in WHERE place = 1 GROUP BY player_id"#.to_string(),
+                r#"SELECT string::concat(`out`) AS player_id, count() AS total_plays FROM resulted_in GROUP BY player_id"#.to_string(),
+                r#"SELECT string::concat(`out`) AS player_id, count() AS wins FROM resulted_in WHERE place = 1 GROUP BY player_id"#.to_string(),
             ),
             // SurrealQL has no INNER JOIN; use IN (SELECT VALUE id ...) so the subquery returns values that IN can match.
             Some(TimePeriod::Last7Days) => (
-                r#"SELECT string::concat(`in`) AS player_id, count() AS total_plays FROM resulted_in WHERE `out` IN (SELECT VALUE id FROM contest WHERE start >= time::now() - duration::from::days(7)) GROUP BY player_id"#.to_string(),
-                r#"SELECT string::concat(`in`) AS player_id, count() AS wins FROM resulted_in WHERE `out` IN (SELECT VALUE id FROM contest WHERE start >= time::now() - duration::from::days(7)) AND place = 1 GROUP BY player_id"#.to_string(),
+                r#"SELECT string::concat(`out`) AS player_id, count() AS total_plays FROM resulted_in WHERE `in` IN (SELECT VALUE id FROM contest WHERE start >= time::now() - duration::from_days(7)) GROUP BY player_id"#.to_string(),
+                r#"SELECT string::concat(`out`) AS player_id, count() AS wins FROM resulted_in WHERE `in` IN (SELECT VALUE id FROM contest WHERE start >= time::now() - duration::from_days(7)) AND place = 1 GROUP BY player_id"#.to_string(),
             ),
             Some(TimePeriod::Last30Days) => (
-                r#"SELECT string::concat(`in`) AS player_id, count() AS total_plays FROM resulted_in WHERE `out` IN (SELECT VALUE id FROM contest WHERE start >= time::now() - duration::from::days(30)) GROUP BY player_id"#.to_string(),
-                r#"SELECT string::concat(`in`) AS player_id, count() AS wins FROM resulted_in WHERE `out` IN (SELECT VALUE id FROM contest WHERE start >= time::now() - duration::from::days(30)) AND place = 1 GROUP BY player_id"#.to_string(),
+                r#"SELECT string::concat(`out`) AS player_id, count() AS total_plays FROM resulted_in WHERE `in` IN (SELECT VALUE id FROM contest WHERE start >= time::now() - duration::from_days(30)) GROUP BY player_id"#.to_string(),
+                r#"SELECT string::concat(`out`) AS player_id, count() AS wins FROM resulted_in WHERE `in` IN (SELECT VALUE id FROM contest WHERE start >= time::now() - duration::from_days(30)) AND place = 1 GROUP BY player_id"#.to_string(),
             ),
             Some(TimePeriod::Last90Days) => (
-                r#"SELECT string::concat(`in`) AS player_id, count() AS total_plays FROM resulted_in WHERE `out` IN (SELECT VALUE id FROM contest WHERE start >= time::now() - duration::from::days(90)) GROUP BY player_id"#.to_string(),
-                r#"SELECT string::concat(`in`) AS player_id, count() AS wins FROM resulted_in WHERE `out` IN (SELECT VALUE id FROM contest WHERE start >= time::now() - duration::from::days(90)) AND place = 1 GROUP BY player_id"#.to_string(),
+                r#"SELECT string::concat(`out`) AS player_id, count() AS total_plays FROM resulted_in WHERE `in` IN (SELECT VALUE id FROM contest WHERE start >= time::now() - duration::from_days(90)) GROUP BY player_id"#.to_string(),
+                r#"SELECT string::concat(`out`) AS player_id, count() AS wins FROM resulted_in WHERE `in` IN (SELECT VALUE id FROM contest WHERE start >= time::now() - duration::from_days(90)) AND place = 1 GROUP BY player_id"#.to_string(),
             ),
             Some(TimePeriod::ThisYear) => (
-                r#"SELECT string::concat(`in`) AS player_id, count() AS total_plays FROM resulted_in WHERE `out` IN (SELECT VALUE id FROM contest WHERE time::year(start) = time::year(time::now())) GROUP BY player_id"#.to_string(),
-                r#"SELECT string::concat(`in`) AS player_id, count() AS wins FROM resulted_in WHERE `out` IN (SELECT VALUE id FROM contest WHERE time::year(start) = time::year(time::now())) AND place = 1 GROUP BY player_id"#.to_string(),
+                r#"SELECT string::concat(`out`) AS player_id, count() AS total_plays FROM resulted_in WHERE `in` IN (SELECT VALUE id FROM contest WHERE time::year(start) = time::year(time::now())) GROUP BY player_id"#.to_string(),
+                r#"SELECT string::concat(`out`) AS player_id, count() AS wins FROM resulted_in WHERE `in` IN (SELECT VALUE id FROM contest WHERE time::year(start) = time::year(time::now())) AND place = 1 GROUP BY player_id"#.to_string(),
             ),
         };
 
@@ -910,7 +917,7 @@ impl AnalyticsRepository {
         let wins_map: std::collections::HashMap<String, i64> = win_rows
             .iter()
             .filter_map(|r| {
-                let pid = record_id_from_value(r)?;
+                let pid = record_id_from_row(r, Some("player"))?;
                 let w = r.get("wins").map(scalar_i64).unwrap_or(0);
                 Some((pid, w))
             })
@@ -919,7 +926,7 @@ impl AnalyticsRepository {
         let mut results: Vec<(String, String, i64, i64)> = total_rows
             .into_iter()
             .filter_map(|r| {
-                let player_id = record_id_from_value(&r)?;
+                let player_id = record_id_from_row(&r, Some("player"))?;
                 let total_plays = r.get("total_plays").map(scalar_i64).unwrap_or(0);
                 let wins = wins_map.get(&player_id).copied().unwrap_or(0);
                 Some((player_id, String::new(), wins, total_plays))
@@ -948,7 +955,7 @@ impl AnalyticsRepository {
                     let displays: std::collections::HashMap<String, String> = all_players
                     .into_iter()
                     .filter_map(|row| {
-                        let id_str = record_id_from_value(&row)?;
+                        let id_str = record_id_from_row(&row, Some("player"))?;
                         let canonical_id = normalize_player_id(&id_str);
                         let handle = row
                             .get("handle")
@@ -1071,7 +1078,7 @@ impl AnalyticsRepository {
     /// Get a display label for a player (handle -> email -> name)
     pub async fn get_player_display_label(&self, player_id: &str) -> Result<Option<String>> {
         let key = player_id_to_key(player_id);
-        let mut res = self.db.query("SELECT handle, email, firstname, lastname FROM player WHERE id = type::thing('player', $key)").bind(("key", key)).await.map_err(|e| SharedError::Database(e.to_string()))?;
+        let mut res = self.db.query("SELECT handle, email, firstname, lastname FROM player WHERE id = type::record('player', $key)").bind(("key", key)).await.map_err(|e| SharedError::Database(e.to_string()))?;
         let rows: Vec<serde_json::Value> = res.take(0).unwrap_or_default();
         let row = match rows.into_iter().next() {
             Some(r) => r,
@@ -1097,7 +1104,7 @@ impl AnalyticsRepository {
         let key = player_id_to_key(player_id);
         let mut res = self
             .db
-            .query("SELECT rating, rd, games_played FROM rating_latest WHERE player_id = type::thing('player', $key) AND scope_type = 'global' LIMIT 1")
+            .query("SELECT rating, rd, games_played FROM rating_latest WHERE player_id = type::record('player', $key) AND scope_type = 'global' LIMIT 1")
             .bind(("key", key))
             .await
             .map_err(|e| SharedError::Database(e.to_string()))?;
@@ -1113,7 +1120,7 @@ impl AnalyticsRepository {
     }
 
     /// Get player statistics. Prefer binding the player record id as a Thing so the server
-    /// compares record-to-record; fall back to type::thing('player', $key) when we only have a key.
+    /// compares record-to-record; fall back to type::record('player', $key) when we only have a key.
     pub async fn get_player_stats(&self, player_id: &str) -> Result<Option<PlayerStats>> {
         let key = player_id_to_key(player_id);
         if key.is_empty() {
@@ -1121,16 +1128,49 @@ impl AnalyticsRepository {
             return Ok(None);
         }
 
-        // Bind record id as Thing so SurrealDB receives a proper record type (avoids string format mismatches).
-        let record_id = surrealdb::sql::Thing::from(("player", key.as_str()));
+        // Prefer SurrealDB function when applied (one round-trip for stats; then confirm player exists)
+        if let Ok(mut res) = self
+            .db
+            .query("SELECT fn::player_stats_by_key($key) AS result FROM [1]")
+            .bind(("key", key.clone()))
+            .await
+        {
+            let rows: Vec<serde_json::Value> = res.take(0).unwrap_or_default();
+            if let Some(first) = rows.into_iter().next() {
+                let row = first
+                    .get("result")
+                    .or_else(|| first.get("fn::player_stats_by_key($key)"))
+                    .cloned()
+                    .unwrap_or(first);
+                if row.is_object() && (row.get("contests_out").is_some() || row.get("contests_in").is_some()) {
+                    let player_id_norm = format!("player/{}", key);
+                    if let Some(stats) = Self::player_stats_from_dual_out_in_row(&row, &player_id_norm) {
+                        // Confirm player exists so we return None for invalid key
+                        let mut check = self
+                            .db
+                            .query("SELECT id FROM player WHERE id = type::record('player', $key) LIMIT 1")
+                            .bind(("key", key.clone()))
+                            .await
+                            .map_err(|e| SharedError::Database(e.to_string()))?;
+                        let check_rows: Vec<serde_json::Value> = check.take(0).unwrap_or_default();
+                        if check_rows.into_iter().next().is_some() {
+                            return Ok(Some(stats));
+                        }
+                    }
+                }
+            }
+        }
+
+        // Fallback: single query with record id binding
+        let record_id = surrealdb::types::RecordId::new("player", key.as_str());
         let sql = r#"
             SELECT
                 id AS player_id,
                 handle AS player_handle,
-                (SELECT count() FROM resulted_in WHERE `in` = $record_id) AS total_contests,
-                (SELECT count() FROM resulted_in WHERE `in` = $record_id AND place = 1) AS total_wins,
-                (SELECT math::mean(place) FROM resulted_in WHERE `in` = $record_id) AS average_placement,
-                (SELECT math::min(place) FROM resulted_in WHERE `in` = $record_id) AS best_placement
+                (SELECT count() FROM resulted_in WHERE `out` = $record_id) AS total_contests,
+                (SELECT count() FROM resulted_in WHERE `out` = $record_id AND place = 1) AS total_wins,
+                (SELECT math::mean(place) FROM resulted_in WHERE `out` = $record_id) AS average_placement,
+                (SELECT math::min(place) FROM resulted_in WHERE `out` = $record_id) AS best_placement
             FROM player WHERE id = $record_id LIMIT 1
         "#;
 
@@ -1151,15 +1191,6 @@ impl AnalyticsRepository {
                 return Ok(None);
             }
         };
-        // SurrealDB may return count() / math::mean / math::min as bare number or wrapped (e.g. { "count": N })
-        let raw_contests = row.get("total_contests");
-        let raw_wins = row.get("total_wins");
-        log::debug!(
-            "get_player_stats: key={:?} raw total_contests={:?} raw total_wins={:?}",
-            key,
-            raw_contests,
-            raw_wins
-        );
         let total_contests = row.get("total_contests").map(scalar_i64).unwrap_or(0) as i32;
         let total_wins = row.get("total_wins").map(scalar_i64).unwrap_or(0) as i32;
         let total_losses = total_contests.saturating_sub(total_wins);
@@ -1170,7 +1201,7 @@ impl AnalyticsRepository {
         };
         let average_placement = row.get("average_placement").map(scalar_f64).unwrap_or(0.0);
         let best_placement = row.get("best_placement").map(scalar_i64).unwrap_or(0) as i32;
-        let player_id_norm = record_id_from_value(&row).unwrap_or_else(|| format!("player/{}", key));
+        let player_id_norm = record_id_from_row(&row, Some("player")).unwrap_or_else(|| format!("player/{}", key));
         let stats = PlayerStats {
             player_id: player_id_norm,
             total_contests,
@@ -1184,22 +1215,22 @@ impl AnalyticsRepository {
             total_points: total_wins * 10,
             current_streak: 0,
             longest_streak: 0,
-            last_updated: chrono::Utc::now().fixed_offset(),
+            last_updated: chrono::Utc::now().into(),
         };
         Ok(Some(stats))
     }
 
     /// Get player statistics using the exact record id from the DB (e.g. from get_player_thing_by_email).
     /// Use this for "me" so we don't depend on string→Thing conversion matching.
-    pub async fn get_player_stats_by_thing(&self, record_id: surrealdb::sql::Thing) -> Result<Option<PlayerStats>> {
+    pub async fn get_player_stats_by_thing(&self, record_id: surrealdb::types::RecordId) -> Result<Option<PlayerStats>> {
         let sql = r#"
             SELECT
                 id AS player_id,
                 handle AS player_handle,
-                (SELECT count() FROM resulted_in WHERE `in` = $record_id) AS total_contests,
-                (SELECT count() FROM resulted_in WHERE `in` = $record_id AND place = 1) AS total_wins,
-                (SELECT math::mean(place) FROM resulted_in WHERE `in` = $record_id) AS average_placement,
-                (SELECT math::min(place) FROM resulted_in WHERE `in` = $record_id) AS best_placement
+                (SELECT count() FROM resulted_in WHERE `out` = $record_id) AS total_contests,
+                (SELECT count() FROM resulted_in WHERE `out` = $record_id AND place = 1) AS total_wins,
+                (SELECT math::mean(place) FROM resulted_in WHERE `out` = $record_id) AS average_placement,
+                (SELECT math::min(place) FROM resulted_in WHERE `out` = $record_id) AS best_placement
             FROM player WHERE id = $record_id LIMIT 1
         "#;
         let mut res = self.db
@@ -1228,7 +1259,7 @@ impl AnalyticsRepository {
         };
         let average_placement = row.get("average_placement").map(scalar_f64).unwrap_or(0.0);
         let best_placement = row.get("best_placement").map(scalar_i64).unwrap_or(0) as i32;
-        let player_id_norm = record_id_from_value(&row).unwrap_or_else(|| thing_to_player_id_str(&record_id));
+        let player_id_norm = record_id_from_row(&row, Some("player")).unwrap_or_else(|| record_id_to_player_id_str(&record_id));
         let stats = PlayerStats {
             player_id: player_id_norm,
             total_contests,
@@ -1242,23 +1273,51 @@ impl AnalyticsRepository {
             total_points: total_wins * 10,
             current_streak: 0,
             longest_streak: 0,
-            last_updated: chrono::Utc::now().fixed_offset(),
+            last_updated: chrono::Utc::now().into(),
         };
         Ok(Some(stats))
     }
 
-    /// Get player statistics by the exact id string as SurrealDB stringifies it (from string::concat(id)).
-    /// Normalize by stripping backticks so bound param matches; use string::replace(..., '`', '') in SQL so both sides match.
+    /// Get player statistics by the exact id string. Tries fn::player_stats_by_id_str when applied, else inline query.
     pub async fn get_player_stats_by_id_str(&self, id_str: &str) -> Result<Option<PlayerStats>> {
-        let id_normalized = id_str.replace('`', "");
+        let id_normalized = id_str.replace('`', "").replace('/', ":");
+        let player_id_canonical = id_normalized.replace(':', "/");
+
+        // Prefer SurrealDB function when applied
+        if let Ok(mut res) = self
+            .db
+            .query("SELECT fn::player_stats_by_id_str($id_str) AS result FROM [1]")
+            .bind(("id_str", id_normalized.clone()))
+            .await
+        {
+            let rows: Vec<serde_json::Value> = res.take(0).unwrap_or_default();
+            if let Some(first) = rows.into_iter().next() {
+                let row = first
+                    .get("result")
+                    .or_else(|| first.get("fn::player_stats_by_id_str($id_str)"))
+                    .cloned()
+                    .unwrap_or(first);
+                if row.is_object() && (row.get("contests_out").is_some() || row.get("contests_in").is_some()) {
+                    if let Some(stats) = Self::player_stats_from_dual_out_in_row(&row, &player_id_canonical) {
+                        return Ok(Some(stats));
+                    }
+                }
+            }
+        }
+
+        // Fallback: inline query (player row + dual out/in aggregates)
         let sql = r#"
             SELECT
                 id AS player_id,
                 handle AS player_handle,
-                (SELECT count() FROM resulted_in WHERE string::replace(string::concat(`in`), '`', '') = $id_str) AS total_contests,
-                (SELECT count() FROM resulted_in WHERE string::replace(string::concat(`in`), '`', '') = $id_str AND place = 1) AS total_wins,
-                (SELECT math::mean(place) FROM resulted_in WHERE string::replace(string::concat(`in`), '`', '') = $id_str) AS average_placement,
-                (SELECT math::min(place) FROM resulted_in WHERE string::replace(string::concat(`in`), '`', '') = $id_str) AS best_placement
+                (SELECT count() FROM resulted_in WHERE string::replace(string::concat(`out`), '`', '') = $id_str) AS contests_out,
+                (SELECT count() FROM resulted_in WHERE string::replace(string::concat(`out`), '`', '') = $id_str AND place = 1) AS wins_out,
+                (SELECT math::mean(place) FROM resulted_in WHERE string::replace(string::concat(`out`), '`', '') = $id_str) AS avg_out,
+                (SELECT math::min(place) FROM resulted_in WHERE string::replace(string::concat(`out`), '`', '') = $id_str) AS best_out,
+                (SELECT count() FROM resulted_in WHERE string::replace(string::concat(`in`), '`', '') = $id_str) AS contests_in,
+                (SELECT count() FROM resulted_in WHERE string::replace(string::concat(`in`), '`', '') = $id_str AND place = 1) AS wins_in,
+                (SELECT math::mean(place) FROM resulted_in WHERE string::replace(string::concat(`in`), '`', '') = $id_str) AS avg_in,
+                (SELECT math::min(place) FROM resulted_in WHERE string::replace(string::concat(`in`), '`', '') = $id_str) AS best_in
             FROM player WHERE string::replace(string::concat(id), '`', '') = $id_str LIMIT 1
         "#;
         let mut res = self.db
@@ -1277,34 +1336,11 @@ impl AnalyticsRepository {
                 return Ok(None);
             }
         };
-        let key = id_str.replace("player:", "").replace("player/", "").replace('`', "");
-        let total_contests = row.get("total_contests").map(scalar_i64).unwrap_or(0) as i32;
-        let total_wins = row.get("total_wins").map(scalar_i64).unwrap_or(0) as i32;
-        let total_losses = total_contests.saturating_sub(total_wins);
-        let win_rate = if total_contests > 0 {
-            (total_wins as f64 * 100.0) / total_contests as f64
-        } else {
-            0.0
-        };
-        let average_placement = row.get("average_placement").map(scalar_f64).unwrap_or(0.0);
-        let best_placement = row.get("best_placement").map(scalar_i64).unwrap_or(0) as i32;
-        let player_id_norm = record_id_from_value(&row).unwrap_or_else(|| format!("player/{}", key));
-        let stats = PlayerStats {
-            player_id: player_id_norm,
-            total_contests,
-            total_wins,
-            total_losses,
-            win_rate,
-            average_placement,
-            best_placement,
-            skill_rating: 1200.0,
-            rating_confidence: 0.8,
-            total_points: total_wins * 10,
-            current_streak: 0,
-            longest_streak: 0,
-            last_updated: chrono::Utc::now().fixed_offset(),
-        };
-        Ok(Some(stats))
+        let player_id_norm = record_id_from_row(&row, Some("player")).unwrap_or_else(|| player_id_canonical.clone());
+        match Self::player_stats_from_dual_out_in_row(&row, &player_id_norm) {
+            Some(stats) => Ok(Some(stats)),
+            None => Ok(None),
+        }
     }
 
     /// Saves player statistics to database
@@ -1319,7 +1355,7 @@ impl AnalyticsRepository {
     pub async fn update_player_stats(&self, stats: &PlayerStats) -> Result<()> {
         let doc = serde_json::to_value(stats).map_err(|e| SharedError::Conversion(format!("Failed to serialize player stats: {}", e)))?;
         let key = player_id_to_key(&stats.player_id);
-        self.db.query("UPDATE type::thing('player_stats', $key) MERGE $doc").bind(("key", key)).bind(("doc", doc)).await
+        self.db.query("UPDATE type::record('player_stats', $key) MERGE $doc").bind(("key", key)).bind(("doc", doc)).await
             .map_err(|e| SharedError::Database(format!("Failed to update player stats: {}", e)))?;
         Ok(())
     }
@@ -1336,14 +1372,14 @@ impl AnalyticsRepository {
     pub async fn get_contest_stats(&self, contest_id: &str) -> Result<Option<ContestStats>> {
         log::debug!("Querying contest stats for contest_id: {}", contest_id);
 
-        let key = contest_id.trim_start_matches("contest/").trim_start_matches("contest:");
-        let mut check_res = self.db.query("SELECT string::concat(id) AS id FROM contest WHERE id = type::thing('contest', $key)").bind(("key", key.to_string())).await.map_err(|e| SharedError::Database(e.to_string()))?;
+        let key = record_id_to_key(contest_id, "contest");
+        let mut check_res = self.db.query("SELECT string::concat(id) AS id FROM contest WHERE id = type::record('contest', $key)").bind(("key", key.clone())).await.map_err(|e| SharedError::Database(e.to_string()))?;
         let exist: Vec<serde_json::Value> = check_res.take(0).unwrap_or_default();
         if exist.is_empty() {
             return Ok(None);
         }
-        let sql = r#"SELECT string::concat(id) AS contest_id, (SELECT count() FROM resulted_in WHERE `out` = type::thing('contest', $key)) AS participant_count, (SELECT count() FROM resulted_in WHERE `out` = type::thing('contest', $key) AND place > 0) AS completion_count FROM contest WHERE id = type::thing('contest', $key)"#;
-        let mut res = self.db.query(sql).bind(("key", key.to_string())).await.map_err(|e| SharedError::Database(e.to_string()))?;
+        let sql = r#"SELECT string::concat(id) AS contest_id, (SELECT count() FROM resulted_in WHERE `in` = type::record('contest', $key)) AS participant_count, (SELECT count() FROM resulted_in WHERE `in` = type::record('contest', $key) AND place > 0) AS completion_count FROM contest WHERE id = type::record('contest', $key)"#;
+        let mut res = self.db.query(sql).bind(("key", key.clone())).await.map_err(|e| SharedError::Database(e.to_string()))?;
         let rows: Vec<serde_json::Value> = res.take(0).unwrap_or_default();
         let row = match rows.into_iter().next() {
             Some(r) => r,
@@ -1352,7 +1388,7 @@ impl AnalyticsRepository {
         let participant_count = row.get("participant_count").and_then(|v| v.as_u64()).unwrap_or(0) as i32;
         let completion_count = row.get("completion_count").and_then(|v| v.as_u64()).unwrap_or(0) as i32;
         let completion_rate = if participant_count > 0 { (completion_count as f64 * 100.0) / participant_count as f64 } else { 0.0 };
-        let contest_id_norm = row.get("contest_id").and_then(|v| v.as_str()).map(|s| s.replace("contest:", "contest/")).unwrap_or_else(|| contest_id.to_string());
+        let contest_id_norm = row.get("contest_id").and_then(|v| v.as_str()).map(normalize_record_id_string).unwrap_or_else(|| contest_id.to_string());
         let stats = ContestStats {
             contest_id: contest_id_norm,
             participant_count,
@@ -1363,7 +1399,7 @@ impl AnalyticsRepository {
             most_popular_game: None,
             difficulty_rating: 5.0,
             excitement_rating: 5.0,
-            last_updated: chrono::Utc::now().fixed_offset(),
+            last_updated: chrono::Utc::now().into(),
         };
         return Ok(Some(stats));
     }
@@ -1373,7 +1409,7 @@ impl AnalyticsRepository {
         // SurrealDB has no duration::from_months; approximate as 30 days per month
         let days = months.saturating_mul(30);
         let q = self.db.query(
-            "SELECT time::year(start) AS year, time::month(start) AS month, count() AS contests FROM contest WHERE start >= time::now() - duration::from::days($days) GROUP BY year, month ORDER BY year, month"
+            "SELECT time::year(start) AS year, time::month(start) AS month, count() AS contests FROM contest WHERE start >= time::now() - duration::from_days($days) GROUP BY year, month ORDER BY year, month"
         );
         let mut res = q.bind(("days", days)).await.map_err(|e| SharedError::Database(e.to_string()))?;
         let rows: Vec<serde_json::Value> = res.take(0).unwrap_or_default();
@@ -1388,10 +1424,55 @@ impl AnalyticsRepository {
     }
 
     /// Get daily active players (unique players per day) for the last N days. SurrealQL has no INNER JOIN; query contest then resulted_in and join in Rust.
+    /// Tries fn::daily_active_players_data($days) first for one round-trip when applied.
     pub async fn get_daily_active_players(&self, days: i32) -> Result<Vec<(String, i32)>> {
-        let contest_sql = "SELECT string::concat(id) AS contest_id, time::date(start) AS day FROM contest WHERE start >= time::now() - duration::from::days($days)";
+        if let Ok(mut res) = self
+            .db
+            .query("SELECT fn::daily_active_players_data($days) AS result FROM [1]")
+            .bind(("days", days))
+            .await
+        {
+            let rows: Vec<serde_json::Value> = res.take(0).unwrap_or_default();
+            if let Some(first) = rows.into_iter().next() {
+                let result = first
+                    .get("result")
+                    .or_else(|| first.get("fn::daily_active_players_data($days)"))
+                    .cloned()
+                    .unwrap_or(serde_json::Value::Null);
+                if let Some(obj) = result.as_object() {
+                    let empty: &[serde_json::Value] = &[];
+                    let contest_days_arr = obj.get("contest_days").and_then(|v| v.as_array()).map(|v| v.as_slice()).unwrap_or(empty);
+                    let ri_arr = obj.get("resulted_in").and_then(|v| v.as_array()).map(|v| v.as_slice()).unwrap_or(empty);
+                    let contest_to_day: std::collections::HashMap<String, String> = contest_days_arr
+                        .iter()
+                        .filter_map(|v| {
+                            let id = record_id_from_field(v, "id")?;
+                            let day = v.get("day").and_then(|d| d.as_str()).map(String::from)?;
+                            Some((id, day))
+                        })
+                        .collect();
+                    let mut by_day: std::collections::HashMap<String, std::collections::HashSet<String>> =
+                        std::collections::HashMap::new();
+                    for r in ri_arr {
+                        let cid = match record_id_from_field(r, "contest_id") {
+                            Some(x) => x,
+                            None => continue,
+                        };
+                        let pid = record_id_from_field(r, "player_id").unwrap_or_default();
+                        if let Some(day) = contest_to_day.get(&cid) {
+                            by_day.entry(day.clone()).or_default().insert(pid);
+                        }
+                    }
+                    let mut out: Vec<(String, i32)> = by_day.into_iter().map(|(day, set)| (day, set.len() as i32)).collect();
+                    out.sort_by(|a, b| a.0.cmp(&b.0));
+                    return Ok(out);
+                }
+            }
+        }
+
+        let contest_sql = "SELECT string::concat(id) AS contest_id, time::format(start, '%Y-%m-%d') AS day FROM contest WHERE start >= time::now() - duration::from_days($days)";
         let mut res_contest = self.db.query(contest_sql).bind(("days", days)).await.map_err(|e| SharedError::Database(e.to_string()))?;
-        #[derive(serde::Deserialize)]
+        #[derive(serde::Deserialize, serde::Serialize, surrealdb::types::SurrealValue)]
         struct ContestDayRow {
             contest_id: Option<String>,
             day: Option<String>,
@@ -1414,9 +1495,9 @@ impl AnalyticsRepository {
                 Some((cid, day))
             })
             .collect();
-        let ri_sql = "SELECT string::concat(`out`) AS contest_id, string::concat(`in`) AS player_id FROM resulted_in WHERE `out` INSIDE $ids";
+        let ri_sql = "SELECT string::concat(`in`) AS contest_id, string::concat(`out`) AS player_id FROM resulted_in WHERE `in` INSIDE $ids";
         let mut res_ri = self.db.query(ri_sql).bind(("ids", contest_ids_colon)).await.map_err(|e| SharedError::Database(e.to_string()))?;
-        #[derive(serde::Deserialize)]
+        #[derive(serde::Deserialize, serde::Serialize, surrealdb::types::SurrealValue)]
         struct RiRow {
             contest_id: Option<String>,
             player_id: Option<String>,
@@ -1439,13 +1520,13 @@ impl AnalyticsRepository {
     /// Get daily contests count for the last N days
     pub async fn get_daily_contests(&self, days: i32) -> Result<Vec<(String, i32)>> {
         let sql = r#"
-            SELECT time::date(start) AS day, count() AS count
+            SELECT time::format(start, '%Y-%m-%d') AS day, count() AS count
             FROM contest
-            WHERE start >= time::now() - duration::from::days($days)
-            GROUP BY time::date(start)
+            WHERE start >= time::now() - duration::from_days($days)
+            GROUP BY time::format(start, '%Y-%m-%d')
             ORDER BY day ASC
         "#;
-        #[derive(serde::Deserialize)]
+        #[derive(serde::Deserialize, serde::Serialize, surrealdb::types::SurrealValue)]
         struct DayCount {
             day: String,
             count: i32,
@@ -1459,7 +1540,7 @@ impl AnalyticsRepository {
     /// Get contest difficulty analysis
     pub async fn get_contest_difficulty_analysis(&self, contest_id: &str) -> Result<f64> {
         let key = record_id_to_key(contest_id, "contest");
-        let sql = "SELECT place FROM resulted_in WHERE `out` = type::thing('contest', $key) AND place > 0";
+        let sql = "SELECT place FROM resulted_in WHERE `in` = type::record('contest', $key) AND place > 0";
         let mut res = self
             .db
             .query(sql)
@@ -1473,7 +1554,7 @@ impl AnalyticsRepository {
             .into_iter()
             .filter_map(|v| v.get("place").map(|p| scalar_i64(p) as i32))
             .collect();
-        let count_sql = "SELECT count() AS count FROM resulted_in WHERE `out` = type::thing('contest', $key)";
+        let count_sql = "SELECT count() AS count FROM resulted_in WHERE `in` = type::record('contest', $key)";
         let mut cq_res = self
             .db
             .query(count_sql)
@@ -1506,7 +1587,7 @@ impl AnalyticsRepository {
     /// Get contest excitement rating (based on close finishes)
     pub async fn get_contest_excitement_rating(&self, contest_id: &str) -> Result<f64> {
         let key = record_id_to_key(contest_id, "contest");
-        let sql = "SELECT place, score FROM resulted_in WHERE `out` = type::thing('contest', $key) AND place > 0 ORDER BY place ASC LIMIT 2";
+        let sql = "SELECT place, score FROM resulted_in WHERE `in` = type::record('contest', $key) AND place > 0 ORDER BY place ASC LIMIT 2";
         let mut res = self
             .db
             .query(sql)
@@ -1536,7 +1617,7 @@ impl AnalyticsRepository {
 
     /// Get recent contests with statistics
     pub async fn get_recent_contests(&self, limit: i32) -> Result<Vec<ContestStats>> {
-        #[derive(serde::Deserialize)]
+        #[derive(serde::Deserialize, serde::Serialize, surrealdb::types::SurrealValue)]
         struct ContestRow {
             id: Option<String>,
             #[allow(dead_code)]
@@ -1554,21 +1635,21 @@ impl AnalyticsRepository {
             return Ok(Vec::new());
         }
         let rid_param: Vec<String> = contest_rids.iter().map(|s| s.replace('/', ":")).collect();
-        #[derive(serde::Deserialize)]
+        #[derive(serde::Deserialize, serde::Serialize, surrealdb::types::SurrealValue)]
         struct ResRow {
             contest_rid: Option<String>,
             place: Option<i32>,
         }
-        let res_sql = "SELECT string::concat(`out`) AS contest_rid, place FROM resulted_in WHERE `out` INSIDE $rids";
+        let res_sql = "SELECT string::concat(`in`) AS contest_rid, place FROM resulted_in WHERE `in` INSIDE $rids";
         let mut rq_res = self.db.query(res_sql).bind(("rids", rid_param.clone())).await.map_err(|e| SharedError::Database(e.to_string()))?;
         let res_rows: Vec<ResRow> = rq_res.take(0).unwrap_or_default();
         // SurrealQL has no INNER JOIN: get (contest_rid, game_id) from played_with then look up game names
-        #[derive(serde::Deserialize)]
+        #[derive(serde::Deserialize, serde::Serialize, surrealdb::types::SurrealValue)]
         struct PwRow {
             contest_rid: Option<String>,
             game_id: Option<String>,
         }
-        let pw_sql = "SELECT string::concat(`out`) AS contest_rid, string::concat(`in`) AS game_id FROM played_with WHERE `out` INSIDE $rids";
+        let pw_sql = "SELECT string::concat(`in`) AS contest_rid, string::concat(`out`) AS game_id FROM played_with WHERE `in` INSIDE $rids";
         let mut pwq_res = self.db.query(pw_sql).bind(("rids", rid_param)).await.map_err(|e| SharedError::Database(e.to_string()))?;
         let pw_rows: Vec<PwRow> = pwq_res.take(0).unwrap_or_default();
         let game_ids: Vec<String> = pw_rows
@@ -1639,7 +1720,7 @@ impl AnalyticsRepository {
                 most_popular_game,
                 difficulty_rating: difficulty,
                 excitement_rating: excitement,
-                last_updated: chrono::Utc::now().fixed_offset(),
+                last_updated: chrono::Utc::now().into(),
             });
         }
         Ok(out)
@@ -1722,7 +1803,7 @@ impl AnalyticsRepository {
             return Ok(Vec::new());
         }
         // 1) Get contest IDs where this player participated (single indexed lookup on `in`).
-        let sql_my_contests = "SELECT `out` AS contest_id FROM resulted_in WHERE `in` = type::thing('player', $key)";
+        let sql_my_contests = "SELECT `in` AS contest_id FROM resulted_in WHERE `out` = type::record('player', $key)";
         let mut res1 = self
             .db
             .query(sql_my_contests)
@@ -1751,10 +1832,10 @@ impl AnalyticsRepository {
         }
         // 2) Get all resulted_in rows for those contests (indexed lookup on `out`).
         // Bind Thing array so SurrealDB matches record id column (v2 does not coerce string array).
-        let contest_things = strings_to_thing_array(&contest_ids);
+        let contest_things = strings_to_record_id_array(&contest_ids);
         let mut res = self
             .db
-            .query("SELECT `out` AS contest_id, `in` AS player_id, place AS place FROM resulted_in WHERE `out` INSIDE $contest_ids")
+            .query("SELECT `in` AS contest_id, `out` AS player_id, place AS place FROM resulted_in WHERE `in` INSIDE $contest_ids")
             .bind(("contest_ids", contest_things))
             .await
             .map_err(|e| SharedError::Database(e.to_string()))?;
@@ -1831,16 +1912,16 @@ impl AnalyticsRepository {
             .keys()
             .map(|pid| pid.replace('/', ":"))
             .collect();
-        let player_things = strings_to_thing_array(&player_ids);
+        let player_things = strings_to_record_id_array(&player_ids);
         let mut res2 = self
             .db
             .query("SELECT id, handle, firstname, lastname, email FROM player WHERE id INSIDE $player_ids")
             .bind(("player_ids", player_things))
             .await
             .map_err(|e| SharedError::Database(e.to_string()))?;
-        #[derive(serde::Deserialize)]
+        #[derive(serde::Deserialize, serde::Serialize, surrealdb::types::SurrealValue)]
         struct PlayerDisplayRowWithEmail {
-            id: Option<surrealdb::sql::Thing>,
+            id: Option<surrealdb::types::RecordId>,
             handle: Option<String>,
             firstname: Option<String>,
             lastname: Option<String>,
@@ -1909,21 +1990,159 @@ impl AnalyticsRepository {
 
     /// Get player's game performance statistics per game.
     /// SurrealQL has no INNER JOIN; we query resulted_in, contest, and played_with separately and join in Rust.
+    /// Tries fn::player_game_performance_data($key) first for one round-trip when applied.
     pub async fn get_my_game_performance(
         &self,
         player_id: &str,
     ) -> Result<Vec<GamePerformanceDto>> {
         let key = player_id_to_key(player_id);
 
+        if let Ok(mut res) = self
+            .db
+            .query("SELECT fn::player_game_performance_data($key) AS result FROM [1]")
+            .bind(("key", key.clone()))
+            .await
+        {
+            let rows: Vec<serde_json::Value> = res.take(0).unwrap_or_default();
+            if let Some(first) = rows.into_iter().next() {
+                let result = first
+                    .get("result")
+                    .or_else(|| first.get("fn::player_game_performance_data($key)"))
+                    .cloned()
+                    .unwrap_or(serde_json::Value::Null);
+                if let Some(obj) = result.as_object() {
+                    let empty: &[serde_json::Value] = &[];
+                    let ri_arr = obj.get("resulted_in").and_then(|v| v.as_array()).map(|v| v.as_slice()).unwrap_or(empty);
+                    let cs_arr = obj.get("contest_starts").and_then(|v| v.as_array()).map(|v| v.as_slice()).unwrap_or(empty);
+                    let pw_arr = obj.get("played_with").and_then(|v| v.as_array()).map(|v| v.as_slice()).unwrap_or(empty);
+                    let ri_rows: Vec<(String, i32)> = ri_arr
+                        .iter()
+                        .filter_map(|v| {
+                            let cid = record_id_from_field(v, "contest_id")?;
+                            let place = v.get("place").and_then(|p| p.as_i64()).unwrap_or(0) as i32;
+                            Some((cid, place))
+                        })
+                        .collect();
+                    if !ri_rows.is_empty() {
+                        let contest_start_by_id: HashMap<String, String> = cs_arr
+                            .iter()
+                            .filter_map(|v| {
+                                let id = record_id_from_field(v, "id")?;
+                                let start = v.get("start").and_then(|s| s.as_str()).map(String::from)?;
+                                Some((id, start))
+                            })
+                            .collect();
+                        let pw_rows: Vec<(String, String)> = pw_arr
+                            .iter()
+                            .filter_map(|v| {
+                                let cid = record_id_from_field(v, "contest_id")?;
+                                let gid = record_id_from_field(v, "game_id")?;
+                                Some((cid, gid))
+                            })
+                            .collect();
+                        let mut by_game: HashMap<
+                            String,
+                            (i32, i32, Vec<i32>, Option<chrono::DateTime<chrono::FixedOffset>>),
+                        > = HashMap::new();
+                        for (contest_id, place) in &ri_rows {
+                            let contest_start = contest_start_by_id.get(contest_id).cloned();
+                            let last_played = contest_start
+                                .as_deref()
+                                .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+                                .map(|dt| dt.with_timezone(&chrono::FixedOffset::east_opt(0).unwrap()));
+                            for (pcid, game_id) in &pw_rows {
+                                if pcid != contest_id {
+                                    continue;
+                                }
+                                let e = by_game.entry(game_id.clone()).or_insert((0, 0, Vec::new(), None));
+                                e.0 += 1;
+                                if *place == 1 {
+                                    e.1 += 1;
+                                }
+                                e.2.push(*place);
+                                if let Some(lp) = last_played {
+                                    if e.3.map(|t| lp > t).unwrap_or(true) {
+                                        e.3 = Some(lp);
+                                    }
+                                }
+                            }
+                        }
+                        if !by_game.is_empty() {
+                            let game_ids: Vec<String> = by_game.keys().cloned().collect();
+                            let ids_surreal: Vec<String> = game_ids.iter().map(|s| s.replace("game/", "game:")).collect();
+                            if let Ok(mut res2) = self
+                                .db
+                                .query("SELECT string::concat(id) AS game_id, name FROM game WHERE id INSIDE $ids")
+                                .bind(("ids", ids_surreal))
+                                .await
+                            {
+                                let name_rows: Vec<serde_json::Value> = res2.take(0).unwrap_or_default();
+                                let mut game_names: HashMap<String, String> = HashMap::new();
+                                for v in name_rows {
+                                    if let (Some(id_val), Some(name)) = (
+                                        v.get("game_id").and_then(|x| x.as_str()).map(normalize_record_id_string),
+                                        v.get("name").and_then(|x| x.as_str()).map(String::from),
+                                    ) {
+                                        if !id_val.is_empty() {
+                                            game_names.insert(id_val, name);
+                                        }
+                                    }
+                                }
+                                // Fallback: batch INSIDE may not match (binding format); fetch missing names by single-record lookup
+                                for gid in game_ids.iter() {
+                                    if !game_names.contains_key(gid) {
+                                        if let Ok(Some(name)) = self.get_game_info(gid).await {
+                                            game_names.insert(gid.clone(), name);
+                                        }
+                                    }
+                                }
+                                let now = chrono::Utc::now().with_timezone(&chrono::FixedOffset::east_opt(0).unwrap());
+                                let out: Vec<GamePerformanceDto> = by_game
+                                    .into_iter()
+                                    .map(|(game_id, (total_plays, wins, placements, last_played))| {
+                                        let _losses = total_plays.saturating_sub(wins);
+                                        let win_rate = if total_plays > 0 { (wins as f64 * 100.0) / total_plays as f64 } else { 0.0 };
+                                        let avg_place = if placements.is_empty() { 0.0 } else { placements.iter().sum::<i32>() as f64 / placements.len() as f64 };
+                                        let best = *placements.iter().min().unwrap_or(&0);
+                                        let worst = *placements.iter().max().unwrap_or(&0);
+                                        let last = last_played.unwrap_or(now);
+                                        let days_since = (now - last).num_days();
+                                        let game_name = game_names.get(&game_id).cloned().unwrap_or_else(|| "Unknown".to_string());
+                                        GamePerformanceDto {
+                                            game_id,
+                                            game_name,
+                                            total_plays,
+                                            wins,
+                                            losses: total_plays.saturating_sub(wins),
+                                            win_rate,
+                                            average_placement: avg_place,
+                                            best_placement: best,
+                                            worst_placement: worst,
+                                            total_points: wins * 10,
+                                            average_points: if total_plays > 0 { (wins * 10) as f64 / total_plays as f64 } else { 0.0 },
+                                            last_played: last,
+                                            days_since_last_play: days_since,
+                                            favorite_venue: None,
+                                        }
+                                    })
+                                    .collect();
+                                return Ok(out);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // 1) Player's contest participations: contest_id, place
-        #[derive(serde::Deserialize)]
+        #[derive(serde::Deserialize, serde::Serialize, surrealdb::types::SurrealValue)]
         struct RiRow {
-            contest_id: Option<surrealdb::sql::Thing>,
+            contest_id: Option<surrealdb::types::RecordId>,
             place: Option<i64>,
         }
         let mut q_ri = self
             .db
-            .query("SELECT out AS contest_id, place FROM resulted_in WHERE in = type::thing('player', $key)")
+            .query("SELECT in AS contest_id, place FROM resulted_in WHERE out = type::record('player', $key)")
             .bind(("key", key))
             .await
             .map_err(|e| SharedError::Database(e.to_string()))?;
@@ -1954,9 +2173,9 @@ impl AnalyticsRepository {
             .collect();
 
         // 2) Contest start times
-        #[derive(serde::Deserialize)]
+        #[derive(serde::Deserialize, serde::Serialize, surrealdb::types::SurrealValue)]
         struct ContestStartRow {
-            id: Option<surrealdb::sql::Thing>,
+            id: Option<surrealdb::types::RecordId>,
             start: Option<String>,
         }
         let mut q_contest = self
@@ -1982,14 +2201,14 @@ impl AnalyticsRepository {
             .collect();
 
         // 3) Contest -> game edges
-        #[derive(serde::Deserialize)]
+        #[derive(serde::Deserialize, serde::Serialize, surrealdb::types::SurrealValue)]
         struct PwRow {
-            contest_id: Option<surrealdb::sql::Thing>,
-            game_id: Option<surrealdb::sql::Thing>,
+            contest_id: Option<surrealdb::types::RecordId>,
+            game_id: Option<surrealdb::types::RecordId>,
         }
         let mut q_pw = self
             .db
-            .query("SELECT out AS contest_id, in AS game_id FROM played_with WHERE out INSIDE $ids")
+            .query("SELECT in AS contest_id, out AS game_id FROM played_with WHERE in INSIDE $ids")
             .bind(("ids", contest_ids_colon))
             .await
             .map_err(|e| SharedError::Database(e.to_string()))?;
@@ -2042,21 +2261,31 @@ impl AnalyticsRepository {
         let ids_surreal: Vec<String> = game_ids.iter().map(|s| s.replace("game/", "game:")).collect();
         let mut res2 = self
             .db
-            .query("SELECT id, name FROM game WHERE id INSIDE $ids")
+            .query("SELECT string::concat(id) AS game_id, name FROM game WHERE id INSIDE $ids")
             .bind(("ids", ids_surreal))
             .await
             .map_err(|e| SharedError::Database(e.to_string()))?;
-        let game_rows: Vec<GameDisplayRow> = res2
+        let name_rows: Vec<serde_json::Value> = res2
             .take(0)
             .map_err(|e| SharedError::Database(format!("game display query: {}", e)))?;
         let mut game_names: HashMap<String, String> = HashMap::new();
-        for row in game_rows {
-            let id = thing_to_record_id(&row.id);
-            if id.is_empty() {
-                continue;
+        for v in name_rows {
+            if let (Some(id_val), Some(name)) = (
+                v.get("game_id").and_then(|x| x.as_str()).map(normalize_record_id_string),
+                v.get("name").and_then(|x| x.as_str()).map(String::from),
+            ) {
+                if !id_val.is_empty() {
+                    game_names.insert(id_val, name);
+                }
             }
-            let name = row.name.unwrap_or_else(|| "Unknown".to_string());
-            game_names.insert(id, name);
+        }
+        // Fallback: batch INSIDE may not match; fetch missing names by single-record lookup
+        for gid in &game_ids {
+            if !game_names.contains_key(gid) {
+                if let Ok(Some(name)) = self.get_game_info(gid).await {
+                    game_names.insert(gid.clone(), name);
+                }
+            }
         }
         let now = chrono::Utc::now().with_timezone(&chrono::FixedOffset::east_opt(0).unwrap());
         let out: Vec<GamePerformanceDto> = by_game
@@ -2100,7 +2329,7 @@ impl AnalyticsRepository {
         let opponent_key = player_id_to_key(opponent_id);
         let mut res = self
             .db
-            .query("SELECT handle, firstname, lastname FROM player WHERE id = type::thing('player', $key)")
+            .query("SELECT handle, firstname, lastname FROM player WHERE id = type::record('player', $key)")
             .bind(("key", opponent_key.clone()))
             .await
             .map_err(|e| SharedError::Database(e.to_string()))?;
@@ -2124,10 +2353,10 @@ impl AnalyticsRepository {
         let my_key = player_id_to_key(player_id);
         // Contests where both player and opponent have resulted_in: fetch my and opponent place per contest.
         let sql = r#"
-            SELECT `out` AS contest_id, `in` AS player_id, place AS place
+            SELECT `in` AS contest_id, `out` AS player_id, place AS place
             FROM resulted_in
-            WHERE `out` IN (SELECT VALUE `out` FROM resulted_in WHERE `in` = type::thing('player', $my_key))
-            AND (`in` = type::thing('player', $my_key) OR `in` = type::thing('player', $opp_key))
+            WHERE `in` IN (SELECT VALUE `in` FROM resulted_in WHERE `out` = type::record('player', $my_key))
+            AND (`out` = type::record('player', $my_key) OR `out` = type::record('player', $opp_key))
         "#;
         let mut res = self
             .db
@@ -2212,13 +2441,13 @@ impl AnalyticsRepository {
             return Ok(Vec::new());
         }
         // 1) Get (contest_id, place) for this player from resulted_in
-        #[derive(serde::Deserialize)]
+        #[derive(serde::Deserialize, serde::Serialize, surrealdb::types::SurrealValue)]
         struct RiTrendRow {
             #[serde(rename = "contest_id")]
-            out: Option<surrealdb::sql::Thing>,
+            out: Option<surrealdb::types::RecordId>,
             place: Option<i64>,
         }
-        let sql_ri = "SELECT `out` AS contest_id, place FROM resulted_in WHERE `in` = type::thing('player', $key)";
+        let sql_ri = "SELECT `in` AS contest_id, place FROM resulted_in WHERE `out` = type::record('player', $key)";
         let mut res_ri = self
             .db
             .query(sql_ri)
@@ -2248,12 +2477,12 @@ impl AnalyticsRepository {
         let contest_ids_colon: Vec<String> = contest_ids_slash.iter().map(|s| s.replace('/', ":")).collect();
 
         // 2) Get contest start times for those contests, last 12 months only
-        #[derive(serde::Deserialize)]
+        #[derive(serde::Deserialize, serde::Serialize, surrealdb::types::SurrealValue)]
         struct ContestStartRow {
-            id: Option<surrealdb::sql::Thing>,
+            id: Option<surrealdb::types::RecordId>,
             start: Option<serde_json::Value>,
         }
-        let sql_contest = "SELECT id, start FROM contest WHERE id INSIDE $ids AND start >= time::now() - duration::from::days(365)";
+        let sql_contest = "SELECT id, start FROM contest WHERE id INSIDE $ids AND start >= time::now() - duration::from_days(365)";
         let mut res_contest = self
             .db
             .query(sql_contest)
@@ -2364,12 +2593,12 @@ impl AnalyticsRepository {
     /// Retrieves player contest results for statistics calculation. SurrealQL has no INNER JOIN; query resulted_in then contest and join in Rust.
     pub async fn get_player_contest_results(&self, player_id: &str) -> Result<Vec<ContestResult>> {
         let key = player_id_to_key(player_id);
-        #[derive(serde::Deserialize)]
+        #[derive(serde::Deserialize, serde::Serialize, surrealdb::types::SurrealValue)]
         struct RiRow {
-            contest_id: Option<surrealdb::sql::Thing>,
+            contest_id: Option<surrealdb::types::RecordId>,
             placement: Option<i64>,
         }
-        let sql_ri = "SELECT `out` AS contest_id, place AS placement FROM resulted_in WHERE `in` = type::thing('player', $key)";
+        let sql_ri = "SELECT `in` AS contest_id, place AS placement FROM resulted_in WHERE `out` = type::record('player', $key)";
         let mut res_ri = self.db.query(sql_ri).bind(("key", key.clone())).await.map_err(|e| SharedError::Database(e.to_string()))?;
         let ri_rows: Vec<RiRow> = res_ri.take(0).map_err(|e| SharedError::Database(format!("player contest results: {}", e)))?;
         if ri_rows.is_empty() {
@@ -2388,9 +2617,9 @@ impl AnalyticsRepository {
             .collect::<std::collections::HashSet<_>>()
             .into_iter()
             .collect();
-        #[derive(serde::Deserialize)]
+        #[derive(serde::Deserialize, serde::Serialize, surrealdb::types::SurrealValue)]
         struct ContestStartRow {
-            id: Option<surrealdb::sql::Thing>,
+            id: Option<surrealdb::types::RecordId>,
             start: Option<String>,
         }
         let sql_contest = "SELECT id, start FROM contest WHERE id INSIDE $ids";
@@ -2429,16 +2658,47 @@ impl AnalyticsRepository {
         Ok(results)
     }
 
-    /// Retrieves contest participants for statistics calculation
+    /// Retrieves contest participants for statistics calculation.
+    /// Tries fn::contest_participants($key) first when applied.
     pub async fn get_contest_participants(
         &self,
         contest_id: &str,
     ) -> Result<Vec<ContestParticipant>> {
         let key = record_id_to_key(contest_id, "contest");
+        if !key.is_empty() {
+            if let Ok(mut res) = self
+                .db
+                .query("SELECT fn::contest_participants($key) AS result FROM [1]")
+                .bind(("key", key.clone()))
+                .await
+            {
+                let rows: Vec<serde_json::Value> = res.take(0).unwrap_or_default();
+                if let Some(first) = rows.into_iter().next() {
+                    let result = first
+                        .get("result")
+                        .or_else(|| first.get("fn::contest_participants($key)"))
+                        .cloned()
+                        .unwrap_or(serde_json::Value::Null);
+                    if let Some(arr) = result.as_array() {
+                        let out: Vec<ContestParticipant> = arr
+                            .iter()
+                            .map(|e| ContestParticipant {
+                                player_id: record_id_from_field(e, "player_id").unwrap_or_default(),
+                                placement: e.get("place").and_then(|v| v.as_i64()).unwrap_or(0) as i32,
+                                score: 0.0,
+                                skill_rating: 1200.0,
+                                completed: true,
+                            })
+                            .collect();
+                        return Ok(out);
+                    }
+                }
+            }
+        }
         let sql = r#"
-            SELECT `in` AS player_id, place AS placement
+            SELECT `out` AS player_id, place AS placement
             FROM resulted_in
-            WHERE `out` = type::thing('contest', $key)
+            WHERE `in` = type::record('contest', $key)
             ORDER BY place ASC
         "#;
         let mut res = self
@@ -2464,27 +2724,62 @@ impl AnalyticsRepository {
     }
 
     /// Retrieves game plays for statistics calculation. SurrealQL has no INNER JOIN; query played_with, then resulted_in and contest, join in Rust.
+    /// Tries fn::game_with_contest_ids($key) first when applied.
     pub async fn get_game_plays(&self, game_id: &str) -> Result<Vec<GamePlay>> {
         let key = record_id_to_key(game_id, "game");
-        let pw_sql = "SELECT string::concat(`out`) AS contest_id FROM played_with WHERE `in` = type::thing('game', $key)";
-        let mut res_pw = self.db.query(pw_sql).bind(("key", key.clone())).await.map_err(|e| SharedError::Database(e.to_string()))?;
-        #[derive(serde::Deserialize)]
-        struct PwRow {
-            contest_id: Option<String>,
+        let mut contest_ids_colon: Vec<String> = Vec::new();
+        if !key.is_empty() {
+            if let Ok(mut res) = self
+                .db
+                .query("SELECT fn::game_with_contest_ids($key) AS result FROM [1]")
+                .bind(("key", key.clone()))
+                .await
+            {
+                let rows: Vec<serde_json::Value> = res.take(0).unwrap_or_default();
+                if let Some(first) = rows.into_iter().next() {
+                    let result = first
+                        .get("result")
+                        .or_else(|| first.get("fn::game_with_contest_ids($key)"))
+                        .cloned()
+                        .unwrap_or(serde_json::Value::Null);
+                    if let Some(obj) = result.as_object() {
+                        let empty: &[serde_json::Value] = &[];
+                        let cids = obj.get("contest_ids").and_then(|v| v.as_array()).map(|v| v.as_slice()).unwrap_or(empty);
+                        contest_ids_colon = cids
+                            .iter()
+                            .filter_map(|v| {
+                                record_id_from_field(v, "id")
+                                    .or_else(|| record_id_from_row(v, Some("contest")))
+                                    .map(|s| s.replace('/', ":"))
+                            })
+                            .collect::<std::collections::HashSet<_>>()
+                            .into_iter()
+                            .collect();
+                    }
+                }
+            }
         }
-        let pw_rows: Vec<PwRow> = res_pw.take(0).map_err(|e| SharedError::Database(e.to_string()))?;
-        let contest_ids_colon: Vec<String> = pw_rows
-            .iter()
-            .filter_map(|r| r.contest_id.as_ref().map(|s| s.replace('/', ":")))
-            .collect::<std::collections::HashSet<_>>()
-            .into_iter()
-            .collect();
+        if contest_ids_colon.is_empty() {
+            let pw_sql = "SELECT string::concat(`in`) AS contest_id FROM played_with WHERE `out` = type::record('game', $key)";
+            let mut res_pw = self.db.query(pw_sql).bind(("key", key)).await.map_err(|e| SharedError::Database(e.to_string()))?;
+            #[derive(serde::Deserialize, serde::Serialize, surrealdb::types::SurrealValue)]
+            struct PwRow {
+                contest_id: Option<String>,
+            }
+            let pw_rows: Vec<PwRow> = res_pw.take(0).map_err(|e| SharedError::Database(e.to_string()))?;
+            contest_ids_colon = pw_rows
+                .iter()
+                .filter_map(|r| r.contest_id.as_ref().map(|s| s.replace('/', ":")))
+                .collect::<std::collections::HashSet<_>>()
+                .into_iter()
+                .collect();
+        }
         if contest_ids_colon.is_empty() {
             return Ok(Vec::new());
         }
-        let ri_sql = "SELECT string::concat(`out`) AS contest_id, place, string::concat(`in`) AS player_id FROM resulted_in WHERE `out` INSIDE $ids";
+        let ri_sql = "SELECT string::concat(`in`) AS contest_id, place, string::concat(`out`) AS player_id FROM resulted_in WHERE `in` INSIDE $ids";
         let mut res_ri = self.db.query(ri_sql).bind(("ids", contest_ids_colon.clone())).await.map_err(|e| SharedError::Database(e.to_string()))?;
-        #[derive(serde::Deserialize)]
+        #[derive(serde::Deserialize, serde::Serialize, surrealdb::types::SurrealValue)]
         struct RiRow {
             contest_id: Option<String>,
             place: Option<i64>,
@@ -2525,11 +2820,76 @@ impl AnalyticsRepository {
     }
 
     /// Retrieves venue contests for statistics calculation. SurrealQL has no INNER JOIN; query played_at then contest and join in Rust.
+    /// Tries fn::venue_with_contest_ids($key) first when applied.
     pub async fn get_venue_contests(&self, venue_id: &str) -> Result<Vec<VenueContest>> {
         let key = record_id_to_key(venue_id, "venue");
-        let pa_sql = "SELECT string::concat(`out`) AS contest_id FROM played_at WHERE `in` = type::thing('venue', $key)";
+        if !key.is_empty() {
+            if let Ok(mut res) = self
+                .db
+                .query("SELECT fn::venue_with_contest_ids($key) AS result FROM [1]")
+                .bind(("key", key.clone()))
+                .await
+            {
+                let rows: Vec<serde_json::Value> = res.take(0).unwrap_or_default();
+                if let Some(first) = rows.into_iter().next() {
+                    let result = first
+                        .get("result")
+                        .or_else(|| first.get("fn::venue_with_contest_ids($key)"))
+                        .cloned()
+                        .unwrap_or(serde_json::Value::Null);
+                    if let Some(obj) = result.as_object() {
+                        let empty: &[serde_json::Value] = &[];
+                        let cids = obj.get("contest_ids").and_then(|v| v.as_array()).map(|v| v.as_slice()).unwrap_or(empty);
+                        let contest_ids_colon: Vec<String> = cids
+                            .iter()
+                            .filter_map(|v| {
+                                let id = record_id_from_field(v, "id").or_else(|| record_id_from_row(v, Some("contest")));
+                                id.map(|s| s.replace('/', ":"))
+                            })
+                            .collect::<std::collections::HashSet<_>>()
+                            .into_iter()
+                            .collect();
+                        if !contest_ids_colon.is_empty() {
+                            let contest_sql = "SELECT string::concat(id) AS contest_id, start FROM contest WHERE id INSIDE $ids ORDER BY start DESC";
+                            if let Ok(mut res_contest) = self.db.query(contest_sql).bind(("ids", contest_ids_colon)).await {
+                                let contest_rows: Vec<serde_json::Value> = res_contest.take(0).unwrap_or_default();
+                                let default_dt = chrono::Utc::now().with_timezone(&chrono::FixedOffset::east_opt(0).unwrap());
+                                let results: Vec<VenueContest> = contest_rows
+                                    .into_iter()
+                                    .map(|v| {
+                                        let contest_id = v
+                                            .get("contest_id")
+                                            .and_then(|x| x.as_str())
+                                            .map(|s| s.replace("contest:", "contest/"))
+                                            .unwrap_or_default();
+                                        let contest_date = v
+                                            .get("start")
+                                            .and_then(|x| x.as_str())
+                                            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+                                            .map(|d| d.with_timezone(&chrono::FixedOffset::east_opt(0).unwrap()))
+                                            .unwrap_or(default_dt);
+                                        VenueContest {
+                                            contest_id,
+                                            participant_ids: Vec::new(),
+                                            participant_count: 0,
+                                            game_ids: Vec::new(),
+                                            duration_minutes: 0,
+                                            contest_date,
+                                        }
+                                    })
+                                    .collect();
+                                return Ok(results);
+                            }
+                        } else {
+                            return Ok(Vec::new());
+                        }
+                    }
+                }
+            }
+        }
+        let pa_sql = "SELECT string::concat(`in`) AS contest_id FROM played_at WHERE `out` = type::record('venue', $key)";
         let mut res_pa = self.db.query(pa_sql).bind(("key", key)).await.map_err(|e| SharedError::Database(e.to_string()))?;
-        #[derive(serde::Deserialize)]
+        #[derive(serde::Deserialize, serde::Serialize, surrealdb::types::SurrealValue)]
         struct PaRow {
             contest_id: Option<String>,
         }
@@ -2579,7 +2939,7 @@ impl AnalyticsRepository {
         let key = player_id_to_key(player_id);
         let mut res = self
             .db
-            .query("SELECT handle, firstname FROM player WHERE id = type::thing('player', $key)")
+            .query("SELECT handle, firstname FROM player WHERE id = type::record('player', $key)")
             .bind(("key", key))
             .await
             .map_err(|e| SharedError::Database(e.to_string()))?;
@@ -2601,7 +2961,7 @@ impl AnalyticsRepository {
             .to_string();
         let mut res = self
             .db
-            .query("SELECT name FROM game WHERE id = type::thing('game', $key)")
+            .query("SELECT name FROM game WHERE id = type::record('game', $key)")
             .bind(("key", key))
             .await
             .map_err(|e| SharedError::Database(e.to_string()))?;
@@ -2617,7 +2977,7 @@ impl AnalyticsRepository {
             .to_string();
         let mut res = self
             .db
-            .query("SELECT displayName FROM venue WHERE id = type::thing('venue', $key)")
+            .query("SELECT displayName FROM venue WHERE id = type::record('venue', $key)")
             .bind(("key", key))
             .await
             .map_err(|e| SharedError::Database(e.to_string()))?;
@@ -2627,13 +2987,10 @@ impl AnalyticsRepository {
 
     /// Retrieves contest information for DTOs
     pub async fn get_contest_info(&self, contest_id: &str) -> Result<Option<String>> {
-        let key = contest_id
-            .trim_start_matches("contest/")
-            .trim_start_matches("contest:")
-            .to_string();
+        let key = record_id_to_key(contest_id, "contest");
         let mut res = self
             .db
-            .query("SELECT name FROM contest WHERE id = type::thing('contest', $key)")
+            .query("SELECT name FROM contest WHERE id = type::record('contest', $key)")
             .bind(("key", key))
             .await
             .map_err(|e| SharedError::Database(e.to_string()))?;
@@ -2758,10 +3115,10 @@ impl AnalyticsRepository {
         // Query 1: player row with scalar subqueries for counts (same pattern as get_player_stats) + contest ids
         let sql = r#"
             SELECT handle,
-                (SELECT count() FROM resulted_in WHERE `in` = type::thing('player', $key)) AS total_contests,
-                (SELECT count() FROM resulted_in WHERE `in` = type::thing('player', $key) AND place = 1) AS total_wins
-            FROM player WHERE id = type::thing('player', $key);
-            SELECT string::concat(`out`) AS rid FROM resulted_in WHERE `in` = type::thing('player', $key)
+                (SELECT count() FROM resulted_in WHERE `out` = type::record('player', $key)) AS total_contests,
+                (SELECT count() FROM resulted_in WHERE `out` = type::record('player', $key) AND place = 1) AS total_wins
+            FROM player WHERE id = type::record('player', $key);
+            SELECT string::concat(`in`) AS rid FROM resulted_in WHERE `out` = type::record('player', $key)
         "#;
         let mut res = self
             .db
@@ -2795,8 +3152,8 @@ impl AnalyticsRepository {
             (0, 0)
         } else {
             let sql2 = r#"
-                SELECT string::concat(`in`) AS game_id FROM played_with WHERE `out` INSIDE $contest_ids;
-                SELECT string::concat(`in`) AS venue_id FROM played_at WHERE `out` INSIDE $contest_ids
+                SELECT string::concat(`out`) AS game_id FROM played_with WHERE `in` INSIDE $contest_ids;
+                SELECT string::concat(`out`) AS venue_id FROM played_at WHERE `in` INSIDE $contest_ids
             "#;
             match self
                 .db

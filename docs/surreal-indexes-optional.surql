@@ -7,7 +7,7 @@
 DEFINE INDEX IF NOT EXISTS player_email ON TABLE player COLUMNS email;
 
 -- Edge tables: our queries filter by `in` (player/venue/game) and `out` (contest)
--- resulted_in: WHERE `in` = type::thing('player', $key) and WHERE `out` = type::thing('contest', $key)
+-- resulted_in: WHERE `in` = type::record('player', $key) and WHERE `out` = type::record('contest', $key)
 DEFINE INDEX IF NOT EXISTS resulted_in_in ON TABLE resulted_in COLUMNS `in`;
 DEFINE INDEX IF NOT EXISTS resulted_in_out ON TABLE resulted_in COLUMNS `out`;
 
@@ -24,5 +24,5 @@ DEFINE INDEX IF NOT EXISTS rating_history_player_scope ON TABLE rating_history C
 DEFINE INDEX IF NOT EXISTS rating_history_period ON TABLE rating_history COLUMNS period_end;
 
 -- Verify with EXPLAIN (example: check resulted_in uses index)
--- EXPLAIN SELECT * FROM resulted_in WHERE `in` = type::thing('player', 'YOUR_KEY');
+-- EXPLAIN SELECT * FROM resulted_in WHERE `in` = type::record('player', 'YOUR_KEY');
 -- Look for "Iterate Index" in the plan.

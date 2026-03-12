@@ -141,8 +141,8 @@ where
             let client_contest = ClientContestDto {
                 id: contest.id.clone(),
                 name: contest.name.clone(),
-                start: contest.start,
-                end: contest.stop,
+                start: contest.start.into(),
+                end: contest.stop.into(),
                 game_id: game.id,
                 game_name: game.name,
                 venue_id: venue.id,
@@ -210,7 +210,7 @@ where
                 firstname: Some(player.firstname),
                 lastname: None, // Player doesn't have lastname field
                 email: Some(player.email),
-                last_seen: player.created_at, // Use created_at as last_seen for now
+                last_seen: player.created_at.into(), // Use created_at as last_seen for now
             })
             .collect()
     }

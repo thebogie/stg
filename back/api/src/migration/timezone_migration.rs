@@ -16,7 +16,7 @@ pub async fn migrate_venues_to_timezone(db: &Db) -> Result<(), String> {
         if let Some(vid) = venue_id {
             let timezone = infer_timezone_from_location(&venue_data);
             let key = vid.trim_start_matches("venue:").trim_start_matches("venue/").to_string();
-            let up = db.query("UPDATE type::thing('venue', $key) SET timezone = $timezone");
+            let up = db.query("UPDATE type::record('venue', $key) SET timezone = $timezone");
             up.bind(("key", key)).bind(("timezone", timezone.clone())).await.map_err(|e| {
                 log::error!("❌ Failed to update venue {}: {}", vid, e);
                 error_count += 1;

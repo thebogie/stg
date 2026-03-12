@@ -104,7 +104,7 @@ impl From<&Player> for PlayerDto {
             firstname: player.firstname.clone(),
             handle: player.handle.clone(),
             email: player.email.clone(),
-            created_at: player.created_at,
+            created_at: player.created_at.into(),
             is_admin: player.is_admin,
         }
     }
@@ -127,7 +127,7 @@ impl From<PlayerDto> for Player {
             handle: dto.handle,
             email: dto.email,
             password: String::new(), // Password is handled separately
-            created_at: dto.created_at,
+            created_at: dto.created_at.into(),
             is_admin: false,
         })
     }

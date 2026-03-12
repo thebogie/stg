@@ -57,7 +57,7 @@ docs/
 4. **Setup:** `docs/setup/DEVELOPMENT_SETUP.md`.
 5. **Testing:** `docs/testing/HOW_TO_RUN_TESTS.md`.
 6. **Deployment:** `docs/GHCR_SETUP.md`.
-7. **SurrealDB IDs:** `docs/SURREALDB_ID_CONVENTIONS.md` – Thing vs string, type::thing, INSIDE bindings.
+7. **SurrealDB IDs:** `docs/SURREALDB_ID_CONVENTIONS.md` – Record id vs string, type::record (v3), INSIDE bindings.
 8. **Tauri + browser:** `docs/TAURI_BROWSER_PATTERN.md` – One frontend, two runtimes.
 
 ## Adding or moving docs

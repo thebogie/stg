@@ -428,7 +428,7 @@ impl From<&PlayerStats> for PlayerStatsDto {
             total_points: stats.total_points,
             current_streak: stats.current_streak,
             longest_streak: stats.longest_streak,
-            last_updated: stats.last_updated,
+            last_updated: stats.last_updated.into(),
         }
     }
 }
@@ -446,7 +446,7 @@ impl From<&ContestStats> for ContestStatsDto {
             most_popular_game: stats.most_popular_game.clone(),
             difficulty_rating: stats.difficulty_rating,
             excitement_rating: stats.excitement_rating,
-            last_updated: stats.last_updated,
+            last_updated: stats.last_updated.into(),
         }
     }
 }
@@ -480,7 +480,7 @@ impl From<&GameStats> for GameStatsDto {
                 })
                 .collect(),
             average_duration_minutes: stats.average_duration_minutes,
-            last_updated: stats.last_updated,
+            last_updated: stats.last_updated.into(),
         }
     }
 }
@@ -513,7 +513,7 @@ impl From<&VenueStats> for VenueStatsDto {
                 })
                 .collect(),
             average_duration_minutes: stats.average_duration_minutes,
-            last_updated: stats.last_updated,
+            last_updated: stats.last_updated.into(),
         }
     }
 }
@@ -550,7 +550,7 @@ impl From<&PlatformStats> for PlatformStatsDto {
                     activity_score: v.activity_score,
                 })
                 .collect(),
-            last_updated: stats.last_updated,
+            last_updated: stats.last_updated.into(),
         }
     }
 }

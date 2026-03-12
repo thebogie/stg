@@ -594,7 +594,7 @@ pub fn game_details(props: &GameDetailsProps) -> Html {
                                                                 {&contest.stop}
                                                             </td>
                                                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                                                {contest.venue.as_ref().and_then(|v| v.get("display_name")).and_then(|v| v.as_str()).unwrap_or("Unknown Venue")}
+                                                                {contest.venue.as_ref().and_then(|v| v.get("display_name").or_else(|| v.get("displayName")).and_then(|v| v.as_str())).unwrap_or("Unknown Venue")}
                                                             </td>
                                                         </tr>
                                                     }

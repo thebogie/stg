@@ -59,7 +59,7 @@ A stack-aware design for making the Player Profile page efficient for users and 
 
 ## 4. SurrealDB Efficiency
 
-- **Indexes**: Use `resulted_in_in` and `resulted_in_out` (see `docs/surreal-indexes-optional.surql`) so `WHERE \`in\` = type::thing('player', $key)` and `WHERE \`out\` INSIDE $contest_ids` use indexes.
+- **Indexes**: Use `resulted_in_in` and `resulted_in_out` (see `docs/surreal-indexes-optional.surql`) so `WHERE \`in\` = type::record('player', $key)` and `WHERE \`out\` INSIDE $contest_ids` use indexes.
 - **Opponent stats**: Two-step pattern (my contest IDs → all rows for those contests) avoids heavy nested subqueries and full scans; both steps use indexed lookups.
 - **No N+1**: Opponent display names are fetched with a single `WHERE id INSIDE $player_ids` after aggregating opponent IDs in memory.
 

@@ -1,6 +1,7 @@
 use crate::db::Db;
 use serde_json::Value;
 use shared::{Result, SharedError};
+use surrealdb::types::SurrealValue;
 
 #[derive(Clone)]
 pub struct RatingsRepository {
@@ -53,16 +54,16 @@ impl RatingsRepository {
         let mut res = self
             .db
             .query(
-                "SELECT `in` AS player_id, place FROM resulted_in WHERE `out` = type::thing('contest', $key)",
+                "SELECT `out` AS player_id, place FROM resulted_in WHERE `in` = type::record('contest', $key)",
             )
             .bind(("key", key))
             .await
             .map_err(|e| {
                 SharedError::Database(format!("Failed to fetch contest results: {}", e))
             })?;
-        #[derive(serde::Deserialize)]
+        #[derive(serde::Deserialize, serde::Serialize, surrealdb::types::SurrealValue)]
         struct Row {
-            player_id: Option<surrealdb::sql::Thing>,
+            player_id: Option<surrealdb::types::RecordId>,
             place: Option<i64>,
         }
         let rows: Vec<Row> = res.take(0).map_err(|e| {
@@ -72,7 +73,8 @@ impl RatingsRepository {
         for r in rows {
             let pid = r
                 .player_id
-                .map(|t| t.to_string())
+                .as_ref()
+                .map(crate::surreal_helpers::record_id_to_canonical)
                 .unwrap_or_default()
                 .replace("player:", "player/");
             let place = r.place.map(|n| n as i32);
@@ -85,15 +87,15 @@ impl RatingsRepository {
         let key = crate::surreal_helpers::record_id_to_key(contest_id, "contest");
         let mut res = self
             .db
-            .query("SELECT `in` AS player_id FROM resulted_in WHERE `out` = type::thing('contest', $key)")
+            .query("SELECT `out` AS player_id FROM resulted_in WHERE `in` = type::record('contest', $key)")
             .bind(("key", key))
             .await
             .map_err(|e| {
                 SharedError::Database(format!("Failed to fetch contest players: {}", e))
             })?;
-        #[derive(serde::Deserialize)]
+        #[derive(serde::Deserialize, serde::Serialize, surrealdb::types::SurrealValue)]
         struct Row {
-            player_id: Option<surrealdb::sql::Thing>,
+            player_id: Option<surrealdb::types::RecordId>,
         }
         let rows: Vec<Row> = res.take(0).map_err(|e| {
             SharedError::Database(format!("Failed to take contest players: {}", e))
@@ -116,13 +118,13 @@ impl RatingsRepository {
         let key = crate::surreal_helpers::record_id_to_key(contest_id, "contest");
         let mut res = self
             .db
-            .query("SELECT `in` AS game_id FROM played_with WHERE `out` = type::thing('contest', $key) LIMIT 1")
+            .query("SELECT `out` AS game_id FROM played_with WHERE `in` = type::record('contest', $key) LIMIT 1")
             .bind(("key", key))
             .await
             .map_err(|e| SharedError::Database(format!("Failed to fetch contest game: {}", e)))?;
-        #[derive(serde::Deserialize)]
+        #[derive(serde::Deserialize, serde::Serialize, surrealdb::types::SurrealValue)]
         struct Row {
-            game_id: Option<surrealdb::sql::Thing>,
+            game_id: Option<surrealdb::types::RecordId>,
         }
         let rows: Vec<Row> = res.take(0).map_err(|e| {
             SharedError::Database(format!("Failed to take contest game: {}", e))
@@ -151,7 +153,7 @@ impl RatingsRepository {
             .to_string();
         let scope_id_owned: Option<String> = scope_id.map(|s| s.to_string());
         let mut q = self.db.query(
-            "SELECT * FROM rating_latest WHERE scope_type = $scope_type AND player_id = type::thing('player', $player_id) \
+            "SELECT * FROM rating_latest WHERE scope_type = $scope_type AND player_id = type::record('player', $player_id) \
              AND (($scope_id == NONE AND scope_id == NONE) OR scope_id = $scope_id) LIMIT 1",
         );
         q = q.bind(("scope_type", scope_type)).bind(("player_id", pid));
@@ -190,9 +192,9 @@ impl RatingsRepository {
         let mut res = q.await.map_err(|e| {
             SharedError::Database(format!("Failed to fetch latest player ids: {}", e))
         })?;
-        #[derive(serde::Deserialize)]
+        #[derive(serde::Deserialize, serde::Serialize, surrealdb::types::SurrealValue)]
         struct Row {
-            player_id: Option<surrealdb::sql::Thing>,
+            player_id: Option<surrealdb::types::RecordId>,
         }
         let rows: Vec<Row> = res.take(0).map_err(|e| {
             SharedError::Database(format!("Failed to take latest player ids: {}", e))
@@ -222,7 +224,7 @@ impl RatingsRepository {
         let scope_id: Option<String> = doc.get("scope_id").and_then(|v| v.as_str()).map(String::from);
         // Upsert: delete existing then insert (rating_latest is keyed by player_id + scope)
         let mut del_q = self.db.query(
-            "DELETE FROM rating_latest WHERE player_id = type::thing('player', $pid) AND scope_type = $scope_type \
+            "DELETE FROM rating_latest WHERE player_id = type::record('player', $pid) AND scope_type = $scope_type \
              AND (($scope_id == NONE AND scope_id == NONE) OR scope_id = $scope_id)",
         );
         del_q = del_q.bind(("pid", pid.clone())).bind(("scope_type", scope_type.clone()));
@@ -313,7 +315,7 @@ impl RatingsRepository {
         let key = key.to_string();
         let mut res = self
             .db
-            .query("SELECT * FROM player WHERE id = type::thing('player', $key)")
+            .query("SELECT * FROM player WHERE id = type::record('player', $key)")
             .bind(("key", key))
             .await
             .map_err(|e| SharedError::Database(e.to_string()))?;
@@ -407,7 +409,7 @@ impl RatingsRepository {
         let mut res = self
             .db
             .query(
-                "SELECT id AS edge_id, `out` AS edge_from, `in` AS edge_to FROM resulted_in LIMIT 5",
+                "SELECT id AS edge_id, `in` AS edge_from, `out` AS edge_to FROM resulted_in LIMIT 5",
             )
             .await
             .map_err(|e| {
@@ -456,7 +458,7 @@ impl RatingsRepository {
             .to_string();
         let mut res = self
             .db
-            .query("SELECT * FROM player WHERE id = type::thing('player', $pid)")
+            .query("SELECT * FROM player WHERE id = type::record('player', $pid)")
             .bind(("pid", pid))
             .await
             .map_err(|e| SharedError::Database(format!("Failed to debug player document: {}", e)))?;
@@ -464,17 +466,26 @@ impl RatingsRepository {
         Ok(rows)
     }
 
+    /// Fetch all latest rating rows for a player from rating_latest.
+    /// Matches whether player_id is stored as record<player> or string (player/key or player:key).
     pub async fn get_player_latest_ratings(&self, player_id: &str) -> Result<Vec<Value>> {
-        let pid_str = player_id
+        let pid = player_id
             .trim_start_matches("player/")
             .trim_start_matches("player:")
             .trim_matches('`')
             .to_string();
-        let player_id_str = format!("player/{}", pid_str);
+        let player_id_slash = format!("player/{}", pid);
+        let player_id_colon = format!("player:{}", pid);
+        // Match record id or string form (slash or colon)
         let mut res = self
             .db
-            .query("SELECT * FROM rating_latest WHERE string::concat(player_id) = $player_id_str")
-            .bind(("player_id_str", player_id_str))
+            .query(
+                "SELECT * FROM rating_latest WHERE (player_id = type::record('player', $pid) \
+                 OR string::concat(player_id) = $player_id_slash OR string::concat(player_id) = $player_id_colon)",
+            )
+            .bind(("pid", pid.clone()))
+            .bind(("player_id_slash", player_id_slash))
+            .bind(("player_id_colon", player_id_colon))
             .await
             .map_err(|e| {
                 SharedError::Database(format!("Failed to fetch player latest ratings: {}", e))
@@ -482,9 +493,27 @@ impl RatingsRepository {
         let rows: Vec<Value> = res.take(0).map_err(|e| {
             SharedError::Database(format!("Failed to take player latest ratings: {}", e))
         })?;
-        Ok(rows)
+        // Normalize player_id in each row to "player/key" for API responses
+        let out: Vec<Value> = rows
+            .into_iter()
+            .map(|mut v| {
+                if let Some(obj) = v.as_object_mut() {
+                    if let Some(pid_val) = obj.get("player_id") {
+                        let normalized = pid_val
+                            .to_string()
+                            .trim_matches('"')
+                            .replace("player:", "player/")
+                            .replace('`', "");
+                        obj.insert("player_id".into(), Value::String(normalized));
+                    }
+                }
+                v
+            })
+            .collect();
+        Ok(out)
     }
 
+    /// Fetch rating history for a player. Matches player_id as record or string (player/key or player:key).
     pub async fn get_rating_history(
         &self,
         player_id: &str,
@@ -492,20 +521,27 @@ impl RatingsRepository {
         scope_id: Option<&str>,
         limit: i32,
     ) -> Result<Vec<Value>> {
-        let pid_str = player_id
+        let pid = player_id
             .trim_start_matches("player/")
             .trim_start_matches("player:")
             .trim_matches('`')
             .to_string();
-        let player_id_str = format!("player/{}", pid_str);
+        let player_id_slash = format!("player/{}", pid);
+        let player_id_colon = format!("player:{}", pid);
         let scope_type = scope_type.to_string();
         let scope_id_owned: Option<String> = scope_id.map(|s| s.to_string());
         let mut q = self.db.query(
-            "SELECT * FROM rating_history WHERE string::concat(player_id) = $player_id_str \
+            "SELECT * FROM rating_history WHERE (player_id = type::record('player', $pid) \
+             OR string::concat(player_id) = $player_id_slash OR string::concat(player_id) = $player_id_colon) \
              AND scope_type = $scope_type AND (($scope_id == NONE AND scope_id == NONE) OR scope_id = $scope_id) \
              ORDER BY period_end DESC LIMIT $limit",
         );
-        q = q.bind(("player_id_str", player_id_str)).bind(("scope_type", scope_type)).bind(("limit", limit));
+        q = q
+            .bind(("pid", pid))
+            .bind(("player_id_slash", player_id_slash))
+            .bind(("player_id_colon", player_id_colon))
+            .bind(("scope_type", scope_type))
+            .bind(("limit", limit));
         if let Some(sid) = scope_id_owned {
             q = q.bind(("scope_id", sid));
         } else {
@@ -517,7 +553,23 @@ impl RatingsRepository {
         let rows: Vec<Value> = res.take(0).map_err(|e| {
             SharedError::Database(format!("Failed to take rating history: {}", e))
         })?;
-        Ok(rows)
+        let out: Vec<Value> = rows
+            .into_iter()
+            .map(|mut v| {
+                if let Some(obj) = v.as_object_mut() {
+                    if let Some(pid_val) = obj.get("player_id") {
+                        let normalized = pid_val
+                            .to_string()
+                            .trim_matches('"')
+                            .replace("player:", "player/")
+                            .replace('`', "");
+                        obj.insert("player_id".into(), Value::String(normalized));
+                    }
+                }
+                v
+            })
+            .collect();
+        Ok(out)
     }
 
     pub async fn clear_all_ratings(&self) -> Result<()> {
@@ -540,7 +592,7 @@ impl RatingsRepository {
             .map_err(|e| {
                 SharedError::Database(format!("Failed to fetch earliest contest date: {}", e))
             })?;
-        #[derive(serde::Deserialize)]
+        #[derive(serde::Deserialize, serde::Serialize, surrealdb::types::SurrealValue)]
         struct Row {
             start: Option<String>,
         }
@@ -573,7 +625,7 @@ impl RatingsRepository {
                 r.rd AS rd,
                 r.games_played AS games_played,
                 r.last_period_end AS last_active,
-                (SELECT { contest_name: c.name, contest_date: c.start, player_place: res.place } FROM resulted_in AS res, contest AS c WHERE res.`out` = c.id AND res.`in` = r.player_id LIMIT 1)[0] AS contest_info
+                (SELECT { contest_name: c.name, contest_date: c.start, player_place: res.place } FROM resulted_in AS res, contest AS c WHERE res.`in` = c.id AND res.`out` = r.player_id LIMIT 1)[0] AS contest_info
             FROM rating_latest AS r
             WHERE r.scope_type = $scope_type
               AND (($scope_id == NONE AND r.scope_id == NONE) OR r.scope_id = $scope_id)
@@ -625,9 +677,9 @@ impl RatingsRepository {
             .bind(("email", email))
             .await
             .map_err(|e| SharedError::Database(format!("Failed to query player by email: {}", e)))?;
-        #[derive(serde::Deserialize)]
+        #[derive(serde::Deserialize, serde::Serialize, surrealdb::types::SurrealValue)]
         struct Row {
-            id: Option<surrealdb::sql::Thing>,
+            id: Option<surrealdb::types::RecordId>,
         }
         let rows: Vec<Row> = res.take(0).map_err(|e| SharedError::Database(e.to_string()))?;
         Ok(rows.into_iter().next().and_then(|r| {

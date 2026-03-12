@@ -139,8 +139,8 @@ async fn main() -> std::io::Result<()> {
     };
     if let Err(e) = db
         .signin(surrealdb::opt::auth::Root {
-            username: &config.database.root_username,
-            password: &config.database.root_password,
+            username: config.database.root_username.clone(),
+            password: config.database.root_password.clone(),
         })
         .await
     {

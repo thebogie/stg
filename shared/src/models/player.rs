@@ -1,10 +1,13 @@
 use crate::error::{Result, SharedError};
 use argon2::{Argon2, PasswordHash, PasswordVerifier};
-use chrono::{DateTime, FixedOffset};
+use chrono::{DateTime, FixedOffset, Utc};
 use lazy_static::lazy_static;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use validator::Validate;
+
+#[cfg(feature = "surrealdb")]
+use surrealdb_types::SurrealValue;
 
 lazy_static! {
     static ref HANDLE_REGEX: Regex = Regex::new(r"^[a-zA-Z0-9_]+$").unwrap();
@@ -12,6 +15,7 @@ lazy_static! {
 
 /// Represents a player in the system
 #[derive(Debug, Clone, Serialize, Deserialize, Validate)]
+#[cfg_attr(feature = "surrealdb", derive(surrealdb_types::SurrealValue))]
 pub struct Player {
     /// ArangoDB document ID (format: "player/{timestamp}")
     #[serde(rename = "_id")]
@@ -38,9 +42,9 @@ pub struct Player {
     #[validate(length(min = 1))]
     pub password: String,
 
-    /// When the player was created
+    /// When the player was created (stored as Utc for SurrealDB)
     #[serde(rename = "createdAt")]
-    pub created_at: DateTime<FixedOffset>,
+    pub created_at: DateTime<Utc>,
 
     /// Whether the player has administrative privileges
     #[serde(rename = "isAdmin")]
@@ -66,7 +70,7 @@ impl Player {
             handle,
             email,
             password,
-            created_at,
+            created_at: created_at.with_timezone(&Utc),
             is_admin,
         };
         player.validate_fields()?;
@@ -89,7 +93,7 @@ impl Player {
             handle,
             email,
             password,
-            created_at,
+            created_at: created_at.with_timezone(&Utc),
             is_admin,
         };
         player.validate_fields()?;
@@ -129,7 +133,7 @@ impl From<&Player> for PlayerDto {
             handle: player.handle.clone(),
             username: player.handle.clone(),
             email: player.email.clone(),
-            created_at: player.created_at,
+            created_at: player.created_at.into(),
         }
     }
 }

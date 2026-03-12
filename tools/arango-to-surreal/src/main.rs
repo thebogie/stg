@@ -96,12 +96,31 @@ fn is_record_ref_field(table: &str, field: &str) -> bool {
     )
 }
 
+/// Allowed document fields per table (production schema). Unknown fields are omitted so SCHEMAFULL import never fails.
+fn allowed_document_field(table: &str, field: &str) -> bool {
+    let f = field.to_ascii_lowercase();
+    let allowed: &[&str] = match table {
+        "player" => &["id", "firstname", "lastname", "handle", "email", "password", "createdat", "created_at", "isadmin", "is_admin", "accesstoken"],
+        "game" => &["id", "name", "year_published", "bgg_id", "description", "source", "createdat"],
+        "venue" => &["id", "display_name", "displayname", "formatted_address", "formattedaddress", "place_id", "lat", "lng", "timezone", "source"],
+        "contest" => &["id", "name", "start", "stop", "creator_id", "created_at", "startoffset"],
+        "rating_latest" => &["id", "player_id", "scope_type", "scope_id", "rating", "rd", "games_played", "updated_at", "last_period_end"],
+        "rating_history" => &["id", "player_id", "scope_type", "scope_id", "rating", "rd", "period_end", "created_at"],
+        "schema_migrations" => &["id", "appliedat", "name"],
+        "migration_lock" => &["id"],
+        _ => return true, // edge tables use different path; document tables not in list reject all
+    };
+    allowed.contains(&f.as_str())
+}
+
 /// Known datetime fields: (table, field). When value is string or number, emit type::datetime("...") so SurrealDB stores datetime type.
 fn is_datetime_field(table: &str, field: &str) -> bool {
     matches!(
         (table, field),
         ("player", "createdAt")
             | ("player", "createdat")
+            | ("game", "createdAt")
+            | ("game", "createdat")
             | ("contest", "start")
             | ("contest", "stop")
             | ("contest", "created_at")
@@ -271,6 +290,10 @@ fn doc_to_surql_object(
     }
 
     for (_, (k, v)) in by_lower {
+        // Emit only schema-defined fields so SCHEMAFULL import never fails on unknown dump fields.
+        if !allowed_document_field(table, &k) {
+            continue;
+        }
         // Omit null values so SurrealDB option<T> fields accept "absent" instead of explicit null (avoids schema rejection).
         if v.is_null() {
             continue;
@@ -324,7 +347,7 @@ fn record_id_literal_normalized(rid: &str, lowercase_table: bool) -> String {
             };
             let raw = raw_key_for_thing(key);
             format!(
-                "type::thing(\"{}\", \"{}\")",
+                "type::record(\"{}\", \"{}\")",
                 escape_surql_string(&table),
                 escape_surql_string(&raw)
             )
@@ -377,11 +400,12 @@ fn convert_edge(
     let to_str = doc.get("_to").map(arango_key_to_string).filter(|s| s.contains('/') || s.contains(':'));
     let from = from_str.as_ref().map(|s| remap_rid(s, id_maps));
     let to = to_str.as_ref().map(|s| remap_rid(s, id_maps));
-    let out_val = from
+    // IN = subject (_from), OUT = object (_to): [Subject]-in->(edge)-out->[Object]
+    let in_val = from
         .as_ref()
         .map(|s| record_id_literal_normalized(s, true))
         .unwrap_or_else(|| "\"\"".to_string());
-    let in_val = to
+    let out_val = to
         .as_ref()
         .map(|s| record_id_literal_normalized(s, true))
         .unwrap_or_else(|| "\"\"".to_string());
@@ -424,22 +448,47 @@ const DOCUMENT_TABLES: &[&str] = &[
 ///
 /// | Arango collection | _from   | _to    | Surreal `out`   | Surreal `in`   |
 /// |-------------------|---------|--------|-----------------|----------------|
-/// | played_at         | contest | venue  | record<contest> | record<venue>  |
-/// | played_with       | contest | game   | record<contest> | record<game>   |
-/// | resulted_in       | contest | player | record<contest> | record<player> |
+/// | played_at         | contest | venue  | record<contest> (IN) | record<venue> (OUT)  |
+/// | played_with       | contest | game   | record<contest> (IN) | record<game> (OUT)   |
+/// | resulted_in       | contest | player | record<contest> (IN) | record<player> (OUT) |
 const EDGE_TABLES: &[&str] = &["played_at", "played_with", "resulted_in"];
+
+/// SurrealDB v3: id field cannot use TYPE record<table>; use TYPE string for record id key.
+fn id_field_type(v3: bool, table: &str) -> &'static str {
+    if v3 {
+        "string"
+    } else {
+        match table {
+            "player" => "record<player>",
+            "game" => "record<game>",
+            "venue" => "record<venue>",
+            "contest" => "record<contest>",
+            "rating_latest" => "record<rating_latest>",
+            "rating_history" => "record<rating_history>",
+            "schema_migrations" => "record<schema_migrations>",
+            "migration_lock" => "record<migration_lock>",
+            "played_at" => "record<played_at>",
+            "played_with" => "record<played_with>",
+            "resulted_in" => "record<resulted_in>",
+            _ => "string",
+        }
+    }
+}
 
 /// Emit full production schema: DEFINE TABLE SCHEMAFULL, DEFINE FIELD with types, DEFINE INDEX.
 /// Use for one-time production migration so the next version of STG runs on SurrealDB with strict structural integrity.
-/// WARNING: Migration Note — ArangoDB allowed loose schemas; SurrealDB schema enforces these types and indexes.
-fn emit_production_schema(w: &mut impl Write) -> Result<()> {
+/// When v3_schema is true, id fields use TYPE string (SurrealDB v3 does not allow TYPE record<table> on id).
+fn emit_production_schema(w: &mut impl Write, v3_schema: bool) -> Result<()> {
     writeln!(w, "-- Production schema: 1:1 from ArangoDB with strict types and indexes.")?;
+    if v3_schema {
+        writeln!(w, "-- v3: id fields use TYPE string (SurrealDB v3 record id key requirement).")?;
+    }
     writeln!(w, "-- WARNING: Migration Note — Apply to empty namespace/database before INSERT.")?;
     writeln!(w)?;
 
     // Document tables: SCHEMAFULL + fields
     writeln!(w, "DEFINE TABLE player SCHEMAFULL;")?;
-    writeln!(w, "DEFINE FIELD id ON player TYPE record<player>;")?;
+    writeln!(w, "DEFINE FIELD id ON player TYPE {};", id_field_type(v3_schema, "player"))?;
     writeln!(w, "DEFINE FIELD firstname ON player TYPE option<string>;")?;
     writeln!(w, "DEFINE FIELD lastname ON player TYPE option<string>;")?;
     writeln!(w, "DEFINE FIELD handle ON player TYPE option<string>;")?;
@@ -449,20 +498,22 @@ fn emit_production_schema(w: &mut impl Write) -> Result<()> {
     writeln!(w, "DEFINE FIELD created_at ON player TYPE option<datetime>;")?;
     writeln!(w, "DEFINE FIELD isAdmin ON player TYPE option<bool>;")?;
     writeln!(w, "DEFINE FIELD is_admin ON player TYPE option<bool>;")?;
+    writeln!(w, "DEFINE FIELD accessToken ON player TYPE option<string>;")?;
     writeln!(w, "DEFINE INDEX player_email ON player COLUMNS email;")?;
     writeln!(w)?;
 
     writeln!(w, "DEFINE TABLE game SCHEMAFULL;")?;
-    writeln!(w, "DEFINE FIELD id ON game TYPE record<game>;")?;
+    writeln!(w, "DEFINE FIELD id ON game TYPE {};", id_field_type(v3_schema, "game"))?;
     writeln!(w, "DEFINE FIELD name ON game TYPE option<string>;")?;
     writeln!(w, "DEFINE FIELD year_published ON game TYPE option<int>;")?;
     writeln!(w, "DEFINE FIELD bgg_id ON game TYPE option<int>;")?;
     writeln!(w, "DEFINE FIELD description ON game TYPE option<string>;")?;
     writeln!(w, "DEFINE FIELD source ON game TYPE option<string>;")?;
+    writeln!(w, "DEFINE FIELD createdAt ON game TYPE option<datetime>;")?;
     writeln!(w)?;
 
     writeln!(w, "DEFINE TABLE venue SCHEMAFULL;")?;
-    writeln!(w, "DEFINE FIELD id ON venue TYPE record<venue>;")?;
+    writeln!(w, "DEFINE FIELD id ON venue TYPE {};", id_field_type(v3_schema, "venue"))?;
     writeln!(w, "DEFINE FIELD display_name ON venue TYPE option<string>;")?;
     writeln!(w, "DEFINE FIELD displayName ON venue TYPE option<string>;")?;
     writeln!(w, "DEFINE FIELD formatted_address ON venue TYPE option<string>;")?;
@@ -471,21 +522,24 @@ fn emit_production_schema(w: &mut impl Write) -> Result<()> {
     writeln!(w, "DEFINE FIELD lat ON venue TYPE option<float>;")?;
     writeln!(w, "DEFINE FIELD lng ON venue TYPE option<float>;")?;
     writeln!(w, "DEFINE FIELD timezone ON venue TYPE option<string>;")?;
+    writeln!(w, "DEFINE FIELD source ON venue TYPE option<string>;")?;
     writeln!(w)?;
 
     writeln!(w, "DEFINE TABLE contest SCHEMAFULL;")?;
-    writeln!(w, "DEFINE FIELD id ON contest TYPE record<contest>;")?;
+    writeln!(w, "DEFINE FIELD id ON contest TYPE {};", id_field_type(v3_schema, "contest"))?;
     writeln!(w, "DEFINE FIELD name ON contest TYPE option<string>;")?;
     writeln!(w, "DEFINE FIELD start ON contest TYPE option<datetime>;")?;
     writeln!(w, "DEFINE FIELD stop ON contest TYPE option<datetime>;")?;
     writeln!(w, "DEFINE FIELD creator_id ON contest TYPE option<record<player>>;")?;
     writeln!(w, "DEFINE FIELD created_at ON contest TYPE option<datetime>;")?;
+    writeln!(w, "DEFINE FIELD startoffset ON contest TYPE option<string>;")?;
+    writeln!(w, "DEFINE FIELD startOffset ON contest TYPE option<string>;")?;
     writeln!(w, "DEFINE INDEX contest_start ON contest COLUMNS start;")?;
     writeln!(w, "DEFINE INDEX contest_stop ON contest COLUMNS stop;")?;
     writeln!(w)?;
 
     writeln!(w, "DEFINE TABLE rating_latest SCHEMAFULL;")?;
-    writeln!(w, "DEFINE FIELD id ON rating_latest TYPE record<rating_latest>;")?;
+    writeln!(w, "DEFINE FIELD id ON rating_latest TYPE {};", id_field_type(v3_schema, "rating_latest"))?;
     writeln!(w, "DEFINE FIELD player_id ON rating_latest TYPE option<record<player>>;")?;
     writeln!(w, "DEFINE FIELD scope_type ON rating_latest TYPE option<string>;")?;
     writeln!(w, "DEFINE FIELD scope_id ON rating_latest TYPE option<string>;")?;
@@ -498,7 +552,7 @@ fn emit_production_schema(w: &mut impl Write) -> Result<()> {
     writeln!(w)?;
 
     writeln!(w, "DEFINE TABLE rating_history SCHEMAFULL;")?;
-    writeln!(w, "DEFINE FIELD id ON rating_history TYPE record<rating_history>;")?;
+    writeln!(w, "DEFINE FIELD id ON rating_history TYPE {};", id_field_type(v3_schema, "rating_history"))?;
     writeln!(w, "DEFINE FIELD player_id ON rating_history TYPE option<record<player>>;")?;
     writeln!(w, "DEFINE FIELD scope_type ON rating_history TYPE option<string>;")?;
     writeln!(w, "DEFINE FIELD scope_id ON rating_history TYPE option<string>;")?;
@@ -511,36 +565,36 @@ fn emit_production_schema(w: &mut impl Write) -> Result<()> {
     writeln!(w)?;
 
     writeln!(w, "DEFINE TABLE schema_migrations SCHEMAFULL;")?;
-    writeln!(w, "DEFINE FIELD id ON schema_migrations TYPE record<schema_migrations>;")?;
+    writeln!(w, "DEFINE FIELD id ON schema_migrations TYPE {};", id_field_type(v3_schema, "schema_migrations"))?;
     writeln!(w, "DEFINE FIELD appliedAt ON schema_migrations TYPE option<datetime>;")?;
     writeln!(w, "DEFINE FIELD name ON schema_migrations TYPE option<string>;")?;
     writeln!(w)?;
 
     writeln!(w, "DEFINE TABLE migration_lock SCHEMAFULL;")?;
-    writeln!(w, "DEFINE FIELD id ON migration_lock TYPE record<migration_lock>;")?;
+    writeln!(w, "DEFINE FIELD id ON migration_lock TYPE {};", id_field_type(v3_schema, "migration_lock"))?;
     writeln!(w)?;
 
     // Edge/relation tables: out = source, in = target (Arango _from → out, _to → in). Use backticks for reserved words.
     writeln!(w, "DEFINE TABLE played_at SCHEMAFULL;")?;
-    writeln!(w, "DEFINE FIELD id ON played_at TYPE record<played_at>;")?;
-    writeln!(w, "DEFINE FIELD `out` ON played_at TYPE record<contest>;")?;
-    writeln!(w, "DEFINE FIELD `in` ON played_at TYPE record<venue>;")?;
-    writeln!(w, "DEFINE INDEX played_at_out ON played_at COLUMNS `out`;")?;
+    writeln!(w, "DEFINE FIELD id ON played_at TYPE {};", id_field_type(v3_schema, "played_at"))?;
+    writeln!(w, "DEFINE FIELD `in` ON played_at TYPE record<contest>;")?;
+    writeln!(w, "DEFINE FIELD `out` ON played_at TYPE record<venue>;")?;
     writeln!(w, "DEFINE INDEX played_at_in ON played_at COLUMNS `in`;")?;
+    writeln!(w, "DEFINE INDEX played_at_out ON played_at COLUMNS `out`;")?;
     writeln!(w)?;
 
     writeln!(w, "DEFINE TABLE played_with SCHEMAFULL;")?;
-    writeln!(w, "DEFINE FIELD id ON played_with TYPE record<played_with>;")?;
-    writeln!(w, "DEFINE FIELD `out` ON played_with TYPE record<contest>;")?;
-    writeln!(w, "DEFINE FIELD `in` ON played_with TYPE record<game>;")?;
-    writeln!(w, "DEFINE INDEX played_with_out ON played_with COLUMNS `out`;")?;
+    writeln!(w, "DEFINE FIELD id ON played_with TYPE {};", id_field_type(v3_schema, "played_with"))?;
+    writeln!(w, "DEFINE FIELD `in` ON played_with TYPE record<contest>;")?;
+    writeln!(w, "DEFINE FIELD `out` ON played_with TYPE record<game>;")?;
     writeln!(w, "DEFINE INDEX played_with_in ON played_with COLUMNS `in`;")?;
+    writeln!(w, "DEFINE INDEX played_with_out ON played_with COLUMNS `out`;")?;
     writeln!(w)?;
 
     writeln!(w, "DEFINE TABLE resulted_in SCHEMAFULL;")?;
-    writeln!(w, "DEFINE FIELD id ON resulted_in TYPE record<resulted_in>;")?;
-    writeln!(w, "DEFINE FIELD `out` ON resulted_in TYPE record<contest>;")?;
-    writeln!(w, "DEFINE FIELD `in` ON resulted_in TYPE record<player>;")?;
+    writeln!(w, "DEFINE FIELD id ON resulted_in TYPE {};", id_field_type(v3_schema, "resulted_in"))?;
+    writeln!(w, "DEFINE FIELD `in` ON resulted_in TYPE record<contest>;")?;
+    writeln!(w, "DEFINE FIELD `out` ON resulted_in TYPE record<player>;")?;
     writeln!(w, "DEFINE FIELD place ON resulted_in TYPE option<int>;")?;
     writeln!(w, "DEFINE FIELD result ON resulted_in TYPE option<string>;")?;
     writeln!(w, "DEFINE FIELD points ON resulted_in TYPE option<int>;")?;
@@ -695,7 +749,7 @@ fn run(
     let mut w = fs::File::create(out_path).with_context(|| format!("create output: {}", out_path.display()))?;
 
     writeln!(w, "-- Generated by arango-to-surreal from {}", zip_path.display())?;
-    writeln!(w, "-- Use: surreal import --conn <url> --ns <ns> --db <db> --user root --pass <pass> {}", out_path.display())?;
+    writeln!(w, "-- Use (v3): surreal import --endpoint <url> --namespace <ns> --database <db> --username root --password <pass> {}", out_path.display())?;
     if production {
         writeln!(w, "-- Production schema: DEFINE TABLE/FIELD/INDEX for strict 1:1 migration.")?;
     }
@@ -718,7 +772,7 @@ fn run(
     let id_maps_ref = id_maps.as_ref();
 
     if production {
-        emit_production_schema(&mut w)?;
+        emit_production_schema(&mut w, true)?; // v3: id fields TYPE string
     } else if emit_schema {
         for table in &order {
             writeln!(w, "DEFINE TABLE {} SCHEMAFULL;", table)?;

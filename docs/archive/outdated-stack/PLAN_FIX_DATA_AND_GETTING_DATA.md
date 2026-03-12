@@ -54,7 +54,7 @@ If something still “doesn’t work”, map it to the right layer:
 
 ## 3. Fix remaining backend issues (only if needed)
 
-- **Record ID format:** SurrealDB uses `table:key`; API/slash form is `table/key`. The code normalizes in several places (`contest_rid`, `to_rid`, `split_rid_owned`, etc.). If a specific endpoint fails, check that it normalizes the id the same way (e.g. `type::thing('contest', key)` vs `type::thing(contest_rid)`).
+- **Record ID format:** SurrealDB uses `table:key`; API/slash form is `table/key`. The code normalizes in several places (`contest_rid`, `to_rid`, `split_rid_owned`, etc.). If a specific endpoint fails, check that it normalizes the id the same way (e.g. `type::record('contest', key)` vs `type::record(contest_rid)` in SurrealDB v3).
 - **Auth → player_id for “mine”:** If “mine” is always empty but “all” works, ensure the auth middleware sets the user (e.g. email) in `req.extensions()` and that `player_repo.find_by_email(email)` returns the correct player with `id` in slash form (`player/...`).
 - **Empty subqueries:** If contest list is still empty with `scope=all`, verify in DB that `played_at` and `played_with` have rows with `out` = contest ids. Search explicitly requires “contest has at least one played_at and one played_with” (see `where_parts` in `search_contests`).
 

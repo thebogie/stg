@@ -22,7 +22,7 @@ actix-ws = "0.2"
 # Database
 sqlx = { version = "0.7.3", features = ["runtime-tokio-rustls", "postgres", "chrono", "uuid", "json"] }
 tokio = { version = "1.36", features = ["full", "sync"] }
-surrealdb = { version = "2", features = ["protocol-ws"] }
+surrealdb = { version = "3", features = ["protocol-ws"] }
 redis = { version = "0.24.0", features = ["tokio-comp", "connection-manager"] }
 
 # Authentication and security
@@ -71,7 +71,7 @@ async-trait = "0.1"
 approx = "0.5"
 
 # Internal dependencies
-shared = { path = "../../shared" }
+shared = { path = "../../shared", features = ["surrealdb"] }
 random_word = "0.3"
 fastrand = "2.3.0"
 

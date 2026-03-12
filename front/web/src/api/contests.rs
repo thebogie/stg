@@ -1,6 +1,29 @@
 use crate::api::api_url;
 use serde::Deserialize;
 
+/// Extract a stable contest key from various id formats.
+///
+/// Examples:
+/// - `contest/9d85...` -> `9d85...`
+/// - `contest:9d85...` -> `9d85...`
+/// - `contest:\`9d85...\`` -> `9d85...`
+pub fn contest_key_from_any(id: &str) -> String {
+    let cleaned = id.trim().replace('`', "");
+
+    // Prefer known prefixes
+    let without_prefix = cleaned
+        .strip_prefix("contest/")
+        .or_else(|| cleaned.strip_prefix("contest:"))
+        .unwrap_or(&cleaned);
+
+    // If something like `table/key` slipped in, keep only the key
+    without_prefix
+        .rsplit('/')
+        .next()
+        .unwrap_or(without_prefix)
+        .to_string()
+}
+
 #[derive(Debug, Deserialize, Clone)]
 pub struct ContestSearchItem {
     #[serde(rename = "_id")]

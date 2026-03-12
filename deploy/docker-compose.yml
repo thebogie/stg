@@ -16,11 +16,20 @@ services:
 
   surrealdb:
     container_name: stg-surrealdb
-    image: surrealdb/surrealdb:v2
+    image: surrealdb/surrealdb:v3
     user: "0:0"
+    restart: always  # Recommended for Ubuntu Server
     ports:
       - "${SURREALDB_PORT:-50001}:8000"
-    command: ["start", "--user", "${SURREAL_USER:-root}", "--pass", "${SURREAL_PASSWORD:-root}", "file:/data/surrealdb.db"]
+    command: 
+      - "start"
+      - "--user"
+      - "${SURREAL_USER:-root}"
+      - "--pass"
+      - "${SURREAL_PASSWORD:-root}"
+      - "--bind"
+      - "0.0.0.0:8000"  # Force listening on all interfaces inside the container
+      - "rocksdb:/data/surrealdb"
     volumes:
       - ${VOLUME_PATH:-./docker-data}/surrealdb_data:/data
     networks:

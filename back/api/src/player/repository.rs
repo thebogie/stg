@@ -1,15 +1,16 @@
 use crate::cache::{CacheKeys, CacheTTL, RedisCache};
 use crate::db::Db;
-use crate::surreal_helpers::thing_to_record_id;
+use crate::surreal_helpers::{record_id_from_row, select_one_by_record_id, thing_to_record_id};
 use async_trait::async_trait;
+use surrealdb::types::SurrealValue;
 use log;
 use shared::models::player::Player;
 use std::sync::Arc;
 
-/// Row shape from SurrealDB SELECT * FROM player. Id is a Thing in responses.
-#[derive(serde::Deserialize)]
+/// Row shape from SurrealDB SELECT * FROM player. Id is a RecordId in responses.
+#[derive(serde::Deserialize, serde::Serialize, surrealdb::types::SurrealValue)]
 struct PlayerRow {
-    id: Option<surrealdb::sql::Thing>,
+    id: Option<surrealdb::types::RecordId>,
     firstname: Option<String>,
     handle: Option<String>,
     email: Option<String>,
@@ -68,35 +69,14 @@ fn row_to_player(r: PlayerRow) -> Option<Player> {
         handle: r.handle.unwrap_or_default(),
         email: r.email.unwrap_or_default(),
         password: r.password.unwrap_or_default(),
-        created_at,
+        created_at: created_at.into(),
         is_admin: r.is_admin.unwrap_or(false),
     })
 }
 
-/// Extract record id from SurrealDB row (Value). Returns "table/key" with backticks stripped.
-fn record_id_to_string(v: &serde_json::Value) -> Option<String> {
-    let id_val = v.get("id").or_else(|| v.get("_id"))?;
-    if let Some(s) = id_val.as_str() {
-        let s = s.replace("player:", "player/").replace('`', "");
-        return Some(s);
-    }
-    if let Some(tb) = id_val.get("tb").and_then(|x| x.as_str()) {
-        let id_part = id_val
-            .get("id")
-            .and_then(|x| x.as_str().map(String::from))
-            .or_else(|| id_val.get("id").and_then(|x| x.as_i64().map(|n| n.to_string())))
-            .or_else(|| id_val.get("id").and_then(|x| x.as_u64().map(|n| n.to_string())));
-        if let Some(mut id_part) = id_part {
-            id_part = id_part.replace('`', "");
-            return Some(format!("{}/{}", tb, id_part));
-        }
-    }
-    None
-}
-
 /// Map a Surreal record (Value) to Player. Record has id (record id), and stored fields.
 fn value_to_player(v: &serde_json::Value) -> Option<Player> {
-    let id = record_id_to_string(v)?;
+    let id = record_id_from_row(v, Some("player"))?;
     let firstname = v.get("firstname").and_then(|x| x.as_str()).unwrap_or("").to_string();
     let handle = v.get("handle").and_then(|x| x.as_str()).unwrap_or("").to_string();
     let email = v.get("email").and_then(|x| x.as_str()).unwrap_or("").to_string();
@@ -114,7 +94,7 @@ fn value_to_player(v: &serde_json::Value) -> Option<Player> {
         handle,
         email,
         password,
-        created_at,
+        created_at: created_at.into(),
         is_admin,
     })
 }
@@ -192,17 +172,9 @@ impl PlayerRepository for PlayerRepositoryImpl {
             }
         }
 
-        let key = id
-            .trim_start_matches("player/")
-            .trim_start_matches("player:")
-            .trim_matches('`')
-            .to_string();
-        let mut res = match self.db.query("SELECT * FROM player WHERE id = type::thing('player', $key)").bind(("key", key)).await {
-            Ok(r) => r,
-            Err(_) => return None,
-        };
-        let rows: Vec<serde_json::Value> = res.take(0).unwrap_or_default();
-        let player = rows.into_iter().next().and_then(|v| value_to_player(&v));
+        let player = select_one_by_record_id(&self.db, "player", id)
+            .await
+            .and_then(|v| value_to_player(&v));
         if let Some(ref p) = player {
             if let Some(ref cache) = self.cache {
                 let _ = cache.set_with_ttl(&CacheKeys::player(&p.id), p, CacheTTL::player()).await;
@@ -240,7 +212,7 @@ impl PlayerRepository for PlayerRepositoryImpl {
             "isAdmin": player.is_admin,
         });
         self.db
-            .query("CREATE type::thing('player', $key) CONTENT $doc")
+            .query("CREATE type::record('player', $key) CONTENT $doc")
             .bind(("key", key.clone()))
             .bind(("doc", doc))
             .await
@@ -282,7 +254,7 @@ impl PlayerRepository for PlayerRepositoryImpl {
             "isAdmin": player.is_admin,
         });
         self.db
-            .query("UPDATE type::thing('player', $key) MERGE $doc")
+            .query("UPDATE type::record('player', $key) MERGE $doc")
             .bind(("key", key))
             .bind(("doc", doc))
             .await

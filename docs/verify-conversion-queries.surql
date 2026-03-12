@@ -16,7 +16,7 @@ SELECT count() AS n FROM resulted_in GROUP ALL;
 
 -- ---------- 2. Contest dates: must be datetime so time filters work ----------
 SELECT id, name, start, stop FROM contest ORDER BY start DESC LIMIT 3;
-SELECT id, name, start FROM contest WHERE start >= time::now() - duration::from::days(30) ORDER BY start DESC;
+SELECT id, name, start FROM contest WHERE start >= time::now() - duration::from_days(30) ORDER BY start DESC;
 
 -- ---------- 3. Edges: out/in must be record ids (not plain strings) ----------
 SELECT string::concat(`out`) AS out_str, string::concat(`in`) AS in_str FROM played_at LIMIT 2;
@@ -27,7 +27,7 @@ SELECT string::concat(`out`) AS out_str, string::concat(`in`) AS in_str, place F
 -- Count how many resulted_in rows are in the last 30 days (if > 0, leaderboard query can return data)
 SELECT count() AS resulted_in_last_30
 FROM resulted_in
-WHERE `out` IN (SELECT VALUE id FROM contest WHERE start >= time::now() - duration::from::days(30))
+WHERE `out` IN (SELECT VALUE id FROM contest WHERE start >= time::now() - duration::from_days(30))
 GROUP ALL;
 
 -- ---------- 5. Contest list via edges (backend pattern) ----------

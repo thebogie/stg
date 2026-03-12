@@ -318,7 +318,7 @@ impl AnalyticsUseCase {
     pub async fn get_profile_summary(
         &self,
         player_id: &str,
-        player_thing: Option<surrealdb::sql::Thing>,
+        player_thing: Option<surrealdb::types::RecordId>,
         player_id_str: Option<&str>,
         player_email: Option<&str>,
     ) -> Result<ProfileSummaryDto> {
@@ -497,10 +497,13 @@ impl AnalyticsUseCase {
             opponents_i_beat,
         };
 
-        if let Ok(json) = serde_json::to_string(&bundle) {
-            self.cache
-                .set_with_ttl(cache_key, json, CacheTTL::profile_bundle())
-                .await;
+        // Only cache when we have real stats so we don't cache zeros and block recovery
+        if bundle.player_stats.total_contests > 0 {
+            if let Ok(json) = serde_json::to_string(&bundle) {
+                self.cache
+                    .set_with_ttl(cache_key, json, CacheTTL::profile_bundle())
+                    .await;
+            }
         }
         // Prime opponents cache so GET /profile/opponents is a cache hit (avoids duplicate SurrealDB work).
         let opponents_key = CacheKeys::profile_opponents(&player_id);
@@ -994,12 +997,16 @@ impl AnalyticsUseCase {
         // Get performance stats for each game the player has played
         let performance = self.repo.get_my_game_performance(player_id).await?;
 
-        // Cache the result
-        let cache_key = CacheKeys::my_game_performance(player_id);
-        let result_json = serde_json::to_string(&performance)?;
-        self.cache
-            .set_with_ttl(cache_key, result_json, CacheTTL::player_stats())
-            .await;
+        // Only cache when all games have a resolved name (avoid persisting "Unknown")
+        let all_names_resolved = !performance.iter().any(|p| p.game_name == "Unknown");
+        if all_names_resolved {
+            let cache_key = CacheKeys::my_game_performance(player_id);
+            if let Ok(result_json) = serde_json::to_string(&performance) {
+                self.cache
+                    .set_with_ttl(cache_key, result_json, CacheTTL::player_stats())
+                    .await;
+            }
+        }
 
         Ok(performance)
     }

@@ -3,6 +3,9 @@ use lazy_static::lazy_static;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use validator::{Validate, ValidationError};
+
+#[cfg(feature = "surrealdb")]
+use surrealdb_types::SurrealValue;
 // Provide a wrapper for the custom validator to be used in attribute
 pub fn validate_place_id_optional(val: &str) -> std::result::Result<(), ValidationError> {
     if val.is_empty() {
@@ -26,6 +29,7 @@ fn default_timezone() -> String {
 
 /// Represents the source of venue data
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "surrealdb", derive(surrealdb_types::SurrealValue))]
 pub enum VenueSource {
     #[serde(rename = "database")]
     Database,
@@ -35,6 +39,7 @@ pub enum VenueSource {
 
 /// Represents a venue in the system
 #[derive(Debug, Clone, Serialize, Deserialize, Validate)]
+#[cfg_attr(feature = "surrealdb", derive(surrealdb_types::SurrealValue))]
 pub struct Venue {
     /// Venue's ID
     #[serde(rename = "_id")]

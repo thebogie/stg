@@ -62,6 +62,7 @@ pub async fn create_contest_handler(
 pub async fn get_contest_handler(
     path: web::Path<String>,
     repo: web::Data<ContestRepositoryImpl>,
+    db: web::Data<crate::db::Db>,
 ) -> impl Responder {
     let contest_param = path.into_inner();
 
@@ -74,7 +75,8 @@ pub async fn get_contest_handler(
 
     log::info!("Fetching contest details for ID: {}", contest_id);
 
-    match repo.find_details_by_id(&contest_id).await {
+    // Use app's shared Db so we see the same NS/DB as analytics (fixes 404 when repo's clone differs)
+    match repo.find_details_by_id_using(&contest_id, db.get_ref()).await {
         Some(contest_details) => {
             log::info!("Contest details found");
             HttpResponse::Ok().json(contest_details)
@@ -162,6 +164,7 @@ pub async fn search_contests_handler_impl(
     query: web::Query<ContestSearchQuery>,
     repo: web::Data<ContestRepositoryImpl>,
     player_repo: web::Data<crate::player::repository::PlayerRepositoryImpl>,
+    db: web::Data<crate::db::Db>,
     req: actix_web::HttpRequest,
 ) -> impl Responder {
     let q = query.q.clone().unwrap_or_default();
@@ -169,7 +172,18 @@ pub async fn search_contests_handler_impl(
     let sort_dir = query.sort_dir.clone().unwrap_or_else(|| "desc".into());
     let page = query.page.unwrap_or(1);
     let page_size = query.page_size.unwrap_or(20).min(100);
-    let requested_scope = query.scope.clone().unwrap_or_else(|| "mine".into());
+    // Default to "all" so contest list shows all contests when scope param is missing (e.g. first load).
+    let requested_scope = query.scope.clone().unwrap_or_else(|| "all".into());
+
+    log::info!(
+        "contest search: scope={} page={} page_size={} q={:?} venue_id={:?} game_ids_len={}",
+        requested_scope,
+        page,
+        page_size,
+        if q.is_empty() { None::<&str> } else { Some(q.as_str()) },
+        query.venue_id.as_deref(),
+        query.game_ids.as_ref().map(|s| s.split(',').count()).unwrap_or(0)
+    );
 
     // If query.player_id is provided, use it for filtering (searching for a specific player's contests)
     // Otherwise, use authenticated user's player_id for scope filtering
@@ -271,6 +285,7 @@ pub async fn search_contests_handler_impl(
             &effective_scope,
             &scope_player_id,
             filter_player_id.as_deref(),
+            Some(db.get_ref()),
         )
         .await
     {
@@ -292,7 +307,8 @@ pub async fn search_contests_handler(
     query: web::Query<ContestSearchQuery>,
     repo: web::Data<ContestRepositoryImpl>,
     player_repo: web::Data<crate::player::repository::PlayerRepositoryImpl>,
+    db: web::Data<crate::db::Db>,
     req: actix_web::HttpRequest,
 ) -> impl Responder {
-    search_contests_handler_impl(query, repo, player_repo, req).await
+    search_contests_handler_impl(query, repo, player_repo, db, req).await
 }

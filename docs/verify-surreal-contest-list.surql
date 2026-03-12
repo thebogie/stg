@@ -10,18 +10,18 @@ SELECT string::concat(out) AS edge_out_str FROM resulted_in LIMIT 1;
 -- C. How edge in is stored (raw + string)
 SELECT in, string::concat(in) AS in_str FROM resulted_in LIMIT 3;
 
--- D. Subquery: contests for this player (if [] then in/type::thing don't match)
-SELECT out AS contest_rid FROM resulted_in WHERE in = type::thing("player", "2025041711441879938520500");
+-- D. Subquery: contests for this player (if [] then in/type::record don't match)
+SELECT out AS contest_rid FROM resulted_in WHERE in = type::record("player", "2025041711441879938520500");
 
 -- E. Contest list: direct id IN subquery (Thing vs Thing; should work now that formats match)
 SELECT * FROM contest WHERE id IN (SELECT out FROM resulted_in LIMIT 10);
 
 -- F. Contest list for this player: direct id IN (preferred)
-SELECT * FROM contest WHERE id IN (SELECT out FROM resulted_in WHERE in = type::thing("player", "2025041711441879938520500"));
+SELECT * FROM contest WHERE id IN (SELECT out FROM resulted_in WHERE in = type::record("player", "2025041711441879938520500"));
 
 -- E2/F2. If E/F still return [], use array form (IN with SELECT VALUE)
 -- SELECT * FROM contest WHERE id IN (SELECT VALUE out FROM resulted_in LIMIT 10);
--- SELECT * FROM contest WHERE id IN (SELECT VALUE out FROM resulted_in WHERE in = type::thing("player", "2025041711441879938520500"));
+-- SELECT * FROM contest WHERE id IN (SELECT VALUE out FROM resulted_in WHERE in = type::record("player", "2025041711441879938520500"));
 
 -- G. Counts
 SELECT count() AS players FROM player GROUP ALL;

@@ -1,9 +1,13 @@
-use chrono::{DateTime, FixedOffset};
+use chrono::{DateTime, FixedOffset, Utc};
 use serde::{Deserialize, Serialize};
 use validator::Validate;
 
+#[cfg(feature = "surrealdb")]
+use surrealdb_types::SurrealValue;
+
 /// Player performance statistics
 #[derive(Debug, Clone, Serialize, Deserialize, Validate)]
+#[cfg_attr(feature = "surrealdb", derive(surrealdb_types::SurrealValue))]
 pub struct PlayerStats {
     /// Player ID this stats belong to
     pub player_id: String,
@@ -41,8 +45,8 @@ pub struct PlayerStats {
     /// Longest winning streak
     pub longest_streak: i32,
 
-    /// Last updated timestamp
-    pub last_updated: DateTime<FixedOffset>,
+    /// Last updated timestamp (UTC for SurrealDB compatibility)
+    pub last_updated: DateTime<Utc>,
 }
 
 /// Contest analytics and statistics
@@ -81,6 +85,7 @@ pub struct ContestStats {
 
 /// Game performance analytics
 #[derive(Debug, Clone, Serialize, Deserialize, Validate)]
+#[cfg_attr(feature = "surrealdb", derive(surrealdb_types::SurrealValue))]
 pub struct GameStats {
     /// Game ID this stats belong to
     pub game_id: String,
@@ -103,12 +108,13 @@ pub struct GameStats {
     /// Average contest duration when this game is played
     pub average_duration_minutes: f64,
 
-    /// Last updated timestamp
-    pub last_updated: DateTime<FixedOffset>,
+    /// Last updated timestamp (UTC for SurrealDB compatibility)
+    pub last_updated: DateTime<Utc>,
 }
 
 /// Venue usage analytics
 #[derive(Debug, Clone, Serialize, Deserialize, Validate)]
+#[cfg_attr(feature = "surrealdb", derive(surrealdb_types::SurrealValue))]
 pub struct VenueStats {
     /// Venue ID this stats belong to
     pub venue_id: String,
@@ -131,12 +137,13 @@ pub struct VenueStats {
     /// Average contest duration at this venue
     pub average_duration_minutes: f64,
 
-    /// Last updated timestamp
-    pub last_updated: DateTime<FixedOffset>,
+    /// Last updated timestamp (UTC for SurrealDB compatibility)
+    pub last_updated: DateTime<Utc>,
 }
 
 /// Player win rate for a specific game
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "surrealdb", derive(SurrealValue))]
 pub struct PlayerWinRate {
     pub player_id: String,
     pub player_handle: String,
@@ -147,6 +154,7 @@ pub struct PlayerWinRate {
 
 /// Monthly plays tracking
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "surrealdb", derive(SurrealValue))]
 pub struct MonthlyPlays {
     pub year: i32,
     pub month: u32,
@@ -155,6 +163,7 @@ pub struct MonthlyPlays {
 
 /// Game popularity at a venue
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "surrealdb", derive(SurrealValue))]
 pub struct GamePopularity {
     pub game_id: String,
     pub game_name: String,
@@ -164,6 +173,7 @@ pub struct GamePopularity {
 
 /// Monthly contest frequency
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "surrealdb", derive(SurrealValue))]
 pub struct MonthlyContests {
     pub year: i32,
     pub month: u32,
@@ -309,7 +319,7 @@ impl PlayerStats {
             total_points: 0,
             current_streak: 0,
             longest_streak: 0,
-            last_updated: chrono::Utc::now().into(),
+            last_updated: Utc::now(),
         }
     }
 
@@ -347,7 +357,7 @@ impl PlayerStats {
             / total_placements;
 
         self.update_win_rate();
-        self.last_updated = chrono::Utc::now().into();
+        self.last_updated = Utc::now();
     }
 }
 
@@ -388,7 +398,7 @@ impl GameStats {
             win_rate_distribution: Vec::new(),
             popularity_trend: Vec::new(),
             average_duration_minutes: 0.0,
-            last_updated: chrono::Utc::now().into(),
+            last_updated: Utc::now(),
         }
     }
 }
@@ -404,7 +414,7 @@ impl VenueStats {
             popular_games: Vec::new(),
             monthly_contests: Vec::new(),
             average_duration_minutes: 0.0,
-            last_updated: chrono::Utc::now().into(),
+            last_updated: Utc::now(),
         }
     }
 }

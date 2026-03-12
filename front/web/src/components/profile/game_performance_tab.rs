@@ -19,7 +19,7 @@ pub fn game_performance_tab(props: &GamePerformanceTabProps) -> Html {
     let auth_context = use_context::<AuthContext>().expect("AuthContext not found");
 
     // Game performance sorting and pagination state
-    let game_sort_by = use_state(|| "win_rate".to_string());
+    let game_sort_by = use_state(|| "total_plays".to_string());
     let game_sort_asc = use_state(|| false);
     let game_page = use_state(|| 0);
     let games_per_page = 10;
@@ -142,7 +142,7 @@ pub fn game_performance_tab(props: &GamePerformanceTabProps) -> Html {
                             <div class="space-y-4">
                                 // Sorting controls
                                 <div class="flex flex-wrap gap-2">
-                                    {["win_rate", "total_plays", "wins", "best_placement", "average_placement"].iter().map(|field| {
+                                    {["total_plays", "wins", "best_placement", "average_placement"].iter().map(|field| {
                                         let field_str = field.to_string();
                                         let is_active = *game_sort_by == field_str;
                                         let sort_asc = *game_sort_asc;
@@ -183,7 +183,6 @@ pub fn game_performance_tab(props: &GamePerformanceTabProps) -> Html {
                                         <thead class="bg-gray-50">
                                             <tr>
                                                 <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{"Game"}</th>
-                                                <th class="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">{"Win Rate"}</th>
                                                 <th class="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">{"Total Plays"}</th>
                                                 <th class="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">{"Wins"}</th>
                                                 <th class="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">{"Best Placement"}</th>
@@ -225,9 +224,6 @@ pub fn game_performance_tab(props: &GamePerformanceTabProps) -> Html {
                                                                 >
                                                                     {game_name}
                                                                 </button>
-                                                            </td>
-                                                            <td class="px-3 py-2 text-sm text-center font-medium text-gray-700">
-                                                                {format!("{:.1}%", game.win_rate)}
                                                             </td>
                                                             <td class="px-3 py-2 text-sm text-center text-gray-700">
                                                                 {game.total_plays}

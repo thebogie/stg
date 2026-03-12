@@ -27,9 +27,9 @@ USE_HTTP=1
 
 run_sql_docker() {
   echo "$1" | docker run -i --rm --add-host=host.docker.internal:host-gateway \
-    surrealdb/surrealdb:v2 sql \
-    --conn "http://host.docker.internal:${PORT}" --user "$SURREAL_USER" --pass "$SURREAL_PASSWORD" \
-    --ns "$SURREAL_NS" --db "$SURREAL_DB" \
+    surrealdb/surrealdb:v3 sql \
+    --endpoint "http://host.docker.internal:${PORT}" --username "$SURREAL_USER" --password "$SURREAL_PASSWORD" \
+    --namespace "$SURREAL_NS" --database "$SURREAL_DB" \
     --hide-welcome --json 2>/dev/null
 }
 
@@ -101,14 +101,14 @@ check_c() {
 # D. Subquery returns contests for player
 check_d() {
   local out
-  out=$(run_sql "SELECT out AS contest_rid FROM resulted_in WHERE in = type::thing(\"player\", \"$PLAYER_KEY\")")
+  out=$(run_sql "SELECT out AS contest_rid FROM resulted_in WHERE in = type::record(\"player\", \"$PLAYER_KEY\")")
   local len
   len=$(echo "$out" | jq 'length' 2>/dev/null || echo "0")
   if [ "$len" -gt 0 ] 2>/dev/null; then
     echo "PASS D: Subquery for player $PLAYER_KEY returns $len contest(s)."
     return 0
   fi
-  echo "FAIL D: No contests for player $PLAYER_KEY (in/type::thing may not match)."
+  echo "FAIL D: No contests for player $PLAYER_KEY (in/type::record may not match)."
   return 1
 }
 
@@ -129,7 +129,7 @@ check_e() {
 # F. Contest list for player
 check_f() {
   local out
-  out=$(run_sql "SELECT * FROM contest WHERE id IN (SELECT out FROM resulted_in WHERE in = type::thing(\"player\", \"$PLAYER_KEY\"))")
+  out=$(run_sql "SELECT * FROM contest WHERE id IN (SELECT out FROM resulted_in WHERE in = type::record(\"player\", \"$PLAYER_KEY\"))")
   local len
   len=$(echo "$out" | jq 'length' 2>/dev/null || echo "0")
   if [ "$len" -gt 0 ] 2>/dev/null; then

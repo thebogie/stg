@@ -1,4 +1,4 @@
-use crate::api::contests::{search_contests, ContestSearchResponse};
+use crate::api::contests::{contest_key_from_any, search_contests, ContestSearchResponse};
 use crate::api::games::{get_all_games, search_games};
 use crate::api::players::search_players;
 use crate::api::venues::get_all_venues;
@@ -1050,13 +1050,13 @@ pub fn contests(_props: &ContestsProps) -> Html {
                                     </thead>
                                     <tbody class="bg-white divide-y divide-gray-200">
                                         {for results.items.iter().map(|contest| {
-                                            let contest_id = contest.id.clone();
+                                            let contest_key = contest_key_from_any(&contest.id);
                                             let navigator = navigator.clone();
                                             html! {
                                                 <tr
                                                     class="hover:bg-gray-50 cursor-pointer"
                                                     onclick={Callback::from(move |_| {
-                                                        navigator.push(&Route::ContestDetails { contest_id: contest_id.clone() });
+                                                        navigator.push(&Route::ContestDetails { contest_id: contest_key.clone() });
                                                     })}
                                                 >
                                                 <td class="px-6 py-4 whitespace-nowrap">

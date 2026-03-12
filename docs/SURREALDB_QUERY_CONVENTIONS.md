@@ -1,5 +1,7 @@
 # SurrealDB query conventions (backend)
 
+**SurrealDB v3.** Queries use `type::record('table', $key)` for record IDs (v2 used `type::thing`). See **docs/SURREALDB_ID_CONVENTIONS.md**.
+
 ## Record IDs and `take(0)` into JSON Value
 
 When you run a query and deserialize the result with `.take(0)` into `Vec<serde_json::Value>` (or `Vec<Value>`), the SurrealDB Rust client expects **JSON-compatible** values. SurrealDB returns record IDs (`id`, or edge endpoints like `in`/`out`) as **Thing/RecordId** types, which the client serializes as Rust enums. That causes:

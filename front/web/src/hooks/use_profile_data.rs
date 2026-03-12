@@ -57,6 +57,7 @@ fn resolve_player(
 }
 
 /// Hydrate profile UI state from a cached bundle (no network).
+/// Only sets core_stats when bundle has real stats so we never overwrite with zeros.
 fn hydrate_from_bundle(
     bundle: &ProfileBundleDto,
     _viewing_other_player: bool,
@@ -69,19 +70,21 @@ fn hydrate_from_bundle(
     opponents_i_beat: &UseStateHandle<Option<Vec<HeadToHeadRecordDto>>>,
 ) {
     display_label.set(bundle.display_label.clone());
-    core_stats.set(Some(CoreStats {
-        total_contests: bundle.player_stats.total_contests,
-        total_wins: bundle.player_stats.total_wins,
-        total_losses: bundle.player_stats.total_losses,
-        win_rate: bundle.player_stats.win_rate,
-        average_placement: bundle.player_stats.average_placement,
-        best_placement: bundle.player_stats.best_placement,
-        worst_placement: 0,
-        current_streak: bundle.player_stats.current_streak,
-        longest_streak: bundle.player_stats.longest_streak,
-        skill_rating: bundle.player_stats.skill_rating,
-        total_points: bundle.player_stats.total_points,
-    }));
+    if bundle.player_stats.total_contests > 0 {
+        core_stats.set(Some(CoreStats {
+            total_contests: bundle.player_stats.total_contests,
+            total_wins: bundle.player_stats.total_wins,
+            total_losses: bundle.player_stats.total_losses,
+            win_rate: bundle.player_stats.win_rate,
+            average_placement: bundle.player_stats.average_placement,
+            best_placement: bundle.player_stats.best_placement,
+            worst_placement: 0,
+            current_streak: bundle.player_stats.current_streak,
+            longest_streak: bundle.player_stats.longest_streak,
+            skill_rating: bundle.player_stats.skill_rating,
+            total_points: bundle.player_stats.total_points,
+        }));
+    }
     achievements.set(Some(bundle.achievements.clone()));
     game_performance.set(Some(
         bundle
@@ -233,11 +236,12 @@ pub fn use_profile_data(
                     return;
                 };
 
-                // If we have a fresh cache entry for this profile, hydrate state and skip fetch.
+                // If we have a fresh cache entry for this profile with real stats, hydrate and skip fetch.
+                // Never use a cached bundle that has zero stats (would overwrite good data with zeros).
                 if let Some(ref ctx) = ctx {
                     let now_ms = Date::new_0().get_time();
                     if let Some(entry) = (*ctx.cache).get(&profile_param) {
-                        if entry.is_fresh(now_ms) {
+                        if entry.is_fresh(now_ms) && entry.bundle.player_stats.total_contests > 0 {
                             hydrate_from_bundle(
                                 &entry.bundle,
                                 viewing_other_player,
@@ -291,19 +295,22 @@ pub fn use_profile_data(
                                 Ok(resp) if resp.ok() => {
                                     if let Ok(s) = resp.json::<ProfileSummaryDto>().await {
                                         display_label.set(s.display_label);
-                                        core_stats.set(Some(CoreStats {
-                                            total_contests: s.player_stats.total_contests,
-                                            total_wins: s.player_stats.total_wins,
-                                            total_losses: s.player_stats.total_losses,
-                                            win_rate: s.player_stats.win_rate,
-                                            average_placement: s.player_stats.average_placement,
-                                            best_placement: s.player_stats.best_placement,
-                                            worst_placement: 0,
-                                            current_streak: s.player_stats.current_streak,
-                                            longest_streak: s.player_stats.longest_streak,
-                                            skill_rating: s.player_stats.skill_rating,
-                                            total_points: s.player_stats.total_points,
-                                        }));
+                                        // Never set core_stats to zeros; only apply when summary has real stats
+                                        if s.player_stats.total_contests > 0 {
+                                            core_stats.set(Some(CoreStats {
+                                                total_contests: s.player_stats.total_contests,
+                                                total_wins: s.player_stats.total_wins,
+                                                total_losses: s.player_stats.total_losses,
+                                                win_rate: s.player_stats.win_rate,
+                                                average_placement: s.player_stats.average_placement,
+                                                best_placement: s.player_stats.best_placement,
+                                                worst_placement: 0,
+                                                current_streak: s.player_stats.current_streak,
+                                                longest_streak: s.player_stats.longest_streak,
+                                                skill_rating: s.player_stats.skill_rating,
+                                                total_points: s.player_stats.total_points,
+                                            }));
+                                        }
                                     }
                                     loading.set(false);
                                 }
@@ -428,7 +435,9 @@ pub fn use_profile_data(
                             if viewing_other_player && display_label.as_ref().is_none() {
                                 display_label.set(bundle.display_label);
                             }
-                            core_stats.set(Some(CoreStats {
+                            // Only overwrite core_stats from bundle when bundle has real stats;
+                            // never replace good summary data with zeros (avoids flash-then-zero).
+                            let new_core = CoreStats {
                                 total_contests: bundle.player_stats.total_contests,
                                 total_wins: bundle.player_stats.total_wins,
                                 total_losses: bundle.player_stats.total_losses,
@@ -440,7 +449,13 @@ pub fn use_profile_data(
                                 longest_streak: bundle.player_stats.longest_streak,
                                 skill_rating: bundle.player_stats.skill_rating,
                                 total_points: bundle.player_stats.total_points,
-                            }));
+                            };
+                            let use_bundle_stats = bundle.player_stats.total_contests > 0
+                                && (core_stats.as_ref().is_none()
+                                    || core_stats.as_ref().map(|c| bundle.player_stats.total_contests >= c.total_contests).unwrap_or(true));
+                            if use_bundle_stats {
+                                core_stats.set(Some(new_core));
+                            }
                             achievements.set(Some(bundle.achievements));
                             game_performance.set(Some(
                                 bundle
@@ -512,20 +527,23 @@ pub fn use_profile_data(
                                     .collect(),
                             )                            );
 
-                            // Store in local cache so returning to profile doesn't refetch (TTL 5 min).
+                            // Store in local cache only when bundle has real stats (never cache zeros).
                             if let Some(ref cache_ctx) = cache_ctx_for_fetch {
-                                let now_ms = Date::new_0().get_time();
-                                let entry = CachedProfileEntry {
-                                    bundle: bundle_for_cache,
-                                    fetched_at_ms: now_ms,
-                                };
-                                cache_ctx.cache.set({
-                                    let mut m = (*cache_ctx.cache).clone();
-                                    m.insert(profile_param_for_cache.clone(), entry);
-                                    m
-                                });
+                                if bundle_for_cache.player_stats.total_contests > 0 {
+                                    let now_ms = Date::new_0().get_time();
+                                    let entry = CachedProfileEntry {
+                                        bundle: bundle_for_cache,
+                                        fetched_at_ms: now_ms,
+                                    };
+                                    cache_ctx.cache.set({
+                                        let mut m = (*cache_ctx.cache).clone();
+                                        m.insert(profile_param_for_cache.clone(), entry);
+                                        m
+                                    });
+                                }
                             }
 
+                            // Only merge rating into existing core_stats; never set zeros (unwrap_or_default would overwrite with 0)
                             if let Some(ref data) = glicko_data {
                                 if let Some(global_rating) = data.iter().find(|r| {
                                     r.get("scope")
@@ -537,12 +555,10 @@ pub fn use_profile_data(
                                         .get("rating")
                                         .and_then(|r: &serde_json::Value| r.as_f64())
                                     {
-                                        let mut updated: CoreStats = core_stats
-                                            .as_ref()
-                                            .cloned()
-                                            .unwrap_or_default();
-                                        updated.skill_rating = rating_value;
-                                        core_stats.set(Some(updated));
+                                        if let Some(mut updated) = core_stats.as_ref().cloned() {
+                                            updated.skill_rating = rating_value;
+                                            core_stats.set(Some(updated));
+                                        }
                                     }
                                 }
                             }
