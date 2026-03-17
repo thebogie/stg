@@ -182,12 +182,15 @@ async fn main() -> std::io::Result<()> {
     ));
     log::info!("Redis cache initialized for games, venues, and players");
 
-    let player_repo = web::Data::new(
-        backend::player::repository::PlayerRepositoryImpl::new_with_cache(
-            db.clone(),
-            player_cache.clone(),
-        ),
+    // IMPORTANT: SurrealDB scope (NS/DB) does not reliably persist across pooled connections,
+    // so repositories must set scope per-query for writes/reads to hit the expected database.
+    let mut player_repo_impl = backend::player::repository::PlayerRepositoryImpl::new_with_cache(
+        db.clone(),
+        player_cache.clone(),
     );
+    player_repo_impl.ns = Some(config.database.ns.clone());
+    player_repo_impl.db_name = Some(config.database.name.clone());
+    let player_repo = web::Data::new(player_repo_impl);
 
     // Initialize venue repository with Google Places API if configured
     let google_config = if let Some(api_key) = &config.google.location_api_key {
@@ -228,11 +231,13 @@ async fn main() -> std::io::Result<()> {
         ),
     );
 
-    // Initialize contest repository
+    // Initialize contest repository (with NS/DB scope so CREATE/INSERT run in the app's namespace/database)
     let contest_repo = web::Data::new(
-        backend::contest::repository::ContestRepositoryImpl::new_with_google_config(
+        backend::contest::repository::ContestRepositoryImpl::new_with_scope(
             db.clone(),
             google_config,
+            config.database.ns.clone(),
+            config.database.name.clone(),
         ),
     );
 
@@ -534,11 +539,29 @@ async fn main() -> std::io::Result<()> {
                 );
             })
             .configure(|cfg| {
+                log::debug!("Registering /api/admin routes");
+                backend::admin::controller::configure_routes(
+                    cfg,
+                    db.clone(),
+                    std::sync::Arc::new(redis_data.get_ref().clone()),
+                    "/api",
+                );
+            })
+            .configure(|cfg| {
                 log::debug!("Registering /timezone routes (Trunk proxy)");
                 backend::timezone::controller::configure_routes(
                     cfg,
                     std::env::var("GOOGLEMAP_API_TIMEZONE_URL").unwrap_or_default(),
                     std::env::var("GOOGLE_LOCATION_API").unwrap_or_default(),
+                    "",
+                );
+            })
+            .configure(|cfg| {
+                log::debug!("Registering /admin routes (Trunk proxy)");
+                backend::admin::controller::configure_routes(
+                    cfg,
+                    db.clone(),
+                    std::sync::Arc::new(redis_data.get_ref().clone()),
                     "",
                 );
             })

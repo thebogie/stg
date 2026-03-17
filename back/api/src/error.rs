@@ -187,8 +187,9 @@ mod tests {
 
     #[test]
     fn test_from_surrealdb_error() {
-        let db_error =
-            surrealdb::Error::Api(surrealdb::error::Api::Query("test error".to_string()));
+        // Construct a generic SurrealDB error using the public helpers exposed in surrealdb-types 3.x.
+        // We don't care about the concrete variant here, only that it maps into a DATABASE_ERROR ApiError.
+        let db_error = surrealdb::Error::thrown("test error".to_string());
         let api_error: ApiError = db_error.into();
 
         assert_eq!(api_error.error, "DATABASE_ERROR");

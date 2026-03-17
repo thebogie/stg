@@ -53,7 +53,9 @@ pub async fn create_contest_handler(
         }
         Err(e) => {
             log::error!("Contest creation failed: {}", e);
-            HttpResponse::InternalServerError().body(e)
+            HttpResponse::InternalServerError().json(serde_json::json!({
+                "error": e,
+            }))
         }
     }
 }

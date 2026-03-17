@@ -318,7 +318,8 @@ pub struct CacheKeys;
 
 impl CacheKeys {
     pub fn platform_stats() -> String {
-        "analytics:platform:stats".to_string()
+        // Bump this when platform stats calculation changes (prevents stale cached totals).
+        "analytics:platform:stats:v2".to_string()
     }
 
     pub fn leaderboard(category: &str, time_period: &str, limit: i32, offset: i32) -> String {
@@ -376,13 +377,14 @@ impl CacheKeys {
 
     /// Profile bundle (all tab data) per player; short TTL for fast repeat loads.
     pub fn profile_bundle(player_id: &str) -> String {
-        format!("analytics:profile_bundle:{}", player_id)
+        // Version suffix invalidates old bundle cache entries (e.g. after DB re-import / schema changes).
+        format!("analytics:profile_bundle:v2:{}", player_id)
     }
 
     /// Profile summary (display + stats only) for fast first paint.
-    /// Version suffix (v2) invalidates old cache entries that had no streak data.
+    /// Version suffix invalidates old cache entries (e.g. after DB re-import / stats query changes).
     pub fn profile_summary(player_id: &str) -> String {
-        format!("analytics:profile_summary:v2:{}", player_id)
+        format!("analytics:profile_summary:v3:{}", player_id)
     }
 
     /// Profile opponents (Nemesis + Owned) for fast tab paint; also primed when bundle is built.

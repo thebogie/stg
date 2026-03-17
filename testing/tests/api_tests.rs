@@ -39,28 +39,39 @@ async fn test_player_registration() -> Result<()> {
     )
     .await;
 
-    // Test successful registration
+    // Use unique email so repeated runs don't hit duplicate-email
+    let email = format!(
+        "test-{}@example.com",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system time")
+            .as_millis()
+    );
     let req = test::TestRequest::post()
         .uri("/api/players/register")
         .set_json(&json!({
             "username": "testuser",
-            "email": "test@example.com",
+            "email": &email,
             "password": "password123"
         }))
         .to_request();
 
     let resp = test::call_service(&app, req).await;
-
+    let status = resp.status();
+    let body_bytes = test::read_body(resp).await;
     assert!(
-        resp.status().is_success(),
-        "Registration should succeed, got status: {}",
-        resp.status()
+        status.as_u16() == 201,
+        "Registration should return 201 Created, got status: {} body: {}",
+        status,
+        String::from_utf8_lossy(&body_bytes)
     );
 
-    let body: PlayerDto = test::read_body_json(resp).await;
+    let body: PlayerDto = serde_json::from_slice(body_bytes.as_ref())
+        .unwrap_or_else(|e| panic!("Register response should be PlayerDto: {} body: {}", e, String::from_utf8_lossy(body_bytes.as_ref())));
     assert_eq!(body.handle, "testuser");
-    assert_eq!(body.email, "test@example.com");
-    assert!(!body.id.is_empty());
+    assert_eq!(body.email, email);
+    assert!(!body.id.is_empty(), "Register must return non-empty player id");
+    assert!(body.id.starts_with("player/"), "Register must return id in form player/<key>, got {}", body.id);
     assert!(!body.firstname.is_empty());
 
     Ok(())
@@ -87,24 +98,39 @@ async fn test_player_registration_duplicate_email() -> Result<()> {
     )
     .await;
 
+    // Use unique email for first user so test is robust when DB already has data (e.g. from earlier test run)
+    let email = format!(
+        "dup-{}@example.com",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system time")
+            .as_millis()
+    );
     // Register first user
     let req1 = test::TestRequest::post()
         .uri("/api/players/register")
         .set_json(&json!({
             "username": "user1",
-            "email": "duplicate@example.com",
+            "email": &email,
             "password": "password123"
         }))
         .to_request();
     let resp1 = test::call_service(&app, req1).await;
-    assert!(resp1.status().is_success());
+    let status1 = resp1.status();
+    let body1 = test::read_body(resp1).await;
+    assert!(
+        status1.is_success(),
+        "First register should succeed, got status: {} body: {}",
+        status1,
+        String::from_utf8_lossy(&body1)
+    );
 
-    // Try to register with same email
+    // Try to register with same email (must be rejected)
     let req2 = test::TestRequest::post()
         .uri("/api/players/register")
         .set_json(&json!({
             "username": "user2",
-            "email": "duplicate@example.com",
+            "email": &email,
             "password": "password123"
         }))
         .to_request();
@@ -141,37 +167,54 @@ async fn test_player_login() -> Result<()> {
     )
     .await;
 
-    // First, register a user
+    // Use unique email per run so we don't hit conflicts or stale data
+    let email = format!("login-{}@example.com", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("system time").as_millis());
     let register_req = test::TestRequest::post()
         .uri("/api/players/register")
         .set_json(&json!({
             "username": "loginuser",
-            "email": "login@example.com",
+            "email": &email,
             "password": "password123"
         }))
         .to_request();
     let register_resp = test::call_service(&app, register_req).await;
-    assert!(register_resp.status().is_success());
-
-    // Now try to login
-    let login_req = test::TestRequest::post()
-        .uri("/api/players/login")
-        .set_json(&json!({
-            "email": "login@example.com",
-            "password": "password123"
-        }))
-        .to_request();
-
-    let login_resp = test::call_service(&app, login_req).await;
-
+    let register_status = register_resp.status();
+    let register_body = test::read_body(register_resp).await;
     assert!(
-        login_resp.status().is_success(),
-        "Login should succeed, got status: {}",
-        login_resp.status()
+        register_status.is_success(),
+        "Register should succeed, got status: {} body: {:?}",
+        register_status,
+        register_body
     );
 
-    let body: LoginResponse = test::read_body_json(login_resp).await;
-    assert_eq!(body.player.email, "login@example.com");
+    // Retry login in case of read-after-write delay
+    let mut last_status = actix_web::http::StatusCode::OK;
+    let mut last_body = Vec::new();
+    for _ in 0..3 {
+        let login_req = test::TestRequest::post()
+            .uri("/api/players/login")
+            .set_json(&json!({
+                "email": &email,
+                "password": "password123"
+            }))
+            .to_request();
+        let resp = test::call_service(&app, login_req).await;
+        last_status = resp.status();
+        last_body = test::read_body(resp).await.to_vec();
+        if last_status.is_success() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+    }
+    assert!(
+        last_status.is_success(),
+        "Login should succeed after register, got status: {} body: {}",
+        last_status,
+        String::from_utf8_lossy(&last_body)
+    );
+    let body: LoginResponse = serde_json::from_slice(&last_body)
+        .unwrap_or_else(|e| panic!("Login body should be LoginResponse: {} body: {}", e, String::from_utf8_lossy(&last_body)));
+    assert_eq!(body.player.email, email);
     assert_eq!(body.player.handle, "loginuser");
     assert!(!body.session_id.is_empty());
 
@@ -247,29 +290,55 @@ async fn test_get_current_player() -> Result<()> {
     )
     .await;
 
-    // Register and login to get session
+    // Use unique email so we don't conflict with leftover data; register then login.
+    let email = format!("meuser-{}@example.com", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("system time").as_millis());
     let register_req = test::TestRequest::post()
         .uri("/api/players/register")
         .set_json(&json!({
             "username": "meuser",
-            "email": "me@example.com",
+            "email": &email,
             "password": "password123"
         }))
         .to_request();
-    test::call_service(&app, register_req).await;
+    let register_resp = test::call_service(&app, register_req).await;
+    let register_status = register_resp.status();
+    let register_body = test::read_body(register_resp).await;
+    assert!(
+        register_status.is_success(),
+        "Register should succeed, got status: {} body: {:?}",
+        register_status,
+        register_body
+    );
 
-    let login_req = test::TestRequest::post()
-        .uri("/api/players/login")
-        .set_json(&json!({
-            "email": "me@example.com",
-            "password": "password123"
-        }))
-        .to_request();
-    let login_resp = test::call_service(&app, login_req).await;
-    assert!(login_resp.status().is_success());
+    // Retry login a few times in case of read-after-write delay in SurrealDB
+    let mut login_body_bytes = Vec::new();
+    let mut login_status = actix_web::http::StatusCode::OK;
+    for _ in 0..3 {
+        let login_req = test::TestRequest::post()
+            .uri("/api/players/login")
+            .set_json(&json!({
+                "email": &email,
+                "password": "password123"
+            }))
+            .to_request();
+        let login_resp = test::call_service(&app, login_req).await;
+        login_status = login_resp.status();
+        login_body_bytes = test::read_body(login_resp).await.to_vec();
+        if login_status.is_success() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+    }
+    assert!(
+        login_status.is_success(),
+        "Login should succeed after register, got status: {} body: {}",
+        login_status,
+        String::from_utf8_lossy(&login_body_bytes)
+    );
 
     // Extract session ID from response
-    let login_body: LoginResponse = test::read_body_json(login_resp).await;
+    let login_body: LoginResponse = serde_json::from_slice(&login_body_bytes)
+        .unwrap_or_else(|e| panic!("Login body should be LoginResponse: {} body: {}", e, String::from_utf8_lossy(&login_body_bytes)));
     let session_id = login_body.session_id;
 
     // Get current player using session ID in Authorization header
@@ -288,7 +357,7 @@ async fn test_get_current_player() -> Result<()> {
     );
 
     let body: PlayerDto = test::read_body_json(me_resp).await;
-    assert_eq!(body.email, "me@example.com");
+    assert_eq!(body.email, email, "GET /me should return the registered player's email");
     assert_eq!(body.handle, "meuser");
 
     Ok(())

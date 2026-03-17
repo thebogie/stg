@@ -1,6 +1,9 @@
 use crate::auth::AuthContext;
 use crate::components::auth::login_modal::LoginModal;
 use crate::Route;
+use gloo::events::EventListener;
+use gloo_utils::window;
+use wasm_bindgen::JsCast;
 use yew::prelude::*;
 use yew_router::prelude::*;
 
@@ -10,19 +13,19 @@ pub fn nav() -> Html {
     let show_login_modal = use_state(|| false);
     let navigator = use_navigator().unwrap();
     let current_route = use_route::<Route>().unwrap_or(Route::Home);
-    let is_mobile_menu_open = use_state(|| false);
+    let is_palette_open = use_state(|| false);
 
-    let on_login_click = {
+    let do_login = {
         let show_login_modal = show_login_modal.clone();
-        Callback::from(move |_| {
+        Callback::from(move |_: ()| {
             show_login_modal.set(true);
         })
     };
 
-    let on_logout_click = {
+    let do_logout = {
         let auth = auth.clone();
         let navigator = navigator.clone();
-        Callback::from(move |_| {
+        Callback::from(move |_: ()| {
             auth.logout.emit(());
             navigator.push(&Route::Home);
         })
@@ -36,30 +39,68 @@ pub fn nav() -> Html {
     };
 
     let toggle_mobile_menu = {
-        let is_mobile_menu_open = is_mobile_menu_open.clone();
-        Callback::from(move |_| {
-            is_mobile_menu_open.set(!*is_mobile_menu_open);
+        let is_palette_open = is_palette_open.clone();
+        Callback::from(move |e: MouseEvent| {
+            // Prevent the opening click from also triggering the backdrop close
+            // on the same pointer interaction.
+            e.stop_propagation();
+            is_palette_open.set(!*is_palette_open);
         })
     };
 
     // Navigate to create contest
-    let on_create_click = {
+    let do_create_contest = {
         let navigator = navigator.clone();
-        let is_mobile_menu_open = is_mobile_menu_open.clone();
-        Callback::from(move |_| {
+        let is_palette_open = is_palette_open.clone();
+        Callback::from(move |_: ()| {
             navigator.push(&Route::Contest);
-            // Close mobile menu if it's open
-            is_mobile_menu_open.set(false);
+            is_palette_open.set(false);
         })
     };
 
-    // Close mobile menu when navigating
-    let close_mobile_menu = {
-        let is_mobile_menu_open = is_mobile_menu_open.clone();
-        Callback::from(move |_| {
-            is_mobile_menu_open.set(false);
+    let close_palette = {
+        let is_palette_open = is_palette_open.clone();
+        Callback::from(move |_: MouseEvent| {
+            is_palette_open.set(false);
         })
     };
+
+    let close_palette_unit = {
+        let is_palette_open = is_palette_open.clone();
+        Callback::from(move |_: ()| {
+            is_palette_open.set(false);
+        })
+    };
+
+    let go_to_route = {
+        let navigator = navigator.clone();
+        let close_palette_unit = close_palette_unit.clone();
+        Callback::from(move |route: Route| {
+            navigator.push(&route);
+            close_palette_unit.emit(());
+        })
+    };
+
+    // Close on Escape while the popover is open.
+    {
+        let is_palette_open = is_palette_open.clone();
+        use_effect_with(is_palette_open.clone(), move |open| {
+            if !**open {
+                return Box::new(|| {}) as Box<dyn FnOnce()>;
+            }
+
+            let is_palette_open = is_palette_open.clone();
+            let listener = EventListener::new(&window(), "keydown", move |event: &web_sys::Event| {
+                if let Some(e) = event.dyn_ref::<web_sys::KeyboardEvent>() {
+                    if e.key() == "Escape" {
+                        is_palette_open.set(false);
+                    }
+                }
+            });
+
+            Box::new(move || drop(listener)) as Box<dyn FnOnce()>
+        });
+    }
 
     html! {
         <>
@@ -80,8 +121,8 @@ pub fn nav() -> Html {
                                 <span class={classes!("text-lg", "sm:text-xl", "font-medium", "bg-white", "text-blue-600", "px-2", "py-0.5", "rounded")}>{"STG"}</span>
                             </Link<Route>>
 
-                            // Desktop navigation - hidden on mobile
-                            <div class={classes!("hidden", "md:flex", "space-x-6")}>
+                            // Desktop navigation - keep compact layout until lg
+                            <div class={classes!("hidden", "lg:flex", "space-x-6")}>
                                 <Link<Route>
                                     to={Route::Leaderboards}
                                     classes={classes!(
@@ -190,7 +231,7 @@ pub fn nav() -> Html {
                         // Right side - Auth buttons
                         <div class={classes!("flex", "items-center", "space-x-2", "sm:space-x-4")}>
                             if let Some(player) = &auth.state.player {
-                                <div class={classes!("hidden", "md:flex", "items-center", "space-x-6", "ml-auto", "mr-4")}>
+                                <div class={classes!("hidden", "lg:flex", "items-center", "space-x-6", "ml-auto", "mr-4")}>
                                     <span class={classes!("text-sm", "text-white/90")}>
                                         {"Welcome, "}
                                         <span class={classes!("font-medium", "text-white")}>{&player.email}</span>
@@ -202,7 +243,7 @@ pub fn nav() -> Html {
                                         }
                                     </span>
                                     <button
-                                        onclick={on_create_click.clone()}
+                                        onclick={do_create_contest.clone().reform(|_| ())}
                                         class={classes!(
                                             "inline-flex", "items-center", "justify-center", "px-3", "py-2",
                                             "rounded-md", "text-sm", "font-medium", "text-white",
@@ -218,7 +259,7 @@ pub fn nav() -> Html {
                                         <span>{"Create"}</span>
                                     </button>
                                     <button
-                                        onclick={on_logout_click.clone()}
+                                        onclick={do_logout.clone().reform(|_| ())}
                                         class={classes!(
                                             "inline-flex", "items-center", "px-3", "py-1.5", "border",
                                             "border-transparent", "text-xs", "font-medium", "rounded-md",
@@ -233,7 +274,7 @@ pub fn nav() -> Html {
                                 </div>
                             } else {
                                 <button
-                                    onclick={on_login_click.clone()}
+                                    onclick={do_login.clone().reform(|_| ())}
                                     class={classes!(
                                         "inline-flex", "items-center", "px-3", "sm:px-4", "py-2", "border",
                                         "border-transparent", "text-sm", "font-medium", "rounded-md",
@@ -252,30 +293,31 @@ pub fn nav() -> Html {
                             <button
                                 onclick={toggle_mobile_menu}
                                 class={classes!(
-                                    "md:hidden", "inline-flex", "items-center", "justify-center", "p-3",
+                                    "lg:hidden", "inline-flex", "items-center", "justify-center", "p-3",
                                     "rounded-md", "text-white", "hover:bg-white/10", "focus:outline-none",
                                     "focus:ring-2", "focus:ring-inset", "focus:ring-white", "min-h-[44px]", "min-w-[44px]",
                                     "active:scale-95", "transition-transform", "duration-150"
                                 )}
-                                aria-label="Toggle mobile menu"
+                                aria-label="Open menu"
+                                aria-expanded={(*is_palette_open).to_string()}
                             >
                                 <div class={classes!(
                                     "w-6", "h-6", "flex", "flex-col", "justify-center", "items-center",
-                                    if *is_mobile_menu_open { classes!("space-y-0") } else { classes!("space-y-1.5") }
+                                    if *is_palette_open { classes!("space-y-0") } else { classes!("space-y-1.5") }
                                 )}>
                                     <span class={classes!(
                                         "block", "w-6", "h-0.5", "bg-white", "transform",
                                         "transition-all", "duration-300", "origin-center",
-                                        if *is_mobile_menu_open { classes!("rotate-45", "translate-y-0.5") } else { classes!() }
+                                        if *is_palette_open { classes!("rotate-45", "translate-y-0.5") } else { classes!() }
                                     )}></span>
                                     <span class={classes!(
                                         "block", "w-6", "h-0.5", "bg-white", "transition-all", "duration-300",
-                                        if *is_mobile_menu_open { classes!("opacity-0") } else { classes!() }
+                                        if *is_palette_open { classes!("opacity-0") } else { classes!() }
                                     )}></span>
                                     <span class={classes!(
                                         "block", "w-6", "h-0.5", "bg-white", "transform",
                                         "transition-all", "duration-300", "origin-center",
-                                        if *is_mobile_menu_open { classes!("-rotate-45", "-translate-y-0.5") } else { classes!() }
+                                        if *is_palette_open { classes!("-rotate-45", "-translate-y-0.5") } else { classes!() }
                                     )}></span>
                                 </div>
                             </button>
@@ -283,214 +325,173 @@ pub fn nav() -> Html {
                     </div>
                 </div>
 
-                // Enhanced mobile menu with better animations and touch targets
-                <div class={classes!(
-                    "md:hidden", "transition-all", "duration-300", "ease-in-out", "border-t", "border-white/10",
-                    if *is_mobile_menu_open {
-                        classes!("max-h-96", "opacity-100", "visible")
-                    } else {
-                        classes!("max-h-0", "opacity-0", "invisible", "overflow-hidden")
-                    }
-                )}>
-                    <div class={classes!("px-4", "pt-4", "pb-6", "space-y-2", "bg-gradient-to-b", "from-slate-800/95", "to-blue-600/95", "backdrop-blur-sm")}>
-                        <div onclick={close_mobile_menu.clone()}>
-                            <Link<Route>
-                                to={Route::Leaderboards}
-                                classes={classes!(
-                                    "block", "px-4", "py-3", "rounded-lg", "text-base", "font-medium",
-                                    "transition-all", "duration-200", "min-h-[48px]", "flex", "items-center",
-                                    "active:scale-95", "active:bg-white/20",
-                                    if current_route == Route::Leaderboards {
-                                        classes!("bg-white/20", "text-white", "shadow-lg")
-                                    } else {
-                                        classes!("text-white/90", "hover:bg-white/10", "hover:text-white")
-                                    }
-                                )}
-                            >
-                                <span class={classes!("mr-3", "text-lg")}>{"🏆"}</span>
-                                {"Leaderboards"}
-                            </Link<Route>>
+            </nav>
+
+            // Anchored popover menu (Option C)
+            {if *is_palette_open {
+                html! {
+                <div class={classes!("lg:hidden", "fixed", "inset-0", "z-[60]")}>
+                    <div
+                        class={classes!("absolute", "inset-0")}
+                        onclick={close_palette.clone()}
+                    />
+
+                    <div
+                        class={classes!(
+                            "absolute", "top-16", "right-4",
+                            "w-[min(18rem,calc(100vw-2rem))]",
+                            "rounded-2xl",
+                            "border", "border-white/15",
+                            "bg-slate-900/65",
+                            "shadow-2xl",
+                            "backdrop-blur-xl",
+                            "overflow-hidden",
+                            "transform", "transition-all", "duration-200", "origin-top-right",
+                            "scale-100", "opacity-100", "translate-y-0"
+                        )}
+                        role="dialog"
+                        aria-label="Menu"
+                    >
+                    <div class="px-4 py-3 border-b border-white/10 flex items-center justify-between gap-3">
+                        <div class="min-w-0">
+                            <div class="text-white/90 text-sm font-semibold">{"Menu"}</div>
+                            if let Some(player) = &auth.state.player {
+                                <div class="text-white/50 text-xs truncate">{&player.email}</div>
+                            }
                         </div>
-                        if let Some(_) = &auth.state.player {
-                            <div onclick={close_mobile_menu.clone()}>
-                                <Link<Route>
-                                    to={Route::Profile}
-                                    classes={classes!(
-                                        "block", "px-4", "py-3", "rounded-lg", "text-base", "font-medium",
-                                        "transition-all", "duration-200", "min-h-[48px]", "flex", "items-center",
-                                        "active:scale-95", "active:bg-white/20",
-                                        if current_route == Route::Profile {
-                                            classes!("bg-white/20", "text-white", "shadow-lg")
-                                        } else {
-                                            classes!("text-white/90", "hover:bg-white/10", "hover:text-white")
-                                        }
-                                    )}
-                                >
-                                    <span class={classes!("mr-3", "text-lg")}>{"👤"}</span>
-                                    {"Profile"}
-                                </Link<Route>>
-                            </div>
-                            // Mobile: Create button
-                            <div class={classes!("px-4")}>
+                        <button
+                            class="inline-flex items-center justify-center rounded-xl p-2 text-white/70 hover:text-white hover:bg-white/10 active:scale-95 transition"
+                            onclick={close_palette.clone()}
+                            aria-label="Close menu"
+                        >
+                            {"✕"}
+                        </button>
+                    </div>
+
+                    <div class="py-2 px-2">
+                        <button
+                            type="button"
+                            onclick={go_to_route.clone().reform(|_| Route::Leaderboards)}
+                            class="w-full flex items-center gap-3 px-3 py-3 text-left text-base font-semibold text-white rounded-xl bg-white/10 hover:bg-white/15 active:bg-white/20 active:scale-[0.99] transition"
+                        >
+                            <span class="text-lg">{"🏆"}</span>
+                            <span class="flex-1">
+                                <span class="text-white">{"Leaderboards"}</span>
+                            </span>
+                        </button>
+
+                        if auth.state.player.is_some() {
+                            <button
+                                type="button"
+                                onclick={go_to_route.clone().reform(|_| Route::Profile)}
+                                class="w-full flex items-center gap-3 px-3 py-3 text-left text-base font-semibold text-white rounded-xl bg-white/10 hover:bg-white/15 active:bg-white/20 active:scale-[0.99] transition"
+                            >
+                                <span class="text-lg">{"👤"}</span>
+                                <span class="flex-1">
+                                    <span class="text-white">{"Profile"}</span>
+                                </span>
+                            </button>
+                            <button
+                                type="button"
+                                onclick={go_to_route.clone().reform(|_| Route::Contests)}
+                                class="w-full flex items-center gap-3 px-3 py-3 text-left text-base font-semibold text-white rounded-xl bg-white/10 hover:bg-white/15 active:bg-white/20 active:scale-[0.99] transition"
+                            >
+                                <span class="text-lg">{"🏆"}</span>
+                                <span class="flex-1">
+                                    <span class="text-white">{"Contests"}</span>
+                                </span>
+                            </button>
+                            <button
+                                type="button"
+                                onclick={go_to_route.clone().reform(|_| Route::Venues)}
+                                class="w-full flex items-center gap-3 px-3 py-3 text-left text-base font-semibold text-white rounded-xl bg-white/10 hover:bg-white/15 active:bg-white/20 active:scale-[0.99] transition"
+                            >
+                                <span class="text-lg">{"📍"}</span>
+                                <span class="flex-1">
+                                    <span class="text-white">{"Venues"}</span>
+                                </span>
+                            </button>
+                            <button
+                                type="button"
+                                onclick={go_to_route.clone().reform(|_| Route::Games)}
+                                class="w-full flex items-center gap-3 px-3 py-3 text-left text-base font-semibold text-white rounded-xl bg-white/10 hover:bg-white/15 active:bg-white/20 active:scale-[0.99] transition"
+                            >
+                                <span class="text-lg">{"🎮"}</span>
+                                <span class="flex-1">
+                                    <span class="text-white">{"Games"}</span>
+                                </span>
+                            </button>
+                            <button
+                                type="button"
+                                onclick={go_to_route.clone().reform(|_| Route::Analytics)}
+                                class="w-full flex items-center gap-3 px-3 py-3 text-left text-base font-semibold text-white rounded-xl bg-white/10 hover:bg-white/15 active:bg-white/20 active:scale-[0.99] transition"
+                            >
+                                <span class="text-lg">{"📊"}</span>
+                                <span class="flex-1">
+                                    <span class="text-white">{"Statistics"}</span>
+                                </span>
+                            </button>
+                            if auth.state.is_admin() {
                                 <button
-                                    onclick={on_create_click.clone()}
-                                    class={classes!(
-                                        "w-full", "inline-flex", "justify-center", "items-center",
-                                        "px-4", "py-3", "rounded-lg", "text-base", "font-medium",
-                                        "text-white", "bg-gradient-to-r", "from-blue-500", "to-indigo-600",
-                                        "shadow-lg", "hover:shadow-xl", "hover:brightness-105",
-                                        "transition-all", "duration-200", "active:scale-95"
-                                    )}
+                                    type="button"
+                                    onclick={go_to_route.clone().reform(|_| Route::Admin)}
+                                    class="w-full flex items-center gap-3 px-3 py-3 text-left text-base font-semibold text-white rounded-xl bg-white/10 hover:bg-white/15 active:bg-white/20 active:scale-[0.99] transition"
                                 >
-                                    <span class={classes!("mr-2")}>{"➕"}</span>
-                                    {"Create Contest"}
+                                    <span class="text-lg">{"👑"}</span>
+                                    <span class="flex-1">
+                                        <span class="text-white">{"Admin"}</span>
+                                    </span>
+                                </button>
+                            }
+
+                            <div class="px-2 pt-3 pb-2 border-t border-white/10">
+                                <button
+                                    onclick={do_create_contest.clone().reform(|_| ())}
+                                    class="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-blue-500/90 to-indigo-600/90 shadow-lg hover:shadow-xl hover:brightness-110 transition-all active:scale-[0.99]"
+                                >
+                                    <span>{"➕"}</span>
+                                    {"Create contest"}
+                                </button>
+                                <button
+                                    onclick={{
+                                        let close_palette_unit = close_palette_unit.clone();
+                                        let do_logout = do_logout.clone();
+                                        Callback::from(move |_| {
+                                            close_palette_unit.emit(());
+                                            do_logout.emit(());
+                                        })
+                                    }}
+                                    class="mt-2 w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white bg-white/10 hover:bg-white/15 active:bg-white/20 shadow-lg transition-all active:scale-[0.99]"
+                                >
+                                    <span>{"↪"}</span>
+                                    {"Logout"}
                                 </button>
                             </div>
-                            <div onclick={close_mobile_menu.clone()}>
-                                <Link<Route>
-                                    to={Route::Contests}
-                                    classes={classes!(
-                                        "block", "px-4", "py-3", "rounded-lg", "text-base", "font-medium",
-                                        "transition-all", "duration-200", "min-h-[48px]", "flex", "items-center",
-                                        "active:scale-95", "active:bg-white/20",
-                                        if current_route == Route::Contests {
-                                            classes!("bg-white/20", "text-white", "shadow-lg")
-                                        } else {
-                                            classes!("text-white/90", "hover:bg-white/10", "hover:text-white")
-                                        }
-                                    )}
-                                >
-                                    <span class={classes!("mr-3", "text-lg")}>{"🏆"}</span>
-                                    {"Contests"}
-                                </Link<Route>>
-                            </div>
-                            <div onclick={close_mobile_menu.clone()}>
-                                <Link<Route>
-                                    to={Route::Venues}
-                                    classes={classes!(
-                                        "block", "px-4", "py-3", "rounded-lg", "text-base", "font-medium",
-                                        "transition-all", "duration-200", "min-h-[48px]", "flex", "items-center",
-                                        "active:scale-95", "active:bg-white/20",
-                                        if current_route == Route::Venues {
-                                            classes!("bg-white/20", "text-white", "shadow-lg")
-                                        } else {
-                                            classes!("text-white/90", "hover:bg-white/10", "hover:text-white")
-                                        }
-                                    )}
-                                >
-                                    <span class={classes!("mr-3", "text-lg")}>{"📍"}</span>
-                                    {"Venues"}
-                                </Link<Route>>
-                            </div>
-                            <div onclick={close_mobile_menu.clone()}>
-                                <Link<Route>
-                                    to={Route::Games}
-                                    classes={classes!(
-                                        "block", "px-4", "py-3", "rounded-lg", "text-base", "font-medium",
-                                        "transition-all", "duration-200", "min-h-[48px]", "flex", "items-center",
-                                        "active:scale-95", "active:bg-white/20",
-                                        if current_route == Route::Games {
-                                            classes!("bg-white/20", "text-white", "shadow-lg")
-                                        } else {
-                                            classes!("text-white/90", "hover:bg-white/10", "hover:text-white")
-                                        }
-                                    )}
-                                >
-                                    <span class={classes!("mr-3", "text-lg")}>{"🎮"}</span>
-                                    {"Games"}
-                                </Link<Route>>
-                            </div>
-                            <div onclick={close_mobile_menu.clone()}>
-                                <Link<Route>
-                                    to={Route::Analytics}
-                                    classes={classes!(
-                                        "block", "px-4", "py-3", "rounded-lg", "text-base", "font-medium",
-                                        "transition-all", "duration-200", "min-h-[48px]", "flex", "items-center",
-                                        "active:scale-95", "active:bg-white/20",
-                                        if current_route == Route::Analytics {
-                                            classes!("bg-white/20", "text-white", "shadow-lg")
-                                        } else {
-                                            classes!("text-white/90", "hover:bg-white/10", "hover:text-white")
-                                        }
-                                    )}
-                                >
-                                    <span class={classes!("mr-3", "text-lg")}>{"📊"}</span>
-                                    {"Statistics"}
-                                </Link<Route>>
-                            </div>
-                            if auth.state.is_admin() {
-                                <div onclick={close_mobile_menu.clone()}>
-                                    <Link<Route>
-                                        to={Route::Admin}
-                                        classes={classes!(
-                                            "block", "px-4", "py-3", "rounded-lg", "text-base", "font-medium",
-                                            "transition-all", "duration-200", "min-h-[48px]", "flex", "items-center",
-                                            "active:scale-95", "active:bg-white/20",
-                                            if current_route == Route::Admin {
-                                                classes!("bg-white/20", "text-white", "shadow-lg")
-                                            } else {
-                                                classes!("text-white/90", "hover:bg-white/10", "hover:text-white")
-                                            }
-                                        )}
-                                    >
-                                        <span class={classes!("mr-3", "text-lg")}>{"👑"}</span>
-                                        {"Admin"}
-                                    </Link<Route>>
-                                </div>
-                            }
-                        }
-
-                        // User info and logout section
-                        if let Some(player) = &auth.state.player {
-                            <div class={classes!("mt-6", "pt-4", "border-t", "border-white/10")}>
-                                <div class={classes!("px-4", "py-3", "rounded-lg", "bg-white/10", "backdrop-blur-sm")}>
-                                    <span class={classes!("block", "text-sm", "text-white/90", "mb-2")}>
-                                        {"Welcome, "}
-                                        <span class={classes!("font-medium", "text-white")}>{&player.email}</span>
-                                        if auth.state.is_admin() {
-                                            <span class={classes!("ml-2", "inline-flex", "items-center", "px-2", "py-1", "text-xs", "font-medium", "bg-yellow-400", "text-yellow-900", "rounded-full", "shadow-sm")}>
-                                                <span class={classes!("mr-1")}>{"👑"}</span>
-                                                {"Admin"}
-                                            </span>
-                                        }
-                                    </span>
-                                    <button
-                                        onclick={on_logout_click.clone()}
-                                        class={classes!(
-                                            "w-full", "inline-flex", "justify-center", "items-center",
-                                            "px-3", "py-2", "border", "border-transparent", "text-xs", "font-medium",
-                                            "rounded-lg", "text-blue-600", "bg-white", "hover:bg-blue-50",
-                                            "focus:outline-none", "focus:ring-2", "focus:ring-offset-2",
-                                            "focus:ring-blue-500", "transition-all", "duration-200", "min-h-[36px]",
-                                            "active:scale-95", "shadow-lg"
-                                        )}
-                                    >
-                                        <span class={classes!("mr-1")}>{"↪"}</span>
-                                        {"Logout"}
-                                    </button>
-                                </div>
-                            </div>
                         } else {
-                            <div class={classes!("mt-6", "pt-4", "border-t", "border-white/10")}>
+                            <div class="px-2 pt-3 pb-2 border-t border-white/10">
                                 <button
-                                    onclick={on_login_click.clone()}
-                                    class={classes!(
-                                        "w-full", "inline-flex", "justify-center", "items-center", "px-4",
-                                        "py-3", "border", "border-transparent", "text-sm", "font-medium",
-                                        "rounded-lg", "text-white", "bg-blue-500", "hover:bg-blue-600",
-                                        "focus:outline-none", "focus:ring-2", "focus:ring-offset-2",
-                                        "focus:ring-blue-500", "transition-all", "duration-200", "min-h-[48px]",
-                                        "active:scale-95", "shadow-lg"
-                                    )}
+                                    onclick={{
+                                        let close_palette_unit = close_palette_unit.clone();
+                                        let do_login = do_login.clone();
+                                        Callback::from(move |_| {
+                                            close_palette_unit.emit(());
+                                            do_login.emit(());
+                                        })
+                                    }}
+                                    class="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white bg-blue-500/90 hover:bg-blue-500 shadow-lg transition-all active:scale-[0.99]"
                                 >
-                                    <span class={classes!("mr-2")}>{"🔑"}</span>
+                                    <span>{"🔑"}</span>
                                     {"Login"}
                                 </button>
                             </div>
                         }
                     </div>
                 </div>
-            </nav>
+                </div>
+                }
+            } else {
+                html! {}
+            }}
 
             <LoginModal
                 show={*show_login_modal}

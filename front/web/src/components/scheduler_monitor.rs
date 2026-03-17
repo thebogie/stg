@@ -1,3 +1,4 @@
+use crate::api::api_url;
 use crate::api::utils::{authenticated_get, authenticated_post};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -5,7 +6,10 @@ use web_sys::console;
 use yew::prelude::*;
 
 #[derive(Properties, PartialEq)]
-pub struct SchedulerMonitorProps {}
+pub struct SchedulerMonitorProps {
+    #[prop_or(true)]
+    pub show_controls: bool,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct SchedulerStatus {
@@ -21,7 +25,7 @@ struct TriggerResponse {
 }
 
 #[function_component(SchedulerMonitor)]
-pub fn scheduler_monitor(_props: &SchedulerMonitorProps) -> Html {
+pub fn scheduler_monitor(props: &SchedulerMonitorProps) -> Html {
     let status = use_state(|| None::<SchedulerStatus>);
     let loading = use_state(|| false);
     let error = use_state(|| None::<String>);
@@ -45,7 +49,7 @@ pub fn scheduler_monitor(_props: &SchedulerMonitorProps) -> Html {
 
             wasm_bindgen_futures::spawn_local(async move {
                 console::log_1(&"SchedulerMonitor: Making authenticated request to /api/ratings/scheduler/status".into());
-                let request = authenticated_get("/api/ratings/scheduler/status");
+                let request = authenticated_get(&api_url("/api/ratings/scheduler/status"));
                 match request.send().await {
                     Ok(response) => {
                         if response.ok() {
@@ -104,9 +108,9 @@ pub fn scheduler_monitor(_props: &SchedulerMonitorProps) -> Html {
 
             wasm_bindgen_futures::spawn_local(async move {
                 let url = if !period_clone.is_empty() {
-                    format!("/api/ratings/scheduler/trigger?period={}", period_clone)
+                    format!("{}?period={}", api_url("/api/ratings/scheduler/trigger"), period_clone)
                 } else {
-                    "/api/ratings/scheduler/trigger".to_string()
+                    api_url("/api/ratings/scheduler/trigger")
                 };
 
                 let request = authenticated_post(&url);
@@ -159,7 +163,7 @@ pub fn scheduler_monitor(_props: &SchedulerMonitorProps) -> Html {
             let error = error.clone();
 
             wasm_bindgen_futures::spawn_local(async move {
-                let request = authenticated_post("/api/ratings/recalculate/historical");
+                let request = authenticated_post(&api_url("/api/ratings/recalculate/historical"));
                 match request.send().await {
                     Ok(response) => {
                         if response.ok() {
@@ -224,7 +228,7 @@ pub fn scheduler_monitor(_props: &SchedulerMonitorProps) -> Html {
             let error = error.clone();
 
             wasm_bindgen_futures::spawn_local(async move {
-                let request = authenticated_get("/api/ratings/scheduler/status");
+                let request = authenticated_get(&api_url("/api/ratings/scheduler/status"));
                 match request.send().await {
                     Ok(response) => {
                         if response.ok() {
@@ -299,79 +303,87 @@ pub fn scheduler_monitor(_props: &SchedulerMonitorProps) -> Html {
                         </div>
                     </div>
 
-                    <div class="control-section">
-                        <h3>{"Manual Control"}</h3>
-                        <div class="control-grid">
-                            <div class="control-item">
-                                <label for="period-input">{"Period (YYYY-MM, optional):"}</label>
-                                <input
-                                    id="period-input"
-                                    type="text"
-                                    placeholder="e.g., 2024-01"
-                                    value={(*period_input).clone()}
-                                    onchange={on_period_input_change}
-                                    class="period-input"
-                                />
-                                <small>{"Leave empty for previous month"}</small>
-                            </div>
+                    {if props.show_controls {
+                        html! {
+                            <>
+                                <div class="control-section">
+                                    <h3>{"Manual Control"}</h3>
+                                    <div class="control-grid">
+                                        <div class="control-item">
+                                            <label for="period-input">{"Period (YYYY-MM, optional):"}</label>
+                                            <input
+                                                id="period-input"
+                                                type="text"
+                                                placeholder="e.g., 2024-01"
+                                                value={(*period_input).clone()}
+                                                onchange={on_period_input_change}
+                                                class="period-input"
+                                            />
+                                            <small>{"Leave empty for previous month"}</small>
+                                        </div>
 
-                            <div class="control-item">
-                                <button
-                                    onclick={on_trigger_click}
-                                    disabled={*trigger_loading}
-                                    class="trigger-btn"
-                                >
-                                    if *trigger_loading {
-                                        {"⏳ Triggering..."}
-                                    } else {
-                                        {"🚀 Trigger Recalculation"}
+                                        <div class="control-item">
+                                            <button
+                                                onclick={on_trigger_click}
+                                                disabled={*trigger_loading}
+                                                class="trigger-btn"
+                                            >
+                                                if *trigger_loading {
+                                                    {"⏳ Triggering..."}
+                                                } else {
+                                                    {"🚀 Trigger Recalculation"}
+                                                }
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    if let Some(message) = (*trigger_message).as_ref() {
+                                        <div class="success-message">
+                                            <p>{"✅ "}{message}</p>
+                                        </div>
                                     }
-                                </button>
-                            </div>
-                        </div>
+                                </div>
 
-                        if let Some(message) = (*trigger_message).as_ref() {
-                            <div class="success-message">
-                                <p>{"✅ "}{message}</p>
-                            </div>
+                                <div class="historical-section">
+                                    <h3>{"Historical Recalculation"}</h3>
+                                    <div class="historical-info">
+                                        <p>{"Recalculate all Glicko2 ratings from the first database entry onwards. This will:"}</p>
+                                        <ul>
+                                            <li>{"Clear all existing ratings data"}</li>
+                                            <li>{"Process every month from the actual first contest to present"}</li>
+                                            <li>{"Use actual contest results and placements"}</li>
+                                            <li>{"Populate both current and historical ratings"}</li>
+                                        </ul>
+                                        <div class="warning">
+                                            <p>{"⚠️ This operation may take several minutes and should only be run once during initial setup or after major data changes."}</p>
+                                        </div>
+                                    </div>
+
+                                    <div class="historical-controls">
+                                        <button
+                                            onclick={on_historical_recalc_click}
+                                            disabled={*historical_loading}
+                                            class="historical-btn"
+                                        >
+                                            if *historical_loading {
+                                                {"⏳ Processing Historical Data..."}
+                                            } else {
+                                                {"🔄 Recalculate All Historical Ratings"}
+                                            }
+                                        </button>
+                                    </div>
+
+                                    if let Some(message) = (*historical_message).as_ref() {
+                                        <div class="success-message">
+                                            <p>{"✅ "}{message}</p>
+                                        </div>
+                                    }
+                                </div>
+                            </>
                         }
-                    </div>
-
-                    <div class="historical-section">
-                        <h3>{"Historical Recalculation"}</h3>
-                        <div class="historical-info">
-                            <p>{"Recalculate all Glicko2 ratings from the first database entry onwards. This will:"}</p>
-                            <ul>
-                                <li>{"Clear all existing ratings data"}</li>
-                                <li>{"Process every month from the actual first contest to present"}</li>
-                                <li>{"Use actual contest results and placements"}</li>
-                                <li>{"Populate both current and historical ratings"}</li>
-                            </ul>
-                            <div class="warning">
-                                <p>{"⚠️ This operation may take several minutes and should only be run once during initial setup or after major data changes."}</p>
-                            </div>
-                        </div>
-
-                        <div class="historical-controls">
-                            <button
-                                onclick={on_historical_recalc_click}
-                                disabled={*historical_loading}
-                                class="historical-btn"
-                            >
-                                if *historical_loading {
-                                    {"⏳ Processing Historical Data..."}
-                                } else {
-                                    {"🔄 Recalculate All Historical Ratings"}
-                                }
-                            </button>
-                        </div>
-
-                        if let Some(message) = (*historical_message).as_ref() {
-                            <div class="success-message">
-                                <p>{"✅ "}{message}</p>
-                            </div>
-                        }
-                    </div>
+                    } else {
+                        html! {}
+                    }}
 
                     <div class="info-section">
                         <h3>{"How It Works"}</h3>

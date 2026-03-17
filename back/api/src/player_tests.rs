@@ -7,6 +7,7 @@ mod player_tests {
 
     #[test]
     fn test_player_dto_creation() {
+        // PlayerDto uses DateTime<FixedOffset> for created_at, so derive from Utc with fixed_offset().
         let player_dto = PlayerDto {
             id: "player/test".to_string(),
             firstname: "John".to_string(),
@@ -57,7 +58,7 @@ mod player_tests {
             handle: "testuser".to_string(),
             email: "test@example.com".to_string(),
             password: "hashed_password".to_string(),
-            created_at: Utc::now().fixed_offset(),
+            created_at: Utc::now(),
             is_admin: false,
         };
 
@@ -76,7 +77,7 @@ mod player_tests {
             handle: "testuser".to_string(),
             email: "test@example.com".to_string(),
             password: "hashed_password".to_string(),
-            created_at: Utc::now().fixed_offset(),
+            created_at: Utc::now(),
             is_admin: false,
         };
 

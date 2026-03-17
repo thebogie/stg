@@ -464,7 +464,14 @@ mod tests {
             Some(d) => d,
             None => return,
         };
-        if db.signin(surrealdb::opt::auth::Root { username: "root", password: "root" }).await.is_err() {
+        if db
+            .signin(surrealdb::opt::auth::Root {
+                username: "root".to_string(),
+                password: "root".to_string(),
+            })
+            .await
+            .is_err()
+        {
             return;
         }
         if db.use_ns("test").use_db("test").await.is_err() {
@@ -535,7 +542,14 @@ mod tests {
             Some(d) => d,
             None => return,
         };
-        if db.signin(surrealdb::opt::auth::Root { username: "root", password: "root" }).await.is_err() {
+        if db
+            .signin(surrealdb::opt::auth::Root {
+                username: "root".to_string(),
+                password: "root".to_string(),
+            })
+            .await
+            .is_err()
+        {
             return;
         }
         if db.use_ns("test").use_db("test").await.is_err() {

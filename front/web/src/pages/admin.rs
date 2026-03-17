@@ -1,8 +1,11 @@
+use crate::api::api_url;
 use crate::api::utils::authenticated_get;
+use crate::api::utils::authenticated_post;
 use crate::api::version::{get_version_info, VersionInfo};
 use crate::components::common::toast::{Toast, ToastContext, ToastType};
 use crate::components::scheduler_monitor::SchedulerMonitor;
-use serde_json::Value;
+use gloo_timers::callback::Interval;
+use shared::dto::analytics::PlatformStatsDto;
 use yew::prelude::*;
 
 #[derive(Properties, PartialEq, Clone, Debug)]
@@ -23,7 +26,7 @@ pub fn admin_page(_props: &AdminPageProps) -> Html {
     let current_tab = use_state(|| AdminTab::Dashboard);
 
     // System stats state
-    let system_stats = use_state(|| None::<Value>);
+    let system_stats = use_state(|| None::<PlatformStatsDto>);
     let stats_loading = use_state(|| false);
     let stats_error = use_state(|| None::<String>);
 
@@ -67,10 +70,10 @@ pub fn admin_page(_props: &AdminPageProps) -> Html {
             stats_error.set(None);
 
             wasm_bindgen_futures::spawn_local(async move {
-                match authenticated_get("/api/analytics/platform").send().await {
+                match authenticated_get(&api_url("/api/analytics/platform")).send().await {
                     Ok(response) => {
                         if response.ok() {
-                            if let Ok(stats) = response.json::<Value>().await {
+                            if let Ok(stats) = response.json::<PlatformStatsDto>().await {
                                 system_stats.set(Some(stats));
                             } else {
                                 stats_error.set(Some("Failed to parse system stats".to_string()));
@@ -130,46 +133,258 @@ pub fn admin_page(_props: &AdminPageProps) -> Html {
         })
     };
 
+    let show_error_toast = {
+        let toast_context = toast_context.clone();
+        Callback::from(move |message: String| {
+            let toast = Toast::new(message, ToastType::Error).with_duration(8000);
+            toast_context.add_toast.emit(toast);
+        })
+    };
+
+    let clear_analytics_cache = {
+        let show_success_toast = show_success_toast.clone();
+        let show_error_toast = show_error_toast.clone();
+        let system_stats = system_stats.clone();
+        let stats_loading = stats_loading.clone();
+        let stats_error = stats_error.clone();
+
+        Callback::from(move |_: ()| {
+            if !gloo::dialogs::confirm("Clear analytics cache? This will refresh platform stats and charts.") {
+                return;
+            }
+
+            let show_success_toast = show_success_toast.clone();
+            let show_error_toast = show_error_toast.clone();
+            let system_stats = system_stats.clone();
+            let stats_loading = stats_loading.clone();
+            let stats_error = stats_error.clone();
+
+            wasm_bindgen_futures::spawn_local(async move {
+                match authenticated_post(&api_url("/api/admin/cache/analytics/clear"))
+                    .send()
+                    .await
+                {
+                    Ok(resp) if resp.ok() => {
+                        show_success_toast.emit("Analytics cache cleared".to_string());
+
+                        // Immediately refresh stats.
+                        system_stats.set(None);
+                        stats_loading.set(true);
+                        stats_error.set(None);
+                        match authenticated_get(&api_url("/api/analytics/platform")).send().await {
+                            Ok(r) if r.ok() => match r.json::<PlatformStatsDto>().await {
+                                Ok(stats) => system_stats.set(Some(stats)),
+                                Err(_) => stats_error
+                                    .set(Some("Failed to parse system stats".to_string())),
+                            },
+                            Ok(r) => {
+                                let status = r.status();
+                                let text = r.text().await.unwrap_or_else(|_| "Unknown error".to_string());
+                                stats_error.set(Some(format!("Failed to load system stats: {} - {}", status, text)));
+                            }
+                            Err(e) => stats_error
+                                .set(Some(format!("Failed to fetch system stats: {}", e))),
+                        }
+                        stats_loading.set(false);
+                    }
+                    Ok(resp) => {
+                        let status = resp.status();
+                        let text = resp.text().await.unwrap_or_else(|_| "Unknown error".to_string());
+                        show_error_toast.emit(format!("Failed to clear cache: {} - {}", status, text));
+                    }
+                    Err(e) => show_error_toast.emit(format!("Failed to clear cache: {}", e)),
+                }
+            });
+        })
+    };
+
+    let run_ratings_recompute_month = {
+        let show_success_toast = show_success_toast.clone();
+        let show_error_toast = show_error_toast.clone();
+        Callback::from(move |_: ()| {
+            if !gloo::dialogs::confirm("Recalculate Glicko2 ratings for the previous month?") {
+                return;
+            }
+            let show_success_toast = show_success_toast.clone();
+            let show_error_toast = show_error_toast.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                match authenticated_post(&api_url("/api/ratings/recompute"))
+                    .send()
+                    .await
+                {
+                    Ok(resp) if resp.ok() => {
+                        show_success_toast.emit("Ratings recompute started".to_string());
+                    }
+                    Ok(resp) => {
+                        let status = resp.status();
+                        let text = resp.text().await.unwrap_or_else(|_| "Unknown error".to_string());
+                        show_error_toast.emit(format!("Ratings recompute failed: {} - {}", status, text));
+                    }
+                    Err(e) => show_error_toast.emit(format!("Ratings recompute failed: {}", e)),
+                }
+            });
+        })
+    };
+
+    let run_ratings_rebuild_all = {
+        let show_success_toast = show_success_toast.clone();
+        let show_error_toast = show_error_toast.clone();
+        Callback::from(move |_: ()| {
+            if !gloo::dialogs::confirm("Rebuild ALL ratings from the beginning? This can take a while.") {
+                return;
+            }
+            let show_success_toast = show_success_toast.clone();
+            let show_error_toast = show_error_toast.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                match authenticated_post(&api_url("/api/ratings/recalculate/historical"))
+                    .send()
+                    .await
+                {
+                    Ok(resp) if resp.ok() => {
+                        show_success_toast.emit("Ratings rebuild started".to_string());
+                    }
+                    Ok(resp) => {
+                        let status = resp.status();
+                        let text = resp.text().await.unwrap_or_else(|_| "Unknown error".to_string());
+                        show_error_toast.emit(format!("Ratings rebuild failed: {} - {}", status, text));
+                    }
+                    Err(e) => show_error_toast.emit(format!("Ratings rebuild failed: {}", e)),
+                }
+            });
+        })
+    };
+
+    // Ratings rebuild status (admin only)
+    let rebuild_status = use_state(|| None::<serde_json::Value>);
+    let rebuild_status_loading = use_state(|| false);
+    let rebuild_status_interval = use_mut_ref(|| None::<Interval>);
+
+    let refresh_rebuild_status = {
+        let rebuild_status = rebuild_status.clone();
+        let rebuild_status_loading = rebuild_status_loading.clone();
+        let show_error_toast = show_error_toast.clone();
+        Callback::from(move |_: ()| {
+            rebuild_status_loading.set(true);
+            let rebuild_status = rebuild_status.clone();
+            let rebuild_status_loading = rebuild_status_loading.clone();
+            let show_error_toast = show_error_toast.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                match authenticated_get(&api_url("/api/ratings/rebuild/status")).send().await {
+                    Ok(resp) if resp.ok() => match resp.json::<serde_json::Value>().await {
+                        Ok(v) => rebuild_status.set(Some(v)),
+                        Err(_) => show_error_toast.emit("Failed to parse rebuild status".to_string()),
+                    },
+                    Ok(resp) => {
+                        let status = resp.status();
+                        let text = resp.text().await.unwrap_or_else(|_| "Unknown error".to_string());
+                        show_error_toast.emit(format!("Failed to fetch rebuild status: {} - {}", status, text));
+                    }
+                    Err(e) => show_error_toast.emit(format!("Failed to fetch rebuild status: {}", e)),
+                }
+                rebuild_status_loading.set(false);
+            });
+        })
+    };
+
+    // Auto-refresh rebuild status while running.
+    {
+        let rebuild_status = rebuild_status.clone();
+        let rebuild_status_loading = rebuild_status_loading.clone();
+        let rebuild_status_interval = rebuild_status_interval.clone();
+
+        use_effect_with(rebuild_status.clone(), move |st| {
+            let running = st
+                .as_ref()
+                .and_then(|v| v.get("running").and_then(|x| x.as_bool()))
+                .unwrap_or(false);
+
+            // Stop existing interval if any.
+            rebuild_status_interval.borrow_mut().take();
+
+            if running {
+                let rebuild_status = rebuild_status.clone();
+                let rebuild_status_loading = rebuild_status_loading.clone();
+                let interval = Interval::new(2000, move || {
+                    if *rebuild_status_loading {
+                        return;
+                    }
+                    rebuild_status_loading.set(true);
+                    let rebuild_status = rebuild_status.clone();
+                    let rebuild_status_loading = rebuild_status_loading.clone();
+                    wasm_bindgen_futures::spawn_local(async move {
+                        if let Ok(resp) =
+                            authenticated_get(&api_url("/api/ratings/rebuild/status")).send().await
+                        {
+                            if resp.ok() {
+                                if let Ok(v) = resp.json::<serde_json::Value>().await {
+                                    rebuild_status.set(Some(v));
+                                }
+                            }
+                        }
+                        rebuild_status_loading.set(false);
+                    });
+                });
+                *rebuild_status_interval.borrow_mut() = Some(interval);
+            }
+
+            || {}
+        });
+    }
+
     html! {
-        <div class="admin-page">
-            <div class="page-header">
-                <div class="header-content">
-                    <div class="header-text">
-                        <h1>{"👑 Administrator Dashboard"}</h1>
-                        <p>{"System management, monitoring, and administrative tools"}</p>
+        <div class="min-h-screen bg-gray-50">
+            <div class="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
+                <div class="mb-8 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                    <div class="min-w-0">
+                        <h1 class="text-3xl font-bold text-gray-900">{"👑 Administrator Dashboard"}</h1>
+                        <p class="mt-2 text-gray-600">{"System management, monitoring, and administrative tools"}</p>
                     </div>
-                    <div class="admin-badge">
-                        <span class="admin-indicator">
-                            <span class="admin-icon">{"👑"}</span>
-                            <span class="admin-text">{"Administrator"}</span>
+                    <div class="flex-shrink-0">
+                        <span class="inline-flex items-center px-3 py-1.5 text-sm font-semibold bg-yellow-400 text-yellow-900 rounded-full shadow-sm border border-yellow-500">
+                            <span class="mr-2">{"👑"}</span>
+                            {"Admin"}
                         </span>
                     </div>
                 </div>
-            </div>
 
-            <div class="admin-content">
                 // Navigation Tabs
-                <div class="admin-nav">
+                <div class="flex flex-nowrap overflow-x-auto space-x-1 mb-8 bg-white rounded-lg shadow-sm border border-gray-200 p-1">
                     <button
-                        class={classes!("nav-tab", if *current_tab == AdminTab::Dashboard { "active" } else { "" })}
+                        class={classes!(
+                            "flex-none", "sm:flex-1", "px-4", "py-3", "text-sm", "font-medium", "rounded-md",
+                            "transition-all", "duration-200", "whitespace-nowrap",
+                            if *current_tab == AdminTab::Dashboard { "bg-yellow-500 text-yellow-950 shadow-sm" } else { "text-gray-600 hover:text-gray-900 hover:bg-gray-50" }
+                        )}
                         onclick={on_tab_click.clone().reform(|_| AdminTab::Dashboard)}
                     >
                         {"📊 Dashboard"}
                     </button>
                     <button
-                        class={classes!("nav-tab", if *current_tab == AdminTab::Ratings { "active" } else { "" })}
+                        class={classes!(
+                            "flex-none", "sm:flex-1", "px-4", "py-3", "text-sm", "font-medium", "rounded-md",
+                            "transition-all", "duration-200", "whitespace-nowrap",
+                            if *current_tab == AdminTab::Ratings { "bg-yellow-500 text-yellow-950 shadow-sm" } else { "text-gray-600 hover:text-gray-900 hover:bg-gray-50" }
+                        )}
                         onclick={on_tab_click.clone().reform(|_| AdminTab::Ratings)}
                     >
                         {"🏆 Ratings Management"}
                     </button>
                     <button
-                        class={classes!("nav-tab", if *current_tab == AdminTab::System { "active" } else { "" })}
+                        class={classes!(
+                            "flex-none", "sm:flex-1", "px-4", "py-3", "text-sm", "font-medium", "rounded-md",
+                            "transition-all", "duration-200", "whitespace-nowrap",
+                            if *current_tab == AdminTab::System { "bg-yellow-500 text-yellow-950 shadow-sm" } else { "text-gray-600 hover:text-gray-900 hover:bg-gray-50" }
+                        )}
                         onclick={on_tab_click.clone().reform(|_| AdminTab::System)}
                     >
                         {"⚙️ System"}
                     </button>
                     <button
-                        class={classes!("nav-tab", if *current_tab == AdminTab::Users { "active" } else { "" })}
+                        class={classes!(
+                            "flex-none", "sm:flex-1", "px-4", "py-3", "text-sm", "font-medium", "rounded-md",
+                            "transition-all", "duration-200", "whitespace-nowrap",
+                            if *current_tab == AdminTab::Users { "bg-yellow-500 text-yellow-950 shadow-sm" } else { "text-gray-600 hover:text-gray-900 hover:bg-gray-50" }
+                        )}
                         onclick={on_tab_click.clone().reform(|_| AdminTab::Users)}
                     >
                         {"👥 Users"}
@@ -177,54 +392,65 @@ pub fn admin_page(_props: &AdminPageProps) -> Html {
                 </div>
 
                 // Tab Content
-                <div class="tab-content">
+                <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
                     {match *current_tab {
                         AdminTab::Dashboard => html! {
                             <div class="dashboard-section">
-                                <h2>{"System Overview"}</h2>
-                                <div class="stats-grid">
+                                <h2 class="text-xl font-semibold text-gray-900">{"System Overview"}</h2>
+                                <div class="mt-6 grid grid-cols-1 md:grid-cols-2 gap-6">
                                     if *stats_loading {
-                                        <div class="loading-container">
-                                            <p>{"Loading system statistics..."}</p>
+                                        <div class="text-center py-8 text-gray-600">
+                                            {"Loading system statistics..."}
                                         </div>
                                     } else if let Some(err) = (*stats_error).as_ref() {
-                                        <div class="error-container">
-                                            <p class="error-text">{"Error: "}{err}</p>
+                                        <div class="bg-red-50 border border-red-200 rounded-lg p-4">
+                                            <p class="text-red-800 text-sm font-medium">{"Error: "}{err}</p>
                                         </div>
                                     } else if let Some(stats) = (*system_stats).as_ref() {
-                                        <div class="stat-card">
-                                            <h3>{"📈 Platform Statistics"}</h3>
-                                            <div class="stat-content">
-                                                <div class="stat-item">
-                                                    <span class="stat-label">{"Total Players:"}</span>
-                                                    <span class="stat-value">{stats["total_players"].as_i64().unwrap_or(0)}</span>
+                                        <div class="bg-white rounded-lg border border-gray-200 p-6 shadow-sm">
+                                            <div class="flex items-center justify-between gap-3">
+                                                <h3 class="text-lg font-semibold text-gray-900">{"📈 Platform Statistics"}</h3>
+                                                <span class="text-xs font-semibold text-yellow-900 bg-yellow-100 border border-yellow-200 rounded-full px-2 py-1">
+                                                    {"ADMIN"}
+                                                </span>
+                                            </div>
+                                            <div class="mt-4 space-y-3">
+                                                <div class="flex justify-between items-center py-2 border-b border-gray-100">
+                                                    <span class="text-sm font-medium text-gray-700">{"Total Players"}</span>
+                                                    <span class="text-lg font-semibold text-gray-900">{stats.total_players}</span>
                                                 </div>
-                                                <div class="stat-item">
-                                                    <span class="stat-label">{"Total Contests:"}</span>
-                                                    <span class="stat-value">{stats["total_contests"].as_i64().unwrap_or(0)}</span>
+                                                <div class="flex justify-between items-center py-2 border-b border-gray-100">
+                                                    <span class="text-sm font-medium text-gray-700">{"Total Contests"}</span>
+                                                    <span class="text-lg font-semibold text-gray-900">{stats.total_contests}</span>
                                                 </div>
-                                                <div class="stat-item">
-                                                    <span class="stat-label">{"Total Games:"}</span>
-                                                    <span class="stat-value">{stats["total_games"].as_i64().unwrap_or(0)}</span>
+                                                <div class="flex justify-between items-center py-2 border-b border-gray-100">
+                                                    <span class="text-sm font-medium text-gray-700">{"Total Games"}</span>
+                                                    <span class="text-lg font-semibold text-gray-900">{stats.total_games}</span>
                                                 </div>
-                                                <div class="stat-item">
-                                                    <span class="stat-label">{"Total Venues:"}</span>
-                                                    <span class="stat-value">{stats["total_venues"].as_i64().unwrap_or(0)}</span>
+                                                <div class="flex justify-between items-center py-2">
+                                                    <span class="text-sm font-medium text-gray-700">{"Total Venues"}</span>
+                                                    <span class="text-lg font-semibold text-gray-900">{stats.total_venues}</span>
                                                 </div>
                                             </div>
                                         </div>
                                     }
 
-                                    <div class="stat-card">
-                                        <h3>{"🔧 Quick Actions"}</h3>
-                                        <div class="quick-actions">
-                                            <button class="action-btn primary" onclick={show_success_toast.clone().reform(|_| "System refresh initiated".to_string())}>
+                                    <div class="bg-white rounded-lg border border-gray-200 p-6 shadow-sm">
+                                        <h3 class="text-lg font-semibold text-gray-900">{"🔧 Quick Actions"}</h3>
+                                        <div class="mt-4 space-y-3">
+                                            <button
+                                                class="w-full px-4 py-2 text-sm font-medium rounded-md bg-yellow-600 text-white hover:bg-yellow-700 transition-colors"
+                                                onclick={clear_analytics_cache.reform(|_| ())}
+                                            >
+                                                {"🧹 Clear Analytics Cache"}
+                                            </button>
+                                            <button class="w-full px-4 py-2 text-sm font-medium rounded-md bg-yellow-500 text-yellow-950 hover:bg-yellow-400 transition-colors" onclick={show_success_toast.clone().reform(|_| "System refresh initiated".to_string())}>
                                                 {"🔄 Refresh System"}
                                             </button>
-                                            <button class="action-btn secondary" onclick={show_success_toast.clone().reform(|_| "Export started".to_string())}>
+                                            <button class="w-full px-4 py-2 text-sm font-medium rounded-md bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors" onclick={show_success_toast.clone().reform(|_| "Export started".to_string())}>
                                                 {"📊 Export Data"}
                                             </button>
-                                            <button class="action-btn secondary" onclick={show_success_toast.clone().reform(|_| "Report generation started".to_string())}>
+                                            <button class="w-full px-4 py-2 text-sm font-medium rounded-md bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors" onclick={show_success_toast.clone().reform(|_| "Report generation started".to_string())}>
                                                 {"📋 Generate Report"}
                                             </button>
                                         </div>
@@ -238,11 +464,112 @@ pub fn admin_page(_props: &AdminPageProps) -> Html {
                                 <h2>{"🏆 Glicko2 Ratings Management"}</h2>
                                 <div class="ratings-content">
                                     <div class="ratings-info">
-                                        <p>{"Manage the Glicko2 rating system, including monthly recalculation scheduling and historical data processing."}</p>
+                                        <p>{"Manage the Glicko2 rating system, including monthly recalculation scheduling and full rebuilds."}</p>
+                                    </div>
+
+                                    <div class="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                        <div class="bg-white rounded-lg border border-gray-200 p-6 shadow-sm">
+                                            <h3 class="text-lg font-semibold text-gray-900">{"Recalculate latest period"}</h3>
+                                            <p class="mt-1 text-sm text-gray-600">
+                                                {"Runs the Glicko‑2 monthly update for the previous month only (fast). Use this after adding contests/results."}
+                                            </p>
+                                            <div class="mt-4">
+                                                <button
+                                                    class="w-full px-4 py-2 text-sm font-medium rounded-md bg-yellow-600 text-white hover:bg-yellow-700 transition-colors"
+                                                    onclick={run_ratings_recompute_month.reform(|_| ())}
+                                                >
+                                                    {"Run monthly recalculation"}
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        <div class="bg-white rounded-lg border border-gray-200 p-6 shadow-sm">
+                                            <h3 class="text-lg font-semibold text-gray-900">{"Rebuild from beginning"}</h3>
+                                            <p class="mt-1 text-sm text-gray-600">
+                                                {"Deletes all rating records, then replays every month from your earliest contest through the current month (slow). Use after major data fixes/migrations."}
+                                            </p>
+                                            <div class="mt-4">
+                                                <button
+                                                    class="w-full px-4 py-2 text-sm font-medium rounded-md bg-red-600 text-white hover:bg-red-700 transition-colors"
+                                                    onclick={run_ratings_rebuild_all.reform(|_| ())}
+                                                >
+                                                    {"Rebuild all ratings"}
+                                                </button>
+                                            </div>
+                                            <div class="mt-4">
+                                                <button
+                                                    class="w-full px-4 py-2 text-sm font-medium rounded-md bg-gray-100 text-gray-800 hover:bg-gray-200 transition-colors"
+                                                    onclick={refresh_rebuild_status.reform(|_| ())}
+                                                    disabled={*rebuild_status_loading}
+                                                >
+                                                    {if *rebuild_status_loading { "Checking status..." } else { "Check rebuild status" }}
+                                                </button>
+                                                {if let Some(st) = (*rebuild_status).as_ref() {
+                                                    let running = st.get("running").and_then(|v| v.as_bool()).unwrap_or(false);
+                                                    let current = st.get("current_period").and_then(|v| v.as_str()).unwrap_or("-");
+                                                    let processed = st.get("processed_periods").and_then(|v| v.as_u64()).unwrap_or(0);
+                                                    let total = st.get("total_periods").and_then(|v| v.as_u64()).unwrap_or(0);
+                                                    let last_error = st.get("last_error").and_then(|v| v.as_str()).unwrap_or("");
+                                                    let started_at = st.get("started_at").and_then(|v| v.as_str()).unwrap_or("-");
+                                                    let finished_at = st.get("finished_at").and_then(|v| v.as_str()).unwrap_or("-");
+                                                    let last_completed = st.get("last_completed_run");
+                                                    let last_completed_started = last_completed
+                                                        .and_then(|v| v.get("started_at"))
+                                                        .and_then(|v| v.as_str())
+                                                        .unwrap_or("-");
+                                                    let last_completed_finished = last_completed
+                                                        .and_then(|v| v.get("finished_at"))
+                                                        .and_then(|v| v.as_str())
+                                                        .unwrap_or("-");
+                                                    let last_completed_processed = last_completed
+                                                        .and_then(|v| v.get("processed_periods"))
+                                                        .and_then(|v| v.as_u64())
+                                                        .unwrap_or(0);
+                                                    let last_completed_total = last_completed
+                                                        .and_then(|v| v.get("total_periods"))
+                                                        .and_then(|v| v.as_u64())
+                                                        .unwrap_or(0);
+                                                    html! {
+                                                        <div class="mt-3 rounded-md border border-gray-200 bg-gray-50 p-3 text-sm text-gray-800">
+                                                            <div class="flex items-center justify-between">
+                                                                <span class="font-medium">{"Status"}</span>
+                                                                <span class={classes!(if running { "text-yellow-800" } else { "text-green-800" })}>
+                                                                    {if running { "RUNNING" } else { "IDLE" }}
+                                                                </span>
+                                                            </div>
+                                                            <div class="mt-2 space-y-1">
+                                                                <div class="flex justify-between"><span class="text-gray-600">{"Started"}</span><span class="font-mono">{started_at}</span></div>
+                                                                <div class="flex justify-between"><span class="text-gray-600">{"Finished"}</span><span class="font-mono">{finished_at}</span></div>
+                                                                <div class="flex justify-between"><span class="text-gray-600">{"Current period"}</span><span class="font-mono">{current}</span></div>
+                                                                <div class="flex justify-between"><span class="text-gray-600">{"Progress (months processed)"}</span><span class="font-mono">{format!("{} / {}", processed, total)}</span></div>
+                                                                <div class="mt-3 pt-3 border-t border-gray-200">
+                                                                    <div class="font-medium text-gray-800">{"Last completed run (persisted)"}</div>
+                                                                    <div class="mt-1 space-y-1">
+                                                                        <div class="flex justify-between"><span class="text-gray-600">{"Started"}</span><span class="font-mono">{last_completed_started}</span></div>
+                                                                        <div class="flex justify-between"><span class="text-gray-600">{"Finished"}</span><span class="font-mono">{last_completed_finished}</span></div>
+                                                                        <div class="flex justify-between"><span class="text-gray-600">{"Months computed"}</span><span class="font-mono">{format!("{} / {}", last_completed_processed, last_completed_total)}</span></div>
+                                                                    </div>
+                                                                </div>
+                                                                {if !last_error.is_empty() {
+                                                                    html!{ <div class="mt-2 text-red-700"><span class="font-semibold">{"Last error: "}</span>{last_error}</div> }
+                                                                } else {
+                                                                    html!{ <div class="mt-2 text-gray-600"><span class="font-semibold">{"Last error: "}</span>{"-"}</div> }
+                                                                }}
+                                                                <div class="mt-2 text-xs text-gray-600 leading-relaxed">
+                                                                    {"What do these numbers mean? "}
+                                                                    {"“Total months” is the number of monthly periods from your earliest contest month to the current month (inclusive). "}
+                                                                    {"During a rebuild we recompute Glicko‑2 month-by-month. When Progress reaches Total and Status is IDLE, the rebuild is finished."}
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    }
+                                                } else { html!{} }}
+                                            </div>
+                                        </div>
                                     </div>
 
                                     <div class="scheduler-section">
-                                        <SchedulerMonitor />
+                                        <SchedulerMonitor show_controls={false} />
                                     </div>
                                 </div>
                             </div>

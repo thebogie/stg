@@ -31,7 +31,7 @@ mod tests {
             handle: "testuser".to_string(),
             email: "test@example.com".to_string(),
             password: "hashed_password".to_string(),
-            created_at: Utc::now().fixed_offset(),
+            created_at: Utc::now(),
             is_admin: false,
         };
 
@@ -49,7 +49,7 @@ mod tests {
             handle: "testuser".to_string(),
             email: "test@example.com".to_string(),
             password: "hashed_password".to_string(),
-            created_at: Utc::now().fixed_offset(),
+            created_at: Utc::now(),
             is_admin: false,
         };
 
@@ -146,10 +146,10 @@ mod tests {
             id: "test_contest".to_string(),
             rev: "1".to_string(),
             name: "Test Contest".to_string(),
-            start: Utc::now().fixed_offset(),
-            stop: Utc::now().fixed_offset() + Duration::days(1),
+            start: Utc::now(),
+            stop: Utc::now() + Duration::days(1),
             creator_id: "player/test_creator".to_string(),
-            created_at: Utc::now().fixed_offset(),
+            created_at: Utc::now(),
         };
 
         assert_eq!(contest.name, "Test Contest");
@@ -199,7 +199,7 @@ mod tests {
             handle: "testuser".to_string(),
             email: "test@example.com".to_string(),
             password: "hashed_password".to_string(),
-            created_at: Utc::now().fixed_offset(),
+            created_at: Utc::now(),
             is_admin: false,
         };
 

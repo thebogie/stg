@@ -545,6 +545,7 @@ fn emit_production_schema(w: &mut impl Write, v3_schema: bool) -> Result<()> {
     writeln!(w, "DEFINE FIELD scope_id ON rating_latest TYPE option<string>;")?;
     writeln!(w, "DEFINE FIELD rating ON rating_latest TYPE option<float>;")?;
     writeln!(w, "DEFINE FIELD rd ON rating_latest TYPE option<float>;")?;
+    writeln!(w, "DEFINE FIELD volatility ON rating_latest TYPE option<float>;")?;
     writeln!(w, "DEFINE FIELD games_played ON rating_latest TYPE option<int>;")?;
     writeln!(w, "DEFINE FIELD updated_at ON rating_latest TYPE option<datetime>;")?;
     writeln!(w, "DEFINE FIELD last_period_end ON rating_latest TYPE option<datetime>;")?;
@@ -556,9 +557,14 @@ fn emit_production_schema(w: &mut impl Write, v3_schema: bool) -> Result<()> {
     writeln!(w, "DEFINE FIELD player_id ON rating_history TYPE option<record<player>>;")?;
     writeln!(w, "DEFINE FIELD scope_type ON rating_history TYPE option<string>;")?;
     writeln!(w, "DEFINE FIELD scope_id ON rating_history TYPE option<string>;")?;
+    writeln!(w, "DEFINE FIELD period_end ON rating_history TYPE option<datetime>;")?;
     writeln!(w, "DEFINE FIELD rating ON rating_history TYPE option<float>;")?;
     writeln!(w, "DEFINE FIELD rd ON rating_history TYPE option<float>;")?;
-    writeln!(w, "DEFINE FIELD period_end ON rating_history TYPE option<datetime>;")?;
+    writeln!(w, "DEFINE FIELD volatility ON rating_history TYPE option<float>;")?;
+    writeln!(w, "DEFINE FIELD period_games ON rating_history TYPE option<int>;")?;
+    writeln!(w, "DEFINE FIELD wins ON rating_history TYPE option<int>;")?;
+    writeln!(w, "DEFINE FIELD losses ON rating_history TYPE option<int>;")?;
+    writeln!(w, "DEFINE FIELD draws ON rating_history TYPE option<int>;")?;
     writeln!(w, "DEFINE FIELD created_at ON rating_history TYPE option<datetime>;")?;
     writeln!(w, "DEFINE INDEX rating_history_player_scope ON rating_history COLUMNS player_id, scope_type;")?;
     writeln!(w, "DEFINE INDEX rating_history_period ON rating_history COLUMNS period_end;")?;

@@ -257,7 +257,11 @@ impl AnalyticsController {
             format!("player/{}", player_param)
         };
 
-        match self.usecase.get_player_achievements(&player_id).await {
+        let force_refresh = req
+            .query_string()
+            .split('&')
+            .any(|p| p.eq_ignore_ascii_case("refresh=true") || p.eq_ignore_ascii_case("refresh=1"));
+        match self.usecase.get_player_achievements(&player_id, force_refresh).await {
             Ok(achievements) => Ok(HttpResponse::Ok().json(achievements)),
             Err(e) => {
                 log::error!("Failed to get player achievements for {}: {:?}", player_id, e);

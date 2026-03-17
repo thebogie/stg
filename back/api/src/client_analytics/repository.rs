@@ -188,10 +188,14 @@ impl ClientAnalyticsRepositoryImpl {
             }
         }
         let key = player_key.to_string();
+        if key.is_empty() {
+            return Ok(Vec::new());
+        }
+        let record_id = surrealdb::types::RecordId::new("player", key.as_str());
         let mut res = self
             .db
-            .query("SELECT `in` AS out FROM resulted_in WHERE `out` = type::record('player', $player_key)")
-            .bind(("player_key", key))
+            .query("SELECT `in` AS out FROM resulted_in WHERE `out` = $record_id")
+            .bind(("record_id", record_id))
             .await
             .map_err(|e| SharedError::Database(e.to_string()))?;
         let rows: Vec<serde_json::Value> = res.take(0).unwrap_or_default();
@@ -573,11 +577,12 @@ impl ClientAnalyticsRepository for ClientAnalyticsRepositoryImpl {
         if contest_ids.is_empty() {
             return Ok(Vec::new());
         }
+        let player_record_id = surrealdb::types::RecordId::new("player", player_key.as_str());
         let mut edge_res = self
             .db
-            .query("SELECT `out` AS in FROM resulted_in WHERE `in` INSIDE $contest_ids AND `out` != type::record('player', $player_key)")
+            .query("SELECT `out` AS in FROM resulted_in WHERE `in` INSIDE $contest_ids AND `out` != $record_id")
             .bind(("contest_ids", contest_ids))
-            .bind(("player_key", player_key))
+            .bind(("record_id", player_record_id))
             .await
             .map_err(|e| SharedError::Database(e.to_string()))?;
         let edge_rows: Vec<serde_json::Value> = edge_res.take(0).unwrap_or_default();
@@ -599,11 +604,12 @@ impl ClientAnalyticsRepository for ClientAnalyticsRepositoryImpl {
     async fn get_total_contests_for_player(&self, player_id: &str) -> Result<usize, SharedError> {
         let rid = to_rid(player_id);
         let (_, player_key) = split_rid_owned(&rid);
-        let sql = "SELECT count() AS n FROM resulted_in WHERE `out` = type::record('player', $player_key) GROUP ALL";
+        let player_record_id = surrealdb::types::RecordId::new("player", player_key.as_str());
+        let sql = "SELECT count() AS n FROM resulted_in WHERE `out` = $record_id GROUP ALL";
         let mut res = self
             .db
             .query(sql)
-            .bind(("player_key", player_key))
+            .bind(("record_id", player_record_id))
             .await
             .map_err(|e| SharedError::Database(e.to_string()))?;
         let rows: Vec<serde_json::Value> = res

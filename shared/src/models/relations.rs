@@ -5,11 +5,11 @@ use validator::Validate;
 /// Represents a "played at" relation between a contest and a venue
 #[derive(Debug, Clone, Serialize, Deserialize, Validate)]
 pub struct PlayedAt {
-    /// ArangoDB document ID (format: "played_at/{timestamp}")
+    /// Edge record ID (e.g. played_at/{key}); serialized as "_id" for compatibility.
     #[serde(rename = "_id")]
     pub id: String,
 
-    /// ArangoDB document revision
+    /// Revision (optional); serialized as "_rev" for compatibility.
     #[serde(rename = "_rev")]
     pub rev: String,
 
@@ -32,11 +32,11 @@ pub struct PlayedAt {
 /// Represents a "played with" relation between a contest and a game
 #[derive(Debug, Clone, Serialize, Deserialize, Validate)]
 pub struct PlayedWith {
-    /// ArangoDB document ID (format: "played_with/{timestamp}")
+    /// Edge record ID (e.g. played_with/{key}); serialized as "_id" for compatibility.
     #[serde(rename = "_id")]
     pub id: String,
 
-    /// ArangoDB document revision
+    /// Revision (optional); serialized as "_rev" for compatibility.
     #[serde(rename = "_rev")]
     pub rev: String,
 
@@ -59,11 +59,11 @@ pub struct PlayedWith {
 /// Represents a "resulted in" relation from a contest to a player
 #[derive(Debug, Clone, Serialize, Deserialize, Validate)]
 pub struct ResultedIn {
-    /// ArangoDB document ID (format: "resulted_in/{timestamp}")
+    /// Edge record ID (e.g. resulted_in/{key}); serialized as "_id" for compatibility.
     #[serde(rename = "_id")]
     pub id: String,
 
-    /// ArangoDB document revision
+    /// Revision (optional); serialized as "_rev" for compatibility.
     #[serde(rename = "_rev")]
     pub rev: String,
 

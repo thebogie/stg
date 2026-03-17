@@ -279,7 +279,7 @@ impl GameRepository for GameRepositoryImpl {
             "description": game.description,
         });
         self.db
-            .query("CREATE type::record('game', $key) CONTENT $doc")
+            .query("CREATE type::record('game', type::uuid($key)) CONTENT $doc")
             .bind(("key", key.clone()))
             .bind(("doc", doc))
             .await
@@ -310,7 +310,7 @@ impl GameRepository for GameRepositoryImpl {
             "description": game.description,
         });
         self.db
-            .query("UPDATE type::record('game', $key) MERGE $doc")
+            .query("UPDATE type::record('game', type::uuid($key)) MERGE $doc")
             .bind(("key", key))
             .bind(("doc", doc))
             .await
@@ -326,7 +326,7 @@ impl GameRepository for GameRepositoryImpl {
     async fn delete(&self, id: &str) -> Result<(), String> {
         let key = id.trim_start_matches("game/").trim_start_matches("game:").to_string();
         self.db
-            .query("DELETE type::record('game', $key)")
+            .query("DELETE type::record('game', type::uuid($key))")
             .bind(("key", key))
             .await
             .map_err(|e| format!("Failed to delete game: {}", e))?;

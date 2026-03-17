@@ -43,12 +43,19 @@ async fn test_create_game() -> Result<()> {
     )
     .await;
 
-    // Register and login
+    // Register and login (unique email so repeated runs don't hit duplicate-email)
+    let email = format!(
+        "game-int-{}@example.com",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system time")
+            .as_millis()
+    );
     let register_req = test::TestRequest::post()
         .uri("/api/players/register")
         .set_json(&json!({
             "username": "game_test_user",
-            "email": "game_test@example.com",
+            "email": &email,
             "password": "password123"
         }))
         .to_request();
@@ -62,7 +69,7 @@ async fn test_create_game() -> Result<()> {
     let login_req = test::TestRequest::post()
         .uri("/api/players/login")
         .set_json(&json!({
-            "email": "game_test@example.com",
+            "email": &email,
             "password": "password123"
         }))
         .to_request();
@@ -238,12 +245,19 @@ async fn test_update_game() -> Result<()> {
     )
     .await;
 
-    // Register, login, create game
+    // Register, login, create game (unique email so repeated runs don't hit duplicate-email)
+    let update_email = format!(
+        "game-upd-{}@example.com",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system time")
+            .as_millis()
+    );
     let register_req = test::TestRequest::post()
         .uri("/api/players/register")
         .set_json(&json!({
             "username": "update_game_user",
-            "email": "update_game@example.com",
+            "email": &update_email,
             "password": "password123"
         }))
         .to_request();
@@ -257,7 +271,7 @@ async fn test_update_game() -> Result<()> {
     let login_req = test::TestRequest::post()
         .uri("/api/players/login")
         .set_json(&json!({
-            "email": "update_game@example.com",
+            "email": &update_email,
             "password": "password123"
         }))
         .to_request();
@@ -296,10 +310,16 @@ async fn test_update_game() -> Result<()> {
     }
     let game: GameDto = test::read_body_json(create_resp).await;
     let game_id = game.id.clone();
+    assert!(!game_id.is_empty(), "Created game id must not be empty");
+    let game_id_for_url = game_id
+        .split('/')
+        .last()
+        .unwrap_or(game_id.as_str())
+        .to_string();
 
-    // Update game
+    // Update game (use key only in URL so route matches one segment)
     let update_req = test::TestRequest::put()
-        .uri(&format!("/api/games/{}", game_id))
+        .uri(&format!("/api/games/{}", game_id_for_url))
         .insert_header(("Authorization", format!("Bearer {}", session_id)))
         .set_json(&json!({
             "name": "Updated Game",
@@ -357,12 +377,19 @@ async fn test_delete_game() -> Result<()> {
     )
     .await;
 
-    // Register, login, create game
+    // Register, login, create game (unique email so repeated runs don't hit duplicate-email)
+    let delete_email = format!(
+        "game-del-{}@example.com",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system time")
+            .as_millis()
+    );
     let register_req = test::TestRequest::post()
         .uri("/api/players/register")
         .set_json(&json!({
             "username": "delete_game_user",
-            "email": "delete_game@example.com",
+            "email": &delete_email,
             "password": "password123"
         }))
         .to_request();
@@ -376,7 +403,7 @@ async fn test_delete_game() -> Result<()> {
     let login_req = test::TestRequest::post()
         .uri("/api/players/login")
         .set_json(&json!({
-            "email": "delete_game@example.com",
+            "email": &delete_email,
             "password": "password123"
         }))
         .to_request();
@@ -402,12 +429,23 @@ async fn test_delete_game() -> Result<()> {
         .to_request();
 
     let create_resp = test::call_service(&app, create_req).await;
+    assert!(
+        create_resp.status().is_success(),
+        "Create game should succeed, got status: {}",
+        create_resp.status()
+    );
     let game: GameDto = test::read_body_json(create_resp).await;
     let game_id = game.id.clone();
+    assert!(!game_id.is_empty(), "Created game id must not be empty");
+    let game_id_for_url = game_id
+        .split('/')
+        .last()
+        .unwrap_or(game_id.as_str())
+        .to_string();
 
-    // Delete game
+    // Delete game (use key only in URL so route matches one segment)
     let delete_req = test::TestRequest::delete()
-        .uri(&format!("/api/games/{}", game_id))
+        .uri(&format!("/api/games/{}", game_id_for_url))
         .insert_header(("Authorization", format!("Bearer {}", session_id)))
         .to_request();
 
@@ -424,7 +462,7 @@ async fn test_delete_game() -> Result<()> {
 
     // Verify game is deleted
     let get_req = test::TestRequest::get()
-        .uri(&format!("/api/games/{}", game_id))
+        .uri(&format!("/api/games/{}", game_id_for_url))
         .insert_header(("Authorization", format!("Bearer {}", session_id)))
         .to_request();
 

@@ -4,6 +4,7 @@ use shared::dto::ratings::{
     PlayerRatingDto, PlayerRatingHistoryPointDto, RatingLeaderboardEntryDto, RatingScope,
 };
 use shared::{Result, SharedError};
+use std::sync::{Arc, Mutex};
 
 use super::glicko::{
     pre_period_inflate_rd, update_period, Glicko2Params, OpponentSample, RatingState,
@@ -14,6 +15,20 @@ use super::repository::RatingsRepository;
 pub struct RatingsUsecase {
     repo: RatingsRepository,
     params: Glicko2Params,
+    rebuild_status: Arc<Mutex<RatingsRebuildStatus>>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct RatingsRebuildStatus {
+    pub running: bool,
+    pub started_at: Option<String>,
+    pub finished_at: Option<String>,
+    pub current_period: Option<String>,
+    pub processed_periods: u32,
+    pub total_periods: u32,
+    pub last_error: Option<String>,
+    /// The most recent *completed* rebuild run, persisted in SurrealDB.
+    pub last_completed_run: Option<super::repository::RatingsRebuildRun>,
 }
 
 impl RatingsUsecase {
@@ -21,69 +36,224 @@ impl RatingsUsecase {
         Self {
             repo,
             params: Glicko2Params::default(),
+            rebuild_status: Arc::new(Mutex::new(RatingsRebuildStatus {
+                running: false,
+                started_at: None,
+                finished_at: None,
+                current_period: None,
+                processed_periods: 0,
+                total_periods: 0,
+                last_error: None,
+                last_completed_run: None,
+            })),
         }
+    }
+
+    pub fn rebuild_status(&self) -> RatingsRebuildStatus {
+        self.rebuild_status.lock().unwrap().clone()
+    }
+
+    pub async fn rebuild_status_with_last_completed(&self) -> RatingsRebuildStatus {
+        let mut st = self.rebuild_status();
+        if let Ok(last) = self.repo.get_last_completed_rebuild_run().await {
+            st.last_completed_run = last;
+        }
+        st
     }
 
     /// Recalculate all ratings from the beginning of time (2000) to build proper historical data
     pub async fn recalculate_all_historical_ratings(&self) -> Result<()> {
-        log::info!("Starting complete historical ratings recalculation from 2000...");
-
-        // Clear existing ratings to start fresh
-        self.repo.clear_all_ratings().await?;
-
-        // Get the earliest contest date from the database
-        let earliest_contest = self.repo.get_earliest_contest_date().await?;
-        log::info!("Earliest contest date found: {}", earliest_contest);
-
-        // Parse the earliest date to get year and month
-        let date_parts: Vec<&str> = earliest_contest.split('-').collect();
-        if date_parts.len() < 2 {
-            return Err(SharedError::BadRequest(
-                "Invalid earliest contest date format".into(),
-            ));
+        // Prevent concurrent rebuilds
+        let started_at = Utc::now().to_rfc3339();
+        let mut run_id: Option<String> = None;
+        {
+            let mut st = self.rebuild_status.lock().unwrap();
+            if st.running {
+                return Err(SharedError::BadRequest("Ratings rebuild already running".into()));
+            }
+            st.running = true;
+            st.started_at = Some(started_at.clone());
+            st.finished_at = None;
+            st.current_period = None;
+            st.processed_periods = 0;
+            st.total_periods = 0;
+            st.last_error = None;
         }
 
-        let start_year = date_parts[0]
-            .parse::<i32>()
-            .map_err(|_| SharedError::BadRequest("Invalid year in earliest contest date".into()))?;
-        let start_month = date_parts[1].parse::<u32>().map_err(|_| {
-            SharedError::BadRequest("Invalid month in earliest contest date".into())
-        })?;
+        log::info!("Starting complete historical ratings recalculation from 2000...");
 
-        log::info!(
-            "Starting historical recalculation from {}-{:02} (actual first database entry)",
-            start_year,
-            start_month
-        );
+        let result: Result<()> = async {
+            // Create persisted rebuild run record (best-effort).
+            match self.repo.create_rebuild_run(&started_at).await {
+                Ok(id) => run_id = Some(id),
+                Err(e) => log::warn!("Unable to persist rebuild run start: {}", e),
+            }
 
-        // Process each month from the actual first entry until now
-        let now = Utc::now();
-        let mut year = start_year;
-        let mut month = start_month;
+            // Clear existing ratings to start fresh
+            self.repo.clear_all_ratings().await?;
 
-        while year < now.year() || (year == now.year() && month <= now.month()) {
-            let period = format!("{:04}-{:02}", year, month);
-            log::info!("Processing period: {}", period);
+            // Get the earliest contest date from the database
+            let earliest_contest = self.repo.get_earliest_contest_date().await?;
+            log::info!("Earliest contest date found: {}", earliest_contest);
 
-            match self.recompute_month_with_history(Some(period)).await {
-                Ok(_) => log::info!("Successfully processed period {}-{:02}", year, month),
-                Err(e) => {
-                    log::error!("Failed to process period {}-{:02}: {}", year, month, e);
-                    // Continue processing other months even if one fails
+            // Parse the earliest date to get year and month
+            let date_parts: Vec<&str> = earliest_contest.split('-').collect();
+            if date_parts.len() < 2 {
+                return Err(SharedError::BadRequest(
+                    "Invalid earliest contest date format".into(),
+                ));
+            }
+
+            let start_year = date_parts[0]
+                .parse::<i32>()
+                .map_err(|_| SharedError::BadRequest("Invalid year in earliest contest date".into()))?;
+            let start_month = date_parts[1].parse::<u32>().map_err(|_| {
+                SharedError::BadRequest("Invalid month in earliest contest date".into())
+            })?;
+
+            log::info!(
+                "Starting historical recalculation from {}-{:02} (actual first database entry)",
+                start_year,
+                start_month
+            );
+
+            // Process each month from the actual first entry until now
+            let now = Utc::now();
+            let mut year = start_year;
+            let mut month = start_month;
+
+            let total_periods: u32 = {
+                let months = (now.year() - start_year) * 12
+                    + (now.month() as i32 - start_month as i32)
+                    + 1;
+                months.max(0) as u32
+            };
+            {
+                let mut st = self.rebuild_status.lock().unwrap();
+                st.total_periods = total_periods;
+            }
+            if let Some(rid) = run_id.as_deref() {
+                let _ = self
+                    .repo
+                    .update_rebuild_run_progress(rid, None, 0, total_periods, None)
+                    .await;
+            }
+
+            let mut total_contests_seen: u64 = 0;
+            let mut total_latest_written: u64 = 0;
+            let mut total_history_written: u64 = 0;
+
+            while year < now.year() || (year == now.year() && month <= now.month()) {
+                let period = format!("{:04}-{:02}", year, month);
+                {
+                    let mut st = self.rebuild_status.lock().unwrap();
+                    st.current_period = Some(period.clone());
+                }
+                if let Some(rid) = run_id.as_deref() {
+                    // Best-effort: persist current period before processing it.
+                    let st = self.rebuild_status.lock().unwrap().clone();
+                    let _ = self
+                        .repo
+                        .update_rebuild_run_progress(
+                            rid,
+                            st.current_period.as_deref(),
+                            st.processed_periods,
+                            st.total_periods,
+                            st.last_error.as_deref(),
+                        )
+                        .await;
+                }
+                log::info!("Ratings rebuild: processing period {}", period);
+
+                match self.recompute_month_with_history(Some(period.clone())).await {
+                    Ok(_) => log::info!("Ratings rebuild: completed {}", period),
+                    Err(e) => {
+                        log::error!("Ratings rebuild: failed {}: {}", period, e);
+                        let mut st = self.rebuild_status.lock().unwrap();
+                        st.last_error = Some(format!("{}: {}", period, e));
+                        // Continue processing other months even if one fails
+                    }
+                }
+
+                // Best-effort visibility: count totals so we can detect "nothing happened".
+                // (These are monotonic counters; recompute_month_with_history may write 0 rows for empty periods.)
+                if let Ok(cs) = self.repo.get_contests_in_period(
+                    &format!("{:04}-{:02}-01T00:00:00Z", year, month),
+                    &format!(
+                        "{:04}-{:02}-01T00:00:00Z",
+                        if month == 12 { year + 1 } else { year },
+                        if month == 12 { 1 } else { month + 1 }
+                    ),
+                ).await {
+                    total_contests_seen = total_contests_seen.saturating_add(cs.len() as u64);
+                }
+
+                {
+                    let mut st = self.rebuild_status.lock().unwrap();
+                    st.processed_periods = st.processed_periods.saturating_add(1);
+                }
+                if let Some(rid) = run_id.as_deref() {
+                    // Best-effort: persist progress after each month (simple + reliable).
+                    let st = self.rebuild_status.lock().unwrap().clone();
+                    let _ = self
+                        .repo
+                        .update_rebuild_run_progress(
+                            rid,
+                            st.current_period.as_deref(),
+                            st.processed_periods,
+                            st.total_periods,
+                            st.last_error.as_deref(),
+                        )
+                        .await;
+                }
+
+                // Move to next month
+                if month == 12 {
+                    year += 1;
+                    month = 1;
+                } else {
+                    month += 1;
                 }
             }
 
-            // Move to next month
-            if month == 12 {
-                year += 1;
-                month = 1;
+            log::info!("Historical ratings recalculation completed!");
+
+            // If we saw contests but still wrote nothing, something is wrong in writes/typing.
+            if total_contests_seen > 0 {
+                log::info!(
+                    "Ratings rebuild summary: contests_seen={}, latest_written={}, history_written={}",
+                    total_contests_seen,
+                    total_latest_written,
+                    total_history_written
+                );
             } else {
-                month += 1;
+                log::warn!("Ratings rebuild summary: contests_seen=0 (no contests matched any period)");
+            }
+
+            Ok(())
+        }
+        .await;
+
+        // Finalize status
+        let finished_at = Utc::now().to_rfc3339();
+        {
+            let mut st = self.rebuild_status.lock().unwrap();
+            st.running = false;
+            st.finished_at = Some(finished_at.clone());
+            st.current_period = None;
+            if let Err(ref e) = result {
+                st.last_error = Some(e.to_string());
             }
         }
+        if let Some(rid) = run_id.as_deref() {
+            let st = self.rebuild_status.lock().unwrap().clone();
+            let _ = self
+                .repo
+                .finish_rebuild_run(rid, &finished_at, st.last_error.as_deref())
+                .await;
+        }
 
-        log::info!("Historical ratings recalculation completed!");
-        Ok(())
+        result
     }
 
     /// Enhanced month recalculation that properly loads existing ratings
@@ -337,34 +507,32 @@ impl RatingsUsecase {
                 let gp = *games_played.get(&player_id).unwrap_or(&0);
                 let wins = *wins_by_player.get(&player_id).unwrap_or(&0);
                 let losses = *losses_by_player.get(&player_id).unwrap_or(&0);
-                let latest_doc = serde_json::json!({
-                    "player_id": player_id,
-                    "scope_type": "global",
-                    "scope_id": serde_json::Value::Null,
-                    "rating": state.rating,
-                    "rd": state.rd,
-                    "volatility": state.vol,
-                    "games_played": gp,
-                    "last_period_end": period_end,
-                    "updated_at": now,
-                });
-                self.repo.upsert_latest_rating(latest_doc).await?;
+                self.repo
+                    .upsert_latest_rating_global(
+                        &player_id,
+                        state.rating,
+                        state.rd,
+                        state.vol,
+                        gp,
+                        &period_end,
+                        &now,
+                    )
+                    .await?;
 
-                let history_doc = serde_json::json!({
-                    "player_id": player_id,
-                    "scope_type": "global",
-                    "scope_id": serde_json::Value::Null,
-                    "period_end": period_end,
-                    "rating": state.rating,
-                    "rd": state.rd,
-                    "volatility": state.vol,
-                    "period_games": gp,
-                    "wins": wins,
-                    "losses": losses,
-                    "draws": 0, // No draws in this monthly recompute
-                    "created_at": now,
-                });
-                self.repo.insert_rating_history(history_doc).await?;
+                self.repo
+                    .insert_rating_history_global(
+                        &player_id,
+                        &period_end,
+                        state.rating,
+                        state.rd,
+                        state.vol,
+                        gp,
+                        wins,
+                        losses,
+                        0,
+                        &now,
+                    )
+                    .await?;
             }
         }
         Ok(())

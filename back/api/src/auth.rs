@@ -7,7 +7,6 @@ use actix_web::{
 use crate::db::Db;
 use futures_util::future::{ready, Ready};
 use redis::AsyncCommands;
-use shared::models::player::Player;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -126,10 +125,9 @@ where
             let in_test = std::env::var("RUST_ENV")
                 .unwrap_or_default()
                 .eq_ignore_ascii_case("test");
-            // Public endpoints: health checks, read-only search, and contest list (scope forced to 'all' when unauthenticated)
+            // Public endpoints: health checks and read-only db_search only. Contest search requires auth.
             let is_public = path.starts_with("/health")
-                || (method == "GET" && path.contains("/db_search"))
-                || (method == "GET" && path.contains("contests/search"));
+                || (method == "GET" && path.contains("/db_search"));
             let is_public_effective =
                 is_public || (in_test && method == "GET" && path.starts_with("/health"));
 
@@ -195,6 +193,17 @@ where
             }
         })
     }
+}
+
+/// True if the email is listed in ADMIN_EMAILS (comma-separated, case-insensitive).
+fn admin_email_from_env(email: &str) -> bool {
+    let list = match std::env::var("ADMIN_EMAILS") {
+        Ok(s) if !s.trim().is_empty() => s,
+        _ => return false,
+    };
+    let email_lower = email.trim().to_lowercase();
+    list.split(',')
+        .any(|e| e.trim().to_lowercase() == email_lower)
 }
 
 impl<S, B> Transform<S, ServiceRequest> for AdminAuthMiddleware
@@ -316,30 +325,49 @@ where
             let email = email.unwrap();
             log::debug!("AdminAuthMiddleware: Found email for session");
 
-            // Check if player has admin privileges (SurrealQL)
+            // Check if player has admin privileges (SurrealQL). Keep the projection minimal
+            // and normalize `id` so deserialization doesn't fail (record -> string).
             let mut res = db
-                .query("SELECT * FROM player WHERE string::lowercase(email) = string::lowercase($email) LIMIT 1")
+                .query(
+                    "SELECT \
+                        string::replace(string::concat(id), '`', '') AS id, \
+                        isAdmin \
+                     FROM player \
+                     WHERE string::lowercase(email) = string::lowercase($email) \
+                     LIMIT 1",
+                )
                 .bind(("email", email.clone()))
                 .await;
-            let player_result: Result<Vec<Player>, _> = match res {
+
+            let rows_result: Result<Vec<serde_json::Value>, _> = match res {
                 Ok(mut q) => q.take(0),
                 Err(e) => {
                     log::error!("AdminAuthMiddleware: Failed to query player: {}", e);
                     return Err(ErrorUnauthorized("Authentication service error"));
                 }
             };
-            match player_result {
-                Ok(players) => {
-                    if let Some(player) = players.first() {
-                        if player.is_admin {
-                            log::debug!(
-                                "AdminAuthMiddleware: Player {} is admin, allowing access",
-                                email
-                            );
-                            // Add player info to request extensions for downstream use
-                            req.extensions_mut().insert(player.clone());
-                            let res = service.call(req).await?;
-                            Ok(res)
+
+            match rows_result {
+                Ok(rows) => {
+                    let admin_by_env = admin_email_from_env(&email);
+                    let admin_by_db = rows
+                        .first()
+                        .and_then(|v| v.get("isAdmin").and_then(|x| x.as_bool()))
+                        .unwrap_or(false);
+
+                    if admin_by_db || admin_by_env {
+                        log::debug!(
+                            "AdminAuthMiddleware: Player {} is admin (db={}, env={}), allowing access",
+                            email,
+                            admin_by_db,
+                            admin_by_env
+                        );
+                        let res = service.call(req).await?;
+                        Ok(res)
+                    } else {
+                        if rows.is_empty() {
+                            log::warn!("AdminAuthMiddleware: Player not found: {}", email);
+                            Err(ErrorUnauthorized("Player not found"))
                         } else {
                             log::warn!(
                                 "AdminAuthMiddleware: Player {} is not admin, denying access",
@@ -347,9 +375,6 @@ where
                             );
                             Err(ErrorUnauthorized("Administrative privileges required"))
                         }
-                    } else {
-                        log::warn!("AdminAuthMiddleware: Player not found: {}", email);
-                        Err(ErrorUnauthorized("Player not found"))
                     }
                 }
                 Err(e) => {
@@ -580,15 +605,24 @@ mod tests {
             }
         }
 
-        // Anonymous access: protected routes should be denied (middleware returns error)
+        // Anonymous access: protected routes should be denied (middleware should either
+        // return an error or a 4xx response code).
         for path in ["/api/games", "/api/venues", "/api/contests"] {
             let req = test::TestRequest::get().uri(path).to_request();
             let result = test::try_call_service(&app, req).await;
-            assert!(
-                result.is_err(),
-                "path {} should be blocked without auth",
-                path
-            );
+            match result {
+                Ok(resp) => {
+                    assert!(
+                        resp.status().is_client_error(),
+                        "path {} should be blocked without auth, got {}",
+                        path,
+                        resp.status()
+                    );
+                }
+                Err(_e) => {
+                    // Also acceptable: middleware raised an unauthorized error
+                }
+            }
         }
     }
 
@@ -644,13 +678,27 @@ mod tests {
             test::TestRequest::post().uri("/api/games").to_request(),
         )
         .await;
-        assert!(result.is_err());
+        match result {
+            Ok(resp) => assert!(
+                resp.status().is_client_error(),
+                "expected 4xx when accessing /api/games without auth, got {}",
+                resp.status()
+            ),
+            Err(_) => {}
+        }
         let result = test::try_call_service(
             &app,
             test::TestRequest::put().uri("/api/games/123").to_request(),
         )
         .await;
-        assert!(result.is_err());
+        match result {
+            Ok(resp) => assert!(
+                resp.status().is_client_error(),
+                "expected 4xx when accessing /api/games/123 without auth (PUT), got {}",
+                resp.status()
+            ),
+            Err(_) => {}
+        }
         let result = test::try_call_service(
             &app,
             test::TestRequest::delete()
@@ -658,7 +706,14 @@ mod tests {
                 .to_request(),
         )
         .await;
-        assert!(result.is_err());
+        match result {
+            Ok(resp) => assert!(
+                resp.status().is_client_error(),
+                "expected 4xx when accessing /api/games/123 without auth (DELETE), got {}",
+                resp.status()
+            ),
+            Err(_) => {}
+        }
 
         // Venues
         let result = test::try_call_service(
@@ -666,13 +721,27 @@ mod tests {
             test::TestRequest::post().uri("/api/venues").to_request(),
         )
         .await;
-        assert!(result.is_err());
+        match result {
+            Ok(resp) => assert!(
+                resp.status().is_client_error(),
+                "expected 4xx when accessing /api/venues without auth, got {}",
+                resp.status()
+            ),
+            Err(_) => {}
+        }
         let result = test::try_call_service(
             &app,
             test::TestRequest::put().uri("/api/venues/abc").to_request(),
         )
         .await;
-        assert!(result.is_err());
+        match result {
+            Ok(resp) => assert!(
+                resp.status().is_client_error(),
+                "expected 4xx when accessing /api/venues/abc without auth (PUT), got {}",
+                resp.status()
+            ),
+            Err(_) => {}
+        }
         let result = test::try_call_service(
             &app,
             test::TestRequest::delete()
@@ -680,7 +749,14 @@ mod tests {
                 .to_request(),
         )
         .await;
-        assert!(result.is_err());
+        match result {
+            Ok(resp) => assert!(
+                resp.status().is_client_error(),
+                "expected 4xx when accessing /api/venues/abc without auth (DELETE), got {}",
+                resp.status()
+            ),
+            Err(_) => {}
+        }
 
         // Contests
         let result = test::try_call_service(
@@ -688,6 +764,13 @@ mod tests {
             test::TestRequest::post().uri("/api/contests").to_request(),
         )
         .await;
-        assert!(result.is_err());
+        match result {
+            Ok(resp) => assert!(
+                resp.status().is_client_error(),
+                "expected 4xx when accessing /api/contests without auth, got {}",
+                resp.status()
+            ),
+            Err(_) => {}
+        }
     }
 }

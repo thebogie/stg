@@ -13,6 +13,26 @@ use shared::dto::player::{
 use shared::models::player::PlayerLogin;
 use uuid::Uuid;
 
+/// Returns true if the given email is listed in ADMIN_EMAILS (comma-separated, case-insensitive).
+/// Allows granting admin UI/API without setting isAdmin in the database.
+fn is_admin_email_from_env(email: &str) -> bool {
+    let list = match std::env::var("ADMIN_EMAILS") {
+        Ok(s) if !s.trim().is_empty() => s,
+        _ => return false,
+    };
+    let email_lower = email.trim().to_lowercase();
+    list.split(',')
+        .any(|e| e.trim().to_lowercase() == email_lower)
+}
+
+fn player_dto_with_admin_override(player: &shared::models::player::Player) -> PlayerDto {
+    let mut dto = PlayerDto::from(player);
+    if is_admin_email_from_env(&player.email) {
+        dto.is_admin = true;
+    }
+    dto
+}
+
 pub async fn login_handler_impl<R, S>(
     login: web::Json<PlayerLogin>,
     session_store: web::Data<S>,
@@ -32,7 +52,7 @@ where
             let session_id = Uuid::new_v4().to_string();
             match session_store.set_session(&session_id, &player.email).await {
                 Ok(_) => {
-                    let player_dto = PlayerDto::from(&player);
+                    let player_dto = player_dto_with_admin_override(&player);
                     let response = LoginResponse {
                         player: player_dto,
                         session_id: session_id.clone(),
@@ -123,7 +143,7 @@ pub async fn login_handler_prod(
             let session_id = uuid::Uuid::new_v4().to_string();
             match session_store.set_session(&session_id, &player.email).await {
                 Ok(_) => {
-                    let player_dto = PlayerDto::from(&player);
+                    let player_dto = player_dto_with_admin_override(&player);
                     let response = LoginResponse {
                         player: player_dto,
                         session_id: session_id.clone(),
@@ -280,7 +300,7 @@ where
         None => return Err(PlayerError::NotFound.into()),
     };
 
-    let player_dto = PlayerDto::from(&player);
+    let player_dto = player_dto_with_admin_override(&player);
     Ok(HttpResponse::Ok().json(player_dto))
 }
 

@@ -38,9 +38,14 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Set build date
+      - name: Set build date and version
         id: build-date
-        run: echo "date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_OUTPUT
+        run: |
+          echo "date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_OUTPUT
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          BUILD_VERSION=$(date -u +%Y%m%d-%H%M%S)-${SHORT_SHA}
+          echo "build_version=${BUILD_VERSION}" >> $GITHUB_OUTPUT
+          echo "short_sha=${SHORT_SHA}" >> $GITHUB_OUTPUT
 
       - name: Extract metadata (tags, labels)
         id: meta
@@ -50,6 +55,10 @@ jobs:
           tags: |
             type=sha,prefix=
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.created=${{ steps.build-date.outputs.date }}
+            org.opencontainers.image.version=${{ steps.build-date.outputs.build_version }}
 
       - name: Build and push
         uses: docker/build-push-action@v6
@@ -60,7 +69,7 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
-            GIT_COMMIT=${{ github.sha }}
+            GIT_COMMIT=${{ steps.build-date.outputs.short_sha }}
             BUILD_DATE=${{ steps.build-date.outputs.date }}
             RUST_ENV=production
             RUST_LOG=info

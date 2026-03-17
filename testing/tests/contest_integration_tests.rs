@@ -38,12 +38,19 @@ async fn test_create_contest() -> Result<()> {
     )
     .await;
 
-    // Register and login
+    // Register and login (unique email so repeated runs don't hit duplicate-email)
+    let email = format!(
+        "contest-int-{}@example.com",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system time")
+            .as_millis()
+    );
     let register_req = test::TestRequest::post()
         .uri("/api/players/register")
         .set_json(&json!({
             "username": "contest_test_user",
-            "email": "contest_test@example.com",
+            "email": &email,
             "password": "password123"
         }))
         .to_request();
@@ -57,7 +64,7 @@ async fn test_create_contest() -> Result<()> {
     let login_req = test::TestRequest::post()
         .uri("/api/players/login")
         .set_json(&json!({
-            "email": "contest_test@example.com",
+            "email": &email,
             "password": "password123"
         }))
         .to_request();

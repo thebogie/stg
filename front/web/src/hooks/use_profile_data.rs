@@ -274,7 +274,7 @@ pub fn use_profile_data(
                     let summary_url =
                         format!("/api/analytics/players/{}/profile/summary", profile_param);
                     let achievements_url =
-                        format!("/api/analytics/players/{}/achievements", profile_param);
+                        format!("/api/analytics/players/{}/achievements?refresh=true", profile_param);
                     let profile_url =
                         format!("/api/analytics/players/{}/profile", profile_param);
                     let ratings_url = if player_id == "me" {

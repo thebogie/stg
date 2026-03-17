@@ -83,7 +83,7 @@ mod tests {
             handle: "testuser".to_string(),
             email: "test@example.com".to_string(),
             password: "hashed_password".to_string(),
-            created_at: chrono::Utc::now().fixed_offset(),
+            created_at: chrono::Utc::now(),
             is_admin: false,
         };
 

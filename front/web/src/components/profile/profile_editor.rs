@@ -1,8 +1,8 @@
 use yew::prelude::*;
 use wasm_bindgen_futures::spawn_local;
-use wasm_bindgen::JsCast;
 use crate::api::auth::{update_handle, update_password};
 use crate::auth::AuthContext;
+use web_sys::HtmlInputElement;
 
 #[derive(Properties, PartialEq)]
 pub struct ProfileEditorProps {
@@ -260,8 +260,8 @@ pub fn profile_editor(props: &ProfileEditorProps) -> Html {
                                 <input
                                     type="text"
                                     value={(*new_handle).clone()}
-                                    onchange={Callback::from(move |e: Event| {
-                                        let target = e.target().unwrap().unchecked_into::<web_sys::HtmlInputElement>();
+                                    oninput={Callback::from(move |e: InputEvent| {
+                                        let target: HtmlInputElement = e.target_unchecked_into();
                                         new_handle.set(target.value());
                                     })}
                                     class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -273,8 +273,8 @@ pub fn profile_editor(props: &ProfileEditorProps) -> Html {
                                 <input
                                     type="password"
                                     value={(*current_password).clone()}
-                                    onchange={Callback::from(move |e: Event| {
-                                        let target = e.target().unwrap().unchecked_into::<web_sys::HtmlInputElement>();
+                                    oninput={Callback::from(move |e: InputEvent| {
+                                        let target: HtmlInputElement = e.target_unchecked_into();
                                         current_password.set(target.value());
                                     })}
                                     class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -308,8 +308,8 @@ pub fn profile_editor(props: &ProfileEditorProps) -> Html {
                                 <input
                                     type="password"
                                     value={(*current_password).clone()}
-                                    onchange={Callback::from(move |e: Event| {
-                                        let target = e.target().unwrap().unchecked_into::<web_sys::HtmlInputElement>();
+                                    oninput={Callback::from(move |e: InputEvent| {
+                                        let target: HtmlInputElement = e.target_unchecked_into();
                                         current_password.set(target.value());
                                     })}
                                     class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -321,8 +321,8 @@ pub fn profile_editor(props: &ProfileEditorProps) -> Html {
                                 <input
                                     type="password"
                                     value={(*new_password).clone()}
-                                    onchange={Callback::from(move |e: Event| {
-                                        let target = e.target().unwrap().unchecked_into::<web_sys::HtmlInputElement>();
+                                    oninput={Callback::from(move |e: InputEvent| {
+                                        let target: HtmlInputElement = e.target_unchecked_into();
                                         new_password.set(target.value());
                                     })}
                                     class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -334,8 +334,8 @@ pub fn profile_editor(props: &ProfileEditorProps) -> Html {
                                 <input
                                     type="password"
                                     value={(*confirm_password).clone()}
-                                    onchange={Callback::from(move |e: Event| {
-                                        let target = e.target().unwrap().unchecked_into::<web_sys::HtmlInputElement>();
+                                    oninput={Callback::from(move |e: InputEvent| {
+                                        let target: HtmlInputElement = e.target_unchecked_into();
                                         confirm_password.set(target.value());
                                     })}
                                     class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"

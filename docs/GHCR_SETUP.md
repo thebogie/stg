@@ -83,11 +83,17 @@ To also build and push when you push a tag (e.g. `v1.0.0`), in `.github/workflow
 docker pull ghcr.io/YOUR_OWNER/stg/backend:v1.0.0
 ```
 
+## Build version and footer
+
+- **Local:** `./scripts/full-prod-test.sh` builds an image tagged `stg-backend:<build_version>` (e.g. `20250312-143022-abc1234`). That version is passed as `IMAGE_TAG` into the backend container and appears in `/api/version` and in the Tauri/Yew footer.
+- **GHCR:** The same Dockerfile and build-args (GIT_COMMIT, BUILD_DATE) are used. Images are tagged with commit SHA and `latest`; OCI labels include `org.opencontainers.image.version` (date-shortsha) and revision/created.
+- On production, set `IMAGE_TAG` when running compose if you want the footer to show a specific tag (e.g. the SHA you pulled).
+
 ## Summary
 
 | Step | Where | Action |
 |------|--------|--------|
-| 1. Test locally | Your machine | `./ci-local.sh all` (or `./scripts/ci.sh all`) |
+| 1. Test production images | Your machine | `./scripts/full-prod-test.sh` (build version → _build/<version>/) |
 | 2. Commit and push | Your machine | `git push origin main` |
 | 3. Build and push | GitHub Actions | Automatic: build image → push to GHCR |
 | 4. Deploy | Production | `docker pull ghcr.io/OWNER/stg/backend:latest` then `docker compose ... up -d` |

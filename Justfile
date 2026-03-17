@@ -18,10 +18,10 @@ test-everything:
     ./scripts/run-all-tests.sh
 
 # Run ALL tests against PRODUCTION Docker containers
-# Builds production images and tests the exact containers you'll deploy
-# This is the recommended pre-deployment test command
+# Builds production images with build version, runs unit/integration/e2e, writes _build/<build_version>/
+# Recommended before commit; then push to main triggers GHCR to build the same image
 test-everything-prod:
-    ./scripts/run-tests-setup-prod.sh
+    ./scripts/full-prod-test.sh
 
 # Run backend tests with nextest
 test-backend:
@@ -78,10 +78,15 @@ stop-stack-local:
 backend-check:
     cargo check -p backend
 
-# Run backend with auto-restart on file change. Loads config/.env.dev automatically. Requires: cargo install cargo-watch
+# Run backend with auto-restart on file change. Loads config/.env.dev by default. Requires: cargo install cargo-watch
 # Watches back/api and shared only so frontend edits don't restart the backend.
+# For admin tab: set ADMIN_EMAILS=your@email.com in config/.env.dev
 backend-watch:
     ./scripts/backend-watch.sh
+
+# Same as backend-watch but loads config/.env.prod (e.g. for ADMIN_EMAILS from .env.prod)
+backend-watch-prod:
+    ./scripts/backend-watch.sh prod
 
 # Start only SurrealDB + Redis (no backend container). Then run just backend-watch and ./scripts/start-tauri.sh in two other terminals.
 # See docs/QUICK_ITERATION.md for full steps.

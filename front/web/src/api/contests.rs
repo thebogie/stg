@@ -107,17 +107,19 @@ pub async fn submit_contest(contest: ContestDto) -> Result<ContestDto, String> {
 
     if !response.ok() {
         gloo::console::error!("API: Response not OK, status:", response.status());
-        let error = match response.json::<ErrorResponse>().await {
-            Ok(err) => {
-                gloo::console::error!("API: Error response:", &err.error);
-                err.error
-            }
-            Err(_) => {
-                let msg = "Unknown error occurred".to_string();
-                gloo::console::error!("API:", &msg);
-                msg
-            }
-        };
+        let body = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
+        let error = serde_json::from_str::<ErrorResponse>(&body)
+            .ok()
+            .map(|err| err.error)
+            .unwrap_or_else(|| {
+                gloo::console::error!("API: Non-JSON error body:", &body);
+                if body.is_empty() {
+                    format!("Request failed (HTTP {})", response.status())
+                } else {
+                    body
+                }
+            });
+        gloo::console::error!("API: Error response:", &error);
         return Err(error);
     }
 

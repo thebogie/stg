@@ -12,7 +12,7 @@ lazy_static! {
 /// Data Transfer Object for Player
 #[derive(Debug, Serialize, Deserialize, Validate, Clone, PartialEq)]
 pub struct PlayerDto {
-    /// Player's ID (ArangoDB _id field, serialized as "_id" in JSON)
+    /// Player's record ID (serialized as "_id" in JSON for compatibility)
     #[serde(rename = "_id")]
     pub id: String,
     #[validate(length(min = 1, message = "First name is required"))]
@@ -122,7 +122,7 @@ impl From<PlayerDto> for Player {
         )
         .unwrap_or_else(|_| Self {
             id: dto.id,
-            rev: String::new(), // Let ArangoDB set this
+            rev: String::new(), // Optional; set by DB if used
             firstname: dto.firstname,
             handle: dto.handle,
             email: dto.email,
@@ -419,7 +419,7 @@ mod tests {
             handle: "john_doe".to_string(),
             email: "john@example.com".to_string(),
             password: "hashed_password".to_string(),
-            created_at: chrono::Utc::now().fixed_offset(),
+            created_at: chrono::Utc::now(),
             is_admin: false,
         };
 
@@ -439,7 +439,7 @@ mod tests {
             handle: "john_doe".to_string(),
             email: "john@example.com".to_string(),
             password: "hashed_password".to_string(),
-            created_at: chrono::Utc::now().fixed_offset(),
+            created_at: chrono::Utc::now(),
             is_admin: false,
         };
 
@@ -462,7 +462,7 @@ mod tests {
             handle: "john_doe".to_string(),
             email: "john@example.com".to_string(),
             password: "hashed_password".to_string(),
-            created_at: chrono::Utc::now().fixed_offset(),
+            created_at: chrono::Utc::now(),
             is_admin: false,
         };
 

@@ -71,7 +71,7 @@ impl Game {
         Ok(game)
     }
 
-    /// Creates a new game for database insertion (ArangoDB will set id and rev)
+    /// Creates a new game for database insertion (SurrealDB sets id; rev optional).
     pub fn new_for_db(
         name: String,
         year_published: Option<i32>,
@@ -80,8 +80,8 @@ impl Game {
         source: GameSource,
     ) -> Result<Self> {
         let game = Self {
-            id: String::new(),  // Will be set by ArangoDB
-            rev: String::new(), // Will be set by ArangoDB
+            id: String::new(),  // Set by SurrealDB on insert
+            rev: String::new(), // Optional; set by DB if used
             name,
             year_published,
             bgg_id,

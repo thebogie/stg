@@ -1,5 +1,7 @@
 # Fix SurrealDB edge type via Surrealist (no backend rebuild)
 
+**One-time move from ArangoDB:** If you are doing a **fresh** move (restart SurrealDB, run **arango-to-surreal** on your dump, then import the generated `.surql`), you **do not need this migration**. The converter already emits `type::record()` for edge `in`/`out` (SurrealDB v3), so edges land as record ids. Use this doc only if you already have a SurrealDB that was imported with **string** edges (e.g. older export or different import path).
+
 If **contest list**, **contest detail**, **leaderboard**, or **analytics** are empty or wrong because edge `out`/`in` were imported as **strings** instead of record ids, run the edge migration once. No backend restart needed.
 
 **SurrealDB v3:** We use `type::record(...)` in SurrealQL (v2 used `type::thing`). The migration script and backend use the v3 form.
@@ -41,6 +43,10 @@ Open the Query tab, select the correct namespace and database, then run the cont
 
 - Backend restart is **not** required.
 - New imports from **arango-to-surreal** already emit `type::record()` (SurrealDB v3) for edges, so no migration is needed for freshly imported data.
+
+---
+
+**See also:** **docs/SURREALDB_EDGE_QUERY_AUDIT.md** for a full list of edge/ID query call sites and safe patterns (ArangoDB legacy → SurrealDB).
 
 ---
 

@@ -17,11 +17,11 @@ lazy_static! {
 #[derive(Debug, Clone, Serialize, Deserialize, Validate)]
 #[cfg_attr(feature = "surrealdb", derive(surrealdb_types::SurrealValue))]
 pub struct Player {
-    /// ArangoDB document ID (format: "player/{timestamp}")
+    /// Record ID (format: "player/{key}"); serialized as "_id" in JSON for compatibility.
     #[serde(rename = "_id")]
     pub id: String,
 
-    /// ArangoDB document revision
+    /// Revision (optional); serialized as "_rev" in JSON for compatibility.
     #[serde(rename = "_rev")]
     pub rev: String,
 
@@ -77,7 +77,7 @@ impl Player {
         Ok(player)
     }
 
-    /// Creates a new player for database insertion (ArangoDB will set id and rev)
+    /// Creates a new player for database insertion (SurrealDB sets id; rev optional).
     pub fn new_for_db(
         firstname: String,
         handle: String,
@@ -87,8 +87,8 @@ impl Player {
         is_admin: bool,
     ) -> Result<Self> {
         let player = Self {
-            id: String::new(),  // Will be set by ArangoDB
-            rev: String::new(), // Will be set by ArangoDB
+            id: String::new(),  // Set by SurrealDB on insert
+            rev: String::new(), // Optional; set by DB if used
             firstname,
             handle,
             email,
@@ -188,7 +188,7 @@ mod tests {
             handle: "john_doe".to_string(),
             email: "john@example.com".to_string(),
             password: "hashed_password".to_string(),
-            created_at: chrono::Utc::now().fixed_offset(),
+            created_at: chrono::Utc::now(),
             is_admin: false,
         }
     }
@@ -294,7 +294,7 @@ mod tests {
             handle: "test_user_123".to_string(),
             email: SafeEmail(EN).fake(),
             password: "hashed_password".to_string(),
-            created_at: chrono::Utc::now().fixed_offset(),
+            created_at: chrono::Utc::now(),
             is_admin: false,
         };
         assert!(player.validate().is_ok());

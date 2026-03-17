@@ -1,6 +1,21 @@
 # SurrealDB query conventions (backend)
 
-**SurrealDB v3.** Queries use `type::record('table', $key)` for record IDs (v2 used `type::thing`). See **docs/SURREALDB_ID_CONVENTIONS.md**.
+**SurrealDB v3.** See **docs/SURREALDB_ID_CONVENTIONS.md** for ID formats.
+
+## RecordId binding for read paths (recommended)
+
+For **read paths** (SELECT, WHERE by id or edge endpoint), prefer **binding the SDK’s `RecordId`** instead of building IDs in SurrealQL with `type::record('table', $key)`:
+
+- **Pattern:** `let record_id = surrealdb::types::RecordId::new("table", key.as_str());` then `WHERE id = $record_id` (or `WHERE \`out\` = $record_id`, etc.) and `.bind(("record_id", record_id))`.
+- **Why:** SurrealDB’s native record ID type is sent and matched consistently; binding `RecordId` avoids string/key serialization mismatches and is the type-safe, SurrealDB-recommended approach for lookups. Writes (CREATE, INSERT, UPDATE) may still use `type::record('table', $key)` where that fits the API.
+
+## One statement per query (no multi-statement)
+
+Use **one SurrealQL statement per `.query()` call**. Do not send multiple statements in one string (e.g. `SELECT ...; SELECT ...`).
+
+- **Why:** The Rust client returns one result set per statement via `.take(0)`, `.take(1)`, etc. Multi-statement queries require multiple `take(n)` calls and can behave inconsistently (e.g. scalar subqueries in the first statement sometimes returning wrong or unexpected shapes). Single-statement calls give one result set per round-trip and avoid that.
+- **Efficiency:** SurrealDB’s docs don’t mandate single vs multi-statement for “best practice”; batching multiple operations in one request can reduce round-trips when using the `( LET ...; UPDATE ...; RETURN ... )` style. For our backend, we standardize on one statement per `.query()` so each call has exactly one result set and behavior is predictable. If you need two result sets (e.g. games and venues), run two separate `.query()` calls.
+- **ArangoDB legacy:** ArangoDB AQL often used multi-query or chained logic; the SurrealDB port uses single-statement queries only.
 
 ## Record IDs and `take(0)` into JSON Value
 

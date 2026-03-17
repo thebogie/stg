@@ -190,52 +190,8 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
                                     &format!("Platform stats received: {:?}", stats).into(),
                                 );
 
-                                // Check if the real data has meaningful game play counts
-                                let has_real_data =
-                                    if let Some(top_games) = stats["top_games"].as_array() {
-                                        top_games
-                                            .iter()
-                                            .any(|game| game["plays"].as_i64().unwrap_or(0) > 0)
-                                    } else {
-                                        false
-                                    };
-
-                                if has_real_data {
-                                    // Use real data
-                                    platform_stats.set(Some(stats));
-                                } else {
-                                    // Fall back to sample data for better UX
-                                    console::log_1(
-                                        &"Real data shows 0 plays, using sample data".into(),
-                                    );
-                                    match Request::get("/api/analytics/sample-platform")
-                                        .send()
-                                        .await
-                                    {
-                                        Ok(sample_response) => {
-                                            if sample_response.ok() {
-                                                if let Ok(sample_stats) =
-                                                    sample_response.json::<Value>().await
-                                                {
-                                                    console::log_1(
-                                                        &"Using sample platform stats".into(),
-                                                    );
-                                                    platform_stats.set(Some(sample_stats));
-                                                } else {
-                                                    // If sample data fails, still use real data
-                                                    platform_stats.set(Some(stats));
-                                                }
-                                            } else {
-                                                // If sample data fails, still use real data
-                                                platform_stats.set(Some(stats));
-                                            }
-                                        }
-                                        Err(_) => {
-                                            // If sample data fails, still use real data
-                                            platform_stats.set(Some(stats));
-                                        }
-                                    }
-                                }
+                                // Always show real data. Sample data is only for manual testing.
+                                platform_stats.set(Some(stats));
                             } else {
                                 error.set(Some("Failed to parse platform stats".to_string()));
                             }

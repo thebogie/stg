@@ -53,7 +53,7 @@ impl RatingsController {
                 .app_data(controller.clone())
                 .route("/recompute", web::post().to(|req: HttpRequest, query: web::Query<RecomputeQuery>, ctrl: web::Data<RatingsController>| async move {
                     ctrl.recompute(req, query.into_inner()).await
-                }))
+                }).wrap(crate::auth::AdminAuthMiddleware { redis: std::sync::Arc::new(redis.clone()), db: std::sync::Arc::new(db.clone()) }))
                 .route("/leaderboard", web::get().to(|_req: HttpRequest, query: web::Query<LeaderboardQuery>, ctrl: web::Data<RatingsController>| async move {
                     let scope = match query.scope.as_deref() { Some("global") | None => RatingScope::Global, Some(s) if s.starts_with("game/") => RatingScope::Game(s.to_string()), _ => RatingScope::Global };
                     let min_games = query.min_games.unwrap_or(10);
@@ -176,13 +176,27 @@ impl RatingsController {
                     }
                 }).wrap(crate::auth::AdminAuthMiddleware { redis: std::sync::Arc::new(redis.clone()), db: std::sync::Arc::new(db.clone()) }))
                 .route("/recalculate/historical", web::post().to(|_req: HttpRequest, ctrl: web::Data<RatingsController>| async move {
-                    match ctrl.usecase.recalculate_all_historical_ratings().await {
-                        Ok(()) => Ok::<HttpResponse, actix_web::Error>(HttpResponse::Ok().json(serde_json::json!({
-                            "status": "completed", 
-                            "message": "Historical Glicko2 ratings recalculated from 2000 onwards"
-                        }))),
-                        Err(e) => Ok(HttpResponse::InternalServerError().json(serde_json::json!({"error": e.to_string()})))
+                    let st = ctrl.usecase.rebuild_status();
+                    if st.running {
+                        return Ok::<HttpResponse, actix_web::Error>(
+                            HttpResponse::Conflict().json(serde_json::json!({"error": "Ratings rebuild already running"}))
+                        );
                     }
+
+                    let usecase = ctrl.usecase.clone();
+                    tokio::spawn(async move {
+                        if let Err(e) = usecase.recalculate_all_historical_ratings().await {
+                            log::error!("Historical ratings rebuild failed: {}", e);
+                        }
+                    });
+
+                    Ok::<HttpResponse, actix_web::Error>(HttpResponse::Accepted().json(serde_json::json!({
+                        "status": "started",
+                        "message": "Historical ratings rebuild started"
+                    })))
+                }).wrap(crate::auth::AdminAuthMiddleware { redis: std::sync::Arc::new(redis.clone()), db: std::sync::Arc::new(db.clone()) }))
+                .route("/rebuild/status", web::get().to(|_req: HttpRequest, ctrl: web::Data<RatingsController>| async move {
+                    Ok::<HttpResponse, actix_web::Error>(HttpResponse::Ok().json(ctrl.usecase.rebuild_status_with_last_completed().await))
                 }).wrap(crate::auth::AdminAuthMiddleware { redis: std::sync::Arc::new(redis.clone()), db: std::sync::Arc::new(db.clone()) }))
         );
     }

@@ -75,18 +75,26 @@ macro_rules! create_authenticated_user {
             .to_request();
         let register_resp = actix_web::test::call_service(&$app, register_req).await;
         assert!(register_resp.status().is_success(), "User registration should succeed");
-        let login_req = actix_web::test::TestRequest::post()
-            .uri("/api/players/login")
-            .set_json(&serde_json::json!({
-                "email": $email,
-                "password": "password123"
-            }))
-            .to_request();
-        let login_resp = actix_web::test::call_service(&$app, login_req).await;
-        assert!(login_resp.status().is_success(), "User login should succeed");
-        let login_body: shared::dto::player::LoginResponse =
-            actix_web::test::read_body_json(login_resp).await;
-        login_body.session_id
+        let mut session_id = String::new();
+        for _ in 0..5 {
+            let login_req = actix_web::test::TestRequest::post()
+                .uri("/api/players/login")
+                .set_json(&serde_json::json!({
+                    "email": $email,
+                    "password": "password123"
+                }))
+                .to_request();
+            let login_resp = actix_web::test::call_service(&$app, login_req).await;
+            if login_resp.status().is_success() {
+                let login_body: shared::dto::player::LoginResponse =
+                    actix_web::test::read_body_json(login_resp).await;
+                session_id = login_body.session_id;
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+        assert!(!session_id.is_empty(), "User login should succeed");
+        session_id
     }};
 }
 

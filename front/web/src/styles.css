@@ -36,6 +36,32 @@ main {
     @apply flex-1;
 }
 
+/* Charts: keep analytics SVGs inside page width */
+.chart-container {
+    @apply w-full;
+}
+
+.chart-container .chart-wrapper,
+.chart-container .chart-content,
+.chart-container .line-chart,
+.chart-container .bar-chart,
+.chart-container .pie-chart,
+.chart-container .donut-chart,
+.chart-container .heatmap-chart,
+.chart-container .radar-chart {
+    @apply w-full;
+}
+
+.chart-container .chart-content {
+    @apply overflow-x-auto;
+}
+
+.chart-container svg {
+    max-width: 100%;
+    height: auto;
+    display: block;
+}
+
 /* Admin Indicators */
 .admin-indicator {
     @apply inline-flex items-center px-3 py-1.5 text-sm font-medium bg-yellow-400 text-yellow-900 rounded-full shadow-sm border-2 border-yellow-500;
@@ -51,15 +77,15 @@ main {
 
 /* Profile Header Admin Badge */
 .header-content {
-    @apply flex justify-between items-start;
+    @apply flex flex-col sm:flex-row sm:justify-between items-start gap-3;
 }
 
 .header-text {
-    @apply flex-1;
+    @apply flex-1 min-w-0;
 }
 
 .admin-badge {
-    @apply flex-shrink-0 ml-4;
+    @apply flex-shrink-0 sm:ml-4 ml-0;
 }
 
 /* Navigation Admin Badge */
@@ -111,11 +137,17 @@ main {
 }
 
 .admin-nav {
-    @apply flex space-x-1 mb-8 bg-white rounded-lg shadow-sm border border-gray-200 p-1;
+    @apply flex flex-nowrap overflow-x-auto space-x-1 mb-8 bg-white rounded-lg shadow-sm border border-gray-200 p-1;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+}
+
+.admin-nav::-webkit-scrollbar {
+    display: none;
 }
 
 .admin-nav .nav-tab {
-    @apply flex-1 px-4 py-3 text-sm font-medium rounded-md transition-all duration-200;
+    @apply flex-none sm:flex-1 px-4 py-3 text-sm font-medium rounded-md transition-all duration-200 whitespace-nowrap;
 }
 
 .admin-nav .nav-tab:not(.active) {
@@ -501,3 +533,5 @@ main {
 .no-data p {
     @apply text-gray-600 mb-4;
 } 
+
+/* (reserved) */

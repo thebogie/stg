@@ -131,7 +131,7 @@ impl Venue {
         Ok(venue)
     }
 
-    /// Creates a new venue for database insertion (ArangoDB will set id and rev)
+    /// Creates a new venue for database insertion (SurrealDB sets id; rev optional).
     pub fn new_for_db(
         display_name: String,
         formatted_address: String,
@@ -142,8 +142,8 @@ impl Venue {
         source: VenueSource,
     ) -> Result<Self> {
         let venue = Self {
-            id: String::new(),  // Will be set by ArangoDB
-            rev: String::new(), // Will be set by ArangoDB
+            id: String::new(),  // Set by SurrealDB on insert
+            rev: String::new(), // Optional; set by DB if used
             display_name,
             formatted_address,
             place_id,

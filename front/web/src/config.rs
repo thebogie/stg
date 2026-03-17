@@ -66,8 +66,10 @@ fn fallback_api_base_url() -> String {
         Ok(o) => o,
         Err(_) => return String::new(),
     };
+    // In local dev (browser), prefer same-origin relative URLs so the dev server proxy can route
+    // `/api/*` to the backend without triggering browser CORS.
     if origin.starts_with("http://localhost:") || origin.starts_with("http://127.0.0.1:") {
-        "http://127.0.0.1:50002".to_string()
+        String::new()
     } else {
         String::new()
     }

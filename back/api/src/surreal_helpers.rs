@@ -30,6 +30,8 @@ fn json_id_part_to_string(v: &Value) -> Option<String> {
         .map(String::from)
         .or_else(|| v.as_i64().map(|n| n.to_string()))
         .or_else(|| v.as_u64().map(|n| n.to_string()))
+        // SurrealDB may serialize RecordId key as object with "uuid" (e.g. {"uuid": "..."})
+        .or_else(|| v.get("uuid").and_then(|u| u.as_str()).map(String::from))
 }
 
 /// Normalize a record id string to canonical `"table/key"` (slash, no backticks, no angle brackets).
@@ -109,7 +111,12 @@ pub fn record_id_to_canonical(rid: &surrealdb::types::RecordId) -> String {
     use surrealdb::types::RecordIdKey;
     let table = rid.table.as_str();
     let key_str = match &rid.key {
-        RecordIdKey::String(s) => s.clone(),
+        // SurrealDB may include backticks / ⟨⟩ wrappers in string keys depending on how the record id
+        // is serialized. Canonical IDs in the app must never include those wrappers.
+        RecordIdKey::String(s) => s
+            .replace('`', "")
+            .replace('\u{27e8}', "") // ⟨
+            .replace('\u{27e9}', ""), // ⟩
         RecordIdKey::Number(n) => n.to_string(), // surrealdb_types::Number implements Display
         RecordIdKey::Uuid(u) => u.to_string(),
         _ => return format!("{}:", table),
@@ -229,7 +236,22 @@ pub async fn select_one_by_record_id(
     if key.is_empty() || !table_allowed_for_select_one(table) {
         return None;
     }
-    // Same as analytics/contest lookup: type::record(table, $key) with key as string (no type::uuid)
+    // For UUID-key tables, try type::uuid($key) first; bind as uuid::Uuid so client sends UUID type
+    if table_uses_uuid_key(table) {
+        if let Ok(uuid_key) = uuid::Uuid::parse_str(&key) {
+            let q = format!(
+                "SELECT * FROM {} WHERE id = type::record('{}', type::uuid($key)) LIMIT 1",
+                table, table
+            );
+            if let Ok(mut r) = db.query(&q).bind(("key", uuid_key)).await {
+                let rows: Vec<serde_json::Value> = r.take(0).unwrap_or_default();
+                if let Some(row) = rows.into_iter().next() {
+                    return Some(row);
+                }
+            }
+        }
+    }
+    // String key: type::record(table, $key)
     let q = format!(
         "SELECT * FROM {} WHERE id = type::record('{}', $key) LIMIT 1",
         table, table
@@ -250,19 +272,6 @@ pub async fn select_one_by_record_id(
                 "select_one_by_record_id: type::record(table,$key) query failed for table={} key={}: {}",
                 table, key, e
             );
-        }
-    }
-    // Try UUID-typed thing for tables that use UUID keys (some stores may use type::uuid)
-    if table_uses_uuid_key(table) && uuid::Uuid::parse_str(&key).is_ok() {
-        let q = format!(
-            "SELECT * FROM {} WHERE id = type::record('{}', type::uuid($key)) LIMIT 1",
-            table, table
-        );
-        if let Ok(mut r) = db.query(q).bind(("key", key.clone())).await {
-            let rows: Vec<serde_json::Value> = r.take(0).unwrap_or_default();
-            if let Some(row) = rows.into_iter().next() {
-                return Some(row);
-            }
         }
     }
     // Fallback: match list-query format — stored id string is "table:`key`"; strip backticks and compare to "table:key"

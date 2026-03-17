@@ -90,10 +90,23 @@ impl<R: PlayerRepository> PlayerUseCase for PlayerUseCaseImpl<R> {
         .map_err(|e| PlayerError::DatabaseError(format!("Failed to create player: {}", e)))?;
 
         // Save to database
-        self.repo
+        let created = self
+            .repo
             .create(player)
             .await
-            .map_err(|e| PlayerError::DatabaseError(e))
+            .map_err(PlayerError::DatabaseError)?;
+
+        // SurrealDB over remote WS can exhibit brief read-after-write delay. Ensure the player is
+        // queryable by email before returning 201 so subsequent login/duplicate checks are stable.
+        // Keep the delay short so this doesn't slow down normal operation materially.
+        for _ in 0..10 {
+            if let Some(p) = self.repo.find_by_email(&created.email).await {
+                return Ok(p);
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+
+        Ok(created)
     }
 
     async fn update_email(
@@ -126,7 +139,7 @@ impl<R: PlayerRepository> PlayerUseCase for PlayerUseCaseImpl<R> {
         self.repo
             .update(player)
             .await
-            .map_err(|e| PlayerError::DatabaseError(e))
+            .map_err(PlayerError::DatabaseError)
     }
 
     async fn update_handle(
@@ -148,8 +161,12 @@ impl<R: PlayerRepository> PlayerUseCase for PlayerUseCaseImpl<R> {
         }
 
         // Check if new handle already exists
-        if let Some(_existing_player) = self.repo.find_by_handle(new_handle).await {
-            return Err(PlayerError::AlreadyExists);
+        if let Some(existing_player) = self.repo.find_by_handle(new_handle).await {
+            // Allow no-op updates (setting handle to its current value).
+            // Also allow if the "existing" record is the same player.
+            if existing_player.id != player.id {
+                return Err(PlayerError::AlreadyExists);
+            }
         }
 
         // Update handle
@@ -159,7 +176,7 @@ impl<R: PlayerRepository> PlayerUseCase for PlayerUseCaseImpl<R> {
         self.repo
             .update(player)
             .await
-            .map_err(|e| PlayerError::DatabaseError(e))
+            .map_err(PlayerError::DatabaseError)
     }
 
     async fn update_password(
@@ -195,6 +212,6 @@ impl<R: PlayerRepository> PlayerUseCase for PlayerUseCaseImpl<R> {
         self.repo
             .update(player)
             .await
-            .map_err(|e| PlayerError::DatabaseError(e))
+            .map_err(PlayerError::DatabaseError)
     }
 }

@@ -259,17 +259,31 @@ impl AnalyticsUseCase {
         Ok(dto)
     }
 
-    /// Get player achievements with caching
-    pub async fn get_player_achievements(&self, player_id: &str) -> Result<PlayerAchievementsDto> {
+    /// Get player achievements with caching.
+    /// When `force_refresh` is true, cache is skipped and cleared so the next request gets fresh data (e.g. after new achievements are deployed).
+    pub async fn get_player_achievements(
+        &self,
+        player_id: &str,
+        force_refresh: bool,
+    ) -> Result<PlayerAchievementsDto> {
         let cache_key = CacheKeys::player_achievements(player_id);
 
-        // Try to get from cache first
-        if let Some(cached_data) = self.cache.get(&cache_key).await {
-            if let Ok(achievements) = serde_json::from_str::<PlayerAchievementsDto>(&cached_data) {
-                return Ok(achievements);
+        if force_refresh {
+            self.cache.remove(&cache_key).await;
+            log::debug!("Achievements cache cleared for player {} (force_refresh)", player_id);
+        }
+
+        // Try to get from cache first (unless we just cleared it)
+        if !force_refresh {
+            if let Some(cached_data) = self.cache.get(&cache_key).await {
+                if let Ok(achievements) = serde_json::from_str::<PlayerAchievementsDto>(&cached_data) {
+                    log::debug!("Achievements cache hit for player {}", player_id);
+                    return Ok(achievements);
+                }
             }
         }
 
+        log::debug!("Achievements cache miss for player {}, fetching from DB", player_id);
         let achievements = self.repo.get_player_achievements(player_id).await?;
 
         let achievement_dtos: Vec<AchievementDto> = achievements
@@ -428,7 +442,7 @@ impl AnalyticsUseCase {
             tokio::join!(
                 self.repo().get_player_display_label(&player_id),
                 async move { Ok::<PlayerStatsDto, SharedError>(placeholder) },
-                self.get_player_achievements(&player_id),
+                self.get_player_achievements(&player_id, true), // fresh so bundle has latest achievement list
                 self.get_my_game_performance(&player_id),
                 self.get_my_performance_trends(&player_id, None, None),
                 opponents_fut,
@@ -437,7 +451,7 @@ impl AnalyticsUseCase {
             tokio::join!(
                 self.repo().get_player_display_label(&player_id),
                 self.get_player_stats(&player_id, &req),
-                self.get_player_achievements(&player_id),
+                self.get_player_achievements(&player_id, true), // fresh so bundle has latest achievement list
                 self.get_my_game_performance(&player_id),
                 self.get_my_performance_trends(&player_id, None, None),
                 opponents_fut,
@@ -662,11 +676,12 @@ impl AnalyticsUseCase {
         Ok(contest_dtos)
     }
 
-    /// Invalidate cache for a specific player (profile keys + pattern for other player-scoped keys).
+    /// Invalidate cache for a specific player (profile keys + achievements + pattern for other player-scoped keys).
     pub async fn invalidate_player_cache(&self, player_id: &str) {
         self.cache.remove(&CacheKeys::profile_bundle(player_id)).await;
         self.cache.remove(&CacheKeys::profile_summary(player_id)).await;
         self.cache.remove(&CacheKeys::profile_opponents(player_id)).await;
+        self.cache.remove(&CacheKeys::player_achievements(player_id)).await;
         self.cache
             .invalidate_pattern(&format!("player:{}", player_id))
             .await;
@@ -756,7 +771,7 @@ impl AnalyticsUseCase {
         player_id: &str,
         config: Option<ChartConfig>,
     ) -> Result<Chart> {
-        let achievements = self.get_player_achievements(player_id).await?;
+        let achievements = self.get_player_achievements(player_id, false).await?;
         self.visualization
             .achievement_distribution(&achievements, config)
     }
@@ -1065,9 +1080,9 @@ impl AnalyticsUseCase {
     pub async fn debug_database(&self) -> Result<serde_json::Value> {
         let debug_query = r#"
             SELECT
-                (SELECT count() FROM played_with) AS played_with_count,
-                (SELECT count() FROM game) AS games_count,
-                (SELECT count() FROM contest) AS contest_count,
+                ((SELECT count() FROM played_with GROUP ALL)[0].count) AS played_with_count,
+                ((SELECT count() FROM game GROUP ALL)[0].count) AS games_count,
+                ((SELECT count() FROM contest GROUP ALL)[0].count) AS contest_count,
                 (SELECT * FROM played_with LIMIT 1) AS sample_played_with,
                 (SELECT * FROM game LIMIT 1) AS sample_game,
                 (SELECT * FROM contest LIMIT 1) AS sample_contest

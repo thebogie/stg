@@ -17,7 +17,7 @@ static LAST_HEARTBEAT_CHECK_MS: AtomicU64 = AtomicU64::new(0);
 /// Only run initial session validation once per page load (avoids spam if effect re-runs).
 static INITIAL_VALIDATION_STARTED: AtomicBool = AtomicBool::new(false);
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct AuthState {
     pub player: Option<PlayerDto>,
     pub loading: bool,
@@ -25,29 +25,8 @@ pub struct AuthState {
     pub heartbeat_active: bool,
 }
 
-impl PartialEq for AuthState {
-    fn eq(&self, other: &Self) -> bool {
-        self.loading == other.loading
-            && self.error == other.error
-            && self.heartbeat_active == other.heartbeat_active
-            && match (&self.player, &other.player) {
-                (Some(a), Some(b)) => a.id == b.id,
-                (None, None) => true,
-                _ => false,
-            }
-    }
-}
-
-impl Default for AuthState {
-    fn default() -> Self {
-        Self {
-            player: None,
-            loading: false,
-            error: None,
-            heartbeat_active: false,
-        }
-    }
-}
+// NOTE: `PartialEq` is derived intentionally so profile changes (handle/email/etc.)
+// trigger a rerender when we refresh the player from the API.
 
 impl AuthState {
     /// Check if the current player has administrative privileges
@@ -161,8 +140,8 @@ impl Reducible for AuthState {
             }),
             AuthAction::LogoutSuccess => {
                 // Clear player and session_id from local storage
-                let _ = LocalStorage::delete("player");
-                let _ = LocalStorage::delete("session_id");
+                LocalStorage::delete("player");
+                LocalStorage::delete("session_id");
                 Rc::new(Self {
                     player: None,
                     loading: false,
@@ -209,8 +188,8 @@ impl Reducible for AuthState {
             }
             AuthAction::HeartbeatError(_) => {
                 // Session expired, logout and redirect
-                let _ = LocalStorage::delete("player");
-                let _ = LocalStorage::delete("session_id");
+                LocalStorage::delete("player");
+                LocalStorage::delete("session_id");
 
                 Rc::new(Self {
                     player: None,

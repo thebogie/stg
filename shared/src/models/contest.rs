@@ -10,11 +10,11 @@ use surrealdb_types::SurrealValue;
 #[derive(Debug, Serialize, Deserialize, Validate, Clone)]
 #[cfg_attr(feature = "surrealdb", derive(surrealdb_types::SurrealValue))]
 pub struct Contest {
-    /// ArangoDB document ID (format: "contest/{timestamp}")
+    /// Record ID (format: "contest/{key}"); serialized as "_id" in JSON for compatibility.
     #[serde(rename = "_id")]
     pub id: String,
 
-    /// ArangoDB document revision
+    /// Revision (optional); serialized as "_rev" in JSON for compatibility.
     #[serde(rename = "_rev")]
     pub rev: String,
 
@@ -82,10 +82,16 @@ mod tests {
             id: "contest/test-contest".to_string(),
             rev: "1".to_string(),
             name: "Test Contest".to_string(),
-            start: DateTime::parse_from_rfc3339("2023-07-15T14:00:00Z").unwrap(),
-            stop: DateTime::parse_from_rfc3339("2023-07-15T16:00:00Z").unwrap(),
+            start: DateTime::parse_from_rfc3339("2023-07-15T14:00:00Z")
+                .unwrap()
+                .with_timezone(&Utc),
+            stop: DateTime::parse_from_rfc3339("2023-07-15T16:00:00Z")
+                .unwrap()
+                .with_timezone(&Utc),
             creator_id: "player/test-creator".to_string(),
-            created_at: DateTime::parse_from_rfc3339("2023-07-15T10:00:00Z").unwrap(),
+            created_at: DateTime::parse_from_rfc3339("2023-07-15T10:00:00Z")
+                .unwrap()
+                .with_timezone(&Utc),
         }
     }
 
@@ -152,10 +158,16 @@ mod tests {
             id: "contest/test".to_string(),
             rev: "1".to_string(),
             name: "Timezone Test Contest".to_string(),
-            start: DateTime::parse_from_rfc3339("2023-07-15T14:00:00-05:00").unwrap(),
-            stop: DateTime::parse_from_rfc3339("2023-07-15T16:00:00-05:00").unwrap(),
+            start: DateTime::parse_from_rfc3339("2023-07-15T14:00:00-05:00")
+                .unwrap()
+                .with_timezone(&Utc),
+            stop: DateTime::parse_from_rfc3339("2023-07-15T16:00:00-05:00")
+                .unwrap()
+                .with_timezone(&Utc),
             creator_id: "player/test-creator".to_string(),
-            created_at: DateTime::parse_from_rfc3339("2023-07-15T10:00:00Z").unwrap(),
+            created_at: DateTime::parse_from_rfc3339("2023-07-15T10:00:00Z")
+                .unwrap()
+                .with_timezone(&Utc),
         };
         assert!(contest.validate().is_ok());
     }
@@ -169,8 +181,10 @@ mod tests {
 
     #[test]
     fn test_contest_new_with_validation() {
-        let start = DateTime::parse_from_rfc3339("2023-07-15T14:00:00Z").unwrap();
-        let stop = DateTime::parse_from_rfc3339("2023-07-15T16:00:00Z").unwrap();
+        let start = DateTime::parse_from_rfc3339("2023-07-15T14:00:00Z")
+            .unwrap();
+        let stop = DateTime::parse_from_rfc3339("2023-07-15T16:00:00Z")
+            .unwrap();
 
         let result = Contest::new(
             "contest/test".to_string(),
@@ -189,8 +203,10 @@ mod tests {
 
     #[test]
     fn test_contest_new_with_invalid_name() {
-        let start = DateTime::parse_from_rfc3339("2023-07-15T14:00:00Z").unwrap();
-        let stop = DateTime::parse_from_rfc3339("2023-07-15T16:00:00Z").unwrap();
+        let start = DateTime::parse_from_rfc3339("2023-07-15T14:00:00Z")
+            .unwrap();
+        let stop = DateTime::parse_from_rfc3339("2023-07-15T16:00:00Z")
+            .unwrap();
 
         let result = Contest::new(
             "contest/test".to_string(),

@@ -63,11 +63,14 @@ services:
         RUST_LOG: "info"
         GIT_COMMIT: "${GIT_COMMIT:-unknown}"
         BUILD_DATE: "${BUILD_DATE:-unknown}"
-    image: stg-backend:local
+    # Use BACKEND_IMAGE when running pre-built prod image (e.g. stg-backend:20250312-abc1234 or ghcr.io/owner/stg/backend:latest)
+    image: ${BACKEND_IMAGE:-stg-backend:local}
     ports:
       - "${BACKEND_PORT:-50002}:${BACKEND_PORT:-50002}"
     # SURREAL_URL and REDIS_URL are set by docker-entrypoint.sh from gateway IP (avoids DNS issues)
+    # IMAGE_TAG is shown in /api/version and footer (build version)
     environment:
+      - IMAGE_TAG=${IMAGE_TAG:-}
       - SURREALDB_PORT=${SURREALDB_PORT:-50001}
       - REDIS_PORT=${REDIS_PORT:-6379}
       - SURREAL_NS=${SURREAL_NS:-stg_rd}
@@ -83,6 +86,7 @@ services:
       - GOOGLEMAP_API_TIMEZONE_URL=${GOOGLEMAP_API_TIMEZONE_URL:-}
       - BGG_API_URL=${BGG_API_URL:-}
       - BGG_API_TOKEN=${BGG_API_TOKEN:-}
+      - ADMIN_EMAILS=${ADMIN_EMAILS:-}
     depends_on:
       wait-for-surrealdb:
         condition: service_completed_successfully

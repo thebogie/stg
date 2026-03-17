@@ -6,7 +6,7 @@ use validator::Validate;
 /// Data Transfer Object for Relation
 #[derive(Debug, Clone, Serialize, Deserialize, Validate)]
 pub struct RelationDto {
-    /// Unique identifier for the relation (optional for creation, will be set by ArangoDB if empty)
+    /// Unique identifier for the relation (optional for creation; set by SurrealDB if empty)
     #[serde(default)]
     pub id: Uuid,
 
@@ -24,7 +24,7 @@ pub struct RelationDto {
 /// Data Transfer Object for PlayedAt relation
 #[derive(Debug, Serialize, Deserialize, Validate, Clone)]
 pub struct PlayedAtDto {
-    /// Relation's ID (optional for creation, will be set by ArangoDB if empty)
+    /// Relation's record ID (optional for creation; set by SurrealDB if empty)
     #[serde(rename = "_id", default)]
     pub id: String,
     #[serde(rename = "_from")]
@@ -38,7 +38,7 @@ pub struct PlayedAtDto {
 /// Data Transfer Object for PlayedWith relation
 #[derive(Debug, Serialize, Deserialize, Validate, Clone)]
 pub struct PlayedWithDto {
-    /// Relation's ID (optional for creation, will be set by ArangoDB if empty)
+    /// Relation's record ID (optional for creation; set by SurrealDB if empty)
     #[serde(rename = "_id", default)]
     pub id: String,
     #[serde(rename = "_from")]
@@ -52,7 +52,7 @@ pub struct PlayedWithDto {
 /// Data Transfer Object for ResultedIn relation
 #[derive(Debug, Serialize, Deserialize, Validate, Clone)]
 pub struct ResultedInDto {
-    /// Relation's ID (optional for creation, will be set by ArangoDB if empty)
+    /// Relation's record ID (optional for creation; set by SurrealDB if empty)
     #[serde(rename = "_id", default)]
     pub id: String,
     #[serde(rename = "_from")]
@@ -86,7 +86,7 @@ impl From<PlayedAtDto> for PlayedAt {
     fn from(dto: PlayedAtDto) -> Self {
         Self {
             id: dto.id,
-            rev: String::new(), // Let ArangoDB set this
+            rev: String::new(), // Optional; set by DB if used
             from: dto.from,
             to: dto.to,
             label: dto.label,
@@ -109,7 +109,7 @@ impl From<PlayedWithDto> for PlayedWith {
     fn from(dto: PlayedWithDto) -> Self {
         Self {
             id: dto.id,
-            rev: String::new(), // Let ArangoDB set this
+            rev: String::new(), // Optional; set by DB if used
             from: dto.from,
             to: dto.to,
             label: dto.label,
@@ -134,7 +134,7 @@ impl From<ResultedInDto> for ResultedIn {
     fn from(dto: ResultedInDto) -> Self {
         Self {
             id: dto.id,
-            rev: String::new(), // Let ArangoDB set this
+            rev: String::new(), // Optional; set by DB if used
             from: dto.from,
             to: dto.to,
             label: dto.label,

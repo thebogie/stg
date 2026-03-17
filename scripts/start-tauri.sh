@@ -8,6 +8,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$SCRIPT_DIR/.."
 TAURI_DIR="$ROOT/front/tauri"
+WEB_DIR="$ROOT/front/web"
 
 ENV_ARG="${1:-${ENV:-dev}}"
 source "$SCRIPT_DIR/load-env.sh" "$ENV_ARG"
@@ -33,6 +34,18 @@ if ! curl -sf --connect-timeout 2 "http://127.0.0.1:${BACKEND_PORT}/health" >/de
   echo "    Start it first (in another terminal):  ./scripts/start-back.sh" >&2
   echo "    Then use the app. Check:  curl -s http://127.0.0.1:${BACKEND_PORT}/health" >&2
   echo "" >&2
+fi
+
+# Ensure Tailwind output is up to date (disable with SKIP_TAILWIND=1)
+if [ "${SKIP_TAILWIND:-0}" != "1" ]; then
+  if command -v npm >/dev/null 2>&1; then
+    if [ -f "$WEB_DIR/package.json" ]; then
+      echo "==> Rebuilding Tailwind CSS (SKIP_TAILWIND=1 to skip)"
+      (cd "$WEB_DIR" && npm run -s build:css:prod)
+    fi
+  else
+    echo "==> npm not found; skipping Tailwind build" >&2
+  fi
 fi
 
 echo "==> Starting Tauri (Yew at http://localhost:${FRONTEND_PORT}; backend ${BACKEND_PORT})"

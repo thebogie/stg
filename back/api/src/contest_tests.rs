@@ -7,6 +7,7 @@ mod contest_tests {
 
     #[test]
     fn test_contest_dto_creation() {
+        // ContestDto uses DateTime<FixedOffset> for start/stop, so build from Utc with fixed_offset().
         let contest_dto = ContestDto {
             id: "contest/test".to_string(),
             name: "Test Contest".to_string(),
@@ -53,10 +54,10 @@ mod contest_tests {
             id: "contest/test".to_string(),
             rev: "1".to_string(),
             name: "Test Contest".to_string(),
-            start: Utc::now().fixed_offset(),
-            stop: Utc::now().fixed_offset() + Duration::hours(2),
+            start: Utc::now(),
+            stop: Utc::now() + Duration::hours(2),
             creator_id: "player/test-creator".to_string(),
-            created_at: Utc::now().fixed_offset(),
+            created_at: Utc::now(),
         };
 
         assert_eq!(contest.name, "Test Contest");
@@ -69,10 +70,10 @@ mod contest_tests {
             id: "contest/test".to_string(),
             rev: "1".to_string(),
             name: "Test Contest".to_string(),
-            start: Utc::now().fixed_offset(),
-            stop: Utc::now().fixed_offset() + Duration::hours(2),
+            start: Utc::now(),
+            stop: Utc::now() + Duration::hours(2),
             creator_id: "player/test-creator".to_string(),
-            created_at: Utc::now().fixed_offset(),
+            created_at: Utc::now(),
         };
 
         let json = serde_json::to_string(&contest).unwrap();

@@ -5,7 +5,7 @@ use validator::Validate;
 /// Data Transfer Object for Venue
 #[derive(Debug, Serialize, Deserialize, Validate, Clone, PartialEq)]
 pub struct VenueDto {
-    /// Venue's ID (optional for creation, will be set by ArangoDB if empty)
+    /// Venue's record ID (optional for creation; set by SurrealDB if empty)
     #[serde(rename = "_id", default)]
     pub id: String,
     #[validate(length(
@@ -76,7 +76,7 @@ impl From<VenueDto> for Venue {
         )
         .unwrap_or_else(|_| Self {
             id: String::new(),  // Will be overridden below
-            rev: String::new(), // Let ArangoDB set this
+            rev: String::new(), // Optional; set by DB if used
             display_name: dto.display_name,
             formatted_address: dto.formatted_address,
             place_id: dto.place_id,

@@ -15,6 +15,23 @@ struct ErrorResponse {
     error: String,
 }
 
+async fn read_error_message(response: gloo_net::http::Response) -> String {
+    let status = response.status();
+    match response.text().await {
+        Ok(body) => {
+            let trimmed = body.trim();
+            if trimmed.is_empty() {
+                return format!("HTTP {}", status);
+            }
+            if let Ok(parsed) = serde_json::from_str::<ErrorResponse>(trimmed) {
+                return parsed.error;
+            }
+            trimmed.to_string()
+        }
+        Err(_) => format!("HTTP {}", status),
+    }
+}
+
 /// Result of checking current session: either success, session expired (401), or other error (network, 5xx, etc.)
 #[derive(Debug)]
 pub enum SessionCheckResult {
@@ -264,11 +281,7 @@ pub async fn update_email(
         .map_err(|e| format!("Failed to send email update request: {}", e))?;
 
     if !response.ok() {
-        let error = response
-            .json::<ErrorResponse>()
-            .await
-            .map_err(|e| format!("Failed to parse error response: {}", e))?;
-        return Err(error.error);
+        return Err(read_error_message(response).await);
     }
 
     let update_response = response
@@ -299,11 +312,7 @@ pub async fn update_handle(
         .map_err(|e| format!("Failed to send handle update request: {}", e))?;
 
     if !response.ok() {
-        let error = response
-            .json::<ErrorResponse>()
-            .await
-            .map_err(|e| format!("Failed to parse error response: {}", e))?;
-        return Err(error.error);
+        return Err(read_error_message(response).await);
     }
 
     let update_response = response
@@ -334,11 +343,7 @@ pub async fn update_password(
         .map_err(|e| format!("Failed to send password update request: {}", e))?;
 
     if !response.ok() {
-        let error = response
-            .json::<ErrorResponse>()
-            .await
-            .map_err(|e| format!("Failed to parse error response: {}", e))?;
-        return Err(error.error);
+        return Err(read_error_message(response).await);
     }
 
     let update_response = response

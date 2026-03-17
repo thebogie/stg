@@ -1,10 +1,14 @@
 //! Integration tests for Authentication & Authorization
 //!
-//! Tests session management, authentication flows, and authorization checks
-
-//! Integration tests for Authentication & Authorization
+//! Legit tests: register/login, invalid token → 401, malformed header → 401,
+//! logout, session isolation. They require SurrealDB + Redis to be running
+//! (same stack as production). Marked `#[ignore]` so default `cargo test`
+//! skips them; run with `--include-ignored` when the stack is up (e.g. in
+//! `scripts/full-prod-test.sh`).
 //!
-//! Tests session management, authentication flows, and authorization checks
+//! Run faster: use `--test-threads=1` so tests run sequentially and don't
+//! all call wait_for_ready() in parallel (e.g. `cargo test -p testing
+//! auth_integration -- --include-ignored --test-threads=1`).
 
 mod test_helpers;
 
@@ -14,6 +18,7 @@ use testing::create_authenticated_user;
 use testing::{app_setup, TestEnvironment};
 
 #[tokio::test]
+#[ignore = "requires SurrealDB + Redis; run with --include-ignored when stack is up"]
 async fn test_session_expiration() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
@@ -92,6 +97,7 @@ async fn test_session_expiration() -> Result<()> {
 }
 
 #[tokio::test]
+#[ignore = "requires SurrealDB + Redis; run with --include-ignored when stack is up"]
 async fn test_invalid_session_token() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
@@ -181,6 +187,7 @@ async fn test_invalid_session_token() -> Result<()> {
 }
 
 #[tokio::test]
+#[ignore = "requires SurrealDB + Redis; run with --include-ignored when stack is up"]
 async fn test_malformed_authorization_header() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
@@ -272,6 +279,7 @@ async fn test_malformed_authorization_header() -> Result<()> {
 }
 
 #[tokio::test]
+#[ignore = "requires SurrealDB + Redis; run with --include-ignored when stack is up"]
 async fn test_missing_authorization_header() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
@@ -358,6 +366,7 @@ async fn test_missing_authorization_header() -> Result<()> {
 }
 
 #[tokio::test]
+#[ignore = "requires SurrealDB + Redis; run with --include-ignored when stack is up"]
 async fn test_logout_invalidates_session() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
@@ -476,6 +485,7 @@ async fn test_logout_invalidates_session() -> Result<()> {
 }
 
 #[tokio::test]
+#[ignore = "requires SurrealDB + Redis; run with --include-ignored when stack is up"]
 async fn test_session_persistence_across_requests() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
@@ -556,6 +566,7 @@ async fn test_session_persistence_across_requests() -> Result<()> {
 }
 
 #[tokio::test]
+#[ignore = "requires SurrealDB + Redis; run with --include-ignored when stack is up"]
 async fn test_concurrent_sessions() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
@@ -613,9 +624,16 @@ async fn test_concurrent_sessions() -> Result<()> {
     )
     .await;
 
-    // Create two different users with different sessions
-    let session1 = create_authenticated_user!(app, "user1@example.com", "user1");
-    let session2 = create_authenticated_user!(app, "user2@example.com", "user2");
+    // Use unique emails so we don't hit "email already exists" from shared DB state
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis();
+    let email1 = format!("concurrent1_{}@example.com", ts);
+    let email2 = format!("concurrent2_{}@example.com", ts);
+
+    let session1 = create_authenticated_user!(app, email1.as_str(), "user1");
+    let session2 = create_authenticated_user!(app, email2.as_str(), "user2");
 
     // Both sessions should work independently
     let req1 = test::TestRequest::get()
@@ -631,8 +649,16 @@ async fn test_concurrent_sessions() -> Result<()> {
     let resp1 = test::call_service(&app, req1).await;
     let resp2 = test::call_service(&app, req2).await;
 
-    assert!(resp1.status().is_success(), "Session 1 should work");
-    assert!(resp2.status().is_success(), "Session 2 should work");
+    assert!(
+        resp1.status().is_success(),
+        "Session 1 should work: status={}",
+        resp1.status()
+    );
+    assert!(
+        resp2.status().is_success(),
+        "Session 2 should work: status={}",
+        resp2.status()
+    );
 
     // Verify they return different user data
     use shared::dto::player::PlayerDto;
@@ -652,6 +678,7 @@ async fn test_concurrent_sessions() -> Result<()> {
 }
 
 #[tokio::test]
+#[ignore = "requires SurrealDB + Redis; run with --include-ignored when stack is up"]
 async fn test_protected_endpoints_require_auth() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;

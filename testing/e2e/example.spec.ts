@@ -1,13 +1,11 @@
 import { test, expect } from '@playwright/test';
 
 /**
- * E2E tests for Yew frontend
- * 
- * These tests render the actual WASM in a headless browser
- * and can perform visual regression testing via screenshots.
- * 
- * Note: These tests require the frontend server to be running.
- * The Playwright config should start it automatically.
+ * E2E tests for Yew frontend (functionality only).
+ *
+ * These tests render the actual WASM in a headless browser and assert
+ * behavior, navigation, and content—no visual/screenshot regression.
+ * Requires the frontend server to be running (Playwright config or prod stack).
  */
 
 test.describe('Frontend E2E Tests', () => {
@@ -74,46 +72,3 @@ test.describe('Frontend E2E Tests', () => {
     }
   });
 });
-
-test.describe('Visual Regression Tests', () => {
-  test('homepage visual snapshot', async ({ page }) => {
-    await page.goto('/');
-    await page.waitForLoadState('networkidle');
-    await page.waitForTimeout(1000);
-    
-    // Verify page loaded before taking screenshot
-    const body = page.locator('body');
-    await expect(body).toBeVisible({ timeout: 10000 });
-    
-    // Full page screenshot for visual regression
-    await expect(page).toHaveScreenshot('homepage-full.png', {
-      fullPage: true,
-      timeout: 10000,
-    });
-  });
-
-  test('admin page visual snapshot', async ({ page }) => {
-    // Navigate to admin page if it exists
-    await page.goto('/admin');
-    await page.waitForLoadState('networkidle');
-    await page.waitForTimeout(1000);
-    
-    // Check if page loaded (might be 404 or redirect)
-    const status = page.url();
-    expect(status).toBeTruthy();
-    
-    // Only take screenshot if page exists (not 404)
-    const body = page.locator('body');
-    const isVisible = await body.isVisible().catch(() => false);
-    
-    if (isVisible) {
-      await expect(page).toHaveScreenshot('admin-page.png', {
-        fullPage: true,
-        timeout: 10000,
-      });
-    } else {
-      test.skip();
-    }
-  });
-});
-

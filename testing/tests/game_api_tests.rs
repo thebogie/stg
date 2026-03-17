@@ -203,10 +203,15 @@ async fn test_get_game_success() -> Result<()> {
     assert!(create_resp.status().is_success());
     let created_game: GameDto = test::read_body_json(create_resp).await;
     let game_id = created_game.id.clone();
+    let game_id_for_url = game_id
+        .split('/')
+        .last()
+        .unwrap_or(game_id.as_str())
+        .to_string();
 
-    // Now get it
+    // Now get it (use key only in URL so route matches one segment)
     let get_req = test::TestRequest::get()
-        .uri(&format!("/api/games/{}", game_id))
+        .uri(&format!("/api/games/{}", game_id_for_url))
         .insert_header(("Authorization", format!("Bearer {}", session_id)))
         .to_request();
 
@@ -335,8 +340,13 @@ async fn test_update_game_success() -> Result<()> {
     assert!(create_resp.status().is_success());
     let created_game: GameDto = test::read_body_json(create_resp).await;
     let game_id = created_game.id.clone();
+    let game_id_for_url = game_id
+        .split('/')
+        .last()
+        .unwrap_or(game_id.as_str())
+        .to_string();
 
-    // Update it
+    // Update it (use key only in URL so route matches one segment)
     let updated_data = json!({
         "name": "Updated Name",
         "year_published": 2022,
@@ -345,7 +355,7 @@ async fn test_update_game_success() -> Result<()> {
     });
 
     let update_req = test::TestRequest::put()
-        .uri(&format!("/api/games/{}", game_id))
+        .uri(&format!("/api/games/{}", game_id_for_url))
         .insert_header(("Authorization", format!("Bearer {}", session_id)))
         .set_json(&updated_data)
         .to_request();
@@ -480,10 +490,15 @@ async fn test_delete_game_success() -> Result<()> {
     assert!(create_resp.status().is_success());
     let created_game: GameDto = test::read_body_json(create_resp).await;
     let game_id = created_game.id.clone();
+    let game_id_for_url = game_id
+        .split('/')
+        .last()
+        .unwrap_or(game_id.as_str())
+        .to_string();
 
-    // Delete it
+    // Delete it (use key only in URL so route matches one segment)
     let delete_req = test::TestRequest::delete()
-        .uri(&format!("/api/games/{}", game_id))
+        .uri(&format!("/api/games/{}", game_id_for_url))
         .insert_header(("Authorization", format!("Bearer {}", session_id)))
         .to_request();
 
@@ -496,7 +511,7 @@ async fn test_delete_game_success() -> Result<()> {
 
     // Verify it's deleted
     let get_req = test::TestRequest::get()
-        .uri(&format!("/api/games/{}", game_id))
+        .uri(&format!("/api/games/{}", game_id_for_url))
         .insert_header(("Authorization", format!("Bearer {}", session_id)))
         .to_request();
 

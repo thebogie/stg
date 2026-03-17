@@ -8,6 +8,18 @@ pub struct RatingsRepository {
     pub db: Db,
 }
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, surrealdb::types::SurrealValue)]
+pub struct RatingsRebuildRun {
+    pub id: String,
+    pub started_at: Option<String>,
+    pub finished_at: Option<String>,
+    pub running: bool,
+    pub current_period: Option<String>,
+    pub processed_periods: u32,
+    pub total_periods: u32,
+    pub last_error: Option<String>,
+}
+
 impl RatingsRepository {
     pub fn new(db: Db) -> Self {
         Self { db }
@@ -22,7 +34,9 @@ impl RatingsRepository {
         let end = end.to_string();
         let mut res = self
             .db
-            .query("SELECT * FROM contest WHERE start >= $start AND start < $end")
+            .query(
+                "SELECT * FROM contest WHERE start >= type::datetime($start) AND start < type::datetime($end)",
+            )
             .bind(("start", start))
             .bind(("end", end))
             .await
@@ -30,15 +44,15 @@ impl RatingsRepository {
         let rows: Vec<Value> = res
             .take(0)
             .map_err(|e| SharedError::Database(format!("Failed to take contests: {}", e)))?;
-        // Normalize Surreal record id (contest:key) to API shape (_id = contest/key)
+        // Normalize Surreal record id (contest:key Thing) to canonical string id.
         let out: Vec<Value> = rows
             .into_iter()
             .map(|mut v| {
-                if let Some(obj) = v.as_object_mut() {
-                    if let Some(id) = obj.get("id") {
-                        let s = id.to_string().trim_matches('"').replace("contest:", "contest/");
-                        obj.insert("_id".into(), Value::String(s));
-                    }
+                // Surreal returns `id` as a Thing; ensure both `id` and `_id` are strings like "contest/<key>".
+                let cid = crate::surreal_helpers::record_id_from_field(&v, "id");
+                if let (Some(obj), Some(cid)) = (v.as_object_mut(), cid) {
+                    obj.insert("id".into(), Value::String(cid.clone()));
+                    obj.insert("_id".into(), Value::String(cid));
                 }
                 v
             })
@@ -51,12 +65,16 @@ impl RatingsRepository {
         contest_id: &str,
     ) -> Result<Vec<(String, Option<i32>)>> {
         let key = crate::surreal_helpers::record_id_to_key(contest_id, "contest");
+        if key.is_empty() {
+            return Ok(Vec::new());
+        }
+        let record_id = surrealdb::types::RecordId::new("contest", key.as_str());
         let mut res = self
             .db
             .query(
-                "SELECT `out` AS player_id, place FROM resulted_in WHERE `in` = type::record('contest', $key)",
+                "SELECT `out` AS player_id, place FROM resulted_in WHERE `in` = $record_id",
             )
-            .bind(("key", key))
+            .bind(("record_id", record_id))
             .await
             .map_err(|e| {
                 SharedError::Database(format!("Failed to fetch contest results: {}", e))
@@ -85,10 +103,14 @@ impl RatingsRepository {
 
     pub async fn get_contest_players(&self, contest_id: &str) -> Result<Vec<String>> {
         let key = crate::surreal_helpers::record_id_to_key(contest_id, "contest");
+        if key.is_empty() {
+            return Ok(Vec::new());
+        }
+        let record_id = surrealdb::types::RecordId::new("contest", key.as_str());
         let mut res = self
             .db
-            .query("SELECT `out` AS player_id FROM resulted_in WHERE `in` = type::record('contest', $key)")
-            .bind(("key", key))
+            .query("SELECT `out` AS player_id FROM resulted_in WHERE `in` = $record_id")
+            .bind(("record_id", record_id))
             .await
             .map_err(|e| {
                 SharedError::Database(format!("Failed to fetch contest players: {}", e))
@@ -116,10 +138,14 @@ impl RatingsRepository {
 
     pub async fn get_contest_game(&self, contest_id: &str) -> Result<Option<String>> {
         let key = crate::surreal_helpers::record_id_to_key(contest_id, "contest");
+        if key.is_empty() {
+            return Ok(None);
+        }
+        let record_id = surrealdb::types::RecordId::new("contest", key.as_str());
         let mut res = self
             .db
-            .query("SELECT `out` AS game_id FROM played_with WHERE `in` = type::record('contest', $key) LIMIT 1")
-            .bind(("key", key))
+            .query("SELECT `out` AS game_id FROM played_with WHERE `in` = $record_id LIMIT 1")
+            .bind(("record_id", record_id))
             .await
             .map_err(|e| SharedError::Database(format!("Failed to fetch contest game: {}", e)))?;
         #[derive(serde::Deserialize, serde::Serialize, surrealdb::types::SurrealValue)]
@@ -152,11 +178,12 @@ impl RatingsRepository {
             .trim_matches('`')
             .to_string();
         let scope_id_owned: Option<String> = scope_id.map(|s| s.to_string());
+        let player_record_id = surrealdb::types::RecordId::new("player", pid.as_str());
         let mut q = self.db.query(
-            "SELECT * FROM rating_latest WHERE scope_type = $scope_type AND player_id = type::record('player', $player_id) \
+            "SELECT * FROM rating_latest WHERE scope_type = $scope_type AND player_id = $record_id \
              AND (($scope_id == NONE AND scope_id == NONE) OR scope_id = $scope_id) LIMIT 1",
         );
-        q = q.bind(("scope_type", scope_type)).bind(("player_id", pid));
+        q = q.bind(("scope_type", scope_type)).bind(("record_id", player_record_id));
         if let Some(sid) = scope_id_owned {
             q = q.bind(("scope_id", sid));
         } else {
@@ -255,6 +282,165 @@ impl RatingsRepository {
         Ok(())
     }
 
+    /// Upsert latest rating row (global scope) with proper RecordId typing.
+    pub async fn upsert_latest_rating_global(
+        &self,
+        player_id: &str,
+        rating: f64,
+        rd: f64,
+        volatility: f64,
+        games_played: i32,
+        last_period_end: &str,
+        updated_at: &str,
+    ) -> Result<()> {
+        let pid = player_id
+            .trim_start_matches("player/")
+            .trim_start_matches("player:")
+            .trim_matches('`')
+            .to_string();
+        if pid.is_empty() {
+            return Err(SharedError::BadRequest("missing player_id".into()));
+        }
+        let record_id = surrealdb::types::RecordId::new("player", pid.as_str());
+
+        // Delete existing row for this (player, scope).
+        let mut del_q = self.db.query(
+            "DELETE FROM rating_latest \
+             WHERE player_id = $record_id AND scope_type = 'global' AND scope_id == NONE",
+        );
+        del_q = del_q.bind(("record_id", record_id.clone()));
+        del_q
+            .await
+            .map_err(|e| SharedError::Database(format!("Failed to delete previous latest rating: {}", e)))?;
+
+        // Insert with correctly typed `player_id` (RecordId) and datetime fields (SCHEMAFULL expects datetime).
+        let mut ins_res = self.db
+            .query(
+                "INSERT INTO rating_latest { \
+                    player_id: $record_id, \
+                    scope_type: 'global', \
+                    scope_id: NONE, \
+                    rating: $rating, \
+                    rd: $rd, \
+                    volatility: $volatility, \
+                    games_played: $games_played, \
+                    last_period_end: type::datetime($last_period_end), \
+                    updated_at: type::datetime($updated_at) \
+                }",
+            )
+            .bind(("record_id", record_id))
+            .bind(("rating", rating))
+            .bind(("rd", rd))
+            .bind(("volatility", volatility))
+            .bind(("games_played", games_played))
+            .bind(("last_period_end", last_period_end.to_string()))
+            .bind(("updated_at", updated_at.to_string()))
+            .await
+            .map_err(|e| SharedError::Database(format!("Failed to insert latest rating: {}", e)))?;
+        let inserted: Vec<Value> = match ins_res.take(0) {
+            Ok(v) => v,
+            Err(e) => {
+                log::error!(
+                    "upsert_latest_rating_global: INSERT failed (player_id={}, last_period_end={}, err={})",
+                    player_id,
+                    last_period_end,
+                    e
+                );
+                return Err(SharedError::Database(format!(
+                    "Failed to insert latest rating (player_id={}, last_period_end={}): {}",
+                    player_id, last_period_end, e
+                )));
+            }
+        };
+        if inserted.is_empty() {
+            log::warn!(
+                "upsert_latest_rating_global: INSERT returned 0 rows without error (player_id={}, last_period_end={})",
+                player_id,
+                last_period_end
+            );
+        }
+        Ok(())
+    }
+
+    /// Insert rating history row (global scope) with proper RecordId typing.
+    pub async fn insert_rating_history_global(
+        &self,
+        player_id: &str,
+        period_end: &str,
+        rating: f64,
+        rd: f64,
+        volatility: f64,
+        period_games: i32,
+        wins: i32,
+        losses: i32,
+        draws: i32,
+        created_at: &str,
+    ) -> Result<()> {
+        let pid = player_id
+            .trim_start_matches("player/")
+            .trim_start_matches("player:")
+            .trim_matches('`')
+            .to_string();
+        if pid.is_empty() {
+            return Err(SharedError::BadRequest("missing player_id".into()));
+        }
+        let record_id = surrealdb::types::RecordId::new("player", pid.as_str());
+
+        // SCHEMAFULL expects datetime for period_end and created_at; use type::datetime() so server accepts.
+        let mut ins_res = self.db
+            .query(
+                "INSERT INTO rating_history { \
+                    player_id: $record_id, \
+                    scope_type: 'global', \
+                    scope_id: NONE, \
+                    period_end: type::datetime($period_end), \
+                    rating: $rating, \
+                    rd: $rd, \
+                    volatility: $volatility, \
+                    period_games: $period_games, \
+                    wins: $wins, \
+                    losses: $losses, \
+                    draws: $draws, \
+                    created_at: type::datetime($created_at) \
+                }",
+            )
+            .bind(("record_id", record_id))
+            .bind(("period_end", period_end.to_string()))
+            .bind(("rating", rating))
+            .bind(("rd", rd))
+            .bind(("volatility", volatility))
+            .bind(("period_games", period_games))
+            .bind(("wins", wins))
+            .bind(("losses", losses))
+            .bind(("draws", draws))
+            .bind(("created_at", created_at.to_string()))
+            .await
+            .map_err(|e| SharedError::Database(format!("Failed to insert rating history: {}", e)))?;
+        let inserted: Vec<Value> = match ins_res.take(0) {
+            Ok(v) => v,
+            Err(e) => {
+                log::error!(
+                    "insert_rating_history_global: INSERT failed (player_id={}, period_end={}, err={})",
+                    player_id,
+                    period_end,
+                    e
+                );
+                return Err(SharedError::Database(format!(
+                    "Failed to insert rating history (player_id={}, period_end={}): {}",
+                    player_id, period_end, e
+                )));
+            }
+        };
+        if inserted.is_empty() {
+            log::warn!(
+                "insert_rating_history_global: INSERT returned 0 rows without error (player_id={}, period_end={})",
+                player_id,
+                period_end
+            );
+        }
+        Ok(())
+    }
+
     pub async fn get_leaderboard(
         &self,
         scope_type: &str,
@@ -313,10 +499,14 @@ impl RatingsRepository {
 
     async fn get_player_record(&self, key: &str) -> Result<Option<Value>> {
         let key = key.to_string();
+        if key.is_empty() {
+            return Ok(None);
+        }
+        let record_id = surrealdb::types::RecordId::new("player", key.as_str());
         let mut res = self
             .db
-            .query("SELECT * FROM player WHERE id = type::record('player', $key)")
-            .bind(("key", key))
+            .query("SELECT * FROM player WHERE id = $record_id")
+            .bind(("record_id", record_id))
             .await
             .map_err(|e| SharedError::Database(e.to_string()))?;
         let rows: Vec<Value> = res.take(0).unwrap_or_default();
@@ -456,10 +646,14 @@ impl RatingsRepository {
             .trim_start_matches("player:")
             .trim_matches('`')
             .to_string();
+        if pid.is_empty() {
+            return Ok(Vec::new());
+        }
+        let record_id = surrealdb::types::RecordId::new("player", pid.as_str());
         let mut res = self
             .db
-            .query("SELECT * FROM player WHERE id = type::record('player', $pid)")
-            .bind(("pid", pid))
+            .query("SELECT * FROM player WHERE id = $record_id")
+            .bind(("record_id", record_id))
             .await
             .map_err(|e| SharedError::Database(format!("Failed to debug player document: {}", e)))?;
         let rows: Vec<Value> = res.take(0).unwrap_or_default();
@@ -476,14 +670,15 @@ impl RatingsRepository {
             .to_string();
         let player_id_slash = format!("player/{}", pid);
         let player_id_colon = format!("player:{}", pid);
+        let player_record_id = surrealdb::types::RecordId::new("player", pid.as_str());
         // Match record id or string form (slash or colon)
         let mut res = self
             .db
             .query(
-                "SELECT * FROM rating_latest WHERE (player_id = type::record('player', $pid) \
+                "SELECT * FROM rating_latest WHERE (player_id = $record_id \
                  OR string::concat(player_id) = $player_id_slash OR string::concat(player_id) = $player_id_colon)",
             )
-            .bind(("pid", pid.clone()))
+            .bind(("record_id", player_record_id))
             .bind(("player_id_slash", player_id_slash))
             .bind(("player_id_colon", player_id_colon))
             .await
@@ -528,16 +723,17 @@ impl RatingsRepository {
             .to_string();
         let player_id_slash = format!("player/{}", pid);
         let player_id_colon = format!("player:{}", pid);
+        let player_record_id = surrealdb::types::RecordId::new("player", pid.as_str());
         let scope_type = scope_type.to_string();
         let scope_id_owned: Option<String> = scope_id.map(|s| s.to_string());
         let mut q = self.db.query(
-            "SELECT * FROM rating_history WHERE (player_id = type::record('player', $pid) \
+            "SELECT * FROM rating_history WHERE (player_id = $record_id \
              OR string::concat(player_id) = $player_id_slash OR string::concat(player_id) = $player_id_colon) \
              AND scope_type = $scope_type AND (($scope_id == NONE AND scope_id == NONE) OR scope_id = $scope_id) \
              ORDER BY period_end DESC LIMIT $limit",
         );
         q = q
-            .bind(("pid", pid))
+            .bind(("record_id", player_record_id))
             .bind(("player_id_slash", player_id_slash))
             .bind(("player_id_colon", player_id_colon))
             .bind(("scope_type", scope_type))
@@ -584,6 +780,132 @@ impl RatingsRepository {
         Ok(())
     }
 
+    // --- Ratings rebuild run persistence (for admin UI/status across restarts) ---
+
+    pub async fn create_rebuild_run(&self, started_at: &str) -> Result<String> {
+        let mut res = self
+            .db
+            .query(
+                "CREATE ratings_rebuild_run SET \
+                    started_at = type::datetime($started_at), \
+                    running = true, \
+                    processed_periods = 0, \
+                    total_periods = 0 \
+                 RETURN string::concat(id) AS id",
+            )
+            .bind(("started_at", started_at.to_string()))
+            .await
+            .map_err(|e| SharedError::Database(format!("Failed to create rebuild run: {}", e)))?;
+
+        let rows: Vec<Value> = res
+            .take(0)
+            .map_err(|e| SharedError::Database(format!("Failed to take rebuild run id: {}", e)))?;
+
+        let id = rows
+            .get(0)
+            .and_then(|v| v.get("id"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+
+        if id.is_empty() {
+            return Err(SharedError::Database(
+                "Failed to create rebuild run: missing id".into(),
+            ));
+        }
+        Ok(id)
+    }
+
+    pub async fn update_rebuild_run_progress(
+        &self,
+        run_id: &str,
+        current_period: Option<&str>,
+        processed_periods: u32,
+        total_periods: u32,
+        last_error: Option<&str>,
+    ) -> Result<()> {
+        let key = crate::surreal_helpers::record_id_to_key(run_id, "ratings_rebuild_run");
+        if key.is_empty() {
+            return Err(SharedError::BadRequest("invalid rebuild run id".into()));
+        }
+        let rid = surrealdb::types::RecordId::new("ratings_rebuild_run", key.as_str());
+
+        self.db
+            .query(
+                "UPDATE $rid SET \
+                    running = true, \
+                    current_period = $current_period, \
+                    processed_periods = $processed_periods, \
+                    total_periods = $total_periods, \
+                    last_error = $last_error",
+            )
+            .bind(("rid", rid))
+            .bind(("current_period", current_period.map(|s| s.to_string())))
+            .bind(("processed_periods", processed_periods))
+            .bind(("total_periods", total_periods))
+            .bind(("last_error", last_error.map(|s| s.to_string())))
+            .await
+            .map_err(|e| SharedError::Database(format!("Failed to update rebuild run: {}", e)))?;
+
+        Ok(())
+    }
+
+    pub async fn finish_rebuild_run(
+        &self,
+        run_id: &str,
+        finished_at: &str,
+        last_error: Option<&str>,
+    ) -> Result<()> {
+        let key = crate::surreal_helpers::record_id_to_key(run_id, "ratings_rebuild_run");
+        if key.is_empty() {
+            return Err(SharedError::BadRequest("invalid rebuild run id".into()));
+        }
+        let rid = surrealdb::types::RecordId::new("ratings_rebuild_run", key.as_str());
+
+        self.db
+            .query(
+                "UPDATE $rid SET \
+                    running = false, \
+                    finished_at = type::datetime($finished_at), \
+                    current_period = NONE, \
+                    last_error = $last_error",
+            )
+            .bind(("rid", rid))
+            .bind(("finished_at", finished_at.to_string()))
+            .bind(("last_error", last_error.map(|s| s.to_string())))
+            .await
+            .map_err(|e| SharedError::Database(format!("Failed to finish rebuild run: {}", e)))?;
+
+        Ok(())
+    }
+
+    pub async fn get_last_completed_rebuild_run(&self) -> Result<Option<RatingsRebuildRun>> {
+        let mut res = self
+            .db
+            .query(
+                "SELECT \
+                    string::concat(id) AS id, \
+                    started_at, \
+                    finished_at, \
+                    running, \
+                    current_period, \
+                    processed_periods, \
+                    total_periods, \
+                    last_error \
+                 FROM ratings_rebuild_run \
+                 WHERE finished_at != NONE \
+                 ORDER BY finished_at DESC \
+                 LIMIT 1",
+            )
+            .await
+            .map_err(|e| SharedError::Database(format!("Failed to fetch last rebuild run: {}", e)))?;
+
+        let rows: Vec<RatingsRebuildRun> = res
+            .take(0)
+            .map_err(|e| SharedError::Database(format!("Failed to take last rebuild run: {}", e)))?;
+        Ok(rows.into_iter().next())
+    }
+
     pub async fn get_earliest_contest_date(&self) -> Result<String> {
         let mut res = self
             .db
@@ -594,7 +916,7 @@ impl RatingsRepository {
             })?;
         #[derive(serde::Deserialize, serde::Serialize, surrealdb::types::SurrealValue)]
         struct Row {
-            start: Option<String>,
+            start: Option<surrealdb::types::Datetime>,
         }
         let rows: Vec<Row> = res.take(0).map_err(|e| {
             SharedError::Database(format!("Failed to take earliest contest: {}", e))
@@ -602,7 +924,7 @@ impl RatingsRepository {
         let earliest_date = rows
             .into_iter()
             .next()
-            .and_then(|r| r.start)
+            .and_then(|r| r.start.map(|dt| dt.to_string()))
             .unwrap_or_else(|| "2000-01-01T00:00:00Z".to_string());
         Ok(earliest_date)
     }

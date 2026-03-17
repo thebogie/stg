@@ -2,14 +2,42 @@
 
 Integration tests run against the **same SurrealDB + Redis stack** used in dev and production. Start the stack with `./deploy/stack.sh start`, then run tests. No testcontainers.
 
+## Verify the app works first (smoke test)
+
+Before debugging failing integration tests, confirm the **running backend** (real SurrealDB + Redis) can register and log in:
+
+1. Start stack: `./scripts/start-back.sh prod` (or `./deploy/stack.sh start`)
+2. Apply minimal schema: `source scripts/load-env.sh prod && ./scripts/apply-surreal-schema-minimal.sh`
+3. Start the backend (e.g. from `back/api`: `source ../../scripts/load-env.sh prod && cargo run`, or use the backend container if the full stack is up)
+4. Run: `./scripts/smoke-test-player-auth.sh [BASE_URL]`  
+   Default BASE_URL is `http://127.0.0.1:50002`. Exit 0 means register → login → GET /api/players/me all succeeded.
+
+If the smoke test passes, the source code works with the real stack; test failures are then likely test-environment or test-app setup. If the smoke test fails (e.g. login 404), fix the backend/repository first.
+
 ## Quick start
 
+**Recommended (host-accessible URLs):** Use the script so tests always use `127.0.0.1` (avoids "name resolution" errors if your env has Docker-internal hostnames like `surrealdb`):
+
 ```bash
-./deploy/stack.sh start
-cargo test -p testing
+docker compose -f deploy/docker-compose.yml --env-file config/.env.prod up -d
+./scripts/run-integration-tests.sh -- --include-ignored --test-threads=1
 ```
 
-Or in one go:
+To run only auth integration tests:
+
+```bash
+./scripts/run-integration-tests.sh -- auth_integration --include-ignored --test-threads=1
+```
+
+Or run tests manually (ensure `SURREAL_URL` and `REDIS_URL` are host-accessible, e.g. `127.0.0.1`):
+
+```bash
+source scripts/load-env.sh prod
+export SURREAL_URL="http://127.0.0.1:${SURREALDB_PORT}" REDIS_URL="redis://127.0.0.1:${REDIS_PORT}/"
+cargo test -p testing -- --include-ignored --test-threads=1
+```
+
+Or in one go (if your CI script sets host URLs):
 
 ```bash
 ./deploy/ci-local.sh integration   # starts stack if needed, then runs tests

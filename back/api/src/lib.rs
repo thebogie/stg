@@ -12,6 +12,7 @@ pub mod middleware;
 pub mod player;
 pub mod third_party;
 pub mod venue;
+pub mod admin;
 pub mod timezone {
     pub mod controller;
 }

@@ -16,7 +16,7 @@ pub fn chart_renderer(props: &ChartRendererProps) -> Html {
     let chart_container_ref = use_node_ref();
     let chart_data = props.chart_data.clone();
     let chart_id = props.chart_id.clone();
-    let width = props.width.unwrap_or(800);
+    let _width = props.width.unwrap_or(800);
     let height = props.height.unwrap_or(500);
 
     {
@@ -36,8 +36,8 @@ pub fn chart_renderer(props: &ChartRendererProps) -> Html {
                     .set_attribute(
                         "style",
                         &format!(
-                            "width: {}px; height: {}px; overflow: visible;",
-                            width, height
+                            "width: 100%; max-width: 100%; min-height: {}px; overflow-x: auto; overflow-y: hidden;",
+                            height
                         ),
                     )
                     .unwrap();

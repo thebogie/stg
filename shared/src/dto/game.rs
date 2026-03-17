@@ -5,7 +5,7 @@ use validator::Validate;
 /// Data Transfer Object for Game
 #[derive(Debug, Clone, Serialize, Deserialize, Validate, PartialEq)]
 pub struct GameDto {
-    /// Game's ID (optional for creation, will be set by ArangoDB if empty)
+    /// Game's record ID (optional for creation; set by SurrealDB if empty)
     #[serde(rename = "_id", default)]
     pub id: String,
 
@@ -57,7 +57,7 @@ impl From<GameDto> for Game {
         )
         .unwrap_or_else(|_| Self {
             id: dto.id,
-            rev: String::new(), // Let ArangoDB set this
+            rev: String::new(), // Optional; set by DB if used
             name: dto.name,
             year_published: dto.year_published,
             bgg_id: dto.bgg_id,

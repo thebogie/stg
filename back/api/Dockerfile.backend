@@ -1,5 +1,6 @@
-# Build stage - optimized for speed and caching
-FROM rust:slim as builder
+
+# Build stage - pin to Bookworm so binary uses GLIBC 2.36 (matches runtime debian:bookworm-slim)
+FROM rust:slim-bookworm as builder
 
 # Install build dependencies in a single layer
 RUN apt-get update && apt-get install -y --no-install-recommends \
