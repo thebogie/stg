@@ -1,4 +1,5 @@
 -- SurrealDB custom functions for contest lookups (v3-compatible).
+-- Canonical location: tools/arango-to-surreal/surreal-functions.surql
 -- Apply: ./scripts/apply-surreal-functions.sh (or paste in Surrealist with NS/DB set).
 -- See docs/SURREALDB_FUNCTIONS.md. Edge convention: in = contest, out = venue | game | player.
 -- v3: type::record (replaces type::thing); DEFINE FUNCTION uses { } not BLOCK { }.
@@ -150,4 +151,20 @@ DEFINE FUNCTION fn::player_stats_by_key($key: string) {
 	LET $ai = (SELECT math::mean(place) FROM resulted_in WHERE `in` = $rid GROUP ALL)[0];
 	LET $bi = (SELECT math::min(place) FROM resulted_in WHERE `in` = $rid GROUP ALL)[0];
 	RETURN { contests_out: $co, wins_out: $wo, avg_out: $ao, best_out: $bo, contests_in: $ci, wins_in: $wi, avg_in: $ai, best_in: $bi };
+};
+
+-- player_game_performance_detail_data(player_key) — one round-trip for Game Performance tab (best/toughest opponent, best venue).
+-- Returns raw arrays; backend aggregates and resolves names.
+DEFINE FUNCTION fn::player_game_performance_detail_data($player_key: string) {
+	LET $cids = (SELECT VALUE `in` FROM resulted_in WHERE `out` = type::record('player', $player_key));
+	IF array::len($cids) == 0 THEN
+		RETURN { resulted_in: [], contest_starts: [], played_with: [], played_at: [], participants: [] };
+	END;
+	RETURN {
+		resulted_in: (SELECT `in` AS contest_id, place FROM resulted_in WHERE `out` = type::record('player', $player_key)),
+		contest_starts: (SELECT id, start FROM contest WHERE id INSIDE $cids),
+		played_with: (SELECT `in` AS contest_id, `out` AS game_id FROM played_with WHERE `in` INSIDE $cids),
+		played_at: (SELECT `in` AS contest_id, `out` AS venue_id FROM played_at WHERE `in` INSIDE $cids),
+		participants: (SELECT `in` AS contest_id, `out` AS player_id, place FROM resulted_in WHERE `in` INSIDE $cids)
+	};
 };

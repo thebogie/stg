@@ -1,10 +1,12 @@
 # SurrealDB custom functions
 
-Optional SurrealQL functions reduce round-trips and centralize logic in the database. **Whenever there is an option to use a SurrealDB function, we use it:** the backend tries the function first and falls back to inline/multi-query only when the function is not defined or fails. Apply `docs/surreal-functions.surql` in your namespace/database so the backend can use them. **SurrealDB v3:** use `type::record(...)` in function bodies (v2 used `type::thing`).
+Optional SurrealQL functions reduce round-trips and centralize logic in the database. **Whenever there is an option to use a SurrealDB function, we use it:** the backend tries the function first and falls back to inline/multi-query only when the function is not defined or fails. The canonical definitions live in **`tools/arango-to-surreal/surreal-functions.surql`**; apply that file (or run `./scripts/apply-surreal-functions.sh`) in your namespace/database so the backend can use them. **SurrealDB v3:** use `type::record(...)` in function bodies (v2 used `type::thing`).
 
 ## Applying the functions
 
-**Option A — Automatic (dev):** If you start deps with `./scripts/start-deps.sh` and `docs/surreal-functions.surql` exists, the script applies it after the main data import. You should then see the functions in SurrealDB (e.g. in Surrealist under the same namespace/database).
+**First-time conversion (ArangoDB → SurrealDB):** When you run the converter in production mode (`arango-to-surreal ... --production`), the output `.surql` file **already includes** the application functions at the end (from `tools/arango-to-surreal/surreal-functions.surql`). A single `surreal import` of that file gives you schema + data + functions. No separate step needed for the first convert. See **tools/arango-to-surreal/README.md**. **Later iterations** (schema or function changes) use migration scripts (e.g. new `.surql` files applied after import).
+
+**Option A — Automatic (dev):** If you start deps with `./scripts/start-deps.sh` and `tools/arango-to-surreal/surreal-functions.surql` exists, the script applies it after the main data import. You should then see the functions in SurrealDB (e.g. in Surrealist under the same namespace/database).
 
 **Option B — Manual (recommended if Option A didn’t run or failed):** With SurrealDB already running (e.g. after `start-deps.sh`):
 
@@ -14,7 +16,7 @@ Optional SurrealQL functions reduce round-trips and centralize logic in the data
 
 This uses the same connection (Docker network) and NS/DB as start-deps and prints any import errors. If you see “function does not exist” in the app, run this once and check the output.
 
-**Option C — Surrealist:** Open Surrealist, select namespace/database (e.g. `stg_rd` / `stg_rd`), then paste and run the contents of **`docs/surreal-functions.surql`**.
+**Option C — Surrealist:** Open Surrealist, select namespace/database (e.g. `stg_rd` / `stg_rd`), then paste and run the contents of **`tools/arango-to-surreal/surreal-functions.surql`**.
 
 After that, the functions are available in that namespace/database.
 
@@ -88,6 +90,17 @@ Two small helpers are already added: **`fn::contest_venue($key)`** and **`fn::co
 - **`fn::player_stats_by_id_str($id_str)`** — `analytics/repository.rs` `get_player_stats_for_me_by_email` and `get_player_stats_by_id_str` (returns dual out/in aggregates; backend picks non-zero set)
 - **`fn::player_stats_by_key($key)`** — `analytics/repository.rs` `get_player_stats` (returns dual out/in aggregates by `type::record('player', $key)`; backend confirms player exists and picks non-zero set)
 - **`fn::contest_row($key)`** — `contest/repository.rs` `find_by_id` and `find_details_by_id_impl` (single contest row by key; used when `contest_with_edges` is not defined or for simple lookup)
+- **`fn::player_game_performance_detail_data($player_key)`** — `analytics/repository.rs` `get_player_game_performance_detail` (Game Performance tab: best/toughest opponent, best venue per game; returns raw arrays in one round-trip; backend aggregates and resolves names)
+
+## Apply the functions
+
+**The backend always tries these functions first and falls back to multi-query only when they are not defined.** To get one-round-trip behavior and use them, apply the script once per namespace/database:
+
+```bash
+./scripts/apply-surreal-functions.sh
+```
+
+(Or run the contents of `tools/arango-to-surreal/surreal-functions.surql` in Surrealist with your NS/DB selected.) If you skip this step, the app still works but uses the fallback multi-query path for each of the flows above.
 
 ## Related docs
 

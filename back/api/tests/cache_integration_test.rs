@@ -6,7 +6,6 @@
 use backend::cache::{CacheKeys, CacheTTL, RedisCache};
 use std::sync::Arc;
 use std::time::Duration;
-use tokio;
 
 #[tokio::test]
 async fn test_game_cache_integration() {
@@ -302,15 +301,22 @@ async fn test_cache_ttl_respect() {
         "Value should be cached immediately after setting"
     );
 
-    // Wait for expiration (add buffer for timing variations)
-    // Redis TTL expiration can be slightly delayed, so wait longer than the TTL
-    tokio::time::sleep(Duration::from_millis(2000)).await;
-
-    // Should be expired
-    let result = cache.get::<String>("ttl_test").await.unwrap();
-    assert_eq!(
-        result, None,
-        "Value should be expired after TTL (waited 2000ms for 1000ms TTL)"
+    // Wait for expiration.
+    //
+    // Redis TTL expiration is driven by Redis' internal timing/eviction and can be delayed
+    // under load, so poll for a bounded window instead of asserting exact time.
+    let mut expired = false;
+    for _ in 0..10 {
+        let result = cache.get::<String>("ttl_test").await.unwrap();
+        if result.is_none() {
+            expired = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+    assert!(
+        expired,
+        "Value should expire after TTL (expected 1s TTL; waited up to ~2.5s)"
     );
 
     // Cleanup

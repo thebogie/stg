@@ -89,6 +89,8 @@ pub enum Route {
     Profile,
     #[at("/contests")]
     Contests,
+    #[at("/contests/game/:game_id")]
+    ContestsWithGame { game_id: String },
     #[at("/contest/:contest_id")]
     ContestDetails { contest_id: String },
     #[at("/game/:game_id/history")]
@@ -216,7 +218,15 @@ fn switch(routes: Route) -> Html {
             debug!("Rendering Contests component (protected)");
             html! {
                 <ProtectedRoute>
-                    <Contests />
+                    <Contests initial_game_id={None::<String>} />
+                </ProtectedRoute>
+            }
+        }
+        Route::ContestsWithGame { game_id } => {
+            debug!("Rendering Contests component (protected) with game filter: {}", game_id);
+            html! {
+                <ProtectedRoute>
+                    <Contests initial_game_id={Some(game_id)} />
                 </ProtectedRoute>
             }
         }

@@ -53,10 +53,12 @@ ARG DOCKER_ENV
 ARG FRONTEND_PORT
 ARG GIT_COMMIT
 ARG BUILD_DATE
+ARG BUILD_VERSION
 ENV DOCKER_ENV=${DOCKER_ENV}
 ENV FRONTEND_PORT=${FRONTEND_PORT:-50003}
 ENV GIT_COMMIT=${GIT_COMMIT}
 ENV BUILD_DATE=${BUILD_DATE}
+ENV BUILD_VERSION=${BUILD_VERSION}
 
 # CRITICAL: Clean ALL caches to ensure fresh build
 # Even with Docker --no-cache, Cargo and Trunk have their own caches
@@ -64,7 +66,7 @@ ENV BUILD_DATE=${BUILD_DATE}
 # Trunk caches in .stage/ and dist/, Cargo caches in target/
 RUN echo "=== CLEANING ALL CACHES ===" && \
     cargo clean --package frontend || true && \
-    rm -rf ../_build/frontend-dist .stage dist target/wasm32-unknown-unknown/release/frontend* target/wasm32-unknown-unknown/debug/frontend* || true && \
+    rm -rf /app/_build/frontend-dist .stage dist target/wasm32-unknown-unknown/release/frontend* target/wasm32-unknown-unknown/debug/frontend* || true && \
     find . -name "*.wasm" -type f -delete 2>/dev/null || true && \
     find .. -path "*/frontend/.stage/*" -type f -delete 2>/dev/null || true && \
     find .. -path "*/frontend/dist/*" -type f -delete 2>/dev/null || true && \
@@ -73,7 +75,7 @@ RUN echo "=== CLEANING ALL CACHES ===" && \
 
 # CRITICAL: Clean Trunk's output directory RIGHT BEFORE building to prevent reusing old WASM files
 RUN echo "=== CLEANING TRUNK OUTPUT (FINAL CLEAN) ===" && \
-    rm -rf ../_build/frontend-dist .stage dist 2>/dev/null || true && \
+    rm -rf /app/_build/frontend-dist .stage dist 2>/dev/null || true && \
     find .. -name "*.wasm" -type f -delete 2>/dev/null || true && \
     echo "✅ Output directory cleaned - ready for fresh build" && \
     npm run build:css:prod && \
@@ -82,19 +84,15 @@ RUN echo "=== CLEANING TRUNK OUTPUT (FINAL CLEAN) ===" && \
 
 # Verify build output
 RUN echo "Checking build output..." && \
-    ls -lah ../_build/frontend-dist/ 2>/dev/null || ls -lah dist/ 2>/dev/null || (echo "ERROR: No dist directory found" && exit 1)
+    ls -lah /app/_build/frontend-dist/ 2>/dev/null || (echo "ERROR: No dist directory found at /app/_build/frontend-dist" && exit 1)
+
+# Create version.json (Trunk does not emit it; footer/version endpoint expect it)
+RUN printf '%s\n' "{\"name\":\"frontend\",\"version\":\"${BUILD_VERSION:-}\",\"build_date\":\"${BUILD_DATE:-unknown}\",\"git_commit\":\"${GIT_COMMIT:-unknown}\",\"source_hash\":\"${GIT_COMMIT:-unknown}\",\"build_version\":\"${BUILD_VERSION:-}\"}" \
+    > /app/_build/frontend-dist/version.json && \
+    echo "✅ version.json created" && cat /app/_build/frontend-dist/version.json
 
 # Optimize WASM
-RUN if [ -f "../_build/frontend-dist/index.html" ] || [ -n "$(find ../_build/frontend-dist -name '*.wasm' -type f | head -1)" ]; then \
-        DIST_DIR="../_build/frontend-dist"; \
-    elif [ -f "dist/index.html" ] || [ -n "$(find dist -name '*.wasm' -type f | head -1)" ]; then \
-        DIST_DIR="dist"; \
-    else \
-        echo "ERROR: Trunk build output not found (only .stage present)."; \
-        ls -lah ../_build/frontend-dist/ || true; \
-        ls -lah dist/ || true; \
-        exit 1; \
-    fi && \
+RUN DIST_DIR="/app/_build/frontend-dist" && \
     if [ -n "$(find "$DIST_DIR" -name '*_bg.wasm' -type f | head -1)" ]; then \
         WASM_INPUT=$(find "$DIST_DIR" -name '*_bg.wasm' -type f | head -1) && \
         echo "Found WASM file: $WASM_INPUT" && \
@@ -105,31 +103,8 @@ RUN if [ -f "../_build/frontend-dist/index.html" ] || [ -n "$(find ../_build/fro
         echo "⚠️  No WASM file found to optimize"; \
     fi
 
-# Normalize output: ensure /app/_build/frontend-dist always contains final assets
-RUN echo "=== NORMALIZING FRONTEND DIST OUTPUT ===" && \
-    if [ -f "../_build/frontend-dist/index.html" ] || [ -n "$(find ../_build/frontend-dist -name '*.wasm' -type f | head -1)" ]; then \
-        DIST_DIR="../_build/frontend-dist"; \
-    elif [ -f "dist/index.html" ] || [ -n "$(find dist -name '*.wasm' -type f | head -1)" ]; then \
-        DIST_DIR="dist"; \
-    else \
-        echo "ERROR: Trunk build output not found (only .stage present)."; \
-        ls -lah ../_build/frontend-dist/ || true; \
-        ls -lah dist/ || true; \
-        exit 1; \
-    fi && \
-    if [ ! -f "$DIST_DIR/version.json" ]; then \
-        echo "❌ ERROR: version.json missing in build output ($DIST_DIR)"; \
-        ls -lah "$DIST_DIR" || true; \
-        exit 1; \
-    fi && \
-    if [ "$DIST_DIR" != "../_build/frontend-dist" ]; then \
-        echo "Copying build output from $DIST_DIR to ../_build/frontend-dist"; \
-        rm -rf ../_build/frontend-dist && mkdir -p ../_build/frontend-dist; \
-        cp -a "$DIST_DIR/." ../_build/frontend-dist/; \
-    else \
-        echo "Build output already in ../_build/frontend-dist"; \
-    fi && \
-    ls -lah ../_build/frontend-dist/ | head -10
+# Sanity check: list a few output files
+RUN echo "=== FRONTEND DIST OUTPUT (HEAD) ===" && ls -lah /app/_build/frontend-dist/ | head -15
 
 # Final stage: Caddy (much simpler than nginx!)
 FROM caddy:2-alpine

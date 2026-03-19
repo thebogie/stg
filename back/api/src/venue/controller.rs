@@ -1,3 +1,4 @@
+use crate::surreal_helpers::canonical_id_from_http_path_param;
 use crate::venue::repository::{VenueRepository, VenueRepositoryImpl};
 use crate::venue::usecase::{VenueUseCase, VenueUseCaseImpl};
 use actix_web::{delete, get, post, put, web, HttpResponse, Responder};
@@ -15,11 +16,7 @@ where
         repo: repo.get_ref().clone(),
     };
     let param = path.into_inner();
-    let id = if param.contains('/') {
-        param
-    } else {
-        format!("venue/{}", param)
-    };
+    let id = canonical_id_from_http_path_param("venue", &param);
     match usecase.get_venue(&id).await {
         Ok(venue) => {
             let venue_dto = VenueDto::from(&venue);
@@ -29,17 +26,14 @@ where
     }
 }
 
+/// Path segment = **raw record key** or legacy `venue/<key>` in one segment; JSON uses `venue/<key>` (`_id`).
 #[get("/{id}")]
 pub async fn get_venue_handler(
     path: web::Path<String>,
     repo: web::Data<VenueRepositoryImpl>,
 ) -> impl Responder {
     let id_param = path.into_inner();
-    let id = if id_param.contains('/') {
-        id_param
-    } else {
-        format!("venue/{}", id_param)
-    };
+    let id = canonical_id_from_http_path_param("venue", &id_param);
     match repo.get_venue_with_timezone(&id).await {
         Ok(venue_dto) => HttpResponse::Ok().json(venue_dto),
         Err(e) => HttpResponse::NotFound().body(e),
@@ -118,11 +112,7 @@ where
         repo: repo.get_ref().clone(),
     };
     let param = path.into_inner();
-    let id = if param.contains('/') {
-        param
-    } else {
-        format!("venue/{}", param)
-    };
+    let id = canonical_id_from_http_path_param("venue", &param);
     match usecase.update_venue(&id, venue_dto.into_inner()).await {
         Ok(venue) => {
             let venue_dto = VenueDto::from(&venue);
@@ -158,11 +148,7 @@ where
         repo: repo.get_ref().clone(),
     };
     let param = path.into_inner();
-    let id = if param.contains('/') {
-        param
-    } else {
-        format!("venue/{}", param)
-    };
+    let id = canonical_id_from_http_path_param("venue", &param);
     match usecase.delete_venue(&id).await {
         Ok(_) => HttpResponse::NoContent().finish(),
         Err(e) => {

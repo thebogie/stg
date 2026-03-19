@@ -17,12 +17,14 @@ export COMPOSE_PROJECT_NAME=stg
 COMPOSE_FILE="$ROOT/deploy/docker-compose.yml"
 ENV_FILE="$ROOT/config/.env.${RUST_ENV}"
 
-# Resolve VOLUME_PATH to absolute; use repo docker-data if requested path is not writable
-VOL_BASE="${VOLUME_PATH:-$ROOT/docker-data}"
-VOL_BASE="$(cd "$VOL_BASE" 2>/dev/null && pwd)" || VOL_BASE="$ROOT/docker-data"
+# Resolve VOLUME_PATH to absolute; dev uses _build/docker-data, prod uses docker-data
+VOL_DEFAULT="$ROOT/docker-data"
+[ "$RUST_ENV" = "dev" ] || [ "$RUST_ENV" = "development" ] && VOL_DEFAULT="$ROOT/_build/docker-data"
+VOL_BASE="${VOLUME_PATH:-$VOL_DEFAULT}"
+VOL_BASE="$(cd "$VOL_BASE" 2>/dev/null && pwd)" || VOL_BASE="$VOL_DEFAULT"
 if ! mkdir -p "$VOL_BASE/surrealdb_data" "$VOL_BASE/redis_data" "$VOL_BASE/backend_data" 2>/dev/null; then
-  echo "Warning: Cannot create dirs under $VOL_BASE (permission denied?). Using $ROOT/docker-data"
-  VOL_BASE="$ROOT/docker-data"
+  echo "Warning: Cannot create dirs under $VOL_BASE (permission denied?). Using $VOL_DEFAULT"
+  VOL_BASE="$VOL_DEFAULT"
   mkdir -p "$VOL_BASE/surrealdb_data" "$VOL_BASE/redis_data" "$VOL_BASE/backend_data"
 fi
 export VOLUME_PATH="$VOL_BASE"

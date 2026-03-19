@@ -267,7 +267,6 @@ impl PlayerRepository for PlayerRepositoryImpl {
     async fn create(&self, player: Player) -> Result<Player, String> {
         let key = uuid::Uuid::new_v4().to_string();
         let created_at = player.created_at.to_rfc3339();
-        // Include id so SCHEMAFULL table returns it on SELECT (schema defines id as field; otherwise it can be null)
         let doc = serde_json::json!({
             "firstname": player.firstname,
             "handle": player.handle,
@@ -287,7 +286,7 @@ impl PlayerRepository for PlayerRepositoryImpl {
             }
         }
         self.db
-            .query("CREATE type::record('player', $key) CONTENT $doc")
+            .query("CREATE type::record('player', type::uuid($key)) CONTENT $doc")
             .bind(("key", key.clone()))
             .bind(("doc", doc))
             .await

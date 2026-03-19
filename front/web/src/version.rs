@@ -38,6 +38,12 @@ impl Version {
             name, version, build_date, git_commit
         )
     }
+
+    /// Build version identifier (same as image tags and deploy_stg.sh), e.g. 20250317-123456-abc1234.
+    /// Set at build time via BUILD_VERSION env; empty in dev builds.
+    pub fn build_version() -> &'static str {
+        option_env!("BUILD_VERSION").unwrap_or("")
+    }
 }
 
 #[wasm_bindgen]

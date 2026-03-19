@@ -1,6 +1,6 @@
 use crate::cache::{CacheKeys, CacheTTL, RedisCache};
 use crate::db::Db;
-use crate::surreal_helpers::{record_id_from_row, select_one_by_record_id};
+use crate::surreal_helpers::{record_id_from_row, select_one_by_record_id_scoped};
 use crate::third_party::BGGService;
 use shared::dto::game::GameDto;
 use shared::models::game::Game;
@@ -24,6 +24,9 @@ pub struct GameRepositoryImpl {
     pub db: Db,
     pub bgg_service: Option<BGGService>,
     pub cache: Option<Arc<RedisCache>>,
+    /// When set (e.g. in integration tests), ensure NS/DB scope is set on the connection that executes each query.
+    pub ns: Option<String>,
+    pub db_name: Option<String>,
 }
 
 #[async_trait::async_trait]
@@ -52,15 +55,96 @@ pub trait GameRepository: Send + Sync {
 
 impl GameRepositoryImpl {
     pub fn new(db: Db) -> Self {
-        Self { db, bgg_service: None, cache: None }
+        Self {
+            db,
+            bgg_service: None,
+            cache: None,
+            ns: None,
+            db_name: None,
+        }
     }
 
     pub fn new_with_bgg(db: Db, bgg_service: BGGService) -> Self {
-        Self { db, bgg_service: Some(bgg_service), cache: None }
+        Self {
+            db,
+            bgg_service: Some(bgg_service),
+            cache: None,
+            ns: None,
+            db_name: None,
+        }
     }
 
     pub fn new_with_cache(db: Db, cache: Arc<RedisCache>) -> Self {
-        Self { db, bgg_service: None, cache: Some(cache) }
+        Self {
+            db,
+            bgg_service: None,
+            cache: Some(cache),
+            ns: None,
+            db_name: None,
+        }
+    }
+
+    pub fn new_with_bgg_and_cache(db: Db, bgg_service: BGGService, cache: Arc<RedisCache>) -> Self {
+        Self {
+            db,
+            bgg_service: Some(bgg_service),
+            cache: Some(cache),
+            ns: None,
+            db_name: None,
+        }
+    }
+
+    /// For integration tests: ensure each query runs with the given NS/DB (scope isn't reliably persisted across WS connections).
+    pub fn new_with_scope(db: Db, ns: String, db_name: String) -> Self {
+        Self {
+            db,
+            bgg_service: None,
+            cache: None,
+            ns: Some(ns),
+            db_name: Some(db_name),
+        }
+    }
+
+    /// For production: BGG + cache + per-query NS/DB scope so reads/writes hit the expected database.
+    pub fn new_with_bgg_and_cache_and_scope(
+        db: Db,
+        bgg_service: BGGService,
+        cache: Arc<RedisCache>,
+        ns: String,
+        db_name: String,
+    ) -> Self {
+        Self {
+            db,
+            bgg_service: Some(bgg_service),
+            cache: Some(cache),
+            ns: Some(ns),
+            db_name: Some(db_name),
+        }
+    }
+
+    async fn ensure_scope(&self) {
+        if let (Some(ref ns), Some(ref db_name)) = (&self.ns, &self.db_name) {
+            let _ = self.db.use_ns(ns).use_db(db_name).await;
+        }
+    }
+
+    fn query_with_scope(&self, core: &str) -> String {
+        if let (Some(ref ns), Some(ref db_name)) = (&self.ns, &self.db_name) {
+            let ns_ok = ns.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+            let db_ok = db_name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+            if ns_ok && db_ok {
+                return format!("USE NS {}; USE DB {}; {}", ns, db_name, core);
+            }
+        }
+        core.to_string()
+    }
+
+    fn scope_result_index(&self) -> usize {
+        if self.ns.is_some() && self.db_name.is_some() {
+            2
+        } else {
+            0
+        }
     }
 
     /// Fill search results with BGG results when DB returns fewer than max_results.
@@ -87,8 +171,42 @@ impl GameRepositoryImpl {
         results
     }
 
-    pub fn new_with_bgg_and_cache(db: Db, bgg_service: BGGService, cache: Arc<RedisCache>) -> Self {
-        Self { db, bgg_service: Some(bgg_service), cache: Some(cache) }
+    async fn update_game_doc_by_key(&self, key: &str, doc: &serde_json::Value) -> Result<(), String> {
+        self.ensure_scope().await;
+        // Migration compatibility: depending on how the DB was imported, record id keys may be UUID-typed
+        // (type::uuid("...")) or plain string keys. Try UUID first when possible, then string-key fallback.
+        if uuid::Uuid::parse_str(key).is_ok() {
+            let _ = self
+                .db
+                .query(self.query_with_scope("UPDATE type::record('game', type::uuid($key)) MERGE $doc"))
+                .bind(("key", key.to_string()))
+                .bind(("doc", doc.clone()))
+                .await;
+        }
+        let res = self
+            .db
+            .query(self.query_with_scope("UPDATE type::record('game', $key) MERGE $doc"))
+            .bind(("key", key.to_string()))
+            .bind(("doc", doc.clone()))
+            .await;
+        res.map(|_| ()).map_err(|e| format!("Failed to update game: {}", e))
+    }
+
+    async fn delete_game_by_key(&self, key: &str) -> Result<(), String> {
+        self.ensure_scope().await;
+        if uuid::Uuid::parse_str(key).is_ok() {
+            let _ = self
+                .db
+                .query(self.query_with_scope("DELETE type::record('game', type::uuid($key))"))
+                .bind(("key", key.to_string()))
+                .await;
+        }
+        let res = self
+            .db
+            .query(self.query_with_scope("DELETE type::record('game', $key)"))
+            .bind(("key", key.to_string()))
+            .await;
+        res.map(|_| ()).map_err(|e| format!("Failed to delete game: {}", e))
     }
 }
 
@@ -103,7 +221,13 @@ impl GameRepository for GameRepositoryImpl {
             }
         }
 
-        let game = select_one_by_record_id(&self.db, "game", id)
+        let game = select_one_by_record_id_scoped(
+            &self.db,
+            "game",
+            id,
+            self.ns.as_deref(),
+            self.db_name.as_deref(),
+        )
             .await
             .and_then(|v| value_to_game(&v));
         if let Some(ref g) = game {
@@ -123,6 +247,7 @@ impl GameRepository for GameRepositoryImpl {
             }
         }
 
+        self.ensure_scope().await;
         let mut res = match self.db.query("SELECT * FROM game").await {
             Ok(r) => r,
             Err(_) => return Vec::new(),
@@ -148,6 +273,7 @@ impl GameRepository for GameRepositoryImpl {
         let mut results = Vec::new();
         let q_owned = query.to_string();
 
+        self.ensure_scope().await;
         let mut res = match self.db
             .query("SELECT * FROM game WHERE string::contains(string::lowercase(name), string::lowercase($q)) LIMIT $limit")
             .bind(("q", q_owned.clone()))
@@ -260,8 +386,14 @@ impl GameRepository for GameRepositoryImpl {
     }
 
     async fn create(&self, game: Game) -> Result<Game, String> {
+        self.ensure_scope().await;
         if let Some(bgg_id) = game.bgg_id {
-            if let Ok(mut res) = self.db.query("SELECT * FROM game WHERE bgg_id = $bgg_id LIMIT 1").bind(("bgg_id", bgg_id)).await {
+            if let Ok(mut res) = self
+                .db
+                .query(self.query_with_scope("SELECT * FROM game WHERE bgg_id = $bgg_id LIMIT 1"))
+                .bind(("bgg_id", bgg_id))
+                .await
+            {
                 let rows: Vec<serde_json::Value> = res.take(0).unwrap_or_default();
                 if let Some(v) = rows.into_iter().next() {
                     if let Some(existing) = value_to_game(&v) {
@@ -271,28 +403,37 @@ impl GameRepository for GameRepositoryImpl {
             }
         }
 
+        // Use UUID-typed record ids when possible; backend is compatible with string-key migrations too.
         let key = uuid::Uuid::new_v4().to_string();
-        let doc = serde_json::json!({
-            "name": game.name,
-            "year_published": game.year_published,
-            "bgg_id": game.bgg_id,
-            "description": game.description,
-        });
-        self.db
-            .query("CREATE type::record('game', type::uuid($key)) CONTENT $doc")
+        // For option<T> fields, omit when None so Surreal gets NONE (not NULL) under SCHEMAFULL.
+        let mut doc = serde_json::Map::new();
+        doc.insert("name".to_string(), serde_json::Value::String(game.name));
+        if let Some(v) = game.year_published {
+            doc.insert("year_published".to_string(), serde_json::Value::from(v));
+        }
+        if let Some(v) = game.bgg_id {
+            doc.insert("bgg_id".to_string(), serde_json::Value::from(v));
+        }
+        if let Some(v) = game.description {
+            doc.insert("description".to_string(), serde_json::Value::String(v));
+        }
+        let doc = serde_json::Value::Object(doc);
+        self.ensure_scope().await;
+        let mut res = self
+            .db
+            .query(self.query_with_scope("CREATE type::record('game', $key) CONTENT $doc RETURN AFTER"))
             .bind(("key", key.clone()))
             .bind(("doc", doc))
             .await
             .map_err(|e| format!("Failed to create game: {}", e))?;
-        let created_game = Game {
-            id: format!("game/{}", key),
-            rev: String::new(),
-            name: game.name,
-            year_published: game.year_published,
-            bgg_id: game.bgg_id,
-            description: game.description,
-            source: game.source,
-        };
+        let rows: Vec<serde_json::Value> = res
+            .take(self.scope_result_index())
+            .map_err(|e| format!("Failed to parse created game: {}", e))?;
+        let created_game = rows
+            .into_iter()
+            .next()
+            .and_then(|v| value_to_game(&v))
+            .ok_or_else(|| "Game CREATE returned no record".to_string())?;
         if let Some(ref cache) = self.cache {
             let _ = cache.delete(&CacheKeys::game(&created_game.id)).await;
             let _ = cache.delete(&CacheKeys::game_list()).await;
@@ -302,19 +443,23 @@ impl GameRepository for GameRepositoryImpl {
     }
 
     async fn update(&self, game: Game) -> Result<Game, String> {
+        let game = game;
         let key = game.id.trim_start_matches("game/").trim_start_matches("game:").to_string();
-        let doc = serde_json::json!({
-            "name": game.name,
-            "year_published": game.year_published,
-            "bgg_id": game.bgg_id,
-            "description": game.description,
-        });
-        self.db
-            .query("UPDATE type::record('game', type::uuid($key)) MERGE $doc")
-            .bind(("key", key))
-            .bind(("doc", doc))
-            .await
-            .map_err(|e| format!("Failed to update game: {}", e))?;
+        self.ensure_scope().await;
+        // Omit option fields when None (avoid NULL under SCHEMAFULL option<T>).
+        let mut doc = serde_json::Map::new();
+        doc.insert("name".to_string(), serde_json::Value::String(game.name.clone()));
+        if let Some(v) = game.year_published {
+            doc.insert("year_published".to_string(), serde_json::Value::from(v));
+        }
+        if let Some(v) = game.bgg_id {
+            doc.insert("bgg_id".to_string(), serde_json::Value::from(v));
+        }
+        if let Some(ref v) = game.description {
+            doc.insert("description".to_string(), serde_json::Value::String(v.clone()));
+        }
+        let doc = serde_json::Value::Object(doc);
+        self.update_game_doc_by_key(&key, &doc).await?;
         if let Some(ref cache) = self.cache {
             let _ = cache.delete(&CacheKeys::game(&game.id)).await;
             let _ = cache.delete(&CacheKeys::game_list()).await;
@@ -325,11 +470,8 @@ impl GameRepository for GameRepositoryImpl {
 
     async fn delete(&self, id: &str) -> Result<(), String> {
         let key = id.trim_start_matches("game/").trim_start_matches("game:").to_string();
-        self.db
-            .query("DELETE type::record('game', type::uuid($key))")
-            .bind(("key", key))
-            .await
-            .map_err(|e| format!("Failed to delete game: {}", e))?;
+        self.ensure_scope().await;
+        self.delete_game_by_key(&key).await?;
         if let Some(ref cache) = self.cache {
             let _ = cache.delete(&CacheKeys::game(id)).await;
             let _ = cache.delete(&CacheKeys::game_list()).await;

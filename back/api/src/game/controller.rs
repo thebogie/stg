@@ -1,5 +1,6 @@
 use crate::game::repository::{GameRepository, GameRepositoryImpl};
 use crate::game::usecase::{GameUseCase, GameUseCaseImpl};
+use crate::surreal_helpers::canonical_id_from_http_path_param;
 use actix_web::{delete, get, post, put, web, HttpResponse, Responder};
 use shared::dto::game::GameDto;
 use validator::Validate;
@@ -12,11 +13,7 @@ where
         repo: repo.get_ref().clone(),
     };
     let param = path.into_inner();
-    let id = if param.contains('/') {
-        param
-    } else {
-        format!("game/{}", param)
-    };
+    let id = canonical_id_from_http_path_param("game", &param);
     match usecase.get_game(&id).await {
         Ok(game) => {
             let game_dto = GameDto::from(&game);
@@ -26,7 +23,8 @@ where
     }
 }
 
-#[get("/{id:[^/]+|game/[^/]+}")]
+/// Path segment = **raw record key** (UUID) or legacy `game/<key>` in one segment; JSON uses `game/<key>` (`_id`).
+#[get("/{id}")]
 pub async fn get_game_handler(
     path: web::Path<String>,
     repo: web::Data<GameRepositoryImpl>,
@@ -106,11 +104,7 @@ where
         repo: repo.get_ref().clone(),
     };
     let param = path.into_inner();
-    let id = if param.contains('/') {
-        param
-    } else {
-        format!("game/{}", param)
-    };
+    let id = canonical_id_from_http_path_param("game", &param);
     match usecase.update_game(&id, game_dto.into_inner()).await {
         Ok(game) => {
             let game_dto = GameDto::from(&game);
@@ -126,7 +120,7 @@ where
     }
 }
 
-#[put("/{id:[^/]+|game/[^/]+}")]
+#[put("/{id}")]
 pub async fn update_game_handler(
     path: web::Path<String>,
     game_dto: web::Json<GameDto>,
@@ -146,11 +140,7 @@ where
         repo: repo.get_ref().clone(),
     };
     let param = path.into_inner();
-    let id = if param.contains('/') {
-        param
-    } else {
-        format!("game/{}", param)
-    };
+    let id = canonical_id_from_http_path_param("game", &param);
     match usecase.delete_game(&id).await {
         Ok(_) => HttpResponse::NoContent().finish(),
         Err(e) => {
@@ -163,7 +153,7 @@ where
     }
 }
 
-#[delete("/{id:[^/]+|game/[^/]+}")]
+#[delete("/{id}")]
 pub async fn delete_game_handler(
     path: web::Path<String>,
     repo: web::Data<GameRepositoryImpl>,

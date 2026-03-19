@@ -5,7 +5,6 @@ members = [
     "back/api",
     "shared",
     "testing",
-    "tools/arango-to-surreal"
 ]
 resolver = "2"
 

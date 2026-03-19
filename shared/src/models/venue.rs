@@ -94,6 +94,7 @@ pub struct Venue {
 
 impl Venue {
     /// Custom validator: allow empty place_id; when non-empty, enforce regex
+    #[allow(dead_code)]
     fn validate_place_id_optional_str(value: &str) -> std::result::Result<(), ValidationError> {
         if value.is_empty() {
             return Ok(());

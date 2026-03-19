@@ -18,12 +18,17 @@ if [ ! -f "$ENV_FILE" ]; then
   echo "Error: $ENV_FILE not found. Run: ./config/setup-env.sh ${ENV}" >&2
   return 1 2>/dev/null || exit 1
 fi
+# Default VOLUME_PATH: dev uses _build/docker-data, prod uses docker-data (production server sets absolute path in .env.prod)
+case "$ENV" in
+  dev|development) VOLUME_PATH_DEFAULT="$ROOT/_build/docker-data" ;;
+  *)               VOLUME_PATH_DEFAULT="$ROOT/docker-data" ;;
+esac
 # Defaults first so ${VAR} in .env file expand
 export BACKEND_PORT="${BACKEND_PORT:-50002}"
 export FRONTEND_PORT="${FRONTEND_PORT:-50003}"
 export SURREALDB_PORT="${SURREALDB_PORT:-50001}"
 export REDIS_PORT="${REDIS_PORT:-6379}"
-export VOLUME_PATH="${VOLUME_PATH:-$ROOT/docker-data}"
+export VOLUME_PATH="${VOLUME_PATH:-$VOLUME_PATH_DEFAULT}"
 set -a
 # shellcheck source=/dev/null
 source "$ENV_FILE"
@@ -34,4 +39,4 @@ export BACKEND_PORT="${BACKEND_PORT:-50002}"
 export FRONTEND_PORT="${FRONTEND_PORT:-50003}"
 export SURREALDB_PORT="${SURREALDB_PORT:-50001}"
 export REDIS_PORT="${REDIS_PORT:-6379}"
-export VOLUME_PATH="${VOLUME_PATH:-$ROOT/docker-data}"
+export VOLUME_PATH="${VOLUME_PATH:-$VOLUME_PATH_DEFAULT}"

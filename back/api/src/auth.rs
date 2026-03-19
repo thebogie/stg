@@ -327,7 +327,7 @@ where
 
             // Check if player has admin privileges (SurrealQL). Keep the projection minimal
             // and normalize `id` so deserialization doesn't fail (record -> string).
-            let mut res = db
+            let res = db
                 .query(
                     "SELECT \
                         string::replace(string::concat(id), '`', '') AS id, \

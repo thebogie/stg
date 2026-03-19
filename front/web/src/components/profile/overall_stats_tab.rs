@@ -311,6 +311,15 @@ pub fn overall_stats_tab(props: &OverallStatsTabProps) -> Html {
                 </div>
             </div>
 
+            // Streak definitions (under Current Streak and Longest Streak tiles)
+            <div class="rounded-lg bg-gray-50 border border-gray-200 p-3 text-sm text-gray-600">
+                <p class="font-medium text-gray-700 mb-1">{"Definitions"}</p>
+                <ul class="list-disc list-inside space-y-0.5">
+                    <li><strong>{"Current streak"}</strong>{" — Consecutive wins (1st place) ending at your most recent contest. Resets to 0 after a loss or tie."}</li>
+                    <li><strong>{"Longest streak"}</strong>{" — Your best run of consecutive wins (1st place) in your contest history, by date."}</li>
+                </ul>
+            </div>
+
             // Performance Summary
             <div class="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-6 border border-blue-100">
                 <div class="flex items-center justify-between">

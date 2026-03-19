@@ -1,5 +1,5 @@
 #!/bin/bash
-# Apply docs/surreal-functions.surql to SurrealDB (same NS/DB as start-deps).
+# Apply tools/arango-to-surreal/surreal-functions.surql to SurrealDB (same NS/DB as start-deps).
 # Run after SurrealDB is up (e.g. ./scripts/start-deps.sh). Shows any import errors.
 # Usage: ./scripts/apply-surreal-functions.sh
 
@@ -15,7 +15,8 @@ SURREAL_USER="${SURREAL_USER:-root}"
 SURREAL_PASSWORD="${SURREAL_PASSWORD:-root}"
 SURREALDB_PORT="${SURREALDB_PORT:-50001}"
 ENDPOINT="http://127.0.0.1:${SURREALDB_PORT}"
-FUNCTIONS_FILE="$ROOT/docs/surreal-functions.surql"
+FUNCTIONS_FILE="$ROOT/tools/arango-to-surreal/surreal-functions.surql"
+REMOVE_FILE="$ROOT/tools/arango-to-surreal/surreal-functions-remove.surql"
 
 if [ ! -f "$FUNCTIONS_FILE" ]; then
   echo "Missing $FUNCTIONS_FILE" >&2
@@ -23,8 +24,22 @@ if [ ! -f "$FUNCTIONS_FILE" ]; then
 fi
 
 echo "==> Applying SurrealDB functions to ns=$SURREAL_NS db=$SURREAL_DB (conn: $ENDPOINT)"
+
+# Remove existing functions so re-runs (e.g. full-prod-test with persistent bind mount) are idempotent.
+if [ -f "$REMOVE_FILE" ]; then
+  echo "==> Removing existing application functions (if any)..."
+  docker run --rm --network host \
+    -v "$ROOT/tools/arango-to-surreal:/import:ro" \
+    surrealdb/surrealdb:v3 \
+    import \
+    --endpoint "$ENDPOINT" \
+    --username "$SURREAL_USER" --password "$SURREAL_PASSWORD" \
+    --namespace "$SURREAL_NS" --database "$SURREAL_DB" \
+    "/import/surreal-functions-remove.surql" 2>/dev/null || true
+fi
+
 docker run --rm --network host \
-  -v "$ROOT/docs:/import:ro" \
+  -v "$ROOT/tools/arango-to-surreal:/import:ro" \
   surrealdb/surrealdb:v3 \
   import \
   --endpoint "$ENDPOINT" \

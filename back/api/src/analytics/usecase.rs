@@ -1026,6 +1026,26 @@ impl AnalyticsUseCase {
         Ok(performance)
     }
 
+    pub async fn get_player_game_performance_detail(
+        &self,
+        player_id: &str,
+    ) -> Result<Vec<GamePerformanceDetailDto>> {
+        let cache_key = format!("analytics:player_game_performance_detail:v1:{}", player_id);
+        if let Some(cached) = self.cache.get(&cache_key).await {
+            if let Ok(v) = serde_json::from_str::<Vec<GamePerformanceDetailDto>>(&cached) {
+                return Ok(v);
+            }
+        }
+
+        let rows = self.repo.get_player_game_performance_detail(player_id).await?;
+        if let Ok(json) = serde_json::to_string(&rows) {
+            self.cache
+                .set_with_ttl(cache_key, json, CacheTTL::player_stats())
+                .await;
+        }
+        Ok(rows)
+    }
+
     /// Get player's head-to-head record against specific opponent
     pub async fn get_head_to_head_record(
         &self,

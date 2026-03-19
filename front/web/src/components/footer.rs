@@ -110,6 +110,10 @@ pub fn footer() -> Html {
                             </p>
                             <div class="mt-2 text-xs text-blue-200 font-mono">
                                 if let Some(ref info) = *version_info {
+                                    // Build version: same identifier as image tags and deploy_stg.sh (compare across envs)
+                                    if !crate::version::Version::build_version().is_empty() {
+                                        <div class="font-semibold text-blue-100">{"Version: "}{crate::version::Version::build_version()}</div>
+                                    }
                                     <div>{"Frontend: v"}{crate::version::Version::current()}</div>
                                     <div>{"Backend: v"}{&info.version}</div>
                                     if let Some(ref build_date) = info.build_date {
@@ -129,6 +133,9 @@ pub fn footer() -> Html {
                                         <div>{"Commit: "}{git_commit}</div>
                                     }
                                 } else if let Some(ref _err) = *error {
+                                    if !crate::version::Version::build_version().is_empty() {
+                                        <div class="font-semibold text-blue-100">{"Version: "}{crate::version::Version::build_version()}</div>
+                                    }
                                     <div class="text-blue-200">{"Frontend: v"}{crate::version::Version::current()}</div>
                                     <div class="text-blue-200/80">{"Backend version unavailable"}</div>
                                 } else {

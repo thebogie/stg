@@ -1425,6 +1425,57 @@ impl AnalyticsController {
         }
     }
 
+    pub async fn get_player_game_performance_detail(
+        &self,
+        req: HttpRequest,
+        path: web::Path<String>,
+    ) -> Result<HttpResponse, actix_web::Error> {
+        let player_param = path.into_inner().replace('`', "");
+        let (player_id, player_email) = if player_param.eq_ignore_ascii_case("me") {
+            let email = match req.extensions().get::<String>() {
+                Some(e) => e.clone(),
+                None => {
+                    return Ok(HttpResponse::Unauthorized().json(json!({
+                        "error": "Not authenticated"
+                    })));
+                }
+            };
+            match self.usecase.repo().get_player_id_by_email(&email).await {
+                Ok(Some(pid)) => (pid, Some(email)),
+                Ok(None) => {
+                    return Ok(HttpResponse::NotFound().json(json!({
+                        "error": "Player not found for current user"
+                    })));
+                }
+                Err(e) => {
+                    log::error!("Failed to query player ID from email: {}", e);
+                    return Err(actix_web::error::ErrorInternalServerError("Database query failed"));
+                }
+            }
+        } else if player_param.contains('/') {
+            (player_param, None)
+        } else {
+            (format!("player/{}", player_param), None)
+        };
+
+        // player_email is unused for now; kept for parity with other "me" handlers
+        let _ = player_email;
+
+        match self.usecase.get_player_game_performance_detail(&player_id).await {
+            Ok(rows) => Ok(HttpResponse::Ok().json(rows)),
+            Err(e) => {
+                log::error!(
+                    "Failed to get game performance detail for {}: {:?}",
+                    player_id,
+                    e
+                );
+                Ok(HttpResponse::InternalServerError().json(json!({
+                    "error": "Failed to load game performance detail"
+                })))
+            }
+        }
+    }
+
     /// Get player's head-to-head record against specific opponent
     pub async fn get_head_to_head_record(
         &self,
@@ -1705,6 +1756,9 @@ pub fn configure_routes(
                     }))
                     .route("/{player_id}/profile/opponents", web::get().to(|req: HttpRequest, path: web::Path<String>, controller: web::Data<AnalyticsController>| async move {
                         controller.get_profile_opponents(req, path).await
+                    }))
+                    .route("/{player_id}/game-performance/detail", web::get().to(|req: HttpRequest, path: web::Path<String>, controller: web::Data<AnalyticsController>| async move {
+                        controller.get_player_game_performance_detail(req, path).await
                     }))
             )
             .service(

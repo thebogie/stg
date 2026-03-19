@@ -59,8 +59,10 @@ pub async fn get_all_games() -> Result<Vec<GameDto>, String> {
 
 pub async fn get_game_by_id(id: &str) -> Result<GameDto, String> {
     debug!("Fetching game with ID: {}", id);
+    // Same as update/delete: path must be raw key only (see docs/api/RESOURCE_IDS_HTTP.md).
+    let id_param = id.strip_prefix("game/").unwrap_or(id);
 
-    let response = authenticated_get(&format!("{}/{}", api_url("/api/games"), id))
+    let response = authenticated_get(&format!("{}/{}", api_url("/api/games"), id_param))
         .send()
         .await
         .map_err(|e| format!("Failed to fetch game: {}", e))?;

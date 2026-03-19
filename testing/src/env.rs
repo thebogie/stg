@@ -77,6 +77,7 @@ impl TestEnvironment {
         let attempt_timeout = Duration::from_secs(15);
         const MAX_ATTEMPTS: u32 = 8;
         for attempt in 0..MAX_ATTEMPTS {
+            eprintln!("Waiting for SurrealDB (attempt {}/{}).", attempt + 1, MAX_ATTEMPTS);
             let connect_fut = async {
                 let db = match TestEnvironment::surreal_socket_addr(&self.surrealdb_url) {
                     Some(addr) => Surreal::new::<Ws>(addr).await?,
@@ -113,7 +114,15 @@ impl TestEnvironment {
         }
         let redis_client = redis::Client::open(self.redis_url()).context("Redis client")?;
         for attempt in 0..20 {
-            if redis_client.get_async_connection().await.is_ok() {
+            eprintln!("Waiting for Redis (attempt {}/20).", attempt + 1);
+            // Redis connect can hang (e.g. network/DNS issues in some environments),
+            // so bound it with a short timeout per attempt to avoid "stuck" tests.
+            let conn_ok = tokio::time::timeout(Duration::from_secs(2), redis_client.get_async_connection())
+                .await
+                .ok()
+                .and_then(|r| r.ok())
+                .is_some();
+            if conn_ok {
                 log::debug!("Redis ready after {} attempts", attempt + 1);
                 return Ok(());
             }

@@ -711,7 +711,10 @@ pub fn profile_page(props: &ProfilePageProps) -> Html {
                                 />
                             },
                             ProfileTab::GamePerformance => html! {
-                                <GamePerformanceTab game_performance={(*data.game_performance).clone()} />
+                                <GamePerformanceTab
+                                    game_performance={(*data.game_performance).clone()}
+                                    player_id_override={player_id_override.clone()}
+                                />
                             },
                             ProfileTab::Trends => {
                                 let current_rating = if let Some(ratings) = &*data.glicko_ratings {

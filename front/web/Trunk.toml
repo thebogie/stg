@@ -22,6 +22,8 @@ ws_protocol = "ws"
 [build.env]
 GIT_COMMIT = { value = "", from_env = "GIT_COMMIT" }
 BUILD_DATE = { value = "", from_env = "BUILD_DATE" }
+# Same identifier as image tags and deploy_stg.sh (e.g. 20250317-123456-abc1234)
+BUILD_VERSION = { value = "", from_env = "BUILD_VERSION" }
 
 
 [watch]

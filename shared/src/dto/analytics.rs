@@ -263,6 +263,41 @@ pub struct GamePerformanceDto {
     pub favorite_venue: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GamePerformanceOpponentDto {
+    pub player_id: String,
+    pub player_handle: String,
+    pub contests_played: i32,
+    /// My win rate vs this opponent *within this game* (0-100).
+    pub my_win_rate: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GamePerformanceVenueDto {
+    pub venue_id: String,
+    pub venue_name: String,
+    pub plays: i32,
+}
+
+/// Enriched game performance row for the Profile "Game Performance" tab.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GamePerformanceDetailDto {
+    pub game_id: String,
+    pub game_name: String,
+    pub total_plays: i32,
+    pub wins: i32,
+    pub losses: i32,
+    pub win_rate: f64,
+    pub average_placement: f64,
+    pub best_placement: i32,
+    pub worst_placement: i32,
+    pub last_played: chrono::DateTime<chrono::FixedOffset>,
+    pub days_since_last_play: i64,
+    pub best_opponent: Option<GamePerformanceOpponentDto>,
+    pub toughest_opponent: Option<GamePerformanceOpponentDto>,
+    pub best_venue: Option<GamePerformanceVenueDto>,
+}
+
 /// Data Transfer Object for Head-to-Head Record
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct HeadToHeadRecordDto {

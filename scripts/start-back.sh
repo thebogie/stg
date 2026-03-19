@@ -23,11 +23,13 @@ export COMPOSE_PROJECT_NAME=stg
 COMPOSE_FILE="$ROOT/deploy/docker-compose.yml"
 ENV_FILE="$ROOT/config/.env.${RUST_ENV}"
 
-VOL_BASE="${VOLUME_PATH:-$ROOT/docker-data}"
-VOL_BASE="$(cd "$VOL_BASE" 2>/dev/null && pwd)" || VOL_BASE="$ROOT/docker-data"
+VOL_DEFAULT="$ROOT/docker-data"
+[ "$RUST_ENV" = "dev" ] || [ "$RUST_ENV" = "development" ] && VOL_DEFAULT="$ROOT/_build/docker-data"
+VOL_BASE="${VOLUME_PATH:-$VOL_DEFAULT}"
+VOL_BASE="$(cd "$VOL_BASE" 2>/dev/null && pwd)" || VOL_BASE="$VOL_DEFAULT"
 if ! mkdir -p "$VOL_BASE/surrealdb_data" "$VOL_BASE/redis_data" "$VOL_BASE/backend_data" 2>/dev/null; then
-  echo "Warning: Cannot create dirs under $VOL_BASE (permission denied?). Using $ROOT/docker-data"
-  VOL_BASE="$ROOT/docker-data"
+  echo "Warning: Cannot create dirs under $VOL_BASE (permission denied?). Using $VOL_DEFAULT"
+  VOL_BASE="$VOL_DEFAULT"
   mkdir -p "$VOL_BASE/surrealdb_data" "$VOL_BASE/redis_data" "$VOL_BASE/backend_data"
 fi
 export VOLUME_PATH="$VOL_BASE"
@@ -96,7 +98,7 @@ wait_surrealdb() {
     rm -f "$SURQL_PATH"
     echo "==> Converting $BACKUP_ZIP to .surql (fresh) and importing ..."
     mkdir -p "$(dirname "$SURQL_PATH")"
-    if cargo run -p arango-to-surreal -- "$BACKUP_ZIP" -o "$SURQL_PATH"; then
+    if cargo run --manifest-path tools/arango-to-surreal/Cargo.toml -- "$BACKUP_ZIP" -o "$SURQL_PATH"; then
       ( wait_surrealdb && do_import ) || true
     else
       echo "Warning: Conversion failed; skipping import." >&2

@@ -7,33 +7,46 @@ Converts an ArangoDB smacktalk dump (zip from `arangodump`) into a single `.surq
 - **docs/SURREALDB_ID_CONVENTIONS.md** — Record IDs as `type::record("table", "key")` (SurrealDB v3; v2 used `type::thing`) with **raw key** only (no backticks/angle brackets); canonical app format `"table/key"`; backend uses `type::record('table', $key)` with raw key.
 - **docs/SURREALDB_EDGES.md** — All record refs as record id type; edges: `out` = source, `in` = target; document and edge ids and refs emitted as `type::record("table", "key")`.
 
-## One-shot production migration (recommended)
+## One-shot production migration
+
+**Production (converter runs locally; import on server via Surreal CLI):** The import script is not deployed to production. Do this:
+
+1. Take a snapshot of ArangoDB (e.g. `arangodump` → zip).
+2. Copy the zip to a machine that has this repo (e.g. your dev box).
+3. From repo root, run the converter to produce `smacktalk.surql`:
+   ```bash
+   cargo run --manifest-path tools/arango-to-surreal/Cargo.toml -- path/to/smacktalk.zip -o smacktalk.surql --production
+   ```
+4. Copy `smacktalk.surql` to the production server (or make it available where the Surreal CLI can read it).
+5. On the production server, with SurrealDB running and **empty** ns/db (or after resetting it), import using the Surreal CLI:
+   ```bash
+   surreal import --endpoint <prod-surreal-url> --user root --pass <password> --ns stg_rd --db stg_rd smacktalk.surql
+   ```
+   (Use the same namespace/database and credentials as in `deploy/config/.env.prod`.)
+
+**Dev (convert + import in one step):** Use the import script so the converter runs and imports into your local SurrealDB in one go:
 
 ```bash
-# From repo root: full schema (DEFINE TABLE/FIELD/INDEX) + data
-cargo run -p arango-to-surreal -- path/to/smacktalk.zip -o output.surql --production
-
-# Or use the import script (converts then imports; uses --production by default)
 ./scripts/arango-to-surreal-import.sh path/to/smacktalk.zip --fresh
 ```
 
-- **`--production`**: Emit full production schema then data: `DEFINE TABLE ... SCHEMAFULL`, `DEFINE FIELD ... TYPE ...` for every table/field, and `DEFINE INDEX` where the backend expects lookups. Use this for the single run that cuts over from ArangoDB to SurrealDB in production. Import into an **empty** namespace/database (e.g. use `--fresh` with the script, or create ns/db before import).
+- **`--production`**: Emit full production schema then data then **application functions**: `DEFINE TABLE ... SCHEMAFULL`, `DEFINE FIELD ...`, `DEFINE INDEX`, all INSERTs, then the contents of **surreal-functions.surql** in this folder. Import into an **empty** namespace/database. **First convert is complete** (schema + data + functions); for later schema or function changes use migration scripts (e.g. new `.surql` files applied after import).
 
 ## Other options
 
 ```bash
 # Minimal schema only (DEFINE TABLE <name> SCHEMAFULL)
-cargo run -p arango-to-surreal -- path/to/smacktalk.zip -o output.surql --schema
+cargo run --manifest-path tools/arango-to-surreal/Cargo.toml -- path/to/smacktalk.zip -o output.surql --schema
 
 # Data only (no DEFINE; tables must already exist or be schemaless)
-cargo run -p arango-to-surreal -- path/to/smacktalk.zip -o output.surql
+cargo run --manifest-path tools/arango-to-surreal/Cargo.toml -- path/to/smacktalk.zip -o output.surql
 
 # Remap player IDs only, or all IDs (optional; see "Record IDs: format vs remap" below)
-cargo run -p arango-to-surreal -- path/to/smacktalk.zip -o output.surql --production --remap-player-ids
-cargo run -p arango-to-surreal -- path/to/smacktalk.zip -o output.surql --production --remap-all-ids
+cargo run --manifest-path tools/arango-to-surreal/Cargo.toml -- path/to/smacktalk.zip -o output.surql --production --remap-player-ids
+cargo run --manifest-path tools/arango-to-surreal/Cargo.toml -- path/to/smacktalk.zip -o output.surql --production --remap-all-ids
 
 # Example with production backup
-cargo run -p arango-to-surreal -- ~/work/_backups/smacktalk.zip -o _build/smacktalk.surql --production
+cargo run --manifest-path tools/arango-to-surreal/Cargo.toml -- ~/work/_backups/smacktalk.zip -o _build/smacktalk.surql --production
 ```
 
 - **Input**: Path to a zip containing an ArangoDB dump (e.g. `smacktalk/dump.json` and `smacktalk/<collection>_<hash>.data.json.gz`).
@@ -48,7 +61,7 @@ Start SurrealDB (e.g. `docker compose -f deploy/docker-compose.deps.yml up -d su
 surreal import --conn http://localhost:50001 --user root --pass <password> --ns <namespace> --db <database> output.surql
 ```
 
-For **production cutover**: take a final ArangoDB backup, stop the app, run the converter with `--production`, import the `.surql` into an empty SurrealDB namespace/database, point the next version of STG at SurrealDB, then bring the app back up. Use `./scripts/arango-to-surreal-import.sh ... --fresh` to reset the target ns/db before import so the production schema applies cleanly.
+For **production cutover**: take a final ArangoDB backup, run the converter locally (see "Production" above) to get `smacktalk.surql`, then on the production server use the Surreal CLI to import into an empty ns/db. The import script is for dev only (it is not deployed to production).
 
 **One run is enough.** The converter emits edge `out`/`in` as `type::record(...)` record ids (SurrealDB v3), so leaderboard, achievements, contest list, and analytics work after import. You do **not** need to run a separate edge migration (e.g. `docs/surreal-migrate-edge-strings-to-things.surql`) when the data comes from this tool.
 
@@ -72,10 +85,10 @@ Arango and Surreal use different **formats** for record IDs (Arango: `collection
 
 ```bash
 # Remap only players
-cargo run -p arango-to-surreal -- path/to/smacktalk.zip -o output.surql --production --remap-player-ids
+cargo run --manifest-path tools/arango-to-surreal/Cargo.toml -- path/to/smacktalk.zip -o output.surql --production --remap-player-ids
 
 # Remap every document and edge (nodes and edges keep their relationships)
-cargo run -p arango-to-surreal -- path/to/smacktalk.zip -o output.surql --production --remap-all-ids
+cargo run --manifest-path tools/arango-to-surreal/Cargo.toml -- path/to/smacktalk.zip -o output.surql --production --remap-all-ids
 ```
 
 With **`--remap-all-ids`**, the tool builds an old_key → new_uuid map for each document table (player, game, venue, contest, rating_latest, rating_history, schema_migrations, migration_lock), assigns a new UUID to each edge row, and rewrites every reference so no relationship is lost.

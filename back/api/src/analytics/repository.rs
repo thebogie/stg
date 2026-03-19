@@ -19,6 +19,7 @@ use crate::surreal_helpers::{normalize_record_id_string, record_id_from_field, r
 use shared::dto::analytics::{
     GamePerformanceDto, PerformanceTrendDto, PlayerOpponentDto,
 };
+use shared::dto::analytics::{GamePerformanceDetailDto, GamePerformanceOpponentDto, GamePerformanceVenueDto};
 use shared::{dto::analytics::TimePeriod, models::analytics::*, Result, SharedError};
 use std::collections::HashMap;
 use chrono::{Datelike, Timelike};
@@ -50,15 +51,16 @@ struct ResultedInRow {
     place: Option<i64>,
 }
 
+#[allow(dead_code)]
 #[derive(serde::Deserialize, serde::Serialize, surrealdb::types::SurrealValue)]
 struct GamePerformanceRow {
-    #[allow(dead_code)]
     contest_id: Option<surrealdb::types::RecordId>,
     place: Option<i64>,
     game_id: Option<surrealdb::types::RecordId>,
     contest_start: Option<String>,
 }
 
+#[allow(dead_code)]
 #[derive(serde::Deserialize, serde::Serialize, surrealdb::types::SurrealValue)]
 struct PerformanceTrendRow {
     place: Option<i64>,
@@ -74,12 +76,14 @@ struct PlayerDisplayRow {
     lastname: Option<String>,
 }
 
+#[allow(dead_code)]
 #[derive(serde::Deserialize, serde::Serialize, surrealdb::types::SurrealValue)]
 struct GameDisplayRow {
     id: Option<surrealdb::types::RecordId>,
     name: Option<String>,
 }
 
+#[allow(dead_code)]
 #[derive(serde::Deserialize, serde::Serialize, surrealdb::types::SurrealValue)]
 struct ContestResultRow {
     contest_id: Option<surrealdb::types::RecordId>,
@@ -193,6 +197,22 @@ fn player_id_to_key(player_id: &str) -> String {
         .trim_start_matches("Player/")
         .trim_start_matches("Player:");
     key.trim_matches('`').to_string()
+}
+
+/// Compute current and longest win streaks from contest results sorted by start (oldest first).
+/// Win = place 1; current streak is the run of wins ending at the most recent contest.
+fn compute_streaks_from_ordered_places(places: &[(i32, chrono::DateTime<chrono::FixedOffset>)]) -> (i32, i32) {
+    let mut current_streak = 0i32;
+    let mut longest_streak = 0i32;
+    for (place, _) in places {
+        if *place == 1 {
+            current_streak += 1;
+            longest_streak = longest_streak.max(current_streak);
+        } else {
+            current_streak = 0;
+        }
+    }
+    (current_streak, longest_streak)
 }
 
 /// Extract "YYYY-MM" from SurrealDB datetime (may be string RFC3339 or object).
@@ -381,7 +401,10 @@ impl AnalyticsRepository {
                     .cloned()
                     .unwrap_or(first);
                 if row.is_object() && (row.get("contests_out").is_some() || row.get("contests_in").is_some()) {
-                    if let Some(stats) = Self::player_stats_from_dual_out_in_row(&row, player_id) {
+                    if let Some(mut stats) = Self::player_stats_from_dual_out_in_row(&row, player_id) {
+                        let (cur, long) = self.get_player_streaks(player_id).await.unwrap_or((0, 0));
+                        stats.current_streak = cur;
+                        stats.longest_streak = long;
                         return Ok(Some(stats));
                     }
                 }
@@ -434,7 +457,12 @@ impl AnalyticsRepository {
         };
 
         match Self::player_stats_from_dual_out_in_row(&row, player_id) {
-            Some(stats) => Ok(Some(stats)),
+            Some(mut stats) => {
+                let (cur, long) = self.get_player_streaks(player_id).await.unwrap_or((0, 0));
+                stats.current_streak = cur;
+                stats.longest_streak = long;
+                Ok(Some(stats))
+            }
             None => Ok(Some(Self::zero_player_stats(player_id))),
         }
     }
@@ -502,6 +530,68 @@ impl AnalyticsRepository {
             longest_streak: 0,
             last_updated: chrono::Utc::now().into(),
         }
+    }
+
+    /// Fetch player's contest (contest_id, place) and contest start times; return (current_streak, longest_streak).
+    /// Streaks are computed from contests ordered by start ascending: win (place 1) extends streak, else resets.
+    pub async fn get_player_streaks(&self, player_id: &str) -> Result<(i32, i32)> {
+        let key = player_id_to_key(player_id);
+        if key.is_empty() {
+            return Ok((0, 0));
+        }
+        let player_rid = surrealdb::types::RecordId::new("player", key.as_str());
+
+        #[derive(serde::Deserialize, serde::Serialize, surrealdb::types::SurrealValue)]
+        struct RiRow {
+            contest_id: Option<surrealdb::types::RecordId>,
+            place: Option<i64>,
+        }
+        let mut res = self
+            .db
+            .query("SELECT `in` AS contest_id, place FROM resulted_in WHERE `out` = $player_rid")
+            .bind(("player_rid", player_rid))
+            .await
+            .map_err(|e| SharedError::Database(e.to_string()))?;
+        let ri_rows: Vec<RiRow> = res.take(0).map_err(|e| SharedError::Database(e.to_string()))?;
+        if ri_rows.is_empty() {
+            return Ok((0, 0));
+        }
+
+        let contest_ids: Vec<surrealdb::types::RecordId> = ri_rows.iter().filter_map(|r| r.contest_id.clone()).collect();
+        #[derive(serde::Deserialize, serde::Serialize, surrealdb::types::SurrealValue)]
+        struct ContestStartRow {
+            id: Option<surrealdb::types::RecordId>,
+            start: Option<surrealdb::types::Datetime>,
+        }
+        let mut res2 = self
+            .db
+            .query("SELECT id, start FROM contest WHERE id INSIDE $ids")
+            .bind(("ids", contest_ids.clone()))
+            .await
+            .map_err(|e| SharedError::Database(e.to_string()))?;
+        let start_rows: Vec<ContestStartRow> = res2.take(0).map_err(|e| SharedError::Database(e.to_string()))?;
+
+        let mut start_by_id: HashMap<String, chrono::DateTime<chrono::FixedOffset>> = HashMap::new();
+        for r in start_rows {
+            if let (Some(id), Some(start)) = (r.id, r.start) {
+                let cid = crate::surreal_helpers::record_id_to_canonical(&id).replace("contest:", "contest/");
+                if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(&start.to_string()) {
+                    start_by_id.insert(cid, dt.with_timezone(&chrono::FixedOffset::east_opt(0).unwrap()));
+                }
+            }
+        }
+
+        let mut ordered: Vec<(i32, chrono::DateTime<chrono::FixedOffset>)> = Vec::new();
+        for r in &ri_rows {
+            let cid = r.contest_id.as_ref().map(|c| crate::surreal_helpers::record_id_to_canonical(c).replace("contest:", "contest/")).unwrap_or_default();
+            let place = r.place.unwrap_or(0) as i32;
+            if let Some(&start) = start_by_id.get(&cid) {
+                ordered.push((place, start));
+            }
+        }
+        ordered.sort_by(|a, b| a.1.cmp(&b.1));
+
+        Ok(compute_streaks_from_ordered_places(&ordered))
     }
 
     /// Get the exact string form of player id as SurrealDB stringifies it (string::concat(id)).
@@ -585,7 +675,15 @@ impl AnalyticsRepository {
                 return Ok(None);
             }
         };
-        Self::parse_player_stats_row(&row).map(Some)
+        match Self::parse_player_stats_row(&row) {
+            Ok(mut stats) => {
+                let (cur, long) = self.get_player_streaks(&stats.player_id).await.unwrap_or((0, 0));
+                stats.current_streak = cur;
+                stats.longest_streak = long;
+                Ok(Some(stats))
+            }
+            Err(e) => Err(e),
+        }
     }
 
     /// Same as get_player_stats_by_email but with email inlined in the query (no params).
@@ -625,7 +723,15 @@ impl AnalyticsRepository {
                 return Ok(None);
             }
         };
-        Self::parse_player_stats_row(&row).map(Some)
+        match Self::parse_player_stats_row(&row) {
+            Ok(mut stats) => {
+                let (cur, long) = self.get_player_streaks(&stats.player_id).await.unwrap_or((0, 0));
+                stats.current_streak = cur;
+                stats.longest_streak = long;
+                Ok(Some(stats))
+            }
+            Err(e) => Err(e),
+        }
     }
 
     /// Get player statistics by player record key. Inlines key as literal so SurrealDB matches
@@ -681,6 +787,7 @@ impl AnalyticsRepository {
         let average_placement = row.get("average_placement").map(scalar_f64).unwrap_or(0.0);
         let best_placement = row.get("best_placement").map(scalar_i64).unwrap_or(0) as i32;
         let player_id_norm = record_id_from_row(&row, Some("player")).unwrap_or_else(|| format!("player/{}", key));
+        let (cur, long) = self.get_player_streaks(&player_id_norm).await.unwrap_or((0, 0));
         let stats = PlayerStats {
             player_id: player_id_norm,
             total_contests,
@@ -692,8 +799,8 @@ impl AnalyticsRepository {
             skill_rating: 1200.0,
             rating_confidence: 0.8,
             total_points: total_wins * 10,
-            current_streak: 0,
-            longest_streak: 0,
+            current_streak: cur,
+            longest_streak: long,
             last_updated: chrono::Utc::now().into(),
         };
         Ok(Some(stats))
@@ -1283,7 +1390,11 @@ impl AnalyticsRepository {
                             .map_err(|e| SharedError::Database(e.to_string()))?;
                         let check_rows: Vec<serde_json::Value> = check.take(0).unwrap_or_default();
                         if check_rows.into_iter().next().is_some() {
-                            return Ok(Some(stats));
+                            let (cur, long) = self.get_player_streaks(player_id).await.unwrap_or((0, 0));
+                            let mut st = stats;
+                            st.current_streak = cur;
+                            st.longest_streak = long;
+                            return Ok(Some(st));
                         }
                     }
                 }
@@ -1331,6 +1442,7 @@ impl AnalyticsRepository {
         let average_placement = row.get("average_placement").map(scalar_f64).unwrap_or(0.0);
         let best_placement = row.get("best_placement").map(scalar_i64).unwrap_or(0) as i32;
         let player_id_norm = record_id_from_row(&row, Some("player")).unwrap_or_else(|| format!("player/{}", key));
+        let (cur, long) = self.get_player_streaks(player_id).await.unwrap_or((0, 0));
         let stats = PlayerStats {
             player_id: player_id_norm,
             total_contests,
@@ -1342,8 +1454,8 @@ impl AnalyticsRepository {
             skill_rating: 1200.0,
             rating_confidence: 0.8,
             total_points: total_wins * 10,
-            current_streak: 0,
-            longest_streak: 0,
+            current_streak: cur,
+            longest_streak: long,
             last_updated: chrono::Utc::now().into(),
         };
         Ok(Some(stats))
@@ -1389,6 +1501,7 @@ impl AnalyticsRepository {
         let average_placement = row.get("average_placement").map(scalar_f64).unwrap_or(0.0);
         let best_placement = row.get("best_placement").map(scalar_i64).unwrap_or(0) as i32;
         let player_id_norm = record_id_from_row(&row, Some("player")).unwrap_or_else(|| record_id_to_player_id_str(&record_id));
+        let (cur, long) = self.get_player_streaks(&player_id_norm).await.unwrap_or((0, 0));
         let stats = PlayerStats {
             player_id: player_id_norm,
             total_contests,
@@ -1400,8 +1513,8 @@ impl AnalyticsRepository {
             skill_rating: 1200.0,
             rating_confidence: 0.8,
             total_points: total_wins * 10,
-            current_streak: 0,
-            longest_streak: 0,
+            current_streak: cur,
+            longest_streak: long,
             last_updated: chrono::Utc::now().into(),
         };
         Ok(Some(stats))
@@ -1427,7 +1540,10 @@ impl AnalyticsRepository {
                     .cloned()
                     .unwrap_or(first);
                 if row.is_object() && (row.get("contests_out").is_some() || row.get("contests_in").is_some()) {
-                    if let Some(stats) = Self::player_stats_from_dual_out_in_row(&row, &player_id_canonical) {
+                    if let Some(mut stats) = Self::player_stats_from_dual_out_in_row(&row, &player_id_canonical) {
+                        let (cur, long) = self.get_player_streaks(&player_id_canonical).await.unwrap_or((0, 0));
+                        stats.current_streak = cur;
+                        stats.longest_streak = long;
                         return Ok(Some(stats));
                     }
                 }
@@ -1467,7 +1583,12 @@ impl AnalyticsRepository {
         };
         let player_id_norm = record_id_from_row(&row, Some("player")).unwrap_or_else(|| player_id_canonical.clone());
         match Self::player_stats_from_dual_out_in_row(&row, &player_id_norm) {
-            Some(stats) => Ok(Some(stats)),
+            Some(mut stats) => {
+                let (cur, long) = self.get_player_streaks(&player_id_norm).await.unwrap_or((0, 0));
+                stats.current_streak = cur;
+                stats.longest_streak = long;
+                Ok(Some(stats))
+            }
             None => Ok(None),
         }
     }
@@ -2460,6 +2581,570 @@ impl AnalyticsRepository {
                 }
             })
             .collect();
+        Ok(out)
+    }
+
+    /// Game Performance detail (best/toughest opponent, best venue per game). Tries fn::player_game_performance_detail_data($key) first when applied (tools/arango-to-surreal/surreal-functions.surql).
+    pub async fn get_player_game_performance_detail(
+        &self,
+        player_id: &str,
+    ) -> Result<Vec<GamePerformanceDetailDto>> {
+        use std::collections::HashMap;
+
+        let player_key = player_id_to_key(player_id);
+        if player_key.is_empty() {
+            return Ok(vec![]);
+        }
+        let player_rid = surrealdb::types::RecordId::new("player", player_key.as_str());
+
+        let mut my_place_by_contest: HashMap<String, i32> = HashMap::new();
+        let mut start_by_contest: HashMap<String, chrono::DateTime<chrono::FixedOffset>> = HashMap::new();
+        let mut venue_by_contest: HashMap<String, String> = HashMap::new();
+        let mut participants_by_contest: HashMap<String, Vec<(String, i32)>> = HashMap::new();
+        let mut games_by_contest: HashMap<String, Vec<String>> = HashMap::new();
+        let mut game_ids: Vec<String> = vec![];
+
+        // Try SurrealDB function first (one round-trip when application functions are applied).
+        if let Ok(mut res) = self
+            .db
+            .query("SELECT fn::player_game_performance_detail_data($key) AS result FROM [1]")
+            .bind(("key", player_key.clone()))
+            .await
+        {
+            let rows: Vec<serde_json::Value> = res.take(0).unwrap_or_default();
+            if let Some(first) = rows.into_iter().next() {
+                let result = first
+                    .get("result")
+                    .or_else(|| first.get("fn::player_game_performance_detail_data($key)"))
+                    .cloned()
+                    .unwrap_or(serde_json::Value::Null);
+                if let Some(obj) = result.as_object() {
+                    let empty: &[serde_json::Value] = &[];
+                    let ri_arr = obj.get("resulted_in").and_then(|v| v.as_array()).map(|v| v.as_slice()).unwrap_or(empty);
+                    let cs_arr = obj.get("contest_starts").and_then(|v| v.as_array()).map(|v| v.as_slice()).unwrap_or(empty);
+                    let pw_arr = obj.get("played_with").and_then(|v| v.as_array()).map(|v| v.as_slice()).unwrap_or(empty);
+                    let pa_arr = obj.get("played_at").and_then(|v| v.as_array()).map(|v| v.as_slice()).unwrap_or(empty);
+                    let part_arr = obj.get("participants").and_then(|v| v.as_array()).map(|v| v.as_slice()).unwrap_or(empty);
+                    for v in ri_arr {
+                        if let (Some(cid), Some(place)) = (
+                            record_id_from_field(v, "contest_id"),
+                            v.get("place").and_then(|p| p.as_i64()),
+                        ) {
+                            let cid_s = cid.replace("contest:", "contest/");
+                            my_place_by_contest.insert(cid_s, place as i32);
+                        }
+                    }
+                    for v in cs_arr {
+                        if let (Some(id), Some(start_str)) = (
+                            record_id_from_field(v, "id"),
+                            v.get("start").and_then(|s| s.as_str()),
+                        ) {
+                            let cid_s = id.replace("contest:", "contest/");
+                            if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(start_str) {
+                                start_by_contest.insert(cid_s, dt.with_timezone(&chrono::FixedOffset::east_opt(0).unwrap()));
+                            }
+                        }
+                    }
+                    for v in pa_arr {
+                        if let (Some(cid), Some(vid)) = (
+                            record_id_from_field(v, "contest_id"),
+                            record_id_from_field(v, "venue_id"),
+                        ) {
+                            let cid_s = cid.replace("contest:", "contest/");
+                            let vid_s = vid.replace("venue:", "venue/");
+                            venue_by_contest.insert(cid_s, vid_s);
+                        }
+                    }
+                    for v in part_arr {
+                        if let (Some(cid), Some(pid), Some(place)) = (
+                            record_id_from_field(v, "contest_id"),
+                            record_id_from_field(v, "player_id"),
+                            v.get("place").and_then(|p| p.as_i64()),
+                        ) {
+                            let cid_s = cid.replace("contest:", "contest/");
+                            let pid_s = pid.replace("player:", "player/");
+                            participants_by_contest.entry(cid_s).or_default().push((pid_s, place as i32));
+                        }
+                    }
+                    for v in pw_arr {
+                        if let (Some(cid), Some(gid)) = (
+                            record_id_from_field(v, "contest_id"),
+                            record_id_from_field(v, "game_id"),
+                        ) {
+                            let cid_s = cid.replace("contest:", "contest/");
+                            let gid_s = gid.replace("game:", "game/");
+                            games_by_contest.entry(cid_s).or_default().push(gid_s.clone());
+                            game_ids.push(gid_s);
+                        }
+                    }
+                    game_ids.sort();
+                    game_ids.dedup();
+                    if !my_place_by_contest.is_empty() && !games_by_contest.is_empty() {
+                        // Build agg_by_game and DTOs (shared block below).
+                        return self.build_game_performance_detail_dtos(
+                            player_id,
+                            &my_place_by_contest,
+                            &start_by_contest,
+                            &venue_by_contest,
+                            &participants_by_contest,
+                            &games_by_contest,
+                            &game_ids,
+                        )
+                        .await;
+                    }
+                }
+            }
+        }
+
+        // Fallback: multi-query path when function is not defined or returns nothing.
+        #[derive(Clone, Debug, serde::Deserialize, serde::Serialize, surrealdb::types::SurrealValue)]
+        struct PlayerContestRow {
+            contest_id: Option<surrealdb::types::RecordId>,
+            place: Option<i64>,
+        }
+        let mut res = self
+            .db
+            .query("SELECT `in` AS contest_id, place FROM resulted_in WHERE `out` = $player")
+            .bind(("player", player_rid.clone()))
+            .await
+            .map_err(|e| SharedError::Database(format!("Failed to fetch player contests: {}", e)))?;
+        let player_contests: Vec<PlayerContestRow> = res
+            .take(0)
+            .map_err(|e| SharedError::Database(format!("Failed to take player contests: {}", e)))?;
+
+        let contest_ids: Vec<surrealdb::types::RecordId> = player_contests
+            .iter()
+            .filter_map(|r| r.contest_id.clone())
+            .collect();
+        if contest_ids.is_empty() {
+            return Ok(vec![]);
+        }
+
+        for r in &player_contests {
+            if let (Some(cid), Some(place)) = (&r.contest_id, r.place) {
+                let cid_s = crate::surreal_helpers::record_id_to_canonical(cid)
+                    .replace("contest:", "contest/");
+                my_place_by_contest.insert(cid_s, place as i32);
+            }
+        }
+
+        #[derive(Clone, Debug, serde::Deserialize, serde::Serialize, surrealdb::types::SurrealValue)]
+        struct ContestGameRow {
+            contest_id: Option<surrealdb::types::RecordId>,
+            game_id: Option<surrealdb::types::RecordId>,
+        }
+        let mut res = self
+            .db
+            .query("SELECT `in` AS contest_id, `out` AS game_id FROM played_with WHERE `in` INSIDE $contests")
+            .bind(("contests", contest_ids.clone()))
+            .await
+            .map_err(|e| SharedError::Database(format!("Failed to fetch contest games: {}", e)))?;
+        let contest_games: Vec<ContestGameRow> = res
+            .take(0)
+            .map_err(|e| SharedError::Database(format!("Failed to take contest games: {}", e)))?;
+
+        #[derive(Clone, Debug, serde::Deserialize, serde::Serialize, surrealdb::types::SurrealValue)]
+        struct ContestVenueRow {
+            contest_id: Option<surrealdb::types::RecordId>,
+            venue_id: Option<surrealdb::types::RecordId>,
+        }
+        let mut res = self
+            .db
+            .query("SELECT `in` AS contest_id, `out` AS venue_id FROM played_at WHERE `in` INSIDE $contests")
+            .bind(("contests", contest_ids.clone()))
+            .await
+            .map_err(|e| SharedError::Database(format!("Failed to fetch contest venues: {}", e)))?;
+        let contest_venues: Vec<ContestVenueRow> = res
+            .take(0)
+            .map_err(|e| SharedError::Database(format!("Failed to take contest venues: {}", e)))?;
+
+        for r in &contest_venues {
+            if let (Some(cid), Some(vid)) = (&r.contest_id, &r.venue_id) {
+                let cid_s = crate::surreal_helpers::record_id_to_canonical(cid)
+                    .replace("contest:", "contest/");
+                let vid_s = crate::surreal_helpers::record_id_to_canonical(vid)
+                    .replace("venue:", "venue/");
+                venue_by_contest.insert(cid_s, vid_s);
+            }
+        }
+
+        #[derive(Clone, Debug, serde::Deserialize, serde::Serialize, surrealdb::types::SurrealValue)]
+        struct ContestStartRow {
+            id: Option<surrealdb::types::RecordId>,
+            start: Option<surrealdb::types::Datetime>,
+        }
+        let mut res = self
+            .db
+            .query("SELECT id, start FROM contest WHERE id INSIDE $contests")
+            .bind(("contests", contest_ids.clone()))
+            .await
+            .map_err(|e| SharedError::Database(format!("Failed to fetch contest starts: {}", e)))?;
+        let contest_starts: Vec<ContestStartRow> = res
+            .take(0)
+            .map_err(|e| SharedError::Database(format!("Failed to take contest starts: {}", e)))?;
+        for r in contest_starts {
+            if let (Some(cid), Some(start)) = (r.id, r.start) {
+                let cid_s = crate::surreal_helpers::record_id_to_canonical(&cid)
+                    .replace("contest:", "contest/");
+                let dt = chrono::DateTime::parse_from_rfc3339(&start.to_string())
+                    .unwrap_or_else(|_| chrono::Utc::now().with_timezone(&chrono::FixedOffset::east_opt(0).unwrap()));
+                start_by_contest.insert(cid_s, dt);
+            }
+        }
+
+        #[derive(Clone, Debug, serde::Deserialize, serde::Serialize, surrealdb::types::SurrealValue)]
+        struct ContestParticipantRow {
+            contest_id: Option<surrealdb::types::RecordId>,
+            player_id: Option<surrealdb::types::RecordId>,
+            place: Option<i64>,
+        }
+        let mut res = self
+            .db
+            .query("SELECT `in` AS contest_id, `out` AS player_id, place FROM resulted_in WHERE `in` INSIDE $contests")
+            .bind(("contests", contest_ids))
+            .await
+            .map_err(|e| SharedError::Database(format!("Failed to fetch contest participants: {}", e)))?;
+        let participants: Vec<ContestParticipantRow> = res
+            .take(0)
+            .map_err(|e| SharedError::Database(format!("Failed to take contest participants: {}", e)))?;
+        for r in participants {
+            let (Some(cid), Some(pid), Some(place)) = (r.contest_id, r.player_id, r.place) else {
+                continue;
+            };
+            let cid_s = crate::surreal_helpers::record_id_to_canonical(&cid)
+                .replace("contest:", "contest/");
+            let pid_s = crate::surreal_helpers::record_id_to_canonical(&pid)
+                .replace("player:", "player/");
+            participants_by_contest
+                .entry(cid_s)
+                .or_default()
+                .push((pid_s, place as i32));
+        }
+
+        for r in &contest_games {
+            let (Some(cid), Some(gid)) = (&r.contest_id, &r.game_id) else {
+                continue;
+            };
+            let cid_s = crate::surreal_helpers::record_id_to_canonical(cid)
+                .replace("contest:", "contest/");
+            let gid_s = crate::surreal_helpers::record_id_to_canonical(gid)
+                .replace("game:", "game/");
+            games_by_contest.entry(cid_s).or_default().push(gid_s.clone());
+            game_ids.push(gid_s);
+        }
+        game_ids.sort();
+        game_ids.dedup();
+
+        self.build_game_performance_detail_dtos(
+            player_id,
+            &my_place_by_contest,
+            &start_by_contest,
+            &venue_by_contest,
+            &participants_by_contest,
+            &games_by_contest,
+            &game_ids,
+        )
+        .await
+    }
+
+    /// Build GamePerformanceDetailDto list from pre-aggregated maps (used by fn:: path and multi-query fallback).
+    async fn build_game_performance_detail_dtos(
+        &self,
+        player_id: &str,
+        my_place_by_contest: &HashMap<String, i32>,
+        start_by_contest: &HashMap<String, chrono::DateTime<chrono::FixedOffset>>,
+        venue_by_contest: &HashMap<String, String>,
+        participants_by_contest: &HashMap<String, Vec<(String, i32)>>,
+        games_by_contest: &HashMap<String, Vec<String>>,
+        game_ids: &[String],
+    ) -> Result<Vec<GamePerformanceDetailDto>> {
+        use std::collections::HashMap;
+
+        #[derive(Default)]
+        struct GameAgg {
+            total_plays: i32,
+            wins: i32,
+            losses: i32,
+            sum_place: i32,
+            best_place: i32,
+            worst_place: i32,
+            last_played: Option<chrono::DateTime<chrono::FixedOffset>>,
+            opp: HashMap<String, (i32, i32)>, // opp -> (contests, my_wins)
+            venue_counts: HashMap<String, i32>, // venue -> plays
+        }
+
+        let mut agg_by_game: HashMap<String, GameAgg> = HashMap::new();
+        for (contest_id, games) in games_by_contest.iter() {
+            let my_place = match my_place_by_contest.get(contest_id).copied() {
+                Some(p) if p > 0 => p,
+                _ => continue,
+            };
+            let contest_start = start_by_contest.get(contest_id).cloned();
+            let venue_id = venue_by_contest.get(contest_id).cloned();
+            let participants = participants_by_contest
+                .get(contest_id)
+                .cloned()
+                .unwrap_or_default();
+
+            for game_id in games {
+                let entry = agg_by_game.entry(game_id.clone()).or_default();
+                entry.total_plays += 1;
+                entry.sum_place += my_place;
+                entry.best_place = if entry.best_place == 0 {
+                    my_place
+                } else {
+                    entry.best_place.min(my_place)
+                };
+                entry.worst_place = entry.worst_place.max(my_place);
+                if my_place == 1 {
+                    entry.wins += 1;
+                } else {
+                    entry.losses += 1;
+                }
+                if let Some(dt) = contest_start {
+                    if entry.last_played.map(|x| dt > x).unwrap_or(true) {
+                        entry.last_played = Some(dt);
+                    }
+                }
+                if let Some(vid) = &venue_id {
+                    *entry.venue_counts.entry(vid.clone()).or_insert(0) += 1;
+                }
+                for (opp_id, opp_place) in &participants {
+                    if opp_id == player_id {
+                        continue;
+                    }
+                    let (c, w) = entry.opp.entry(opp_id.clone()).or_insert((0, 0));
+                    *c += 1;
+                    if my_place < *opp_place {
+                        *w += 1;
+                    }
+                }
+            }
+        }
+
+        // Names for games
+        let game_rids: Vec<surrealdb::types::RecordId> = game_ids
+            .iter()
+            .filter_map(|s| {
+                let key = record_id_to_key(s, "game");
+                if key.is_empty() {
+                    None
+                } else {
+                    Some(surrealdb::types::RecordId::new("game", key.as_str()))
+                }
+            })
+            .collect();
+        #[derive(Clone, Debug, serde::Deserialize, serde::Serialize, surrealdb::types::SurrealValue)]
+        struct GameNameRow {
+            id: Option<surrealdb::types::RecordId>,
+            name: Option<String>,
+        }
+        let mut game_name_by_id: HashMap<String, String> = HashMap::new();
+        if !game_rids.is_empty() {
+            let mut res = self
+                .db
+                .query("SELECT id, name FROM game WHERE id INSIDE $ids")
+                .bind(("ids", game_rids))
+                .await
+                .map_err(|e| SharedError::Database(format!("Failed to fetch game names: {}", e)))?;
+            let rows: Vec<GameNameRow> = res
+                .take(0)
+                .map_err(|e| SharedError::Database(format!("Failed to take game names: {}", e)))?;
+            for r in rows {
+                if let (Some(id), Some(name)) = (r.id, r.name) {
+                    let id_s = crate::surreal_helpers::record_id_to_canonical(&id)
+                        .replace("game:", "game/");
+                    game_name_by_id.insert(id_s, name);
+                }
+            }
+        }
+
+        // Names for venues we reference
+        let mut venue_ids: Vec<String> = agg_by_game
+            .values()
+            .flat_map(|g| g.venue_counts.keys().cloned())
+            .collect();
+        venue_ids.sort();
+        venue_ids.dedup();
+        let venue_rids: Vec<surrealdb::types::RecordId> = venue_ids
+            .iter()
+            .filter_map(|s| {
+                let key = record_id_to_key(s, "venue");
+                if key.is_empty() {
+                    None
+                } else {
+                    Some(surrealdb::types::RecordId::new("venue", key.as_str()))
+                }
+            })
+            .collect();
+        #[derive(Clone, Debug, serde::Deserialize, serde::Serialize, surrealdb::types::SurrealValue)]
+        struct VenueNameRow {
+            id: Option<surrealdb::types::RecordId>,
+            #[serde(alias = "displayName")]
+            display_name: Option<String>,
+        }
+        let mut venue_name_by_id: HashMap<String, String> = HashMap::new();
+        if !venue_rids.is_empty() {
+            let mut res = self
+                .db
+                .query("SELECT id, display_name, displayName FROM venue WHERE id INSIDE $ids")
+                .bind(("ids", venue_rids))
+                .await
+                .map_err(|e| SharedError::Database(format!("Failed to fetch venue names: {}", e)))?;
+            let rows: Vec<VenueNameRow> = res
+                .take(0)
+                .map_err(|e| SharedError::Database(format!("Failed to take venue names: {}", e)))?;
+            for r in rows {
+                if let Some(id) = r.id {
+                    let id_s = crate::surreal_helpers::record_id_to_canonical(&id)
+                        .replace("venue:", "venue/");
+                    let name = r.display_name.clone().unwrap_or_else(|| id_s.clone());
+                    venue_name_by_id.insert(id_s, name);
+                }
+            }
+        }
+
+        // Opponent handles
+        let mut opp_ids: Vec<String> = agg_by_game
+            .values()
+            .flat_map(|g| g.opp.keys().cloned())
+            .collect();
+        opp_ids.sort();
+        opp_ids.dedup();
+        let opp_rids: Vec<surrealdb::types::RecordId> = opp_ids
+            .iter()
+            .filter_map(|s| {
+                let key = record_id_to_key(s, "player");
+                if key.is_empty() {
+                    None
+                } else {
+                    Some(surrealdb::types::RecordId::new("player", key.as_str()))
+                }
+            })
+            .collect();
+        #[derive(Clone, Debug, serde::Deserialize, serde::Serialize, surrealdb::types::SurrealValue)]
+        struct PlayerHandleRow {
+            id: Option<surrealdb::types::RecordId>,
+            handle: Option<String>,
+        }
+        let mut handle_by_id: HashMap<String, String> = HashMap::new();
+        if !opp_rids.is_empty() {
+            let mut res = self
+                .db
+                .query("SELECT id, handle FROM player WHERE id INSIDE $ids")
+                .bind(("ids", opp_rids))
+                .await
+                .map_err(|e| SharedError::Database(format!("Failed to fetch opponent handles: {}", e)))?;
+            let rows: Vec<PlayerHandleRow> = res
+                .take(0)
+                .map_err(|e| SharedError::Database(format!("Failed to take opponent handles: {}", e)))?;
+            for r in rows {
+                if let Some(id) = r.id {
+                    let id_s = crate::surreal_helpers::record_id_to_canonical(&id)
+                        .replace("player:", "player/");
+                    handle_by_id.insert(id_s, r.handle.unwrap_or_else(|| "Unknown".into()));
+                }
+            }
+        }
+
+        let now: chrono::DateTime<chrono::FixedOffset> =
+            chrono::Utc::now().with_timezone(&chrono::FixedOffset::east_opt(0).unwrap());
+
+        let mut out: Vec<GamePerformanceDetailDto> = Vec::new();
+        for (game_id, g) in agg_by_game {
+            let game_name = game_name_by_id
+                .get(&game_id)
+                .cloned()
+                .unwrap_or_else(|| "Unknown".into());
+            let avg_place = if g.total_plays > 0 {
+                (g.sum_place as f64) / (g.total_plays as f64)
+            } else {
+                0.0
+            };
+            let win_rate = if g.total_plays > 0 {
+                (g.wins as f64 * 100.0) / (g.total_plays as f64)
+            } else {
+                0.0
+            };
+            let last_played = g.last_played.unwrap_or(now);
+            let days_since = (now - last_played).num_days();
+
+            // Best/toughest opponent (min 3 contests together)
+            let mut best: Option<(String, i32, f64)> = None;
+            let mut worst: Option<(String, i32, f64)> = None;
+            for (opp_id, (c, w)) in &g.opp {
+                if *c < 3 {
+                    continue;
+                }
+                let wr = (*w as f64 * 100.0) / (*c as f64);
+                match &best {
+                    None => best = Some((opp_id.clone(), *c, wr)),
+                    Some((_, bc, bwr)) => {
+                        if wr > *bwr || (wr == *bwr && *c > *bc) {
+                            best = Some((opp_id.clone(), *c, wr));
+                        }
+                    }
+                }
+                match &worst {
+                    None => worst = Some((opp_id.clone(), *c, wr)),
+                    Some((_, wc, wwr)) => {
+                        if wr < *wwr || (wr == *wwr && *c > *wc) {
+                            worst = Some((opp_id.clone(), *c, wr));
+                        }
+                    }
+                }
+            }
+            let best_opponent = best.map(|(oid, c, wr)| GamePerformanceOpponentDto {
+                player_id: oid.clone(),
+                player_handle: handle_by_id
+                    .get(&oid)
+                    .cloned()
+                    .unwrap_or_else(|| "Unknown".into()),
+                contests_played: c,
+                my_win_rate: wr,
+            });
+            let toughest_opponent = worst.map(|(oid, c, wr)| GamePerformanceOpponentDto {
+                player_id: oid.clone(),
+                player_handle: handle_by_id
+                    .get(&oid)
+                    .cloned()
+                    .unwrap_or_else(|| "Unknown".into()),
+                contests_played: c,
+                my_win_rate: wr,
+            });
+
+            let best_venue = g
+                .venue_counts
+                .into_iter()
+                .max_by_key(|(_, n)| *n)
+                .map(|(vid, n)| GamePerformanceVenueDto {
+                    venue_id: vid.clone(),
+                    venue_name: venue_name_by_id
+                        .get(&vid)
+                        .cloned()
+                        .unwrap_or_else(|| "Unknown".into()),
+                    plays: n,
+                });
+
+            out.push(GamePerformanceDetailDto {
+                game_id,
+                game_name,
+                total_plays: g.total_plays,
+                wins: g.wins,
+                losses: g.losses,
+                win_rate,
+                average_placement: avg_place,
+                best_placement: g.best_place,
+                worst_placement: g.worst_place,
+                last_played,
+                days_since_last_play: days_since,
+                best_opponent,
+                toughest_opponent,
+                best_venue,
+            });
+        }
+
+        out.sort_by(|a, b| b.total_plays.cmp(&a.total_plays));
         Ok(out)
     }
 

@@ -11,18 +11,19 @@ use serde::Deserialize;
 use serde_json::json;
 use std::env;
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct ContestSearchItemDto {
     pub id: String,
     pub name: String,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct ContestSearchResponseDto {
     pub items: Vec<ContestSearchItemDto>,
     pub total: u64,
     pub page: Option<u32>,
-    #[allow(dead_code)]
     pub page_size: Option<u32>,
 }
 

@@ -103,7 +103,8 @@ pub fn game_selector(props: &GameSelectorProps) -> Html {
                         wasm_bindgen_futures::spawn_local(async move {
                             let mut games = Vec::new();
                             for id in stored {
-                                let url = format!("/api/games/{}", id);
+                                let key = id.strip_prefix("game/").unwrap_or(id.as_str());
+                                let url = format!("/api/games/{}", key);
                                 if let Ok(resp) =
                                     crate::api::utils::authenticated_get(&url).send().await
                                 {

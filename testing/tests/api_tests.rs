@@ -263,10 +263,12 @@ async fn test_player_login_invalid_credentials() -> Result<()> {
 
 #[tokio::test]
 async fn test_get_current_player() -> Result<()> {
-    let env = TestEnvironment::new().await?;
-    env.wait_for_ready().await?;
+    let timeout = std::time::Duration::from_secs(90);
+    let body = async {
+        let env = TestEnvironment::new().await?;
+        env.wait_for_ready().await?;
 
-    let app_data = app_setup::setup_test_app_data(&env).await?;
+        let app_data = app_setup::setup_test_app_data(&env).await?;
     let app = test::init_service(
         App::new()
             .wrap(backend::middleware::Logger::new())
@@ -356,10 +358,15 @@ async fn test_get_current_player() -> Result<()> {
         me_resp.status()
     );
 
-    let body: PlayerDto = test::read_body_json(me_resp).await;
-    assert_eq!(body.email, email, "GET /me should return the registered player's email");
-    assert_eq!(body.handle, "meuser");
+    let me_body: PlayerDto = test::read_body_json(me_resp).await;
+    assert_eq!(me_body.email, email, "GET /me should return the registered player's email");
+    assert_eq!(me_body.handle, "meuser");
 
+    Ok::<(), anyhow::Error>(())
+    };
+    tokio::time::timeout(timeout, body)
+        .await
+        .map_err(|_| anyhow::anyhow!("test_get_current_player timed out after {:?} (is SurrealDB/Redis running on 127.0.0.1?)", timeout))??;
     Ok(())
 }
 

@@ -1,29 +1,36 @@
-# Build backend image and push to GitHub Container Registry (GHCR).
-# After push to main (or tag), pull from production with:
-#   docker pull ghcr.io/OWNER/REPO/backend:SHA_OR_TAG
+# Production CI/CD: backend image to GHCR, web frontend artifact, Tauri desktop artifact.
+# - Backend: docker pull ghcr.io/OWNER/REPO/backend:SHA_OR_TAG (use with deploy/deploy_stg.sh)
+# - Frontend: download frontend-dist artifact and serve as static files (or use deploy-frontend job)
+# - Tauri: download app artifact; set STG_API_URL when running to point at production API
 #
-# See docs/GHCR_SETUP.md for permissions and production setup.
+# See docs/GHCR_SETUP.md and deploy/WEB_AND_TAURI.md.
 
-name: Build and push to GHCR
+name: Production CI/CD
 
 on:
   push:
     branches: [main]
-  # Uncomment to also build on version tags (e.g. v1.0.0):
-  # push:
-  #   tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      deploy_frontend_to_pages:
+        description: "Deploy web frontend to GitHub Pages"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
   packages: write
+  pages: write
+  id-token: write
 
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: backend
 
 jobs:
-  build-and-push:
-    name: Build and push image
+  build-backend:
+    name: Build and push backend
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -75,3 +82,169 @@ jobs:
             RUST_LOG=info
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  build-frontend:
+    name: Build web frontend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust and wasm target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Install Trunk
+        run: cargo install trunk --locked
+
+      - name: Set build env
+        id: env
+        run: |
+          echo "short_sha=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+          echo "date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_OUTPUT
+          BUILD_VERSION=$(date -u +%Y%m%d-%H%M%S)-$(git rev-parse --short HEAD)
+          echo "build_version=$BUILD_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Build frontend
+        working-directory: front/web
+        env:
+          GIT_COMMIT: ${{ steps.env.outputs.short_sha }}
+          BUILD_DATE: ${{ steps.env.outputs.date }}
+          BUILD_VERSION: ${{ steps.env.outputs.build_version }}
+        run: trunk build --release
+
+      - name: Upload frontend artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: _build/frontend-dist
+
+  build-frontend-image:
+    name: Build and push frontend image
+    runs-on: ubuntu-latest
+    needs: build-backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set build env
+        id: env
+        run: |
+          echo "short_sha=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+          echo "date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_OUTPUT
+          echo "build_version=$(date -u +%Y%m%d-%H%M%S)-$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Extract metadata (tags, labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository }}/frontend
+          tags: |
+            type=sha,prefix=
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.created=${{ steps.env.outputs.date }}
+            org.opencontainers.image.version=${{ steps.env.outputs.build_version }}
+
+      - name: Build and push frontend image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: front/web/Dockerfile.frontend.caddy
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            GIT_COMMIT=${{ steps.env.outputs.short_sha }}
+            BUILD_DATE=${{ steps.env.outputs.date }}
+            BUILD_VERSION=${{ steps.env.outputs.build_version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  build-tauri:
+    name: Build Tauri app
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: front/web/package-lock.json
+
+      - name: Install frontend npm deps
+        working-directory: front/web
+        run: npm ci
+
+      - name: Install Rust and wasm target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Install Trunk
+        run: cargo install trunk --locked
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version "^2.0.0"
+
+      - name: Install system deps (Linux)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: Set build env
+        id: env
+        run: |
+          echo "short_sha=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+          echo "date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_OUTPUT
+
+      - name: Build Tauri app
+        working-directory: front/tauri
+        env:
+          GIT_COMMIT: ${{ steps.env.outputs.short_sha }}
+          BUILD_DATE: ${{ steps.env.outputs.date }}
+        run: cargo tauri build
+
+      - name: Upload Tauri artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tauri-app
+          path: front/tauri/target/release/bundle/
+
+  deploy-frontend-pages:
+    name: Deploy frontend to GitHub Pages
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.deploy_frontend_to_pages == 'true'
+    needs: build-frontend
+    permissions:
+      pages: write
+      id-token: write
+    steps:
+      - name: Download frontend artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+
+      - name: Upload to Pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: frontend-dist
+
+      - name: Deploy to GitHub Pages
+        id: deploy
+        uses: actions/deploy-pages@v4

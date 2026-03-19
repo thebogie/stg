@@ -77,9 +77,22 @@ impl ContestRepositoryImpl {
         scope_ns: Option<String>,
         scope_db: Option<String>,
     ) -> Self {
-        let venue_repo = VenueRepositoryImpl::new(db.clone(), google_config.clone());
+        let (venue_repo, game_repo) = match (&scope_ns, &scope_db) {
+            (Some(ns), Some(db_name)) => (
+                VenueRepositoryImpl::new_with_scope(
+                    db.clone(),
+                    google_config.clone(),
+                    ns.clone(),
+                    db_name.clone(),
+                ),
+                GameRepositoryImpl::new_with_scope(db.clone(), ns.clone(), db_name.clone()),
+            ),
+            _ => (
+                VenueRepositoryImpl::new(db.clone(), google_config.clone()),
+                GameRepositoryImpl::new(db.clone()),
+            ),
+        };
         let venue_usecase = VenueUseCaseImpl { repo: venue_repo };
-        let game_repo = GameRepositoryImpl::new(db.clone());
         let game_usecase = GameUseCaseImpl { repo: game_repo };
         let player_repo =
             player_repo.unwrap_or_else(|| PlayerRepositoryImpl::new(db.clone()));
@@ -240,12 +253,13 @@ impl ContestRepository for ContestRepositoryImpl {
         if creator_key.is_empty() {
             return Err("Invalid creator_id for contest".to_string());
         }
+        // Use string key for contest so SurrealDB does not coerce record id to schema "id" (string); UUID key caused: Expected `string` but found `u'...'`.
         let create_sql = self.query_with_scope(
             "CREATE type::record('contest', $key) CONTENT {\
              name: $name,\
              start: type::datetime($start),\
              stop: type::datetime($stop),\
-             creator_id: type::record('player', $creator_key),\
+             creator_id: type::record('player', type::uuid($creator_key)),\
              created_at: type::datetime($created_at)\
              }",
         );
@@ -629,7 +643,7 @@ impl ContestRepository for ContestRepositoryImpl {
         let key = id.trim_start_matches("contest/").trim_start_matches("contest:").to_string();
         let key_clone = key.clone();
 
-        // Prefer SurrealDB function when applied (docs/surreal-functions.surql)
+        // Prefer SurrealDB function when applied (tools/arango-to-surreal/surreal-functions.surql)
         let idx = self.scope_result_index();
         let fn_sql = self.query_with_scope("SELECT fn::contest_row($key) AS result FROM [1]");
         if let Ok(mut res) = self.db.query(&fn_sql).bind(("key", key.clone())).await {
@@ -864,7 +878,7 @@ impl ContestRepositoryImpl {
         }
         let result_str = outcome.result.clone();
         let sql = self.query_with_scope(
-            "INSERT INTO resulted_in (`in`, `out`, place, result) VALUES (type::record('contest', $contest_key), type::record('player', $player_key), $place, $result)",
+            "INSERT INTO resulted_in (`in`, `out`, place, result) VALUES (type::record('contest', $contest_key), type::record('player', type::uuid($player_key)), $place, $result)",
         );
         self.db
             .query(&sql)
@@ -890,7 +904,7 @@ impl ContestRepositoryImpl {
         self.find_details_by_id_impl(id, &self.db).await
     }
 
-    /// Uses SurrealDB function fn::contest_with_edges when available (apply docs/surreal-functions.surql).
+    /// Uses SurrealDB function fn::contest_with_edges when available (apply tools/arango-to-surreal/surreal-functions.surql).
     /// Returns None if the function is not defined or returns no contest (fallback to multi-query path).
     async fn find_details_via_function(
         &self,
@@ -1090,7 +1104,7 @@ impl ContestRepositoryImpl {
             log::warn!("❌ Empty key extracted from contest id: {}", id);
             return None;
         }
-        // Optional: use SurrealDB function for one round-trip (contest + edges). Apply docs/surreal-functions.surql to enable.
+        // Optional: use SurrealDB function for one round-trip (contest + edges). Apply application functions to enable.
         if let Some(dto) = self.find_details_via_function(db, id, &key).await {
             return Some(dto);
         }
@@ -1108,8 +1122,15 @@ impl ContestRepositoryImpl {
             }
         }
         if contest_data.is_none() {
-            // Try UUID first (SurrealDB may store contest keys as UUID type)
-            if uuid::Uuid::parse_str(&key).is_ok() {
+            // Try string key first (contest uses string key to avoid id coercion in v3)
+            let key_sql = self.query_with_scope("SELECT * FROM contest WHERE id = type::record('contest', $key) LIMIT 1");
+            if let Ok(mut r) = db.query(&key_sql).bind(("key", key.clone())).await {
+                let rows: Vec<serde_json::Value> = r.take(idx).unwrap_or_default();
+                if let Some(row) = rows.into_iter().next() {
+                    contest_data = Some(row);
+                }
+            }
+            if contest_data.is_none() && uuid::Uuid::parse_str(&key).is_ok() {
                 let uuid_sql = self.query_with_scope("SELECT * FROM contest WHERE id = type::record('contest', type::uuid($key)) LIMIT 1");
                 if let Ok(mut r) = db
                     .query(&uuid_sql)
@@ -1303,6 +1324,7 @@ impl ContestRepositoryImpl {
 
 impl ContestRepositoryImpl {
     /// SurrealQL: contest has at least one played_with edge with `in` in game_ids.
+    #[allow(dead_code)]
     pub(crate) fn build_game_filter_clause(_game_ids_full: &Vec<String>) -> Option<String> {
         if _game_ids_full.is_empty() {
             return None;

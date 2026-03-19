@@ -204,10 +204,12 @@ async fn main() -> std::io::Result<()> {
         None
     };
     let venue_repo = web::Data::new(
-        backend::venue::repository::VenueRepositoryImpl::new_with_cache(
+        backend::venue::repository::VenueRepositoryImpl::new_with_cache_and_scope(
             db.clone(),
             google_config.clone(),
             venue_cache.clone(),
+            config.database.ns.clone(),
+            config.database.name.clone(),
         ),
     );
 
@@ -224,10 +226,12 @@ async fn main() -> std::io::Result<()> {
     }
 
     let game_repo = web::Data::new(
-        backend::game::repository::GameRepositoryImpl::new_with_bgg_and_cache(
+        backend::game::repository::GameRepositoryImpl::new_with_bgg_and_cache_and_scope(
             db.clone(),
             bgg_service,
             game_cache.clone(),
+            config.database.ns.clone(),
+            config.database.name.clone(),
         ),
     );
 

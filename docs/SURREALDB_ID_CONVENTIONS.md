@@ -19,6 +19,8 @@ So the rule is: **inside SurrealQL and in Rust when talking to the DB, treat IDs
 
 ## 2. Our canonical string format: `"table/key"` (slash)
 
+**HTTP note:** For `GET/PUT/DELETE` on `/api/games` and `/api/venues`, path parameters are the **raw key** (single segment); JSON still uses `table/key`. See [`api/RESOURCE_IDS_HTTP.md`](api/RESOURCE_IDS_HTTP.md).
+
 Everywhere in **application code and DTOs** (Rust types, JSON APIs, frontend, cache keys):
 
 - Use **one format only:** `"table/key"` with a **slash**, e.g. `"player/2025041711441879938520500"`, `"contest/10860534"`.

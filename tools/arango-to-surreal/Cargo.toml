@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2021"
 description = "Convert ArangoDB smacktalk dump (zip) to SurrealDB .surql import file"
 
+# Standalone crate: not a workspace member so it can be run with --manifest-path
+# without pulling in the full workspace (e.g. in Docker frontend build).
+[workspace]
+
 [[bin]]
 name = "arango-to-surreal"
 path = "src/main.rs"

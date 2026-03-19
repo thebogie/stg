@@ -2,6 +2,7 @@
 
 use std::env;
 
+#[allow(dead_code)]
 #[derive(Debug, serde::Deserialize)]
 struct GameDto {
     #[serde(rename = "_id")]
@@ -9,6 +10,7 @@ struct GameDto {
     name: String,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, serde::Deserialize)]
 struct VenueDto {
     #[serde(rename = "_id")]
@@ -17,6 +19,7 @@ struct VenueDto {
     display_name: String,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, serde::Deserialize)]
 struct PlayerDto {
     #[serde(rename = "_id")]

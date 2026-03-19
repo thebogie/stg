@@ -1,28 +1,49 @@
 # Deploy
 
-Single stack: **SurrealDB + Redis + backend** (production-like). Frontend runs standalone via `scripts/start-front.sh`.
+This directory is **self-contained** for production: copy the whole `deploy/` folder to your server (e.g. `scp -r deploy/ user@host:/opt/stg/deploy`) and run from there. No repo clone required on the server.
 
-## Compose
+---
+
+## Production (server)
+
+### One-time setup
+
+1. Copy `deploy/` to the server (e.g. `/opt/stg/deploy`). Do **not** copy any `docker-data` folder—that’s for local dev only; production data lives at `VOLUME_PATH` on the server.
+2. Create env: `cp config/env.prod.template config/.env.prod` and edit `config/.env.prod`: set **`VOLUME_PATH`** to an absolute path **outside** the deploy folder (e.g. `/opt/stg/data`), plus passwords, etc. Compose will create `surrealdb_data`, `redis_data`, `backend_data` under that path.
+3. (Optional) Install hourly SurrealDB backup cron: from `deploy/` run `sudo ./setup_cron_backup_for_surreal.sh`.
+
+### Deploy / update
+
+From the **deploy/** directory on the server:
+
+```bash
+./deploy_stg.sh <tag>
+```
+
+- `<tag>` = image tag to pull and run (e.g. `latest`, or short SHA from CI like `0013844`).
+- Script: stops service → pulls backend + frontend images from GHCR → compose down → writes image env → starts full stack (SurrealDB, Redis, backend, frontend).
+
+See **WEB_AND_TAURI.md** for CI/CD overview and Tauri setup; **env.tauri.prod.template** for production API URL for the desktop app.
+
+### Contents (production)
+
+| File / dir | Purpose |
+|------------|--------|
+| **deploy_stg.sh** | Deploy/update: pull images, restart full stack. Run from `deploy/`. |
+| **setup_cron_backup_for_surreal.sh** | One-time: install cron for hourly SurrealDB backups. |
+| **docker-compose.full.yml** | Full stack: SurrealDB, Redis, backend, frontend. Uses `BACKEND_IMAGE` and `FRONTEND_IMAGE` (set by deploy_stg.sh). |
+| **Caddyfile.frontend** | Caddy config: static SPA + proxy `/api`, `/health`, `/version` to backend. |
+| **config/env.prod.template** | Template for `config/.env.prod` (required). |
+| **config/.env.prod** | Production env (you create from template; not in git). Must set `VOLUME_PATH` to an absolute path outside `deploy/` (e.g. `/opt/stg/data`). |
+| **WEB_AND_TAURI.md** | CI/CD, web + Tauri, deploy flow. |
+| **env.tauri.prod.template** | Example `STG_API_URL` for Tauri production. |
+
+---
+
+## Local / CI (from repo root)
 
 - **docker-compose.yml** — SurrealDB, Redis, backend. Used by `scripts/ci.sh` and `scripts/start-back.sh`.
-- Requires **config/.env.prod** (create from `config/env.prod.template` via `./config/setup-env.sh prod`).
+- **docker-compose.full.yml** — Same plus web frontend. For full-stack runs (e.g. `scripts/full-prod-test.sh`) set `BACKEND_IMAGE` and `FRONTEND_IMAGE` to your built images.
+- Frontend runs standalone via `scripts/start-front.sh` if you prefer.
 
-## Usage
-
-- **CI:** `./ci-local.sh all` (build, unit, integration, e2e).
-- **Terminal 1 (backend):** `./scripts/start-back.sh`.
-- **Terminal 2 (frontend):** `./scripts/start-front.sh`.
-
-Data dirs: `VOLUME_PATH` (default `./docker-data`). Scripts create `surrealdb_data`, `redis_data`, `backend_data` and set permissions as needed.
-
-**When `start-back.sh` is running, you should see:**
-
-| Type   | Name                | Purpose |
-|--------|---------------------|--------|
-| Network| `stg`               | Bridge network for all services |
-| Container | `stg-wait-for-surrealdb` | One-off: waited for SurrealDB then exited |
-| Container | `stg-surrealdb`  | SurrealDB (host 50001 → 8000) |
-| Container | `stg-redis`      | Redis (host 6379 → 6379) |
-| Container | `stg-backend`    | Backend API (host 50002 → 50002) |
-
-Project name is **stg** (set in scripts). To inspect: `docker compose -p stg -f deploy/docker-compose.yml --env-file config/.env.dev ps`.
+Run full stack locally (builds images, then compose up): `./scripts/full-prod-test.sh` (see script for env file path). Local/dev data dirs use `VOLUME_PATH` defaulting to **`_build/docker-data`** (prod and CI can override). Project name: **stg**.

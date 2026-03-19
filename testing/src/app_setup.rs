@@ -71,23 +71,32 @@ pub async fn setup_test_app_data(env: &TestEnvironment) -> Result<TestAppData> {
         "stg:test:cache:player".to_string(),
         CacheTTL::player(),
     ));
-    let player_repo_impl =
+    let mut player_repo_impl =
         backend::player::repository::PlayerRepositoryImpl::new_with_cache(db.clone(), player_cache.clone());
+    // Scope can be lost across WS connections; set it explicitly per-query in integration tests.
+    player_repo_impl.ns = Some(env.surrealdb_ns.clone());
+    player_repo_impl.db_name = Some(env.surrealdb_db.clone());
     let player_repo = web::Data::new(player_repo_impl.clone());
-    let venue_repo = web::Data::new(backend::venue::repository::VenueRepositoryImpl::new(
+    let venue_repo = web::Data::new(
+        backend::venue::repository::VenueRepositoryImpl::new_with_scope(
+            db.clone(),
+            None,
+            env.surrealdb_ns.clone(),
+            env.surrealdb_db.clone(),
+        ),
+    );
+    let game_repo = web::Data::new(backend::game::repository::GameRepositoryImpl::new_with_scope(
         db.clone(),
-        None,
-    ));
-    let game_repo = web::Data::new(backend::game::repository::GameRepositoryImpl::new(
-        db.clone(),
+        env.surrealdb_ns.clone(),
+        env.surrealdb_db.clone(),
     ));
     let contest_repo = web::Data::new(
         backend::contest::repository::ContestRepositoryImpl::new_with_google_config_and_player_repo(
             db.clone(),
             None,
-            Some(player_repo_impl),
-            None,
-            None,
+            Some(player_repo_impl.clone()),
+            Some(env.surrealdb_ns.clone()),
+            Some(env.surrealdb_db.clone()),
         ),
     );
 

@@ -19,8 +19,10 @@ export COMPOSE_PROJECT_NAME=stg
 COMPOSE_FILE="$ROOT/deploy/docker-compose.yml"
 ENV_FILE="$ROOT/config/.env.${RUST_ENV}"
 
-VOL_BASE="${VOLUME_PATH:-$ROOT/docker-data}"
-VOL_BASE="$(cd "$VOL_BASE" 2>/dev/null && pwd)" || VOL_BASE="$ROOT/docker-data"
+VOL_DEFAULT="$ROOT/docker-data"
+[ "${RUST_ENV:-dev}" = "dev" ] || [ "${RUST_ENV:-dev}" = "development" ] && VOL_DEFAULT="$ROOT/_build/docker-data"
+VOL_BASE="${VOLUME_PATH:-$VOL_DEFAULT}"
+VOL_BASE="$(cd "$VOL_BASE" 2>/dev/null && pwd)" || VOL_BASE="$VOL_DEFAULT"
 mkdir -p "$VOL_BASE/surrealdb_data" "$VOL_BASE/redis_data"
 export VOLUME_PATH="$VOL_BASE"
 chmod 777 "$VOLUME_PATH/surrealdb_data" 2>/dev/null || true
@@ -32,8 +34,8 @@ if [ "$RUST_ENV" = "dev" ] || [ "$RUST_ENV" = "development" ]; then
   BACKUP_ZIP="${ARANGO_BACKUP_ZIP:-$HOME/work/_backups/smacktalk.zip}"
   if [ -f "$BACKUP_ZIP" ]; then
     echo "==> Dev: resetting SurrealDB for clean import..."
-    docker run --rm -v "$VOLUME_PATH/surrealdb_data:/data" busybox:1.36 sh -c "rm -rf /data/*"
-    chmod 777 "$VOLUME_PATH/surrealdb_data" 2>/dev/null || true
+    docker run --rm -v "$VOL_BASE/surrealdb_data:/data" busybox:1.36 sh -c "rm -rf /data/*"
+    chmod 777 "$VOL_BASE/surrealdb_data" 2>/dev/null || true
     WIPED=1
   fi
 fi
@@ -93,18 +95,18 @@ if [ "$RUST_ENV" = "dev" ] || [ "$RUST_ENV" = "development" ]; then
     rm -f "$SURQL_PATH"
     echo "==> Converting $BACKUP_ZIP to .surql (fresh) and importing ..."
     mkdir -p "$(dirname "$SURQL_PATH")"
-    if cargo run -p arango-to-surreal -- "$BACKUP_ZIP" -o "$SURQL_PATH"; then
+    if cargo run --manifest-path tools/arango-to-surreal/Cargo.toml -- "$BACKUP_ZIP" -o "$SURQL_PATH"; then
       ( wait_surrealdb && do_import ) || true
     else
       echo "Warning: Conversion failed; skipping import." >&2
     fi
   fi
 
-  # Apply optional SurrealDB functions (contest_row, contest_with_edges); use host network so we hit 127.0.0.1
-  if [ -f "$ROOT/docs/surreal-functions.surql" ]; then
-    echo "==> Applying SurrealDB functions (docs/surreal-functions.surql)..."
+  # Apply optional SurrealDB functions (contest_row, contest_with_edges, etc.); use host network so we hit 127.0.0.1
+  if [ -f "$ROOT/tools/arango-to-surreal/surreal-functions.surql" ]; then
+    echo "==> Applying SurrealDB functions (tools/arango-to-surreal/surreal-functions.surql)..."
     if docker run --rm --network host \
-      -v "$ROOT/docs:/import:ro" \
+      -v "$ROOT/tools/arango-to-surreal:/import:ro" \
       surrealdb/surrealdb:v3 \
       import \
       --endpoint "$SURREAL_ENDPOINT" \

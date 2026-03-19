@@ -48,7 +48,7 @@ if [ "$NO_SCHEMA" = "1" ]; then
   CONVERT_ARGS+=(--no-schema)
   echo "     (--no-schema: INSERTs only)"
 fi
-if ! cargo run -p arango-to-surreal -- "$BACKUP_ZIP" "${CONVERT_ARGS[@]}"; then
+if ! cargo run --manifest-path tools/arango-to-surreal/Cargo.toml -- "$BACKUP_ZIP" "${CONVERT_ARGS[@]}"; then
   echo "Error: Conversion failed." >&2
   exit 1
 fi

@@ -74,7 +74,15 @@ macro_rules! create_authenticated_user {
             }))
             .to_request();
         let register_resp = actix_web::test::call_service(&$app, register_req).await;
-        assert!(register_resp.status().is_success(), "User registration should succeed");
+        if !register_resp.status().is_success() {
+            let status = register_resp.status();
+            let body_bytes = actix_web::test::read_body(register_resp).await;
+            let body_text = String::from_utf8_lossy(&body_bytes);
+            panic!(
+                "User registration should succeed (status={} body={})",
+                status, body_text
+            );
+        }
         let mut session_id = String::new();
         for _ in 0..5 {
             let login_req = actix_web::test::TestRequest::post()

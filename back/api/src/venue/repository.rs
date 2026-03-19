@@ -1,16 +1,12 @@
 use crate::cache::{CacheKeys, CacheTTL, RedisCache};
 use crate::db::Db;
-use crate::surreal_helpers::{record_id_from_row, select_one_by_record_id};
+use crate::surreal_helpers::{record_id_from_row, select_one_by_record_id_scoped};
 use crate::third_party::{google::timezone::GoogleTimezoneService, GooglePlacesService};
 use anyhow::Result;
 use log;
 use shared::dto::venue::VenueDto;
 use shared::models::venue::Venue;
 use std::sync::Arc;
-
-fn default_timezone() -> String {
-    "UTC".to_string()
-}
 
 /// SELECT list for venue so id is JSON-serializable (string). See docs/SURREALDB_QUERY_CONVENTIONS.md.
 const VENUE_SELECT: &str =
@@ -42,6 +38,9 @@ pub struct VenueRepositoryImpl {
     pub google_places: Option<GooglePlacesService>,
     pub google_timezone: Option<GoogleTimezoneService>,
     pub cache: Option<Arc<RedisCache>>,
+    /// When set (e.g. in production), ensure NS/DB scope is set on the connection that executes each query.
+    pub ns: Option<String>,
+    pub db_name: Option<String>,
 }
 
 #[async_trait::async_trait]
@@ -68,7 +67,14 @@ impl VenueRepositoryImpl {
             .map(|(api_url, api_key)| GooglePlacesService::new(api_url.clone(), api_key.clone()));
         let google_timezone =
             google_config.map(|(api_url, api_key)| GoogleTimezoneService::new(api_url, api_key));
-        Self { db, google_places, google_timezone, cache: None }
+        Self {
+            db,
+            google_places,
+            google_timezone,
+            cache: None,
+            ns: None,
+            db_name: None,
+        }
     }
 
     pub fn new_with_cache(db: Db, google_config: Option<(String, String)>, cache: Arc<RedisCache>) -> Self {
@@ -77,7 +83,58 @@ impl VenueRepositoryImpl {
             .map(|(api_url, api_key)| GooglePlacesService::new(api_url.clone(), api_key.clone()));
         let google_timezone =
             google_config.map(|(api_url, api_key)| GoogleTimezoneService::new(api_url, api_key));
-        Self { db, google_places, google_timezone, cache: Some(cache) }
+        Self {
+            db,
+            google_places,
+            google_timezone,
+            cache: Some(cache),
+            ns: None,
+            db_name: None,
+        }
+    }
+
+    /// For production: ensure each query runs with the given NS/DB (scope does not reliably persist across connections).
+    pub fn new_with_cache_and_scope(
+        db: Db,
+        google_config: Option<(String, String)>,
+        cache: Arc<RedisCache>,
+        ns: String,
+        db_name: String,
+    ) -> Self {
+        let mut repo = Self::new_with_cache(db, google_config, cache);
+        repo.ns = Some(ns);
+        repo.db_name = Some(db_name);
+        repo
+    }
+
+    /// For use when scope is required but cache is not (e.g. contest repo's internal venue lookups).
+    pub fn new_with_scope(
+        db: Db,
+        google_config: Option<(String, String)>,
+        ns: String,
+        db_name: String,
+    ) -> Self {
+        let mut repo = Self::new(db, google_config);
+        repo.ns = Some(ns);
+        repo.db_name = Some(db_name);
+        repo
+    }
+
+    async fn ensure_scope(&self) {
+        if let (Some(ref ns), Some(ref db_name)) = (&self.ns, &self.db_name) {
+            let _ = self.db.use_ns(ns).use_db(db_name).await;
+        }
+    }
+
+    fn query_with_scope(&self, core: &str) -> String {
+        if let (Some(ref ns), Some(ref db_name)) = (&self.ns, &self.db_name) {
+            let ns_ok = ns.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+            let db_ok = db_name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+            if ns_ok && db_ok {
+                return format!("USE NS {}; USE DB {}; {}", ns, db_name, core);
+            }
+        }
+        core.to_string()
     }
 
     /// Fill search results with Google Places when DB returns fewer than max_results.
@@ -116,11 +173,21 @@ impl VenueRepositoryImpl {
 
     /// Update venue timezone in database
     async fn update_venue_timezone(&self, venue_id: &str, timezone: &str) -> Result<(), String> {
+        self.ensure_scope().await;
         log::info!("🔄 Updating venue {} timezone to: {}", venue_id, timezone);
         let key = venue_id.trim_start_matches("venue/").trim_start_matches("venue:").to_string();
         let tz = timezone.to_string();
+        // Try UUID-typed first (preferred), then fallback to string-key record ids for older imports.
+        if uuid::Uuid::parse_str(&key).is_ok() {
+            let _ = self
+                .db
+                .query(self.query_with_scope("UPDATE type::record('venue', type::uuid($key)) SET timezone = $timezone"))
+                .bind(("key", key.clone()))
+                .bind(("timezone", tz.clone()))
+                .await;
+        }
         self.db
-            .query("UPDATE type::record('venue', $key) SET timezone = $timezone")
+            .query(self.query_with_scope("UPDATE type::record('venue', $key) SET timezone = $timezone"))
             .bind(("key", key))
             .bind(("timezone", tz))
             .await
@@ -307,6 +374,7 @@ mod search_dto_tests {
 #[async_trait::async_trait]
 impl VenueRepository for VenueRepositoryImpl {
     async fn find_by_id(&self, id: &str) -> Option<Venue> {
+        self.ensure_scope().await;
         log::info!("🔍 Looking up venue by ID: '{}'", id);
         if let Some(ref cache) = self.cache {
             let cache_key = CacheKeys::venue(id);
@@ -316,7 +384,13 @@ impl VenueRepository for VenueRepositoryImpl {
             }
         }
 
-        let venue = select_one_by_record_id(&self.db, "venue", id)
+        let venue = select_one_by_record_id_scoped(
+            &self.db,
+            "venue",
+            id,
+            self.ns.as_deref(),
+            self.db_name.as_deref(),
+        )
             .await
             .and_then(|row| value_to_venue(&row));
         if let Some(ref v) = venue {
@@ -331,6 +405,7 @@ impl VenueRepository for VenueRepositoryImpl {
     }
 
     async fn find_all(&self) -> Vec<Venue> {
+        self.ensure_scope().await;
         log::info!("🔍 Attempting to find all venues");
         let mut res = match self.db.query(VENUE_SELECT).await {
             Ok(r) => r,
@@ -346,6 +421,7 @@ impl VenueRepository for VenueRepositoryImpl {
     }
 
     async fn search(&self, query: &str) -> Vec<Venue> {
+        self.ensure_scope().await;
         let max_results = 20i64;
         let mut results = Vec::new();
         let q_owned = query.to_string();
@@ -429,6 +505,7 @@ impl VenueRepository for VenueRepositoryImpl {
     }
 
     async fn create(&self, venue: Venue) -> Result<Venue, String> {
+        self.ensure_scope().await;
         // Determine timezone for the venue: trust provided value if non-empty; otherwise resolve
         let timezone = if !venue.timezone.trim().is_empty() {
             log::info!("🌍 Using provided venue timezone: {}", venue.timezone);
@@ -477,8 +554,9 @@ impl VenueRepository for VenueRepositoryImpl {
             "lng": venue_with_timezone.lng,
             "timezone": venue_with_timezone.timezone,
         });
+        self.ensure_scope().await;
         self.db
-            .query("CREATE type::record('venue', $key) CONTENT $doc")
+            .query(self.query_with_scope("CREATE type::record('venue', $key) CONTENT $doc"))
             .bind(("key", key.clone()))
             .bind(("doc", doc))
             .await
@@ -502,6 +580,7 @@ impl VenueRepository for VenueRepositoryImpl {
     }
 
     async fn update(&self, venue: Venue) -> Result<Venue, String> {
+        self.ensure_scope().await;
         let key = venue.id.trim_start_matches("venue/").trim_start_matches("venue:").to_string();
         let doc = serde_json::json!({
             "displayName": venue.display_name,
@@ -511,8 +590,17 @@ impl VenueRepository for VenueRepositoryImpl {
             "lng": venue.lng,
             "timezone": venue.timezone,
         });
+        self.ensure_scope().await;
+        if uuid::Uuid::parse_str(&key).is_ok() {
+            let _ = self
+                .db
+                .query(self.query_with_scope("UPDATE type::record('venue', type::uuid($key)) MERGE $doc"))
+                .bind(("key", key.clone()))
+                .bind(("doc", doc.clone()))
+                .await;
+        }
         self.db
-            .query("UPDATE type::record('venue', $key) MERGE $doc")
+            .query(self.query_with_scope("UPDATE type::record('venue', $key) MERGE $doc"))
             .bind(("key", key))
             .bind(("doc", doc))
             .await
@@ -525,9 +613,17 @@ impl VenueRepository for VenueRepositoryImpl {
     }
 
     async fn delete(&self, id: &str) -> Result<(), String> {
+        self.ensure_scope().await;
         let key = id.trim_start_matches("venue/").trim_start_matches("venue:").to_string();
+        if uuid::Uuid::parse_str(&key).is_ok() {
+            let _ = self
+                .db
+                .query(self.query_with_scope("DELETE type::record('venue', type::uuid($key))"))
+                .bind(("key", key.clone()))
+                .await;
+        }
         self.db
-            .query("DELETE type::record('venue', $key)")
+            .query(self.query_with_scope("DELETE type::record('venue', $key)"))
             .bind(("key", key))
             .await
             .map_err(|e| format!("Failed to delete venue: {}", e))?;

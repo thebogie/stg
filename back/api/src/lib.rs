@@ -91,9 +91,6 @@ mod game_tests;
 mod contest_tests;
 
 #[cfg(test)]
-mod cache_tests;
-
-#[cfg(test)]
 mod visualization_tests;
 
 #[cfg(test)]

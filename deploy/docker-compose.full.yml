@@ -1,0 +1,119 @@
+# Full production stack: SurrealDB + Redis + backend + web frontend.
+# One compose brings up everything; users hit the frontend (port 50003) for both SPA and API (proxied).
+#
+# Usage (from repo root with pre-built images):
+#   export BACKEND_IMAGE=stg-backend:VERSION FRONTEND_IMAGE=stg-frontend:VERSION
+#   docker compose -f deploy/docker-compose.full.yml --env-file config/.env.prod up -d
+#
+# Usage (on server after scp deploy/): deploy_stg.sh sets BACKEND_IMAGE and FRONTEND_IMAGE, then:
+#   docker compose -f docker-compose.full.yml --env-file config/.env.prod up -d
+#
+# Requires: config/.env.prod (deploy/config/.env.prod when using deploy folder alone). Set BACKEND_IMAGE and FRONTEND_IMAGE (e.g. from deploy_stg.sh).
+
+services:
+  wait-for-surrealdb:
+    container_name: stg-wait-for-surrealdb
+    image: busybox:1.36
+    depends_on:
+      surrealdb:
+        condition: service_started
+    command: ["sh", "-c", "for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do wget -q -O- --tries=1 http://surrealdb:8000/ && echo SurrealDB is up && exit 0; sleep 2; done; echo Timeout; exit 1"]
+    networks:
+      - stg
+
+  surrealdb:
+    container_name: stg-surrealdb
+    image: surrealdb/surrealdb:v3
+    user: "0:0"
+    restart: always
+    ports:
+      - "${SURREALDB_PORT:-50001}:8000"
+    command:
+      - "start"
+      - "--user"
+      - "${SURREAL_USER:-root}"
+      - "--pass"
+      - "${SURREAL_PASSWORD:-root}"
+      - "--bind"
+      - "0.0.0.0:8000"
+      - "rocksdb:/data/surrealdb"
+    volumes:
+      - ${VOLUME_PATH:-./docker-data}/surrealdb_data:/data
+    networks:
+      stg:
+        aliases:
+          - surrealdb
+
+  redis:
+    container_name: stg-redis
+    image: redis:7-alpine
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - ${VOLUME_PATH:-./docker-data}/redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 3
+    networks:
+      - stg
+
+  backend:
+    container_name: stg-backend
+    image: ${BACKEND_IMAGE:?Set BACKEND_IMAGE (e.g. ghcr.io/owner/repo/backend:latest)}
+    ports:
+      - "${BACKEND_PORT:-50002}:${BACKEND_PORT:-50002}"
+    environment:
+      - IMAGE_TAG=${IMAGE_TAG:-}
+      - SURREALDB_PORT=${SURREALDB_PORT:-50001}
+      - REDIS_PORT=${REDIS_PORT:-6379}
+      - SURREAL_NS=${SURREAL_NS:-stg_rd}
+      - SURREAL_DB=${SURREAL_DB:-stg_rd}
+      - SURREAL_USER=${SURREAL_USER:-root}
+      - SURREAL_PASSWORD=${SURREAL_PASSWORD:-root}
+      - SERVER_HOST=0.0.0.0
+      - SERVER_PORT=${BACKEND_PORT:-50002}
+      - RUST_ENV=production
+      - RUST_LOG=${RUST_LOG:-info}
+      - GOOGLE_LOCATION_API=${GOOGLE_LOCATION_API:-}
+      - GOOGLEMAP_API_URL=${GOOGLEMAP_API_URL:-}
+      - GOOGLEMAP_API_TIMEZONE_URL=${GOOGLEMAP_API_TIMEZONE_URL:-}
+      - BGG_API_URL=${BGG_API_URL:-}
+      - BGG_API_TOKEN=${BGG_API_TOKEN:-}
+      - ADMIN_EMAILS=${ADMIN_EMAILS:-}
+    depends_on:
+      wait-for-surrealdb:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    volumes:
+      - ${VOLUME_PATH:-./docker-data}/backend_data:/app/data
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O-", "--tries=1", "http://localhost:${BACKEND_PORT:-50002}/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - stg
+
+  frontend:
+    container_name: stg-frontend
+    image: ${FRONTEND_IMAGE:?Set FRONTEND_IMAGE (e.g. ghcr.io/owner/repo/frontend:latest)}
+    # Caddyfile proxies /api to backend; mount over image default
+    ports:
+      - "${FRONTEND_PORT:-50003}:50003"
+    volumes:
+      - ./Caddyfile.frontend:/etc/caddy/Caddyfile:ro
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - stg
+
+networks:
+  stg:
+    name: stg
+    driver: bridge

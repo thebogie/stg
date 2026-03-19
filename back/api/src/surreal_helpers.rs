@@ -8,6 +8,7 @@
 //! - **INSIDE bindings:** use `record_ids_to_inside_value()` for `"table:key"` colon form.
 
 use serde_json::Value;
+use surrealdb::types::{RecordId, RecordIdKey, Value as SurrealSqlValue};
 
 /// SurrealQL: strip backticks from id (e.g. "contest:`key`" → "contest:key"). Compare to bound value in "table:key" colon form.
 pub const SURREALQL_STRIP_BACKTICKS_ID: &str = "string::replace(string::concat(id), '`', '')";
@@ -42,6 +43,24 @@ pub fn normalize_record_id_string(s: &str) -> String {
         .replace('`', "")
         .replace(ID_ANGLE_OPEN, "")
         .replace(ID_ANGLE_CLOSE, "")
+}
+
+/// Convert a **single URL path segment** (after percent-decoding) into canonical `"table/key"`.
+///
+/// **Product contract** (matches `front/web/src/api/games.rs` / `venues.rs`):
+/// - Prefer **raw record key** only in the path, e.g. `GET /api/games/<uuid>`.
+/// - JSON bodies use canonical `table/key` for `_id` (see `docs/SURREALDB_ID_CONVENTIONS.md`).
+/// - For compatibility, a segment may already be `table/<key>` (e.g. one encoded segment); it is normalized.
+#[must_use]
+pub fn canonical_id_from_http_path_param(expected_table: &str, param: &str) -> String {
+    let p = param.trim();
+    if p.is_empty() {
+        return String::new();
+    }
+    if p.contains('/') || p.contains(':') {
+        return normalize_record_id_string(p);
+    }
+    format!("{}/{}", expected_table, p)
 }
 
 /// Extract and normalize record id from a SurrealDB row (or any object with an id-like field).
@@ -210,8 +229,8 @@ pub fn scalar_f64(v: &Value) -> f64 {
 // Single-record lookup (one place for UUID/Thing/backtick handling)
 // ---------------------------------------------------------------------------
 
-/// Tables whose record id key is stored as UUID in SurrealDB (created with type::record('table', $key) where key is a UUID string).
-const UUID_KEY_TABLES: &[&str] = &["contest", "player", "game"];
+/// Tables whose record id key is stored as UUID type in SurrealDB (type::uuid). Contest uses string key to avoid id-field coercion in v3.
+const UUID_KEY_TABLES: &[&str] = &["player", "game", "venue"];
 
 fn table_uses_uuid_key(table: &str) -> bool {
     UUID_KEY_TABLES.contains(&table)
@@ -224,6 +243,27 @@ fn table_allowed_for_select_one(table: &str) -> bool {
     SELECT_ONE_TABLES.contains(&table)
 }
 
+/// Projection for single-row reads: force `id` to a JSON-safe string.
+///
+/// SurrealDB v3 often returns `id` as a RecordId enum which can fail serde conversion when we
+/// deserialize into JSON values. Using a projection avoids losing rows due to serialization errors.
+const SELECT_ONE_PROJECTION: &str = "SELECT *, string::replace(string::concat(id), '`', '') AS id";
+
+fn scope_prefix(ns: Option<&str>, db_name: Option<&str>, core: &str) -> (String, usize) {
+    match (ns, db_name) {
+        (Some(ns), Some(db_name)) => {
+            let ns_ok = ns.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+            let db_ok = db_name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+            if ns_ok && db_ok {
+                // USE NS; USE DB; <core> → 3 result sets; actual query is index 2.
+                return (format!("USE NS {}; USE DB {}; {}", ns, db_name, core), 2);
+            }
+            (core.to_string(), 0)
+        }
+        _ => (core.to_string(), 0),
+    }
+}
+
 /// Fetch one row by canonical record id. Tries UUID lookup first for tables that use UUID keys, then Thing binding.
 /// Use this for all single-record lookups so backticks, UUID vs string, and Thing binding are handled in one place.
 /// Returns the first row as JSON or None. Table must be one of: contest, player, game, venue.
@@ -232,87 +272,108 @@ pub async fn select_one_by_record_id(
     table: &str,
     id: &str,
 ) -> Option<serde_json::Value> {
+    select_one_by_record_id_scoped(db, table, id, None, None).await
+}
+
+/// Same as `select_one_by_record_id`, but when `ns`/`db_name` are provided it prefixes each query with
+/// `USE NS ...; USE DB ...;` so the query runs against the intended database even when scope does not
+/// persist across pooled WS connections.
+pub async fn select_one_by_record_id_scoped(
+    db: &crate::db::Db,
+    table: &str,
+    id: &str,
+    ns: Option<&str>,
+    db_name: Option<&str>,
+) -> Option<serde_json::Value> {
     let key = record_id_to_key(id, table);
     if key.is_empty() || !table_allowed_for_select_one(table) {
         return None;
     }
-    // For UUID-key tables, try type::uuid($key) first; bind as uuid::Uuid so client sends UUID type
+    // Prefer FROM type::record(...) for single-record fetch (more reliable than WHERE id = ... across SurrealDB versions).
     if table_uses_uuid_key(table) {
-        if let Ok(uuid_key) = uuid::Uuid::parse_str(&key) {
-            let q = format!(
-                "SELECT * FROM {} WHERE id = type::record('{}', type::uuid($key)) LIMIT 1",
-                table, table
+        if uuid::Uuid::parse_str(&key).is_ok() {
+            let core = format!(
+                "{} FROM type::record('{}', type::uuid($key))",
+                SELECT_ONE_PROJECTION, table
             );
-            if let Ok(mut r) = db.query(&q).bind(("key", uuid_key)).await {
-                let rows: Vec<serde_json::Value> = r.take(0).unwrap_or_default();
+            let (q, idx) = scope_prefix(ns, db_name, &core);
+            if let Ok(mut r) = db.query(&q).bind(("key", key.clone())).await {
+                let rows: Vec<serde_json::Value> = r.take(idx).unwrap_or_default();
                 if let Some(row) = rows.into_iter().next() {
                     return Some(row);
                 }
             }
         }
-    }
-    // String key: type::record(table, $key)
-    let q = format!(
-        "SELECT * FROM {} WHERE id = type::record('{}', $key) LIMIT 1",
-        table, table
-    );
-    match db.query(&q).bind(("key", key.clone())).await {
-        Ok(mut r) => {
-            let rows: Vec<serde_json::Value> = r.take(0).unwrap_or_default();
-            if let Some(row) = rows.into_iter().next() {
-                return Some(row);
+        // Last-resort: native select with RecordId(Uuid).
+        if let Ok(u) = uuid::Uuid::parse_str(&key) {
+            let key_uuid = surrealdb::types::Uuid::from(u);
+            let rid = RecordId {
+                table: table.into(),
+                key: RecordIdKey::Uuid(key_uuid),
+            };
+            if let Ok(Some(row)) = db.select::<Option<SurrealSqlValue>>(rid).await {
+                if let Ok(json) = serde_json::to_value(&row) {
+                    return Some(json);
+                }
             }
-            log::debug!(
-                "select_one_by_record_id: type::record(table,$key) returned 0 rows for table={} key={}",
-                table, key
-            );
         }
-        Err(e) => {
-            log::debug!(
-                "select_one_by_record_id: type::record(table,$key) query failed for table={} key={}: {}",
-                table, key, e
-            );
+    }
+
+    // String key: single-record lookup
+    let core = format!("{} FROM type::record('{}', $key)", SELECT_ONE_PROJECTION, table);
+    let (q, idx) = scope_prefix(ns, db_name, &core);
+    if let Ok(mut r) = db.query(&q).bind(("key", key.clone())).await {
+        let rows: Vec<serde_json::Value> = r.take(idx).unwrap_or_default();
+        if let Some(row) = rows.into_iter().next() {
+            return Some(row);
         }
     }
     // Fallback: match list-query format — stored id string is "table:`key`"; strip backticks and compare to "table:key"
     let id_colon = format!("{}:{}", table, key);
-    let q = format!(
-        "SELECT * FROM {} WHERE {} = $id_colon LIMIT 1",
-        table,
+    let core = format!(
+        "{} FROM {} WHERE {} = $id_colon LIMIT 1",
+        SELECT_ONE_PROJECTION, table,
         SURREALQL_STRIP_BACKTICKS_ID
     );
+    let (q, idx) = scope_prefix(ns, db_name, &core);
     if let Ok(mut r) = db.query(q).bind(("id_colon", id_colon.clone())).await {
-        let rows: Vec<serde_json::Value> = r.take(0).unwrap_or_default();
+        let rows: Vec<serde_json::Value> = r.take(idx).unwrap_or_default();
         if let Some(row) = rows.into_iter().next() {
             return Some(row);
         }
     }
     // Fallback: bind Thing for record-to-record comparison
     let rid = record_id_to_thing(id, table);
-    let q = format!("SELECT * FROM {} WHERE id = $rid LIMIT 1", table);
+    let core = format!("{} FROM {} WHERE id = $rid LIMIT 1", SELECT_ONE_PROJECTION, table);
+    let (q, idx) = scope_prefix(ns, db_name, &core);
     if let Ok(mut r) = db.query(q).bind(("rid", rid)).await {
-        let rows: Vec<serde_json::Value> = r.take(0).unwrap_or_default();
+        let rows: Vec<serde_json::Value> = r.take(idx).unwrap_or_default();
         if let Some(row) = rows.into_iter().next() {
             return Some(row);
         }
     }
     // Fallback: full record id as string so server parses type::record("table:key") and compares
-    let q = format!("SELECT * FROM {} WHERE id = type::record($id_colon) LIMIT 1", table);
+    let core = format!(
+        "{} FROM {} WHERE id = type::record($id_colon) LIMIT 1",
+        SELECT_ONE_PROJECTION, table
+    );
+    let (q, idx) = scope_prefix(ns, db_name, &core);
     if let Ok(mut r) = db.query(q).bind(("id_colon", id_colon)).await {
-        let rows: Vec<serde_json::Value> = r.take(0).unwrap_or_default();
+        let rows: Vec<serde_json::Value> = r.take(idx).unwrap_or_default();
         if let Some(row) = rows.into_iter().next() {
             return Some(row);
         }
     }
     // Fallback: normalize stored id to "table/key" and compare to canonical (handles backticks/angle brackets)
     let id_canonical = format!("{}/{}", table, key);
-    let q = format!(
-        "SELECT * FROM {} WHERE {} = $id_canonical LIMIT 1",
-        table,
+    let core = format!(
+        "{} FROM {} WHERE {} = $id_canonical LIMIT 1",
+        SELECT_ONE_PROJECTION, table,
         SURREALQL_NORMALIZE_ID_FOR_COMPARE
     );
+    let (q, idx) = scope_prefix(ns, db_name, &core);
     if let Ok(mut r) = db.query(q).bind(("id_canonical", id_canonical)).await {
-        let rows: Vec<serde_json::Value> = r.take(0).unwrap_or_default();
+        let rows: Vec<serde_json::Value> = r.take(idx).unwrap_or_default();
         if let Some(row) = rows.into_iter().next() {
             return Some(row);
         }
@@ -322,4 +383,31 @@ pub async fn select_one_by_record_id(
         table, id, key
     );
     None
+}
+
+#[cfg(test)]
+mod http_path_param_tests {
+    use super::canonical_id_from_http_path_param;
+
+    #[test]
+    fn raw_uuid_maps_to_canonical_game() {
+        assert_eq!(
+            canonical_id_from_http_path_param("game", "550e8400-e29b-41d4-a716-446655440000"),
+            "game/550e8400-e29b-41d4-a716-446655440000"
+        );
+    }
+
+    #[test]
+    fn game_colon_key_normalizes() {
+        assert_eq!(
+            canonical_id_from_http_path_param("game", "game:550e8400-e29b-41d4-a716-446655440000"),
+            "game/550e8400-e29b-41d4-a716-446655440000"
+        );
+    }
+
+    #[test]
+    fn empty_param() {
+        assert_eq!(canonical_id_from_http_path_param("game", ""), "");
+        assert_eq!(canonical_id_from_http_path_param("game", "   "), "");
+    }
 }

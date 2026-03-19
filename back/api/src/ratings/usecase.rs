@@ -140,8 +140,8 @@ impl RatingsUsecase {
             }
 
             let mut total_contests_seen: u64 = 0;
-            let mut total_latest_written: u64 = 0;
-            let mut total_history_written: u64 = 0;
+            let total_latest_written: u64 = 0;
+            let total_history_written: u64 = 0;
 
             while year < now.year() || (year == now.year() && month <= now.month()) {
                 let period = format!("{:04}-{:02}", year, month);

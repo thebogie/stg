@@ -1,3 +1,6 @@
+// BGG XML/JSON response DTOs are deserialized by serde; compiler reports them as "never constructed"
+#![allow(dead_code)]
+
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use shared::models::game::Game;

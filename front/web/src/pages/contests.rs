@@ -15,7 +15,11 @@ use yew::prelude::*;
 use yew_router::prelude::*;
 
 #[derive(Properties, PartialEq)]
-pub struct ContestsProps {}
+pub struct ContestsProps {
+    /// When set (e.g. from Profile → Game Performance → game link), contests list is filtered to this game and scope set to "mine".
+    #[prop_or_default]
+    pub initial_game_id: Option<String>,
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SearchState {
@@ -55,14 +59,32 @@ impl Default for SearchState {
 }
 
 #[function_component(Contests)]
-pub fn contests(_props: &ContestsProps) -> Html {
+pub fn contests(props: &ContestsProps) -> Html {
     let auth = use_context::<AuthContext>().expect("Auth context not found");
     let navigator = use_navigator().unwrap();
 
+    // When opening from Profile → Game Performance → game link, pre-fill game filter and "My Contests"
+    let initial_state = {
+        if let Some(ref g) = props.initial_game_id {
+            let game_id_full = if g.starts_with("game/") || g.contains(':') {
+                g.clone()
+            } else {
+                format!("game/{}", g)
+            };
+            SearchState {
+                game_ids: vec![game_id_full],
+                scope: "mine".to_string(),
+                ..SearchState::default()
+            }
+        } else {
+            SearchState::default()
+        }
+    };
+
     // Active filters used for querying
-    let search_state = use_state(|| SearchState::default());
+    let search_state = use_state(|| initial_state.clone());
     // Draft filters edited in the UI before applying
-    let draft_state = use_state(|| SearchState::default());
+    let draft_state = use_state(|| initial_state.clone());
     let search_results = use_state(|| None::<ContestSearchResponse>);
     let loading = use_state(|| false);
     let error = use_state(|| None::<String>);
@@ -74,7 +96,7 @@ pub fn contests(_props: &ContestsProps) -> Html {
     let game_search_results = use_state(|| Vec::<GameDto>::new());
     let player_search_query = use_state(|| String::new());
     let player_search_results = use_state(|| Vec::<PlayerDto>::new());
-    let show_filters = use_state(|| false);
+    let show_filters = use_state(|| props.initial_game_id.is_some());
     let show_undo = use_state(|| false);
     let last_applied_state = use_state(|| SearchState::default());
     let last_applied_players = use_state(|| Vec::<PlayerDto>::new());
