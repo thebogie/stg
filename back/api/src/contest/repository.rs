@@ -5,10 +5,8 @@ use crate::game::usecase::{GameUseCase, GameUseCaseImpl};
 use crate::player::repository::{PlayerRepository, PlayerRepositoryImpl};
 use crate::player::usecase::{PlayerUseCase, PlayerUseCaseImpl};
 use crate::surreal_helpers::{
-    record_id_from_field, record_id_from_row, record_id_to_key,
-    select_one_by_record_id,
+    record_id_from_field, record_id_from_row, record_id_to_key, select_one_by_record_id,
 };
-use surrealdb::types::SurrealValue;
 use crate::venue::repository::VenueRepositoryImpl;
 use crate::venue::usecase::{VenueUseCase, VenueUseCaseImpl};
 use argon2::{Argon2, PasswordHasher};
@@ -19,6 +17,7 @@ use shared::dto::venue::VenueDto;
 use shared::models::contest::Contest;
 use shared::SharedError;
 use std::collections::HashSet;
+use surrealdb::types::SurrealValue;
 use uuid::Uuid;
 
 /// Build Vec<Thing> from "table/key" or "table:key" ids for INSIDE bindings (SurrealDB v2 matches record id to Thing array).
@@ -94,8 +93,7 @@ impl ContestRepositoryImpl {
         };
         let venue_usecase = VenueUseCaseImpl { repo: venue_repo };
         let game_usecase = GameUseCaseImpl { repo: game_repo };
-        let player_repo =
-            player_repo.unwrap_or_else(|| PlayerRepositoryImpl::new(db.clone()));
+        let player_repo = player_repo.unwrap_or_else(|| PlayerRepositoryImpl::new(db.clone()));
         let player_usecase = PlayerUseCaseImpl { repo: player_repo };
         Self {
             db,
@@ -112,7 +110,9 @@ impl ContestRepositoryImpl {
     fn query_with_scope(&self, core: &str) -> String {
         if let (Some(ref ns), Some(ref db_name)) = (&self.ns, &self.db_name) {
             let ns_ok = ns.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
-            let db_ok = db_name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+            let db_ok = db_name
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_');
             if ns_ok && db_ok {
                 return format!("USE NS {}; USE DB {}; {}", ns, db_name, core);
             }
@@ -276,7 +276,9 @@ impl ContestRepository for ContestRepositoryImpl {
             .await
             .map_err(|e| format!("Failed to create contest: {}", e))?;
         let result_idx = self.scope_result_index();
-        let create_rows: Vec<serde_json::Value> = create_res.take(result_idx).map_err(|e| format!("Contest CREATE result: {}", e))?;
+        let create_rows: Vec<serde_json::Value> = create_res
+            .take(result_idx)
+            .map_err(|e| format!("Contest CREATE result: {}", e))?;
         if create_rows.is_empty() {
             return Err(format!(
                 "Contest CREATE returned no record (scope_idx={}); check NS/DB and contest table",
@@ -294,7 +296,11 @@ impl ContestRepository for ContestRepositoryImpl {
             created_at: contest.created_at,
         };
 
-        log::info!("✅ Contest document created successfully: id='{}', name='{}'", created_contest.id, created_contest.name);
+        log::info!(
+            "✅ Contest document created successfully: id='{}', name='{}'",
+            created_contest.id,
+            created_contest.name
+        );
 
         // Handle venue based on source and ID
         log::info!("🏢 Processing venue...");
@@ -640,7 +646,10 @@ impl ContestRepository for ContestRepositoryImpl {
     }
     async fn find_by_id(&self, id: &str) -> Option<Contest> {
         log::info!("🔍 Finding contest by ID: {}", id);
-        let key = id.trim_start_matches("contest/").trim_start_matches("contest:").to_string();
+        let key = id
+            .trim_start_matches("contest/")
+            .trim_start_matches("contest:")
+            .to_string();
         let key_clone = key.clone();
 
         // Prefer SurrealDB function when applied (tools/arango-to-surreal/surreal-functions.surql)
@@ -649,21 +658,43 @@ impl ContestRepository for ContestRepositoryImpl {
         if let Ok(mut res) = self.db.query(&fn_sql).bind(("key", key.clone())).await {
             let rows: Vec<serde_json::Value> = res.take(idx).unwrap_or_default();
             if let Some(first) = rows.into_iter().next() {
-                let v = first.get("result").or_else(|| first.get("fn::contest_row($key)")).cloned().unwrap_or(first);
+                let v = first
+                    .get("result")
+                    .or_else(|| first.get("fn::contest_row($key)"))
+                    .cloned()
+                    .unwrap_or(first);
                 if v.is_object() && !v.as_object().map(|o| o.is_empty()).unwrap_or(true) {
-                    let id_str = record_id_from_row(&v, None).unwrap_or_else(|| format!("contest/{}", key_clone));
-                    let parse_dt = |v: &serde_json::Value, key: &str| -> chrono::DateTime<chrono::FixedOffset> {
-                        v.get(key).and_then(|x| x.as_str()).and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+                    let id_str = record_id_from_row(&v, None)
+                        .unwrap_or_else(|| format!("contest/{}", key_clone));
+                    let parse_dt = |v: &serde_json::Value,
+                                    key: &str|
+                     -> chrono::DateTime<chrono::FixedOffset> {
+                        v.get(key)
+                            .and_then(|x| x.as_str())
+                            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
                             .map(|dt| dt.with_timezone(&chrono::FixedOffset::east_opt(0).unwrap()))
                             .unwrap_or_else(|| chrono::Utc::now().fixed_offset())
                     };
                     let contest = Contest {
                         id: id_str,
-                        rev: v.get("_rev").or_else(|| v.get("rev")).and_then(|x| x.as_str()).unwrap_or("").to_string(),
-                        name: v.get("name").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+                        rev: v
+                            .get("_rev")
+                            .or_else(|| v.get("rev"))
+                            .and_then(|x| x.as_str())
+                            .unwrap_or("")
+                            .to_string(),
+                        name: v
+                            .get("name")
+                            .and_then(|x| x.as_str())
+                            .unwrap_or("")
+                            .to_string(),
                         start: parse_dt(&v, "start").into(),
                         stop: parse_dt(&v, "stop").into(),
-                        creator_id: v.get("creator_id").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+                        creator_id: v
+                            .get("creator_id")
+                            .and_then(|x| x.as_str())
+                            .unwrap_or("")
+                            .to_string(),
                         created_at: parse_dt(&v, "created_at").into(),
                     };
                     log::info!("✅ Found contest via fn::contest_row: {}", contest.name);
@@ -674,7 +705,12 @@ impl ContestRepository for ContestRepositoryImpl {
 
         let record_id = surrealdb::types::RecordId::new("contest", key.as_str());
         let select_sql = self.query_with_scope("SELECT * FROM contest WHERE id = $record_id");
-        let mut res = match self.db.query(&select_sql).bind(("record_id", record_id)).await {
+        let mut res = match self
+            .db
+            .query(&select_sql)
+            .bind(("record_id", record_id))
+            .await
+        {
             Ok(r) => r,
             Err(e) => {
                 log::error!("💥 Failed to get contest: {}", e);
@@ -683,19 +719,36 @@ impl ContestRepository for ContestRepositoryImpl {
         };
         let rows: Vec<serde_json::Value> = res.take(idx).unwrap_or_default();
         let v = rows.into_iter().next()?;
-        let id_str = record_id_from_row(&v, None).unwrap_or_else(|| format!("contest/{}", key_clone));
-        let parse_dt = |v: &serde_json::Value, key: &str| -> chrono::DateTime<chrono::FixedOffset> {
-            v.get(key).and_then(|x| x.as_str()).and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-                .map(|dt| dt.with_timezone(&chrono::FixedOffset::east_opt(0).unwrap()))
-                .unwrap_or_else(|| chrono::Utc::now().fixed_offset())
-        };
+        let id_str =
+            record_id_from_row(&v, None).unwrap_or_else(|| format!("contest/{}", key_clone));
+        let parse_dt =
+            |v: &serde_json::Value, key: &str| -> chrono::DateTime<chrono::FixedOffset> {
+                v.get(key)
+                    .and_then(|x| x.as_str())
+                    .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+                    .map(|dt| dt.with_timezone(&chrono::FixedOffset::east_opt(0).unwrap()))
+                    .unwrap_or_else(|| chrono::Utc::now().fixed_offset())
+            };
         let contest = Contest {
             id: id_str,
-            rev: v.get("_rev").or_else(|| v.get("rev")).and_then(|x| x.as_str()).unwrap_or("").to_string(),
-            name: v.get("name").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+            rev: v
+                .get("_rev")
+                .or_else(|| v.get("rev"))
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .to_string(),
+            name: v
+                .get("name")
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .to_string(),
             start: parse_dt(&v, "start").into(),
             stop: parse_dt(&v, "stop").into(),
-            creator_id: v.get("creator_id").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+            creator_id: v
+                .get("creator_id")
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .to_string(),
             created_at: parse_dt(&v, "created_at").into(),
         };
         log::info!("✅ Found contest: {}", contest.name);
@@ -719,7 +772,11 @@ impl ContestRepository for ContestRepositoryImpl {
         player_id: &str,
         game_id: &str,
     ) -> Result<Vec<serde_json::Value>, String> {
-        log::info!("🔍 Finding contests for player {} and game {}", player_id, game_id);
+        log::info!(
+            "🔍 Finding contests for player {} and game {}",
+            player_id,
+            game_id
+        );
         let player_key = record_id_to_key(player_id, "player");
         let game_key = record_id_to_key(game_id, "game");
         if player_key.is_empty() || game_key.is_empty() {
@@ -757,12 +814,18 @@ impl ContestRepository for ContestRepositoryImpl {
             .map_err(|e| e.to_string())?;
         let game_contests: Vec<OutRow> = res2.take(0).map_err(|e| e.to_string())?;
 
-        let pc: std::collections::HashSet<String> = player_contests.iter().filter_map(rid_from_row).collect();
-        let gc: std::collections::HashSet<String> = game_contests.iter().filter_map(rid_from_row).collect();
+        let pc: std::collections::HashSet<String> =
+            player_contests.iter().filter_map(rid_from_row).collect();
+        let gc: std::collections::HashSet<String> =
+            game_contests.iter().filter_map(rid_from_row).collect();
         let contest_ids: Vec<String> = pc.intersection(&gc).cloned().collect();
 
         if contest_ids.is_empty() {
-            log::info!("✅ Found 0 contests for player {} and game {}", player_id, game_id);
+            log::info!(
+                "✅ Found 0 contests for player {} and game {}",
+                player_id,
+                game_id
+            );
             return Ok(Vec::new());
         }
 
@@ -807,7 +870,12 @@ impl ContestRepository for ContestRepositoryImpl {
             let sb = b.get("contest_date").and_then(|v| v.as_str()).unwrap_or("");
             sb.cmp(sa)
         });
-        log::info!("✅ Found {} contests for player {} and game {}", results.len(), player_id, game_id);
+        log::info!(
+            "✅ Found {} contests for player {} and game {}",
+            results.len(),
+            player_id,
+            game_id
+        );
         Ok(results)
     }
 }
@@ -819,11 +887,17 @@ impl ContestRepositoryImpl {
         contest_id: &str,
         venue_id: &str,
     ) -> Result<(), SharedError> {
-        log::info!("🔗 Creating PLAYED_AT edge: contest='{}' -> venue='{}'", contest_id, venue_id);
+        log::info!(
+            "🔗 Creating PLAYED_AT edge: contest='{}' -> venue='{}'",
+            contest_id,
+            venue_id
+        );
         let contest_key = record_id_to_key(contest_id, "contest");
         let venue_key = record_id_to_key(venue_id, "venue");
         if contest_key.is_empty() || venue_key.is_empty() {
-            return Err(SharedError::Validation("Invalid contest_id or venue_id".to_string()));
+            return Err(SharedError::Validation(
+                "Invalid contest_id or venue_id".to_string(),
+            ));
         }
         let sql = self.query_with_scope(
             "INSERT INTO played_at (`in`, `out`) VALUES (type::record('contest', $contest_key), type::record('venue', $venue_key))",
@@ -833,7 +907,9 @@ impl ContestRepositoryImpl {
             .bind(("contest_key", contest_key.clone()))
             .bind(("venue_key", venue_key.clone()))
             .await
-            .map_err(|e| SharedError::Database(format!("Failed to create played_at edge: {}", e)))?;
+            .map_err(|e| {
+                SharedError::Database(format!("Failed to create played_at edge: {}", e))
+            })?;
         log::info!("✅ PLAYED_AT edge created");
         Ok(())
     }
@@ -844,11 +920,17 @@ impl ContestRepositoryImpl {
         contest_id: &str,
         game_id: &str,
     ) -> Result<(), SharedError> {
-        log::info!("🔗 Creating PLAYED_WITH edge: contest='{}' -> game='{}'", contest_id, game_id);
+        log::info!(
+            "🔗 Creating PLAYED_WITH edge: contest='{}' -> game='{}'",
+            contest_id,
+            game_id
+        );
         let contest_key = record_id_to_key(contest_id, "contest");
         let game_key = record_id_to_key(game_id, "game");
         if contest_key.is_empty() || game_key.is_empty() {
-            return Err(SharedError::Validation("Invalid contest_id or game_id".to_string()));
+            return Err(SharedError::Validation(
+                "Invalid contest_id or game_id".to_string(),
+            ));
         }
         let sql = self.query_with_scope(
             "INSERT INTO played_with (`in`, `out`) VALUES (type::record('contest', $contest_key), type::record('game', $game_key))",
@@ -858,7 +940,9 @@ impl ContestRepositoryImpl {
             .bind(("contest_key", contest_key.clone()))
             .bind(("game_key", game_key.clone()))
             .await
-            .map_err(|e| SharedError::Database(format!("Failed to create played_with edge: {}", e)))?;
+            .map_err(|e| {
+                SharedError::Database(format!("Failed to create played_with edge: {}", e))
+            })?;
         log::info!("✅ PLAYED_WITH edge created");
         Ok(())
     }
@@ -869,12 +953,23 @@ impl ContestRepositoryImpl {
         contest_id: &str,
         outcome: &OutcomeDto,
     ) -> Result<(), SharedError> {
-        log::info!("🔗 Creating RESULTED_IN edge: contest='{}' -> player='{}', place='{}', result='{}'", contest_id, outcome.player_id, outcome.place, outcome.result);
-        let place = outcome.place.parse::<i32>().map_err(|e| SharedError::Validation(format!("Invalid place value: {}", e)))?;
+        log::info!(
+            "🔗 Creating RESULTED_IN edge: contest='{}' -> player='{}', place='{}', result='{}'",
+            contest_id,
+            outcome.player_id,
+            outcome.place,
+            outcome.result
+        );
+        let place = outcome
+            .place
+            .parse::<i32>()
+            .map_err(|e| SharedError::Validation(format!("Invalid place value: {}", e)))?;
         let contest_key = record_id_to_key(contest_id, "contest");
         let player_key = record_id_to_key(outcome.player_id.as_str(), "player");
         if contest_key.is_empty() || player_key.is_empty() {
-            return Err(SharedError::Validation("Invalid contest_id or player_id in outcome".to_string()));
+            return Err(SharedError::Validation(
+                "Invalid contest_id or player_id in outcome".to_string(),
+            ));
         }
         let result_str = outcome.result.clone();
         let sql = self.query_with_scope(
@@ -887,7 +982,9 @@ impl ContestRepositoryImpl {
             .bind(("place", place))
             .bind(("result", result_str))
             .await
-            .map_err(|e| SharedError::Database(format!("Failed to create resulted_in edge: {}", e)))?;
+            .map_err(|e| {
+                SharedError::Database(format!("Failed to create resulted_in edge: {}", e))
+            })?;
         log::info!("✅ RESULTED_IN edge created");
         Ok(())
     }
@@ -896,7 +993,11 @@ impl ContestRepositoryImpl {
 impl ContestRepositoryImpl {
     /// Look up contest details using the given Db. Use the app's shared Db (e.g. from web::Data<Db>)
     /// so the same NS/DB as analytics is used and by-id lookup sees the same data.
-    pub async fn find_details_by_id_using(&self, id: &str, db: &crate::db::Db) -> Option<ContestDto> {
+    pub async fn find_details_by_id_using(
+        &self,
+        id: &str,
+        db: &crate::db::Db,
+    ) -> Option<ContestDto> {
         self.find_details_by_id_impl(id, db).await
     }
 
@@ -914,11 +1015,7 @@ impl ContestRepositoryImpl {
     ) -> Option<ContestDto> {
         let idx = self.scope_result_index();
         let sql = self.query_with_scope("SELECT fn::contest_with_edges($key) AS result FROM [1]");
-        let mut res = match db
-            .query(&sql)
-            .bind(("key", key.to_string()))
-            .await
-        {
+        let mut res = match db.query(&sql).bind(("key", key.to_string())).await {
             Ok(r) => r,
             Err(e) => {
                 log::debug!("contest_with_edges function not available or failed: {}", e);
@@ -937,9 +1034,19 @@ impl ContestRepositoryImpl {
         let contest_data = serde_json::Value::Object(contest_data.clone());
 
         let id_str = record_id_from_row(&contest_data, None).unwrap_or_else(|| id.to_string());
-        let name = contest_data.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
-        let start_str = contest_data.get("start").and_then(|v| v.as_str()).unwrap_or("");
-        let stop_str = contest_data.get("stop").and_then(|v| v.as_str()).unwrap_or("");
+        let name = contest_data
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let start_str = contest_data
+            .get("start")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let stop_str = contest_data
+            .get("stop")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
         let start = chrono::DateTime::parse_from_rfc3339(start_str)
             .ok()
             .map(|dt| dt.with_timezone(&chrono::FixedOffset::east_opt(0).unwrap()));
@@ -965,28 +1072,52 @@ impl ContestRepositoryImpl {
                 .ok()
                 .and_then(|mut r| r.take(idx).ok())
                 .unwrap_or_default();
-            vrows.into_iter().next().map(|v| {
-                let id = record_id_from_row(&v, None).unwrap_or_else(|| format!("venue/{}", vkey));
-                VenueDto {
-                    id,
-                    display_name: v.get("displayName").or(v.get("display_name")).and_then(|x| x.as_str()).unwrap_or("Unknown Venue").to_string(),
-                    formatted_address: v.get("formattedAddress").or(v.get("formatted_address")).and_then(|x| x.as_str()).unwrap_or("Address not available").to_string(),
-                    place_id: v.get("placeId").or(v.get("place_id")).and_then(|x| x.as_str()).unwrap_or("").to_string(),
-                    lat: v.get("lat").and_then(|x| x.as_f64()).unwrap_or(0.0),
-                    lng: v.get("lng").and_then(|x| x.as_f64()).unwrap_or(0.0),
-                    timezone: v.get("timezone").and_then(|x| x.as_str()).unwrap_or("UTC").to_string(),
+            vrows
+                .into_iter()
+                .next()
+                .map(|v| {
+                    let id =
+                        record_id_from_row(&v, None).unwrap_or_else(|| format!("venue/{}", vkey));
+                    VenueDto {
+                        id,
+                        display_name: v
+                            .get("displayName")
+                            .or(v.get("display_name"))
+                            .and_then(|x| x.as_str())
+                            .unwrap_or("Unknown Venue")
+                            .to_string(),
+                        formatted_address: v
+                            .get("formattedAddress")
+                            .or(v.get("formatted_address"))
+                            .and_then(|x| x.as_str())
+                            .unwrap_or("Address not available")
+                            .to_string(),
+                        place_id: v
+                            .get("placeId")
+                            .or(v.get("place_id"))
+                            .and_then(|x| x.as_str())
+                            .unwrap_or("")
+                            .to_string(),
+                        lat: v.get("lat").and_then(|x| x.as_f64()).unwrap_or(0.0),
+                        lng: v.get("lng").and_then(|x| x.as_f64()).unwrap_or(0.0),
+                        timezone: v
+                            .get("timezone")
+                            .and_then(|x| x.as_str())
+                            .unwrap_or("UTC")
+                            .to_string(),
+                        source: shared::models::venue::VenueSource::Database,
+                    }
+                })
+                .unwrap_or_else(|| VenueDto {
+                    id: format!("venue/{}", vkey),
+                    display_name: "Unknown Venue".to_string(),
+                    formatted_address: "Address not available".to_string(),
+                    place_id: String::new(),
+                    lat: 0.0,
+                    lng: 0.0,
+                    timezone: "UTC".to_string(),
                     source: shared::models::venue::VenueSource::Database,
-                }
-            }).unwrap_or_else(|| VenueDto {
-                id: format!("venue/{}", vkey),
-                display_name: "Unknown Venue".to_string(),
-                formatted_address: "Address not available".to_string(),
-                place_id: String::new(),
-                lat: 0.0,
-                lng: 0.0,
-                timezone: "UTC".to_string(),
-                source: shared::models::venue::VenueSource::Database,
-            })
+                })
         } else {
             VenueDto {
                 id: String::new(),
@@ -1005,7 +1136,9 @@ impl ContestRepositoryImpl {
             .and_then(|v| v.as_array())
             .map(|a| {
                 a.iter()
-                    .filter_map(|v| record_id_from_field(&serde_json::json!({ "game_id": v }), "game_id"))
+                    .filter_map(|v| {
+                        record_id_from_field(&serde_json::json!({ "game_id": v }), "game_id")
+                    })
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();
@@ -1027,62 +1160,110 @@ impl ContestRepositoryImpl {
                     let gkey = record_id_from_row(&v, None)?;
                     Some(GameDto {
                         id: gkey,
-                        name: v.get("name").and_then(|x| x.as_str()).unwrap_or("").to_string(),
-                        year_published: v.get("year_published").and_then(|x| x.as_i64()).map(|y| y as i32),
+                        name: v
+                            .get("name")
+                            .and_then(|x| x.as_str())
+                            .unwrap_or("")
+                            .to_string(),
+                        year_published: v
+                            .get("year_published")
+                            .and_then(|x| x.as_i64())
+                            .map(|y| y as i32),
                         bgg_id: v.get("bgg_id").and_then(|x| x.as_i64()).map(|b| b as i32),
-                        description: v.get("description").and_then(|x| x.as_str()).map(String::from),
+                        description: v
+                            .get("description")
+                            .and_then(|x| x.as_str())
+                            .map(String::from),
                         source: shared::models::game::GameSource::Database,
                     })
                 })
                 .collect()
         };
 
-        let outcomes_arr = row.get("outcomes").and_then(|v| v.as_array()).map(|a| a.as_slice()).unwrap_or(&[]);
+        let outcomes_arr = row
+            .get("outcomes")
+            .and_then(|v| v.as_array())
+            .map(|a| a.as_slice())
+            .unwrap_or(&[]);
         let player_ids: Vec<String> = outcomes_arr
             .iter()
             .filter_map(|o| record_id_from_field(o, "player_id"))
             .collect();
         let player_things = strings_to_thing_array(&player_ids);
-        let player_map: std::collections::HashMap<String, (String, String)> = if player_things.is_empty() {
-            std::collections::HashMap::new()
-        } else {
-            let player_sql = self.query_with_scope("SELECT * FROM player WHERE id INSIDE $ids");
-            let prows: Vec<serde_json::Value> = db
-                .query(&player_sql)
-                .bind(("ids", player_things))
-                .await
-                .ok()
-                .and_then(|mut r| r.take(idx).ok())
-                .unwrap_or_default();
-            prows
-                .into_iter()
-                .filter_map(|p| {
-                    let pid = record_id_from_row(&p, None)?;
-                    let handle = p.get("handle").and_then(|x| x.as_str()).map(String::from).unwrap_or_else(|| record_id_to_key(&pid, "player"));
-                    let email = p.get("email").and_then(|x| x.as_str()).map(String::from).unwrap_or_default();
-                    Some((pid, (handle, email)))
-                })
-                .collect()
-        };
+        let player_map: std::collections::HashMap<String, (String, String)> =
+            if player_things.is_empty() {
+                std::collections::HashMap::new()
+            } else {
+                let player_sql = self.query_with_scope("SELECT * FROM player WHERE id INSIDE $ids");
+                let prows: Vec<serde_json::Value> = db
+                    .query(&player_sql)
+                    .bind(("ids", player_things))
+                    .await
+                    .ok()
+                    .and_then(|mut r| r.take(idx).ok())
+                    .unwrap_or_default();
+                prows
+                    .into_iter()
+                    .filter_map(|p| {
+                        let pid = record_id_from_row(&p, None)?;
+                        let handle = p
+                            .get("handle")
+                            .and_then(|x| x.as_str())
+                            .map(String::from)
+                            .unwrap_or_else(|| record_id_to_key(&pid, "player"));
+                        let email = p
+                            .get("email")
+                            .and_then(|x| x.as_str())
+                            .map(String::from)
+                            .unwrap_or_default();
+                        Some((pid, (handle, email)))
+                    })
+                    .collect()
+            };
         let outcomes: Vec<OutcomeDto> = outcomes_arr
             .iter()
             .filter_map(|o| {
                 let player_id = record_id_from_field(o, "player_id")?;
-                let (handle, email) = player_map.get(&player_id).cloned().unwrap_or_else(|| (record_id_to_key(&player_id, "player"), String::new()));
-                let place = o.get("place").and_then(|x| x.as_i64()).map(|p| p.to_string()).or_else(|| o.get("place").and_then(|x| x.as_str()).map(String::from)).unwrap_or_default();
-                let result = o.get("result").and_then(|x| x.as_str()).unwrap_or("").to_string();
-                Some(OutcomeDto { player_id, handle, email, place, result })
+                let (handle, email) = player_map
+                    .get(&player_id)
+                    .cloned()
+                    .unwrap_or_else(|| (record_id_to_key(&player_id, "player"), String::new()));
+                let place = o
+                    .get("place")
+                    .and_then(|x| x.as_i64())
+                    .map(|p| p.to_string())
+                    .or_else(|| o.get("place").and_then(|x| x.as_str()).map(String::from))
+                    .unwrap_or_default();
+                let result = o
+                    .get("result")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                Some(OutcomeDto {
+                    player_id,
+                    handle,
+                    email,
+                    place,
+                    result,
+                })
             })
             .collect();
 
-        let creator_id = contest_data.get("creator_id").and_then(|x| x.as_str()).unwrap_or("").to_string();
+        let creator_id = contest_data
+            .get("creator_id")
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .to_string();
         let created_at = contest_data
             .get("created_at")
             .and_then(|x| x.as_str())
             .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
             .map(|dt| dt.with_timezone(&chrono::FixedOffset::east_opt(0).unwrap()));
 
-        log::info!("✅ Contest details loaded via fn::contest_with_edges for: {}", id_str);
+        log::info!(
+            "✅ Contest details loaded via fn::contest_with_edges for: {}",
+            id_str
+        );
         Some(ContestDto {
             id: id_str,
             name,
@@ -1115,7 +1296,11 @@ impl ContestRepositoryImpl {
         if let Ok(mut r) = db.query(&fn_row_sql).bind(("key", key.clone())).await {
             let rows: Vec<serde_json::Value> = r.take(idx).unwrap_or_default();
             if let Some(first) = rows.into_iter().next() {
-                let v = first.get("result").or_else(|| first.get("fn::contest_row($key)")).cloned().unwrap_or(first);
+                let v = first
+                    .get("result")
+                    .or_else(|| first.get("fn::contest_row($key)"))
+                    .cloned()
+                    .unwrap_or(first);
                 if v.is_object() && !v.as_object().map(|o| o.is_empty()).unwrap_or(true) {
                     contest_data = Some(v);
                 }
@@ -1123,7 +1308,9 @@ impl ContestRepositoryImpl {
         }
         if contest_data.is_none() {
             // Try string key first (contest uses string key to avoid id coercion in v3)
-            let key_sql = self.query_with_scope("SELECT * FROM contest WHERE id = type::record('contest', $key) LIMIT 1");
+            let key_sql = self.query_with_scope(
+                "SELECT * FROM contest WHERE id = type::record('contest', $key) LIMIT 1",
+            );
             if let Ok(mut r) = db.query(&key_sql).bind(("key", key.clone())).await {
                 let rows: Vec<serde_json::Value> = r.take(idx).unwrap_or_default();
                 if let Some(row) = rows.into_iter().next() {
@@ -1132,11 +1319,7 @@ impl ContestRepositoryImpl {
             }
             if contest_data.is_none() && uuid::Uuid::parse_str(&key).is_ok() {
                 let uuid_sql = self.query_with_scope("SELECT * FROM contest WHERE id = type::record('contest', type::uuid($key)) LIMIT 1");
-                if let Ok(mut r) = db
-                    .query(&uuid_sql)
-                    .bind(("key", key.clone()))
-                    .await
-                {
+                if let Ok(mut r) = db.query(&uuid_sql).bind(("key", key.clone())).await {
                     let rows: Vec<serde_json::Value> = r.take(idx).unwrap_or_default();
                     if let Some(row) = rows.into_iter().next() {
                         contest_data = Some(row);
@@ -1145,7 +1328,8 @@ impl ContestRepositoryImpl {
             }
             if contest_data.is_none() {
                 let contest_record_id = surrealdb::types::RecordId::new("contest", key.as_str());
-                let contest_key_sql = self.query_with_scope("SELECT * FROM contest WHERE id = $record_id LIMIT 1");
+                let contest_key_sql =
+                    self.query_with_scope("SELECT * FROM contest WHERE id = $record_id LIMIT 1");
                 contest_data = match db
                     .query(&contest_key_sql)
                     .bind(("record_id", contest_record_id))
@@ -1164,8 +1348,10 @@ impl ContestRepositoryImpl {
         }
         if contest_data.is_none() && key.parse::<i64>().is_ok() {
             if let Ok(k) = key.parse::<i64>() {
-                let contest_record_id = surrealdb::types::RecordId::new("contest", k.to_string().as_str());
-                let contest_i64_sql = self.query_with_scope("SELECT * FROM contest WHERE id = $record_id LIMIT 1");
+                let contest_record_id =
+                    surrealdb::types::RecordId::new("contest", k.to_string().as_str());
+                let contest_i64_sql =
+                    self.query_with_scope("SELECT * FROM contest WHERE id = $record_id LIMIT 1");
                 if let Ok(mut r) = db
                     .query(&contest_i64_sql)
                     .bind(("record_id", contest_record_id))
@@ -1189,12 +1375,26 @@ impl ContestRepositoryImpl {
         };
 
         let id = record_id_from_row(&contest_data, None).unwrap_or_else(|| id.to_string());
-        let name = contest_data.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
-        let start_str = contest_data.get("start").and_then(|v| v.as_str()).unwrap_or("");
-        let stop_str = contest_data.get("stop").and_then(|v| v.as_str()).unwrap_or("");
+        let name = contest_data
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let start_str = contest_data
+            .get("start")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let stop_str = contest_data
+            .get("stop")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
 
-        let start = chrono::DateTime::parse_from_rfc3339(start_str).ok().map(|dt| dt.with_timezone(&chrono::FixedOffset::east_opt(0).unwrap()));
-        let stop = chrono::DateTime::parse_from_rfc3339(stop_str).ok().map(|dt| dt.with_timezone(&chrono::FixedOffset::east_opt(0).unwrap()));
+        let start = chrono::DateTime::parse_from_rfc3339(start_str)
+            .ok()
+            .map(|dt| dt.with_timezone(&chrono::FixedOffset::east_opt(0).unwrap()));
+        let stop = chrono::DateTime::parse_from_rfc3339(stop_str)
+            .ok()
+            .map(|dt| dt.with_timezone(&chrono::FixedOffset::east_opt(0).unwrap()));
         let (start, stop) = match (start, stop) {
             (Some(s), Some(st)) => (s, st),
             _ => {
@@ -1207,39 +1407,82 @@ impl ContestRepositoryImpl {
         let contest_record_id = edge_key_int
             .map(|k| surrealdb::types::RecordId::new("contest", k.to_string().as_str()))
             .unwrap_or_else(|| surrealdb::types::RecordId::new("contest", key.as_str()));
-        let played_at_sql = self.query_with_scope("SELECT `out` AS venue_id FROM played_at WHERE `in` = $record_id LIMIT 1");
-        let venue_res = db.query(&played_at_sql).bind(("record_id", contest_record_id.clone())).await.ok();
-        let venue_rows: Vec<serde_json::Value> = venue_res.and_then(|mut r| r.take(idx).ok()).unwrap_or_default();
-        let venue_id_opt: Option<String> = venue_rows.into_iter().next().and_then(|v: serde_json::Value| v.get("venue_id").and_then(|x| x.as_str()).map(String::from));
+        let played_at_sql = self.query_with_scope(
+            "SELECT `out` AS venue_id FROM played_at WHERE `in` = $record_id LIMIT 1",
+        );
+        let venue_res = db
+            .query(&played_at_sql)
+            .bind(("record_id", contest_record_id.clone()))
+            .await
+            .ok();
+        let venue_rows: Vec<serde_json::Value> = venue_res
+            .and_then(|mut r| r.take(idx).ok())
+            .unwrap_or_default();
+        let venue_id_opt: Option<String> =
+            venue_rows
+                .into_iter()
+                .next()
+                .and_then(|v: serde_json::Value| {
+                    v.get("venue_id").and_then(|x| x.as_str()).map(String::from)
+                });
 
         let venue_dto = if let Some(venue_rid) = venue_id_opt {
             let vkey = record_id_to_key(&venue_rid, "venue");
             let venue_record_id = surrealdb::types::RecordId::new("venue", vkey.as_str());
             let venue_sel_sql = self.query_with_scope("SELECT * FROM venue WHERE id = $record_id");
-            let vres = db.query(&venue_sel_sql).bind(("record_id", venue_record_id)).await.ok();
-            let vrows: Vec<serde_json::Value> = vres.and_then(|mut r| r.take(idx).ok()).unwrap_or_default();
-            vrows.into_iter().next().map(|v: serde_json::Value| {
-                let id = record_id_from_row(&v, None).unwrap_or_else(|| format!("venue/{}", vkey));
-                VenueDto {
-                    id,
-                    display_name: v.get("displayName").or(v.get("display_name")).and_then(|x| x.as_str()).unwrap_or("Unknown Venue").to_string(),
-                    formatted_address: v.get("formattedAddress").or(v.get("formatted_address")).and_then(|x| x.as_str()).unwrap_or("Address not available").to_string(),
-                    place_id: v.get("placeId").or(v.get("place_id")).and_then(|x| x.as_str()).unwrap_or("").to_string(),
-                    lat: v.get("lat").and_then(|x| x.as_f64()).unwrap_or(0.0),
-                    lng: v.get("lng").and_then(|x| x.as_f64()).unwrap_or(0.0),
-                    timezone: v.get("timezone").and_then(|x| x.as_str()).unwrap_or("UTC").to_string(),
+            let vres = db
+                .query(&venue_sel_sql)
+                .bind(("record_id", venue_record_id))
+                .await
+                .ok();
+            let vrows: Vec<serde_json::Value> =
+                vres.and_then(|mut r| r.take(idx).ok()).unwrap_or_default();
+            vrows
+                .into_iter()
+                .next()
+                .map(|v: serde_json::Value| {
+                    let id =
+                        record_id_from_row(&v, None).unwrap_or_else(|| format!("venue/{}", vkey));
+                    VenueDto {
+                        id,
+                        display_name: v
+                            .get("displayName")
+                            .or(v.get("display_name"))
+                            .and_then(|x| x.as_str())
+                            .unwrap_or("Unknown Venue")
+                            .to_string(),
+                        formatted_address: v
+                            .get("formattedAddress")
+                            .or(v.get("formatted_address"))
+                            .and_then(|x| x.as_str())
+                            .unwrap_or("Address not available")
+                            .to_string(),
+                        place_id: v
+                            .get("placeId")
+                            .or(v.get("place_id"))
+                            .and_then(|x| x.as_str())
+                            .unwrap_or("")
+                            .to_string(),
+                        lat: v.get("lat").and_then(|x| x.as_f64()).unwrap_or(0.0),
+                        lng: v.get("lng").and_then(|x| x.as_f64()).unwrap_or(0.0),
+                        timezone: v
+                            .get("timezone")
+                            .and_then(|x| x.as_str())
+                            .unwrap_or("UTC")
+                            .to_string(),
+                        source: shared::models::venue::VenueSource::Database,
+                    }
+                })
+                .unwrap_or_else(|| VenueDto {
+                    id: format!("venue/{}", vkey),
+                    display_name: "Unknown Venue".to_string(),
+                    formatted_address: "Address not available".to_string(),
+                    place_id: String::new(),
+                    lat: 0.0,
+                    lng: 0.0,
+                    timezone: "UTC".to_string(),
                     source: shared::models::venue::VenueSource::Database,
-                }
-            }).unwrap_or_else(|| VenueDto {
-                id: format!("venue/{}", vkey),
-                display_name: "Unknown Venue".to_string(),
-                formatted_address: "Address not available".to_string(),
-                place_id: String::new(),
-                lat: 0.0,
-                lng: 0.0,
-                timezone: "UTC".to_string(),
-                source: shared::models::venue::VenueSource::Database,
-            })
+                })
         } else {
             VenueDto {
                 id: String::new(),
@@ -1254,10 +1497,20 @@ impl ContestRepositoryImpl {
         };
 
         // Games: played_with has in=contest, out=game
-        let played_with_sql = self.query_with_scope("SELECT `out` AS game_id FROM played_with WHERE `in` = $record_id");
-        let games_res = db.query(&played_with_sql).bind(("record_id", contest_record_id.clone())).await.ok();
-        let game_rows: Vec<serde_json::Value> = games_res.and_then(|mut r| r.take(idx).ok()).unwrap_or_default();
-        let game_rids: Vec<String> = game_rows.into_iter().filter_map(|v| v.get("game_id").and_then(|x| x.as_str()).map(String::from)).collect();
+        let played_with_sql = self
+            .query_with_scope("SELECT `out` AS game_id FROM played_with WHERE `in` = $record_id");
+        let games_res = db
+            .query(&played_with_sql)
+            .bind(("record_id", contest_record_id.clone()))
+            .await
+            .ok();
+        let game_rows: Vec<serde_json::Value> = games_res
+            .and_then(|mut r| r.take(idx).ok())
+            .unwrap_or_default();
+        let game_rids: Vec<String> = game_rows
+            .into_iter()
+            .filter_map(|v| v.get("game_id").and_then(|x| x.as_str()).map(String::from))
+            .collect();
 
         let mut games = Vec::new();
         let game_sel_sql = self.query_with_scope("SELECT * FROM game WHERE id = $record_id");
@@ -1267,15 +1520,30 @@ impl ContestRepositoryImpl {
                 continue;
             }
             let game_record_id = surrealdb::types::RecordId::new("game", gkey.as_str());
-            let qres = db.query(&game_sel_sql).bind(("record_id", game_record_id)).await.ok();
-            let rows: Vec<serde_json::Value> = qres.and_then(|mut r| r.take(idx).ok()).unwrap_or_default();
+            let qres = db
+                .query(&game_sel_sql)
+                .bind(("record_id", game_record_id))
+                .await
+                .ok();
+            let rows: Vec<serde_json::Value> =
+                qres.and_then(|mut r| r.take(idx).ok()).unwrap_or_default();
             if let Some(v) = rows.into_iter().next() {
                 games.push(GameDto {
                     id: record_id_from_row(&v, None).unwrap_or_else(|| format!("game/{}", gkey)),
-                    name: v.get("name").and_then(|x| x.as_str()).unwrap_or("").to_string(),
-                    year_published: v.get("year_published").and_then(|x| x.as_i64()).map(|y| y as i32),
+                    name: v
+                        .get("name")
+                        .and_then(|x| x.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    year_published: v
+                        .get("year_published")
+                        .and_then(|x| x.as_i64())
+                        .map(|y| y as i32),
                     bgg_id: v.get("bgg_id").and_then(|x| x.as_i64()).map(|b| b as i32),
-                    description: v.get("description").and_then(|x| x.as_str()).map(String::from),
+                    description: v
+                        .get("description")
+                        .and_then(|x| x.as_str())
+                        .map(String::from),
                     source: shared::models::game::GameSource::Database,
                 });
             }
@@ -1283,8 +1551,14 @@ impl ContestRepositoryImpl {
 
         // Outcomes: resulted_in has in=contest, out=player
         let resulted_in_sql = self.query_with_scope("SELECT `out` AS player_id, place, result FROM resulted_in WHERE `in` = $record_id ORDER BY place ASC");
-        let out_res = db.query(&resulted_in_sql).bind(("record_id", contest_record_id)).await.ok();
-        let outcome_rows: Vec<serde_json::Value> = out_res.and_then(|mut r| r.take(idx).ok()).unwrap_or_default();
+        let out_res = db
+            .query(&resulted_in_sql)
+            .bind(("record_id", contest_record_id))
+            .await
+            .ok();
+        let outcome_rows: Vec<serde_json::Value> = out_res
+            .and_then(|mut r| r.take(idx).ok())
+            .unwrap_or_default();
 
         let mut outcomes = Vec::new();
         for row in outcome_rows {
@@ -1294,16 +1568,43 @@ impl ContestRepositoryImpl {
             };
             let pkey = record_id_to_key(&player_rid, "player");
             let player_record_id = surrealdb::types::RecordId::new("player", pkey.as_str());
-            let player_sel_sql = self.query_with_scope("SELECT * FROM player WHERE id = $record_id");
-            let pres = db.query(&player_sel_sql).bind(("record_id", player_record_id)).await.ok();
-            let prow: Vec<serde_json::Value> = pres.and_then(|mut r| r.take(idx).ok()).unwrap_or_default();
+            let player_sel_sql =
+                self.query_with_scope("SELECT * FROM player WHERE id = $record_id");
+            let pres = db
+                .query(&player_sel_sql)
+                .bind(("record_id", player_record_id))
+                .await
+                .ok();
+            let prow: Vec<serde_json::Value> =
+                pres.and_then(|mut r| r.take(idx).ok()).unwrap_or_default();
             let player = prow.into_iter().next();
-            let handle = player.as_ref().and_then(|p| p.get("handle").and_then(|x| x.as_str()).map(String::from)).unwrap_or_else(|| pkey.clone());
-            let email = player.as_ref().and_then(|p| p.get("email").and_then(|x| x.as_str()).map(String::from)).unwrap_or_default();
-            let place = row.get("place").and_then(|x| x.as_i64()).map(|p| p.to_string()).or_else(|| row.get("place").and_then(|x| x.as_str()).map(String::from)).unwrap_or_default();
-            let result = row.get("result").and_then(|x| x.as_str()).unwrap_or("").to_string();
+            let handle = player
+                .as_ref()
+                .and_then(|p| p.get("handle").and_then(|x| x.as_str()).map(String::from))
+                .unwrap_or_else(|| pkey.clone());
+            let email = player
+                .as_ref()
+                .and_then(|p| p.get("email").and_then(|x| x.as_str()).map(String::from))
+                .unwrap_or_default();
+            let place = row
+                .get("place")
+                .and_then(|x| x.as_i64())
+                .map(|p| p.to_string())
+                .or_else(|| row.get("place").and_then(|x| x.as_str()).map(String::from))
+                .unwrap_or_default();
+            let result = row
+                .get("result")
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .to_string();
             let player_id = format!("player/{}", pkey);
-            outcomes.push(OutcomeDto { player_id, handle, email, place, result });
+            outcomes.push(OutcomeDto {
+                player_id,
+                handle,
+                email,
+                place,
+                result,
+            });
         }
 
         let contest_dto = ContestDto {
@@ -1314,8 +1615,16 @@ impl ContestRepositoryImpl {
             venue: venue_dto,
             games,
             outcomes,
-            creator_id: contest_data.get("creator_id").and_then(|x| x.as_str()).unwrap_or("").to_string(),
-            created_at: contest_data.get("created_at").and_then(|x| x.as_str()).and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok()).map(|dt| dt.with_timezone(&chrono::FixedOffset::east_opt(0).unwrap())),
+            creator_id: contest_data
+                .get("creator_id")
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .to_string(),
+            created_at: contest_data
+                .get("created_at")
+                .and_then(|x| x.as_str())
+                .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+                .map(|dt| dt.with_timezone(&chrono::FixedOffset::east_opt(0).unwrap())),
         };
         log::info!("✅ Successfully created ContestDto for contest: {}", id);
         Some(contest_dto)
@@ -1386,7 +1695,11 @@ impl ContestRepositoryImpl {
             "created_at" => "created_at",
             _ => "start",
         };
-        let order_dir = if sort_dir.eq_ignore_ascii_case("asc") { "ASC" } else { "DESC" };
+        let order_dir = if sort_dir.eq_ignore_ascii_case("asc") {
+            "ASC"
+        } else {
+            "DESC"
+        };
 
         // Fast path: no filters (scope=all, no venue/game/player filter) — query contest table directly so we don't depend on played_at/played_with edges or INSIDE binding.
         let no_filters = scope == "all"
@@ -1397,7 +1710,9 @@ impl ContestRepositoryImpl {
             log::info!("contest search: fast path (scope=all, no venue/game/player filter)");
             let mut where_parts: Vec<String> = vec![];
             if !q.is_empty() {
-                where_parts.push("string::contains(string::lowercase(name), string::lowercase($q))".to_string());
+                where_parts.push(
+                    "string::contains(string::lowercase(name), string::lowercase($q))".to_string(),
+                );
             }
             if start_from.is_some() {
                 where_parts.push("start >= $start_from".to_string());
@@ -1416,7 +1731,10 @@ impl ContestRepositoryImpl {
             } else {
                 where_parts.join(" AND ")
             };
-            let count_sql = self.query_with_scope(&format!("SELECT count() FROM contest WHERE {} GROUP ALL", where_clause));
+            let count_sql = self.query_with_scope(&format!(
+                "SELECT count() FROM contest WHERE {} GROUP ALL",
+                where_clause
+            ));
             let mut count_q = db.query(&count_sql);
             if !q.is_empty() {
                 count_q = count_q.bind(("q", q.to_string()));
@@ -1434,16 +1752,28 @@ impl ContestRepositoryImpl {
                 count_q = count_q.bind(("stop_to", et.to_string()));
             }
             let result_idx = self.scope_result_index();
-            let count_res: Vec<serde_json::Value> = count_q.await.map_err(|e| {
-                log::error!("contest search count query failed: {}", e);
-                e.to_string()
-            })?.take(result_idx).unwrap_or_default();
+            let count_res: Vec<serde_json::Value> = count_q
+                .await
+                .map_err(|e| {
+                    log::error!("contest search count query failed: {}", e);
+                    e.to_string()
+                })?
+                .take(result_idx)
+                .unwrap_or_default();
             let total: u64 = count_res
                 .into_iter()
                 .next()
-                .and_then(|v| v.as_u64().or_else(|| v.get("count").and_then(|c| c.as_u64())))
+                .and_then(|v| {
+                    v.as_u64()
+                        .or_else(|| v.get("count").and_then(|c| c.as_u64()))
+                })
                 .unwrap_or(0);
-            log::info!("contest search fast path: total={} (page={}, page_size={})", total, page, page_size);
+            log::info!(
+                "contest search fast path: total={} (page={}, page_size={})",
+                total,
+                page,
+                page_size
+            );
 
             let items_sql = self.query_with_scope(&format!(
                 "SELECT string::concat(id) AS id, name, start, stop FROM contest WHERE {} ORDER BY {} {} LIMIT {} START {}",
@@ -1465,10 +1795,14 @@ impl ContestRepositoryImpl {
             if let Some(et) = stop_to {
                 items_q = items_q.bind(("stop_to", et.to_string()));
             }
-            let rows: Vec<serde_json::Value> = items_q.await.map_err(|e| {
-                log::error!("contest search items query failed: {}", e);
-                e.to_string()
-            })?.take(result_idx).unwrap_or_default();
+            let rows: Vec<serde_json::Value> = items_q
+                .await
+                .map_err(|e| {
+                    log::error!("contest search items query failed: {}", e);
+                    e.to_string()
+                })?
+                .take(result_idx)
+                .unwrap_or_default();
             log::info!("contest search fast path: rows from DB={}", rows.len());
             if let Some(first) = rows.first() {
                 log::debug!("contest search: first row id raw={:?}", first.get("id"));
@@ -1480,7 +1814,10 @@ impl ContestRepositoryImpl {
                 if let Some(ref id_norm) = id_norm {
                     let key = record_id_to_key(id_norm, "contest");
                     if key.is_empty() {
-                        log::warn!("contest search: record_id_to_key returned empty for id_norm={}", id_norm);
+                        log::warn!(
+                            "contest search: record_id_to_key returned empty for id_norm={}",
+                            id_norm
+                        );
                         continue;
                     }
                     let id_canonical = format!("contest/{}", key);
@@ -1498,7 +1835,11 @@ impl ContestRepositoryImpl {
                         }
                         None => {
                             // Single-record lookup failed (e.g. id format mismatch); use list row so table still shows contests
-                            let name = row.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                            let name = row
+                                .get("name")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string();
                             items.push(serde_json::json!({
                                 "_id": id_norm,
                                 "name": name,
@@ -1511,27 +1852,54 @@ impl ContestRepositoryImpl {
                         }
                     }
                 } else {
-                    log::warn!("contest search: record_id_from_row returned None for row keys={:?}", row.as_object().map(|o| o.keys().collect::<Vec<_>>()));
+                    log::warn!(
+                        "contest search: record_id_from_row returned None for row keys={:?}",
+                        row.as_object().map(|o| o.keys().collect::<Vec<_>>())
+                    );
                 }
             }
-            log::info!("🔍 Search (fast path) returned {} items (page {} of size {}), total {}", items.len(), page, page_size, total);
-            return Ok(serde_json::json!({"items": items, "total": total, "page": page, "page_size": page_size}));
+            log::info!(
+                "🔍 Search (fast path) returned {} items (page {} of size {}), total {}",
+                items.len(),
+                page,
+                page_size,
+                total
+            );
+            return Ok(
+                serde_json::json!({"items": items, "total": total, "page": page, "page_size": page_size}),
+            );
         }
 
         // Two-query approach: get contest ids from edges (in=contest, out=venue/game).
         let result_idx = self.scope_result_index();
-        let (played_at_sql, played_at_bind): (String, Option<surrealdb::types::RecordId>) = if let Some(ref k) = venue_key {
-            let rid = surrealdb::types::RecordId::new("venue", k.as_str());
-            (self.query_with_scope("SELECT `in` AS out FROM played_at WHERE `out` = $record_id"), Some(rid))
-        } else {
-            (self.query_with_scope("SELECT `in` AS out FROM played_at"), None)
-        };
+        let (played_at_sql, played_at_bind): (String, Option<surrealdb::types::RecordId>) =
+            if let Some(ref k) = venue_key {
+                let rid = surrealdb::types::RecordId::new("venue", k.as_str());
+                (
+                    self.query_with_scope(
+                        "SELECT `in` AS out FROM played_at WHERE `out` = $record_id",
+                    ),
+                    Some(rid),
+                )
+            } else {
+                (
+                    self.query_with_scope("SELECT `in` AS out FROM played_at"),
+                    None,
+                )
+            };
         let mut pa_q = db.query(&played_at_sql);
         if let Some(ref rid) = played_at_bind {
             pa_q = pa_q.bind(("record_id", rid.clone()));
         }
-        let pa_rows: Vec<serde_json::Value> = pa_q.await.map_err(|e| e.to_string())?.take(result_idx).unwrap_or_default();
-        let played_at_rids: HashSet<String> = pa_rows.iter().filter_map(|row| record_id_from_field(row, "out")).collect();
+        let pa_rows: Vec<serde_json::Value> = pa_q
+            .await
+            .map_err(|e| e.to_string())?
+            .take(result_idx)
+            .unwrap_or_default();
+        let played_at_rids: HashSet<String> = pa_rows
+            .iter()
+            .filter_map(|row| record_id_from_field(row, "out"))
+            .collect();
 
         let played_with_core = if game_things.is_empty() {
             "SELECT `in` AS out FROM played_with"
@@ -1543,14 +1911,25 @@ impl ContestRepositoryImpl {
         if !game_things.is_empty() {
             pw_q = pw_q.bind(("game_things", game_things.clone()));
         }
-        let pw_rows: Vec<serde_json::Value> = pw_q.await.map_err(|e| e.to_string())?.take(result_idx).unwrap_or_default();
-        let played_with_rids: HashSet<String> = pw_rows.iter().filter_map(|row| record_id_from_field(row, "out")).collect();
+        let pw_rows: Vec<serde_json::Value> = pw_q
+            .await
+            .map_err(|e| e.to_string())?
+            .take(result_idx)
+            .unwrap_or_default();
+        let played_with_rids: HashSet<String> = pw_rows
+            .iter()
+            .filter_map(|row| record_id_from_field(row, "out"))
+            .collect();
 
-        let mut contest_ids: HashSet<String> = played_at_rids.intersection(&played_with_rids).cloned().collect();
+        let mut contest_ids: HashSet<String> = played_at_rids
+            .intersection(&played_with_rids)
+            .cloned()
+            .collect();
 
         // When no venue/game filters and edge intersection is empty (e.g. fresh DB or import without edges), list all contests from the contest table
         if contest_ids.is_empty() && venue_key.is_none() && game_keys.is_empty() {
-            let all_contest_sql = self.query_with_scope("SELECT string::concat(id) AS id FROM contest");
+            let all_contest_sql =
+                self.query_with_scope("SELECT string::concat(id) AS id FROM contest");
             let all_res: Vec<serde_json::Value> = db
                 .query(&all_contest_sql)
                 .await
@@ -1569,12 +1948,19 @@ impl ContestRepositoryImpl {
         if scope != "all" {
             if let Some(ref pk) = player_key {
                 let player_record_id = surrealdb::types::RecordId::new("player", pk.as_str());
-                let ri_sql = self.query_with_scope("SELECT `in` AS out FROM resulted_in WHERE `out` = $record_id");
-                let ri_q = db
-                    .query(&ri_sql)
-                    .bind(("record_id", player_record_id));
-                let ri_rows: Vec<serde_json::Value> = ri_q.await.map_err(|e| e.to_string())?.take(result_idx).unwrap_or_default();
-                let result_rids: HashSet<String> = ri_rows.iter().filter_map(|row| record_id_from_field(row, "out")).collect();
+                let ri_sql = self.query_with_scope(
+                    "SELECT `in` AS out FROM resulted_in WHERE `out` = $record_id",
+                );
+                let ri_q = db.query(&ri_sql).bind(("record_id", player_record_id));
+                let ri_rows: Vec<serde_json::Value> = ri_q
+                    .await
+                    .map_err(|e| e.to_string())?
+                    .take(result_idx)
+                    .unwrap_or_default();
+                let result_rids: HashSet<String> = ri_rows
+                    .iter()
+                    .filter_map(|row| record_id_from_field(row, "out"))
+                    .collect();
                 contest_ids = contest_ids.intersection(&result_rids).cloned().collect();
             } else {
                 contest_ids.clear();
@@ -1583,12 +1969,20 @@ impl ContestRepositoryImpl {
 
         if let Some(ref fpk) = &filter_player_key {
             let filter_player_record_id = surrealdb::types::RecordId::new("player", fpk.as_str());
-            let ri_filter_sql = self.query_with_scope("SELECT `in` AS out FROM resulted_in WHERE `out` = $record_id");
+            let ri_filter_sql = self
+                .query_with_scope("SELECT `in` AS out FROM resulted_in WHERE `out` = $record_id");
             let ri_q = db
                 .query(&ri_filter_sql)
                 .bind(("record_id", filter_player_record_id));
-            let ri_rows: Vec<serde_json::Value> = ri_q.await.map_err(|e| e.to_string())?.take(result_idx).unwrap_or_default();
-            let result_rids: HashSet<String> = ri_rows.iter().filter_map(|row| record_id_from_field(row, "out")).collect();
+            let ri_rows: Vec<serde_json::Value> = ri_q
+                .await
+                .map_err(|e| e.to_string())?
+                .take(result_idx)
+                .unwrap_or_default();
+            let result_rids: HashSet<String> = ri_rows
+                .iter()
+                .filter_map(|row| record_id_from_field(row, "out"))
+                .collect();
             contest_ids = contest_ids.intersection(&result_rids).cloned().collect();
         }
 
@@ -1606,7 +2000,9 @@ impl ContestRepositoryImpl {
 
         let mut where_parts = vec!["id INSIDE $contest_ids".to_string()];
         if !q.is_empty() {
-            where_parts.push("string::contains(string::lowercase(name), string::lowercase($q))".to_string());
+            where_parts.push(
+                "string::contains(string::lowercase(name), string::lowercase($q))".to_string(),
+            );
         }
         if start_from.is_some() {
             where_parts.push("start >= $start_from".to_string());
@@ -1622,8 +2018,13 @@ impl ContestRepositoryImpl {
         }
         let where_clause = where_parts.join(" AND ");
 
-        let count_sql = self.query_with_scope(&format!("SELECT count() AS count FROM contest WHERE {} GROUP ALL", where_clause));
-        let mut count_q = db.query(&count_sql).bind(("contest_ids", contest_things.clone()));
+        let count_sql = self.query_with_scope(&format!(
+            "SELECT count() AS count FROM contest WHERE {} GROUP ALL",
+            where_clause
+        ));
+        let mut count_q = db
+            .query(&count_sql)
+            .bind(("contest_ids", contest_things.clone()));
         if !q.is_empty() {
             count_q = count_q.bind(("q", q.to_string()));
         }
@@ -1670,7 +2071,11 @@ impl ContestRepositoryImpl {
         if let Some(et) = stop_to {
             items_q = items_q.bind(("stop_to", et.to_string()));
         }
-        let rows: Vec<serde_json::Value> = items_q.await.map_err(|e| e.to_string())?.take(result_idx).unwrap_or_default();
+        let rows: Vec<serde_json::Value> = items_q
+            .await
+            .map_err(|e| e.to_string())?
+            .take(result_idx)
+            .unwrap_or_default();
 
         let mut items = Vec::new();
         for row in rows {
@@ -1695,8 +2100,16 @@ impl ContestRepositoryImpl {
             }
         }
 
-        log::info!("🔍 Search query returned {} items (page {} of size {}), total {}", items.len(), page, page_size, total);
-        Ok(serde_json::json!({"items": items, "total": total, "page": page, "page_size": page_size}))
+        log::info!(
+            "🔍 Search query returned {} items (page {} of size {}), total {}",
+            items.len(),
+            page,
+            page_size,
+            total
+        );
+        Ok(
+            serde_json::json!({"items": items, "total": total, "page": page, "page_size": page_size}),
+        )
     }
 }
 

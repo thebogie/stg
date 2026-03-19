@@ -74,13 +74,21 @@ pub fn game_performance_tab(props: &GamePerformanceTabProps) -> Html {
             detail_loading.set(true);
             detail_error.set(None);
             spawn_local(async move {
-                let url = format!("/api/analytics/players/{}/game-performance/detail", player_param);
+                let url = format!(
+                    "/api/analytics/players/{}/game-performance/detail",
+                    player_param
+                );
                 match authenticated_get(&url).send().await {
-                    Ok(resp) if resp.ok() => match resp.json::<Vec<GamePerformanceDetailDto>>().await {
-                        Ok(v) => detail_rows.set(Some(v)),
-                        Err(_) => detail_error.set(Some("Failed to parse game performance detail".to_string())),
-                    },
-                    Ok(resp) => detail_error.set(Some(format!("Failed to load detail: {}", resp.status()))),
+                    Ok(resp) if resp.ok() => {
+                        match resp.json::<Vec<GamePerformanceDetailDto>>().await {
+                            Ok(v) => detail_rows.set(Some(v)),
+                            Err(_) => detail_error
+                                .set(Some("Failed to parse game performance detail".to_string())),
+                        }
+                    }
+                    Ok(resp) => {
+                        detail_error.set(Some(format!("Failed to load detail: {}", resp.status())))
+                    }
                     Err(e) => detail_error.set(Some(format!("Failed to load detail: {}", e))),
                 }
                 detail_loading.set(false);

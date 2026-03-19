@@ -261,10 +261,18 @@ impl AnalyticsController {
             .query_string()
             .split('&')
             .any(|p| p.eq_ignore_ascii_case("refresh=true") || p.eq_ignore_ascii_case("refresh=1"));
-        match self.usecase.get_player_achievements(&player_id, force_refresh).await {
+        match self
+            .usecase
+            .get_player_achievements(&player_id, force_refresh)
+            .await
+        {
             Ok(achievements) => Ok(HttpResponse::Ok().json(achievements)),
             Err(e) => {
-                log::error!("Failed to get player achievements for {}: {:?}", player_id, e);
+                log::error!(
+                    "Failed to get player achievements for {}: {:?}",
+                    player_id,
+                    e
+                );
                 Ok(HttpResponse::InternalServerError().json(json!({
                     "error": "Failed to get player achievements"
                 })))
@@ -360,7 +368,11 @@ impl AnalyticsController {
         } else {
             (format!("player/{}", player_param), None)
         };
-        match self.usecase.get_profile_bundle(&player_id, player_email.as_deref()).await {
+        match self
+            .usecase
+            .get_profile_bundle(&player_id, player_email.as_deref())
+            .await
+        {
             Ok(bundle) => Ok(HttpResponse::Ok().json(bundle)),
             Err(e) => {
                 log::error!("Failed to get profile bundle for {}: {:?}", player_id, e);
@@ -446,7 +458,9 @@ impl AnalyticsController {
                 }
                 Err(e) => {
                     log::error!("Failed to query player ID from email: {}", e);
-                    return Err(actix_web::error::ErrorInternalServerError("Database query failed"));
+                    return Err(actix_web::error::ErrorInternalServerError(
+                        "Database query failed",
+                    ));
                 }
             }
         } else if player_param.contains('/') {
@@ -455,7 +469,11 @@ impl AnalyticsController {
             (format!("player/{}", player_param), None, None)
         };
         log::debug!("get_profile_summary: resolved player_id={:?}", player_id);
-        match self.usecase.get_profile_summary(&player_id, player_thing, None, player_email.as_deref()).await {
+        match self
+            .usecase
+            .get_profile_summary(&player_id, player_thing, None, player_email.as_deref())
+            .await
+        {
             Ok(summary) => Ok(HttpResponse::Ok().json(summary)),
             Err(e) => {
                 log::error!("Failed to get profile summary for {}: {:?}", player_id, e);
@@ -1449,7 +1467,9 @@ impl AnalyticsController {
                 }
                 Err(e) => {
                     log::error!("Failed to query player ID from email: {}", e);
-                    return Err(actix_web::error::ErrorInternalServerError("Database query failed"));
+                    return Err(actix_web::error::ErrorInternalServerError(
+                        "Database query failed",
+                    ));
                 }
             }
         } else if player_param.contains('/') {
@@ -1461,7 +1481,11 @@ impl AnalyticsController {
         // player_email is unused for now; kept for parity with other "me" handlers
         let _ = player_email;
 
-        match self.usecase.get_player_game_performance_detail(&player_id).await {
+        match self
+            .usecase
+            .get_player_game_performance_detail(&player_id)
+            .await
+        {
             Ok(rows) => Ok(HttpResponse::Ok().json(rows)),
             Err(e) => {
                 log::error!(
@@ -1672,7 +1696,8 @@ pub fn configure_routes(
     redis_client: std::sync::Arc<redis::Client>,
     prefix: &str,
 ) {
-    let redis_analytics_cache = crate::analytics::cache::RedisAnalyticsCache::new((*redis_client).clone());
+    let redis_analytics_cache =
+        crate::analytics::cache::RedisAnalyticsCache::new((*redis_client).clone());
     let cache = crate::analytics::cache::AnalyticsCacheKind::Redis(redis_analytics_cache);
     let controller = AnalyticsController::new_with_cache(db, config, cache);
     let scope_path = if prefix.is_empty() {

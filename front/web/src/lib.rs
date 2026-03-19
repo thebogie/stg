@@ -15,9 +15,9 @@ pub mod auth;
 pub mod components;
 pub mod config;
 pub mod context;
+pub mod flatpickr;
 pub mod hooks;
 pub mod tauri;
-pub mod flatpickr;
 pub mod version;
 pub mod analytics {
     pub mod client_manager;
@@ -223,7 +223,10 @@ fn switch(routes: Route) -> Html {
             }
         }
         Route::ContestsWithGame { game_id } => {
-            debug!("Rendering Contests component (protected) with game filter: {}", game_id);
+            debug!(
+                "Rendering Contests component (protected) with game filter: {}",
+                game_id
+            );
             html! {
                 <ProtectedRoute>
                     <Contests initial_game_id={Some(game_id)} />

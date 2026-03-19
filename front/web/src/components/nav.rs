@@ -90,13 +90,14 @@ pub fn nav() -> Html {
             }
 
             let is_palette_open = is_palette_open.clone();
-            let listener = EventListener::new(&window(), "keydown", move |event: &web_sys::Event| {
-                if let Some(e) = event.dyn_ref::<web_sys::KeyboardEvent>() {
-                    if e.key() == "Escape" {
-                        is_palette_open.set(false);
+            let listener =
+                EventListener::new(&window(), "keydown", move |event: &web_sys::Event| {
+                    if let Some(e) = event.dyn_ref::<web_sys::KeyboardEvent>() {
+                        if e.key() == "Escape" {
+                            is_palette_open.set(false);
+                        }
                     }
-                }
-            });
+                });
 
             Box::new(move || drop(listener)) as Box<dyn FnOnce()>
         });

@@ -228,7 +228,10 @@ impl AnalyticsUseCase {
         let dto = match stats {
             Some(stats) => PlayerStatsDto::from(&stats),
             None => {
-                log::warn!("get_player_stats: no row for player_id={:?}, returning default zeros", player_id);
+                log::warn!(
+                    "get_player_stats: no row for player_id={:?}, returning default zeros",
+                    player_id
+                );
                 // Return default stats for player not found
                 PlayerStatsDto {
                     player_id: player_id.to_string(),
@@ -270,20 +273,28 @@ impl AnalyticsUseCase {
 
         if force_refresh {
             self.cache.remove(&cache_key).await;
-            log::debug!("Achievements cache cleared for player {} (force_refresh)", player_id);
+            log::debug!(
+                "Achievements cache cleared for player {} (force_refresh)",
+                player_id
+            );
         }
 
         // Try to get from cache first (unless we just cleared it)
         if !force_refresh {
             if let Some(cached_data) = self.cache.get(&cache_key).await {
-                if let Ok(achievements) = serde_json::from_str::<PlayerAchievementsDto>(&cached_data) {
+                if let Ok(achievements) =
+                    serde_json::from_str::<PlayerAchievementsDto>(&cached_data)
+                {
                     log::debug!("Achievements cache hit for player {}", player_id);
                     return Ok(achievements);
                 }
             }
         }
 
-        log::debug!("Achievements cache miss for player {}, fetching from DB", player_id);
+        log::debug!(
+            "Achievements cache miss for player {}, fetching from DB",
+            player_id
+        );
         let achievements = self.repo.get_player_achievements(player_id).await?;
 
         let achievement_dtos: Vec<AchievementDto> = achievements
@@ -348,7 +359,9 @@ impl AnalyticsUseCase {
         let r_display = self.repo().get_player_display_label(&player_id).await;
         let r_stats_opt = if let Some(email) = player_email {
             // "me": four aggregate queries binding $email; player_id from controller (already resolved)
-            self.repo().get_player_stats_for_me_by_email(email, &player_id).await
+            self.repo()
+                .get_player_stats_for_me_by_email(email, &player_id)
+                .await
         } else if let Some(id_str) = player_id_str {
             self.repo().get_player_stats_by_id_str(id_str).await
         } else if let Some(thing) = player_thing {
@@ -363,7 +376,10 @@ impl AnalyticsUseCase {
         let (player_stats, from_db) = match r_stats_opt {
             Ok(Some(stats)) => (PlayerStatsDto::from(&stats), true),
             Ok(None) => {
-                log::warn!("profile summary: no player row for player_id={:?}", player_id);
+                log::warn!(
+                    "profile summary: no player row for player_id={:?}",
+                    player_id
+                );
                 (Self::default_player_stats(&player_id), false)
             }
             Err(e) => {
@@ -430,33 +446,27 @@ impl AnalyticsUseCase {
                 }
             }
         };
-        let (
-            r_display,
-            r_stats,
-            r_achievements,
-            r_game_perf,
-            r_trends,
-            r_opponents_both,
-        ) = if player_email.is_some() {
-            let placeholder = default_stats.clone();
-            tokio::join!(
-                self.repo().get_player_display_label(&player_id),
-                async move { Ok::<PlayerStatsDto, SharedError>(placeholder) },
-                self.get_player_achievements(&player_id, true), // fresh so bundle has latest achievement list
-                self.get_my_game_performance(&player_id),
-                self.get_my_performance_trends(&player_id, None, None),
-                opponents_fut,
-            )
-        } else {
-            tokio::join!(
-                self.repo().get_player_display_label(&player_id),
-                self.get_player_stats(&player_id, &req),
-                self.get_player_achievements(&player_id, true), // fresh so bundle has latest achievement list
-                self.get_my_game_performance(&player_id),
-                self.get_my_performance_trends(&player_id, None, None),
-                opponents_fut,
-            )
-        };
+        let (r_display, r_stats, r_achievements, r_game_perf, r_trends, r_opponents_both) =
+            if player_email.is_some() {
+                let placeholder = default_stats.clone();
+                tokio::join!(
+                    self.repo().get_player_display_label(&player_id),
+                    async move { Ok::<PlayerStatsDto, SharedError>(placeholder) },
+                    self.get_player_achievements(&player_id, true), // fresh so bundle has latest achievement list
+                    self.get_my_game_performance(&player_id),
+                    self.get_my_performance_trends(&player_id, None, None),
+                    opponents_fut,
+                )
+            } else {
+                tokio::join!(
+                    self.repo().get_player_display_label(&player_id),
+                    self.get_player_stats(&player_id, &req),
+                    self.get_player_achievements(&player_id, true), // fresh so bundle has latest achievement list
+                    self.get_my_game_performance(&player_id),
+                    self.get_my_performance_trends(&player_id, None, None),
+                    opponents_fut,
+                )
+            };
 
         let player_stats = if let Some(email) = player_email {
             self.repo()
@@ -678,10 +688,18 @@ impl AnalyticsUseCase {
 
     /// Invalidate cache for a specific player (profile keys + achievements + pattern for other player-scoped keys).
     pub async fn invalidate_player_cache(&self, player_id: &str) {
-        self.cache.remove(&CacheKeys::profile_bundle(player_id)).await;
-        self.cache.remove(&CacheKeys::profile_summary(player_id)).await;
-        self.cache.remove(&CacheKeys::profile_opponents(player_id)).await;
-        self.cache.remove(&CacheKeys::player_achievements(player_id)).await;
+        self.cache
+            .remove(&CacheKeys::profile_bundle(player_id))
+            .await;
+        self.cache
+            .remove(&CacheKeys::profile_summary(player_id))
+            .await;
+        self.cache
+            .remove(&CacheKeys::profile_opponents(player_id))
+            .await;
+        self.cache
+            .remove(&CacheKeys::player_achievements(player_id))
+            .await;
         self.cache
             .invalidate_pattern(&format!("player:{}", player_id))
             .await;
@@ -985,10 +1003,7 @@ impl AnalyticsUseCase {
             Ok(Ok(p)) => p,
             Ok(Err(e)) => return Err(e),
             Err(_) => {
-                log::warn!(
-                    "get_profile_opponents timed out for player {}",
-                    player_id
-                );
+                log::warn!("get_profile_opponents timed out for player {}", player_id);
                 (vec![], vec![])
             }
         };
@@ -1037,7 +1052,10 @@ impl AnalyticsUseCase {
             }
         }
 
-        let rows = self.repo.get_player_game_performance_detail(player_id).await?;
+        let rows = self
+            .repo
+            .get_player_game_performance_detail(player_id)
+            .await?;
         if let Ok(json) = serde_json::to_string(&rows) {
             self.cache
                 .set_with_ttl(cache_key, json, CacheTTL::player_stats())

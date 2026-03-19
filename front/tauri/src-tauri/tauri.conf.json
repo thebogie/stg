@@ -23,7 +23,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "icon": [],
+    "icon": ["icons/icon.png"],
     "shortDescription": "Tournament & Contest Management",
     "longDescription": "Create and manage tournaments with ease. Brackets, venues, live results, and analytics in one place.",
     "category": "Game"
