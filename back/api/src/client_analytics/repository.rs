@@ -1,5 +1,7 @@
 use crate::db::Db;
-use crate::surreal_helpers::{record_id_from_field, record_id_from_row, record_id_to_key, scalar_i64};
+use crate::surreal_helpers::{
+    record_id_from_field, record_id_from_row, record_id_to_key, scalar_i64,
+};
 use async_trait::async_trait;
 use chrono::{DateTime, FixedOffset};
 use log;
@@ -130,13 +132,36 @@ fn json_to_venue(v: &serde_json::Value) -> Option<Venue> {
     let id = record_id_from_row(v, Some("venue"))?;
     Some(Venue {
         id,
-        rev: v.get("_rev").or_else(|| v.get("rev")).and_then(|x| x.as_str()).unwrap_or("").to_string(),
-        display_name: v.get("displayName").or_else(|| v.get("display_name")).and_then(|x| x.as_str()).unwrap_or("").to_string(),
-        formatted_address: v.get("formattedAddress").or_else(|| v.get("formatted_address")).and_then(|x| x.as_str()).unwrap_or("").to_string(),
-        place_id: v.get("place_id").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+        rev: v
+            .get("_rev")
+            .or_else(|| v.get("rev"))
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .to_string(),
+        display_name: v
+            .get("displayName")
+            .or_else(|| v.get("display_name"))
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .to_string(),
+        formatted_address: v
+            .get("formattedAddress")
+            .or_else(|| v.get("formatted_address"))
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .to_string(),
+        place_id: v
+            .get("place_id")
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .to_string(),
         lat: v.get("lat").and_then(|x| x.as_f64()).unwrap_or(0.0),
         lng: v.get("lng").and_then(|x| x.as_f64()).unwrap_or(0.0),
-        timezone: v.get("timezone").and_then(|x| x.as_str()).unwrap_or("UTC").to_string(),
+        timezone: v
+            .get("timezone")
+            .and_then(|x| x.as_str())
+            .unwrap_or("UTC")
+            .to_string(),
         source: shared::models::venue::VenueSource::Database,
     })
 }
@@ -146,11 +171,26 @@ fn json_to_game(v: &serde_json::Value) -> Option<Game> {
     let id = record_id_from_row(v, Some("game"))?;
     Some(Game {
         id,
-        rev: v.get("_rev").or_else(|| v.get("rev")).and_then(|x| x.as_str()).unwrap_or("").to_string(),
-        name: v.get("name").and_then(|x| x.as_str()).unwrap_or("").to_string(),
-        year_published: v.get("year_published").and_then(|x| x.as_i64()).map(|n| n as i32),
+        rev: v
+            .get("_rev")
+            .or_else(|| v.get("rev"))
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .to_string(),
+        name: v
+            .get("name")
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .to_string(),
+        year_published: v
+            .get("year_published")
+            .and_then(|x| x.as_i64())
+            .map(|n| n as i32),
         bgg_id: v.get("bgg_id").and_then(|x| x.as_i64()).map(|n| n as i32),
-        description: v.get("description").and_then(|x| x.as_str()).map(String::from),
+        description: v
+            .get("description")
+            .and_then(|x| x.as_str())
+            .map(String::from),
         source: shared::models::game::GameSource::Database,
     })
 }
@@ -179,7 +219,10 @@ impl ClientAnalyticsRepositoryImpl {
                 if let Some(arr) = result.as_array() {
                     let ids: Vec<String> = arr
                         .iter()
-                        .filter_map(|v| record_id_from_field(v, "id").or_else(|| record_id_from_row(v, Some("contest"))))
+                        .filter_map(|v| {
+                            record_id_from_field(v, "id")
+                                .or_else(|| record_id_from_row(v, Some("contest")))
+                        })
                         .collect();
                     if !ids.is_empty() {
                         return Ok(ids);
@@ -223,7 +266,11 @@ impl ClientAnalyticsRepository for ClientAnalyticsRepositoryImpl {
             .await
             .map_err(|e| SharedError::Database(e.to_string()))?;
         let contests: Vec<Contest> = res.take(0).unwrap_or_default();
-        log::info!("Retrieved {} contests for player: {}", contests.len(), player_id);
+        log::info!(
+            "Retrieved {} contests for player: {}",
+            contests.len(),
+            player_id
+        );
         Ok(contests)
     }
 
@@ -246,7 +293,12 @@ impl ClientAnalyticsRepository for ClientAnalyticsRepositoryImpl {
             .await
             .map_err(|e| SharedError::Database(e.to_string()))?;
         let contests: Vec<Contest> = res.take(0).unwrap_or_default();
-        log::info!("Retrieved {} contests since {} for player: {}", contests.len(), since, player_id);
+        log::info!(
+            "Retrieved {} contests since {} for player: {}",
+            contests.len(),
+            since,
+            player_id
+        );
         Ok(contests)
     }
 
@@ -332,7 +384,11 @@ impl ClientAnalyticsRepository for ClientAnalyticsRepositoryImpl {
         }
         let mut res = q.await.map_err(|e| SharedError::Database(e.to_string()))?;
         let contests: Vec<Contest> = res.take(0).unwrap_or_default();
-        log::info!("Retrieved {} filtered contests for player: {}", contests.len(), player_id);
+        log::info!(
+            "Retrieved {} filtered contests for player: {}",
+            contests.len(),
+            player_id
+        );
         Ok(contests)
     }
 
@@ -347,7 +403,11 @@ impl ClientAnalyticsRepository for ClientAnalyticsRepositoryImpl {
             {
                 let rows: Vec<serde_json::Value> = res.take(0).unwrap_or_default();
                 if let Some(first) = rows.into_iter().next() {
-                    let result = first.get("result").or_else(|| first.get("fn::contest_game($key)")).cloned().unwrap_or(serde_json::Value::Null);
+                    let result = first
+                        .get("result")
+                        .or_else(|| first.get("fn::contest_game($key)"))
+                        .cloned()
+                        .unwrap_or(serde_json::Value::Null);
                     if !result.is_null() && result.is_object() {
                         if let Some(game) = json_to_game(&result) {
                             return Ok(game);
@@ -366,7 +426,10 @@ impl ClientAnalyticsRepository for ClientAnalyticsRepositoryImpl {
         let edge_rows: Vec<serde_json::Value> = edge_res.take(0).unwrap_or_default();
         let game_ids: Vec<String> = edge_rows.iter().filter_map(edge_in_to_rid).collect();
         if game_ids.is_empty() {
-            return Err(SharedError::NotFound(format!("No game found for contest: {}", contest_id)));
+            return Err(SharedError::NotFound(format!(
+                "No game found for contest: {}",
+                contest_id
+            )));
         }
         let mut res = self
             .db
@@ -375,7 +438,9 @@ impl ClientAnalyticsRepository for ClientAnalyticsRepositoryImpl {
             .await
             .map_err(|e| SharedError::Database(e.to_string()))?;
         let games: Vec<Game> = res.take(0).unwrap_or_default();
-        games.into_iter().next().ok_or_else(|| SharedError::NotFound(format!("No game found for contest: {}", contest_id)))
+        games.into_iter().next().ok_or_else(|| {
+            SharedError::NotFound(format!("No game found for contest: {}", contest_id))
+        })
     }
 
     async fn get_venue_for_contest(&self, contest_id: &str) -> Result<Venue, SharedError> {
@@ -389,7 +454,11 @@ impl ClientAnalyticsRepository for ClientAnalyticsRepositoryImpl {
             {
                 let rows: Vec<serde_json::Value> = res.take(0).unwrap_or_default();
                 if let Some(first) = rows.into_iter().next() {
-                    let result = first.get("result").or_else(|| first.get("fn::contest_venue($key)")).cloned().unwrap_or(serde_json::Value::Null);
+                    let result = first
+                        .get("result")
+                        .or_else(|| first.get("fn::contest_venue($key)"))
+                        .cloned()
+                        .unwrap_or(serde_json::Value::Null);
                     if !result.is_null() && result.is_object() {
                         if let Some(venue) = json_to_venue(&result) {
                             return Ok(venue);
@@ -408,7 +477,10 @@ impl ClientAnalyticsRepository for ClientAnalyticsRepositoryImpl {
         let edge_rows: Vec<serde_json::Value> = edge_res.take(0).unwrap_or_default();
         let venue_ids: Vec<String> = edge_rows.iter().filter_map(edge_in_to_rid).collect();
         if venue_ids.is_empty() {
-            return Err(SharedError::NotFound(format!("No venue found for contest: {}", contest_id)));
+            return Err(SharedError::NotFound(format!(
+                "No venue found for contest: {}",
+                contest_id
+            )));
         }
         let mut res = self
             .db
@@ -417,7 +489,9 @@ impl ClientAnalyticsRepository for ClientAnalyticsRepositoryImpl {
             .await
             .map_err(|e| SharedError::Database(e.to_string()))?;
         let venues: Vec<Venue> = res.take(0).unwrap_or_default();
-        venues.into_iter().next().ok_or_else(|| SharedError::NotFound(format!("No venue found for contest: {}", contest_id)))
+        venues.into_iter().next().ok_or_else(|| {
+            SharedError::NotFound(format!("No venue found for contest: {}", contest_id))
+        })
     }
 
     async fn get_contest_participants(
@@ -426,17 +500,27 @@ impl ClientAnalyticsRepository for ClientAnalyticsRepositoryImpl {
     ) -> Result<Vec<ContestParticipant>, SharedError> {
         let key = record_id_to_key(contest_id, "contest");
         if !key.is_empty() {
-            if let Ok(mut res) = self.db.query("SELECT fn::contest_participants($key) AS result FROM [1]").bind(("key", key.clone())).await {
+            if let Ok(mut res) = self
+                .db
+                .query("SELECT fn::contest_participants($key) AS result FROM [1]")
+                .bind(("key", key.clone()))
+                .await
+            {
                 let rows: Vec<serde_json::Value> = res.take(0).unwrap_or_default();
                 if let Some(first) = rows.into_iter().next() {
-                    let result = first.get("result").or_else(|| first.get("fn::contest_participants($key)")).cloned().unwrap_or(serde_json::Value::Null);
+                    let result = first
+                        .get("result")
+                        .or_else(|| first.get("fn::contest_participants($key)"))
+                        .cloned()
+                        .unwrap_or(serde_json::Value::Null);
                     if let Some(edges) = result.as_array() {
                         let player_ids: Vec<String> = edges
                             .iter()
                             .filter_map(|e| record_id_from_field(e, "player_id"))
                             .collect();
                         if !player_ids.is_empty() {
-                            let ids_surreal: Vec<String> = player_ids.iter().map(|s| to_rid(s)).collect();
+                            let ids_surreal: Vec<String> =
+                                player_ids.iter().map(|s| to_rid(s)).collect();
                             if let Ok(mut res2) = self
                                 .db
                                 .query("SELECT string::concat(id) AS id, handle, firstname, lastname FROM player WHERE id INSIDE $ids")
@@ -475,10 +559,23 @@ impl ClientAnalyticsRepository for ClientAnalyticsRepositoryImpl {
             }
         }
         let rid = to_rid(contest_id);
-        let sql = "SELECT `out` AS player_id, place, result, points FROM resulted_in WHERE `in` = $rid";
-        let mut res = self.db.query(sql).bind(("rid", rid)).await.map_err(|e| SharedError::Database(e.to_string()))?;
+        let sql =
+            "SELECT `out` AS player_id, place, result, points FROM resulted_in WHERE `in` = $rid";
+        let mut res = self
+            .db
+            .query(sql)
+            .bind(("rid", rid))
+            .await
+            .map_err(|e| SharedError::Database(e.to_string()))?;
         let edges: Vec<serde_json::Value> = res.take(0).unwrap_or_default();
-        let player_ids: Vec<String> = edges.iter().filter_map(|e| e.get("player_id").and_then(|v| v.as_str()).map(|s| s.replace("player:", "player/"))).collect();
+        let player_ids: Vec<String> = edges
+            .iter()
+            .filter_map(|e| {
+                e.get("player_id")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.replace("player:", "player/"))
+            })
+            .collect();
         if player_ids.is_empty() {
             return Ok(Vec::new());
         }
@@ -490,24 +587,49 @@ impl ClientAnalyticsRepository for ClientAnalyticsRepositoryImpl {
             .await
             .map_err(|e| SharedError::Database(e.to_string()))?;
         let players: Vec<serde_json::Value> = res2.take(0).unwrap_or_default();
-        let player_map: std::collections::HashMap<String, (String, Option<String>, Option<String>)> = players.into_iter().filter_map(|p| {
-            let id = record_id_from_row(&p, None)?;
-            let handle = p.get("handle").and_then(|v| v.as_str()).unwrap_or("").to_string();
-            let firstname = p.get("firstname").and_then(|v| v.as_str()).map(String::from);
-            let lastname = p.get("lastname").and_then(|v| v.as_str()).map(String::from);
-            Some((id, (handle, firstname, lastname)))
-        }).collect();
+        let player_map: std::collections::HashMap<
+            String,
+            (String, Option<String>, Option<String>),
+        > = players
+            .into_iter()
+            .filter_map(|p| {
+                let id = record_id_from_row(&p, None)?;
+                let handle = p
+                    .get("handle")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let firstname = p
+                    .get("firstname")
+                    .and_then(|v| v.as_str())
+                    .map(String::from);
+                let lastname = p.get("lastname").and_then(|v| v.as_str()).map(String::from);
+                Some((id, (handle, firstname, lastname)))
+            })
+            .collect();
         let mut result = Vec::new();
         for e in edges {
-            let player_id = e.get("player_id").and_then(|v| v.as_str()).map(|s| s.replace("player:", "player/")).unwrap_or_default();
-            let (handle, firstname, lastname) = player_map.get(&player_id).cloned().unwrap_or((String::new(), None, None));
+            let player_id = e
+                .get("player_id")
+                .and_then(|v| v.as_str())
+                .map(|s| s.replace("player:", "player/"))
+                .unwrap_or_default();
+            let (handle, firstname, lastname) =
+                player_map
+                    .get(&player_id)
+                    .cloned()
+                    .unwrap_or((String::new(), None, None));
             result.push(ContestParticipant {
                 player_id,
                 handle,
                 firstname,
                 lastname,
                 place: e.get("place").and_then(|v| v.as_i64()).unwrap_or(0) as i32,
-                result: e.get("result").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                result: e
+                    .get("result")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
                 points: e.get("points").and_then(|v| v.as_i64()).map(|p| p as i32),
             });
         }
@@ -527,7 +649,12 @@ impl ClientAnalyticsRepository for ClientAnalyticsRepositoryImpl {
             .await
             .map_err(|e| SharedError::Database(e.to_string()))?;
         let edge_rows: Vec<serde_json::Value> = edge_res.take(0).unwrap_or_default();
-        let game_ids: Vec<String> = edge_rows.iter().filter_map(edge_in_to_rid).collect::<std::collections::HashSet<_>>().into_iter().collect();
+        let game_ids: Vec<String> = edge_rows
+            .iter()
+            .filter_map(edge_in_to_rid)
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
+            .collect();
         if game_ids.is_empty() {
             return Ok(Vec::new());
         }
@@ -538,7 +665,11 @@ impl ClientAnalyticsRepository for ClientAnalyticsRepositoryImpl {
             .await
             .map_err(|e| SharedError::Database(e.to_string()))?;
         let games: Vec<Game> = res.take(0).unwrap_or_default();
-        log::info!("Retrieved {} unique games for player: {}", games.len(), player_id);
+        log::info!(
+            "Retrieved {} unique games for player: {}",
+            games.len(),
+            player_id
+        );
         Ok(games)
     }
 
@@ -555,7 +686,12 @@ impl ClientAnalyticsRepository for ClientAnalyticsRepositoryImpl {
             .await
             .map_err(|e| SharedError::Database(e.to_string()))?;
         let edge_rows: Vec<serde_json::Value> = edge_res.take(0).unwrap_or_default();
-        let venue_ids: Vec<String> = edge_rows.iter().filter_map(edge_in_to_rid).collect::<std::collections::HashSet<_>>().into_iter().collect();
+        let venue_ids: Vec<String> = edge_rows
+            .iter()
+            .filter_map(edge_in_to_rid)
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
+            .collect();
         if venue_ids.is_empty() {
             return Ok(Vec::new());
         }
@@ -566,7 +702,11 @@ impl ClientAnalyticsRepository for ClientAnalyticsRepositoryImpl {
             .await
             .map_err(|e| SharedError::Database(e.to_string()))?;
         let venues: Vec<Venue> = res.take(0).unwrap_or_default();
-        log::info!("Retrieved {} unique venues for player: {}", venues.len(), player_id);
+        log::info!(
+            "Retrieved {} unique venues for player: {}",
+            venues.len(),
+            player_id
+        );
         Ok(venues)
     }
 
@@ -586,7 +726,12 @@ impl ClientAnalyticsRepository for ClientAnalyticsRepositoryImpl {
             .await
             .map_err(|e| SharedError::Database(e.to_string()))?;
         let edge_rows: Vec<serde_json::Value> = edge_res.take(0).unwrap_or_default();
-        let player_ids: Vec<String> = edge_rows.iter().filter_map(edge_in_to_rid).collect::<std::collections::HashSet<_>>().into_iter().collect();
+        let player_ids: Vec<String> = edge_rows
+            .iter()
+            .filter_map(edge_in_to_rid)
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
+            .collect();
         if player_ids.is_empty() {
             return Ok(Vec::new());
         }
@@ -597,7 +742,11 @@ impl ClientAnalyticsRepository for ClientAnalyticsRepositoryImpl {
             .await
             .map_err(|e| SharedError::Database(e.to_string()))?;
         let opponents: Vec<Player> = res.take(0).unwrap_or_default();
-        log::info!("Retrieved {} unique opponents for player: {}", opponents.len(), player_id);
+        log::info!(
+            "Retrieved {} unique opponents for player: {}",
+            opponents.len(),
+            player_id
+        );
         Ok(opponents)
     }
 
@@ -634,7 +783,12 @@ impl ClientAnalyticsRepository for ClientAnalyticsRepositoryImpl {
             return Ok(None);
         }
         let sql = "SELECT * FROM contest WHERE id INSIDE $contest_ids ORDER BY start DESC LIMIT 1";
-        let mut res = self.db.query(sql).bind(("contest_ids", contest_ids)).await.map_err(|e| SharedError::Database(e.to_string()))?;
+        let mut res = self
+            .db
+            .query(sql)
+            .bind(("contest_ids", contest_ids))
+            .await
+            .map_err(|e| SharedError::Database(e.to_string()))?;
         let contests: Vec<Contest> = res.take(0).unwrap_or_default();
         Ok(contests.into_iter().next())
     }
@@ -644,7 +798,11 @@ impl ClientAnalyticsRepository for ClientAnalyticsRepositoryImpl {
         player_id: &str,
         min_contests: i32,
     ) -> Result<Vec<serde_json::Value>, SharedError> {
-        log::info!("🔍 Getting gaming communities for player: {} (min_contests={})", player_id, min_contests);
+        log::info!(
+            "🔍 Getting gaming communities for player: {} (min_contests={})",
+            player_id,
+            min_contests
+        );
         let _ = (self, player_id, min_contests);
         Ok(Vec::new())
     }
@@ -653,7 +811,10 @@ impl ClientAnalyticsRepository for ClientAnalyticsRepositoryImpl {
         &self,
         player_id: &str,
     ) -> Result<serde_json::Value, SharedError> {
-        log::info!("🔍 Getting player networking insights for player: {}", player_id);
+        log::info!(
+            "🔍 Getting player networking insights for player: {}",
+            player_id
+        );
         // Stub: return minimal structure; full SurrealQL can be added later
         Ok(serde_json::json!({
             "player_id": player_id,

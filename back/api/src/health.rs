@@ -1,5 +1,5 @@
-use actix_web::{get, web, HttpResponse, Responder};
 use crate::db::Db;
+use actix_web::{get, web, HttpResponse, Responder};
 use serde::Serialize;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::time::timeout;
@@ -101,7 +101,9 @@ async fn check_redis(redis_client: &redis::Client) -> ServiceHealthStatus {
 }
 
 /// Check scheduler status
-fn check_scheduler(scheduler: &web::Data<crate::ratings::scheduler::RatingsScheduler>) -> ServiceHealthStatus {
+fn check_scheduler(
+    scheduler: &web::Data<crate::ratings::scheduler::RatingsScheduler>,
+) -> ServiceHealthStatus {
     let status = scheduler.get_status();
 
     if status.is_running {
@@ -124,7 +126,9 @@ fn check_scheduler(scheduler: &web::Data<crate::ratings::scheduler::RatingsSched
 pub async fn surreal_db_check(db: web::Data<Db>) -> impl Responder {
     use serde_json::json;
     let ns = std::env::var("SURREAL_NS").unwrap_or_else(|_| "".to_string());
-    let db_name = std::env::var("SURREAL_DB").or_else(|_| std::env::var("ARANGO_DB")).unwrap_or_else(|_| "".to_string());
+    let db_name = std::env::var("SURREAL_DB")
+        .or_else(|_| std::env::var("ARANGO_DB"))
+        .unwrap_or_else(|_| "".to_string());
     let mut out = json!({
         "ns": ns,
         "db": db_name,
@@ -450,12 +454,13 @@ mod tests {
 
     #[actix_web::test]
     async fn test_detailed_health_check() {
-        let redis_client = redis::Client::open("redis://localhost:6379/").unwrap_or_else(|_| {
-            redis::Client::open("redis://invalid:6379/").unwrap()
-        });
+        let redis_client = redis::Client::open("redis://localhost:6379/")
+            .unwrap_or_else(|_| redis::Client::open("redis://invalid:6379/").unwrap());
 
         // Try SurrealDB: connect, signin Root, use_ns/use_db; if any step fails, skip test
-        let db_result = surrealdb::Surreal::new::<surrealdb::engine::remote::ws::Ws>("ws://localhost:50001").await;
+        let db_result =
+            surrealdb::Surreal::new::<surrealdb::engine::remote::ws::Ws>("ws://localhost:50001")
+                .await;
         let db: Option<crate::db::Db> = match db_result {
             Ok(d) => Some(d),
             Err(_) => return,
@@ -533,7 +538,9 @@ mod tests {
         let redis_client = redis::Client::open("redis://localhost:6379/")
             .unwrap_or_else(|_| redis::Client::open("redis://invalid:6379/").unwrap());
 
-        let db_result = surrealdb::Surreal::new::<surrealdb::engine::remote::ws::Ws>("ws://localhost:50001").await;
+        let db_result =
+            surrealdb::Surreal::new::<surrealdb::engine::remote::ws::Ws>("ws://localhost:50001")
+                .await;
         let db: Option<crate::db::Db> = match db_result {
             Ok(d) => Some(d),
             Err(_) => return,

@@ -16,7 +16,8 @@ pub struct AppConfig {
 /// API URL comes from env STG_API_URL or defaults to http://127.0.0.1:50002.
 #[tauri::command]
 pub fn get_app_config() -> AppConfig {
-    let api_base_url = std::env::var("STG_API_URL").unwrap_or_else(|_| "http://127.0.0.1:50002".to_string());
+    let api_base_url =
+        std::env::var("STG_API_URL").unwrap_or_else(|_| "http://127.0.0.1:50002".to_string());
     AppConfig {
         api_base_url,
         is_tauri: true,

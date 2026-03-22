@@ -1,5 +1,5 @@
-use crate::api::utils::authenticated_get;
 use crate::api::api_url;
+use crate::api::utils::authenticated_get;
 use crate::Route;
 use shared::dto::analytics::{LeaderboardCategory, LeaderboardResponse, TimePeriod};
 use wasm_bindgen_futures::spawn_local;

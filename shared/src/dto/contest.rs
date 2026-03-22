@@ -118,7 +118,8 @@ impl From<ContestDto> for Contest {
             creator_id: dto.creator_id,
             created_at: dto
                 .created_at
-                .unwrap_or_else(|| chrono::Utc::now().fixed_offset()).into(),
+                .unwrap_or_else(|| chrono::Utc::now().fixed_offset())
+                .into(),
         }
     }
 }

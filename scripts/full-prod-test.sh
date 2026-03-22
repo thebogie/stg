@@ -5,6 +5,8 @@
 # - Starts the full stack (SurrealDB, Redis, backend, frontend) via deploy/docker-compose.full.yml
 # - Waits for all services (including frontend at FRONTEND_PORT) to be ready
 # - Applies minimal SurrealDB schema and functions for tests
+# - Optionally imports data/bgg/boardgames_ranks.csv into bgg_catalog when that file exists (defaults to
+#   10k newest-by-year games for speed; full ~175k-row import is opt-in — see BGG catalog block below)
 # - Runs backend unit tests, integration tests, and Playwright E2E against the stack
 # - Prints a summary and writes detailed logs under _build/<build_version>/
 #
@@ -13,7 +15,16 @@
 # Usage:
 #   ./scripts/full-prod-test.sh
 #
+# Iterating after a failed test (avoid ~10 min full BGG re-import + volume wipe):
+#   FULL_PROD_TEST_ITERATE=1 ./scripts/full-prod-test.sh
+#   • Skips docker compose down -v so Surreal/Redis volumes keep bgg_catalog from the last run.
+#   • Skips BGG CSV import when bgg_catalog row count is already high enough (jq + HTTP /sql).
+#   Full catalog reuse threshold defaults to 100000 rows; capped imports use ~90% of BGG_IMPORT_MAX_ROWS.
+#   Force a fresh import: FULL_PROD_TEST_FORCE_BGG_IMPORT=1
+#   Only keep volumes (still re-import): FULL_PROD_TEST_KEEP_VOLUMES=1 (without ITERATE)
+#
 # Requires: config/.env.prod (see config/setup-env.sh prod), Docker, cargo, Node/npx (Playwright)
+#           jq recommended when using FULL_PROD_TEST_ITERATE / FULL_PROD_TEST_REUSE_BGG_CATALOG
 # Flow: run locally → all pass → commit & push to main → GHCR builds and labels backend (and
 #       frontend artifact in CI) → on production: ./deploy/deploy_stg.sh <tag> (from repo) or ./deploy_stg.sh <tag> (from deploy/ on server)
 
@@ -30,10 +41,24 @@ export COMPOSE_PROJECT_NAME=stg
 COMPOSE_FILE="$ROOT/deploy/docker-compose.full.yml"
 ENV_FILE="$ROOT/config/.env.prod"
 
+# Shorthand: keep DB volumes + skip redundant bgg_catalog import when already populated
+if [ "${FULL_PROD_TEST_ITERATE:-0}" = "1" ]; then
+  export FULL_PROD_TEST_KEEP_VOLUMES="${FULL_PROD_TEST_KEEP_VOLUMES:-1}"
+  export FULL_PROD_TEST_REUSE_BGG_CATALOG="${FULL_PROD_TEST_REUSE_BGG_CATALOG:-1}"
+fi
+
 # --- Phase 0: Clean project stack (containers + named volumes) ---
-echo "==> [0/7] Stopping and cleaning project docker stack (containers + named volumes)"
+if [ "${FULL_PROD_TEST_KEEP_VOLUMES:-0}" = "1" ]; then
+  echo "==> [0/7] Stopping project docker stack (keeping named volumes — FULL_PROD_TEST_KEEP_VOLUMES=1)"
+else
+  echo "==> [0/7] Stopping and cleaning project docker stack (containers + named volumes)"
+fi
 if [ -f "$COMPOSE_FILE" ] && [ -f "$ENV_FILE" ]; then
-  docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" down -v || true
+  if [ "${FULL_PROD_TEST_KEEP_VOLUMES:-0}" = "1" ]; then
+    docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" down || true
+  else
+    docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" down -v || true
+  fi
 else
   echo "Warning: compose or env file missing; skipping docker compose down."
 fi
@@ -77,6 +102,7 @@ docker build -f front/web/Dockerfile.frontend.caddy \
   --build-arg "GIT_COMMIT=$GIT_COMMIT" \
   --build-arg "BUILD_DATE=$BUILD_DATE" \
   --build-arg "BUILD_VERSION=$BUILD_VERSION" \
+  --build-arg "SOURCE_HASH=$GIT_COMMIT" \
   -t "stg-frontend:$BUILD_VERSION" .
 
 # --- Phase 3: Start full production stack (SurrealDB, Redis, backend, frontend) ---
@@ -174,20 +200,75 @@ if ! "$ROOT/scripts/apply-surreal-functions.sh"; then
   exit 1
 fi
 
-# --- Phase 4: Unit tests ---
-# Clean test crates so unit/integration always use current source (avoids stale backend artifact).
-echo "==> [4/7] Cleaning backend and testing crates (fresh build for tests)"
-cargo clean -p backend -p testing 2>/dev/null || true
+# Optional: fill bgg_catalog from boardgames_ranks.csv (gitignored). Full file is ~175k rows and is slow
+# (one UPSERT per row). Default here: import 10k games with newest yearpublished first (enough to exercise the catalog tier).
+# For a full import: FULL_PROD_TEST_BGG_CATALOG_FULL=1 ./scripts/full-prod-test.sh
+# Or override row cap: BGG_IMPORT_MAX_ROWS=50000 ./scripts/full-prod-test.sh
+# Schema is already applied above (minimal surql includes bgg_catalog). Without this file, game search uses `game` + BGG API only.
+#
+# count_bgg_catalog_rows: Surreal HTTP /sql (same pattern as scripts/run-surreal-script.sh)
+count_bgg_catalog_rows() {
+  local body out
+  body="USE NS ${SURREAL_NS}; USE DB ${SURREAL_DB}; SELECT count() FROM bgg_catalog GROUP ALL;"
+  out=$(curl -sS --connect-timeout 5 --max-time 30 -X POST \
+    -H "Accept: application/json" \
+    -u "${SURREAL_USER}:${SURREAL_PASSWORD}" \
+    --data-binary "$body" \
+    "http://127.0.0.1:${SURREALDB_PORT}/sql" 2>/dev/null) || true
+  echo "$out" | jq -r '[.. | objects | select(has("count")) | .count] | last // 0' 2>/dev/null || echo "0"
+}
 
-echo "==> Unit tests (backend)"
-set +e
-cargo test -p backend --no-fail-fast 2>&1 | tee "$BUILD_DIR/unit.log"
-UNIT_OK=${PIPESTATUS[0]:-$?}
-set -e
-[ "$UNIT_OK" -eq 0 ] && UNIT_RESULT="pass" || UNIT_RESULT="fail"
+CSV_BGG="$ROOT/data/bgg/boardgames_ranks.csv"
+if [ -f "$CSV_BGG" ]; then
+  SKIP_BGG_IMPORT=0
+  if [ "${FULL_PROD_TEST_FORCE_BGG_IMPORT:-0}" = "1" ]; then
+    echo "==> FULL_PROD_TEST_FORCE_BGG_IMPORT=1 — will run BGG import even if bgg_catalog is already populated."
+  elif [ "${FULL_PROD_TEST_REUSE_BGG_CATALOG:-0}" = "1" ]; then
+    if command -v jq >/dev/null 2>&1; then
+      if [ "${FULL_PROD_TEST_BGG_CATALOG_FULL:-0}" = "1" ]; then
+        REUSE_THRESHOLD="${BGG_CATALOG_REUSE_MIN_ROWS:-100000}"
+      else
+        _CAP="${BGG_IMPORT_MAX_ROWS:-10000}"
+        REUSE_THRESHOLD="${BGG_CATALOG_REUSE_MIN_ROWS:-$(( (_CAP * 9 + 9) / 10 ))}"
+      fi
+      EXISTING="$(count_bgg_catalog_rows | tr -d '[:space:]')"
+      EXISTING="${EXISTING:-0}"
+      case "$EXISTING" in
+        ''|*[!0-9]*) EXISTING=0 ;;
+      esac
+      if [ "$EXISTING" -ge "$REUSE_THRESHOLD" ] 2>/dev/null; then
+        echo "==> bgg_catalog already has ${EXISTING} rows (>= ${REUSE_THRESHOLD}); skipping import (FULL_PROD_TEST_REUSE_BGG_CATALOG=1). Use FULL_PROD_TEST_FORCE_BGG_IMPORT=1 to re-import."
+        SKIP_BGG_IMPORT=1
+      else
+        echo "==> bgg_catalog has ${EXISTING} rows (< ${REUSE_THRESHOLD}); running import."
+      fi
+    else
+      echo "Warning: jq not found; cannot check bgg_catalog size — running import anyway." >&2
+    fi
+  fi
 
-# --- Phase 5: Integration tests ---
-echo "==> [5/7] Integration tests (against production stack)"
+  if [ "$SKIP_BGG_IMPORT" = "0" ]; then
+    if [ "${FULL_PROD_TEST_BGG_CATALOG_FULL:-0}" = "1" ]; then
+      unset BGG_IMPORT_MAX_ROWS
+      echo "==> Importing full BGG catalog (FULL_PROD_TEST_BGG_CATALOG_FULL=1) from $CSV_BGG — this may take many minutes."
+    else
+      export BGG_IMPORT_MAX_ROWS="${BGG_IMPORT_MAX_ROWS:-10000}"
+      echo "==> Importing BGG catalog (${BGG_IMPORT_MAX_ROWS} newest-by-year games; full import: FULL_PROD_TEST_BGG_CATALOG_FULL=1) from $CSV_BGG ..."
+    fi
+    (
+      cd "$ROOT"
+      export ENV_FILE_PATH="$ENV_FILE"
+      cargo run -p backend --bin import_bgg_catalog -- "$CSV_BGG" "full-prod-test-$BUILD_VERSION"
+    ) || {
+      echo "Warning: BGG catalog import failed; continuing (game search will not use bgg_catalog tier)." >&2
+    }
+  fi
+else
+  echo "==> No $CSV_BGG — skipping BGG catalog import (place CSV there to exercise the catalog search tier)."
+fi
+
+# Match integration-test env so `cargo test -p backend` (including Redis-backed tests) uses the same
+# host ports as the compose stack (REDIS_PORT may differ from the tests' default 6379).
 export SURREAL_URL="http://127.0.0.1:${SURREALDB_PORT}"
 export REDIS_URL="redis://127.0.0.1:${REDIS_PORT}/"
 export SURREAL_NS="${SURREAL_NS:-stg_rd}"
@@ -195,11 +276,31 @@ export SURREAL_DB="${SURREAL_DB:-stg_rd}"
 export SURREAL_USER="${SURREAL_USER:-root}"
 export SURREAL_PASSWORD="${SURREAL_PASSWORD:-root}"
 
+# --- Phase 4: Unit tests ---
+# cargo test flag as an array element so a stray newline after `--no-f` cannot leave `ail-fast`
+# as the next shell command (bash: "ail-fast: command not found").
+CARGO_NO_FAIL_FAST=(--no-fail-fast)
+
+# Clean test crates so unit/integration always use current source (avoids stale backend artifact).
+echo "==> [4/7] Cleaning backend and testing crates (fresh build for tests)"
+cargo clean -p backend -p testing 2>/dev/null || true
+
+echo "==> Unit tests (backend)"
+set +e
+cargo test -p backend "${CARGO_NO_FAIL_FAST[@]}" 2>&1 | tee "$BUILD_DIR/unit.log"
+UNIT_OK=${PIPESTATUS[0]:-$?}
+set -e
+[ "$UNIT_OK" -eq 0 ] && UNIT_RESULT="pass" || UNIT_RESULT="fail"
+
+# --- Phase 5: Integration tests ---
+echo "==> [5/7] Integration tests (against production stack)"
+# SURREAL_*/REDIS_URL already exported before unit tests (same stack).
+
 # Single thread so Surreal scope (USE NS/DB) is reused within each test (register then login)
 # Fail fast on core auth/API smoke (api_tests) to avoid burning time running the full suite when login is broken.
 set +e
 echo "==> Integration smoke: testing::api_tests (fast fail)"
-cargo test -p testing --test api_tests --no-fail-fast -- --test-threads 1 --nocapture 2>&1 | tee "$BUILD_DIR/integration.api_tests.log"
+cargo test -p testing --test api_tests "${CARGO_NO_FAIL_FAST[@]}" -- --test-threads 1 --nocapture 2>&1 | tee "$BUILD_DIR/integration.api_tests.log"
 API_OK=${PIPESTATUS[0]:-$?}
 
 if [ "$API_OK" -ne 0 ]; then
@@ -207,7 +308,7 @@ if [ "$API_OK" -ne 0 ]; then
   INTEG_OK="$API_OK"
 else
   echo "==> Full integration suite (include ignored)"
-  cargo test -p testing --no-fail-fast -- --include-ignored --test-threads 1 --nocapture 2>&1 | tee "$BUILD_DIR/integration.log"
+  cargo test -p testing "${CARGO_NO_FAIL_FAST[@]}" -- --include-ignored --test-threads 1 --nocapture 2>&1 | tee "$BUILD_DIR/integration.log"
   INTEG_OK=${PIPESTATUS[0]:-$?}
 fi
 set -e
@@ -262,6 +363,7 @@ cat "$SUMMARY_TXT"
 if [ "$OVERALL" = "fail" ]; then
   echo ""
   echo "==> One or more phases failed. See $BUILD_DIR for logs."
+  echo "    To retry tests without wiping DB volumes or re-importing a full bgg_catalog: FULL_PROD_TEST_ITERATE=1 ./scripts/full-prod-test.sh"
   exit 1
 fi
 

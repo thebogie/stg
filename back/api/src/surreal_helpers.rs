@@ -23,7 +23,7 @@ pub const SURREALQL_NORMALIZE_ID_FOR_COMPARE: &str = concat!(
 );
 
 /// Angle-bracket chars SurrealDB may use in record id string form (e.g. `contest:⟨uuid⟩`).
-const ID_ANGLE_OPEN: char = '\u{27e8}';  // ⟨
+const ID_ANGLE_OPEN: char = '\u{27e8}'; // ⟨
 const ID_ANGLE_CLOSE: char = '\u{27e9}'; // ⟩
 
 fn json_id_part_to_string(v: &Value) -> Option<String> {
@@ -69,8 +69,14 @@ pub fn canonical_id_from_http_path_param(expected_table: &str, param: &str) -> S
 /// `default_table_for_bare_number` is `Some("player")`. Returns canonical `"table/key"` with
 /// backticks and angle brackets stripped. Use across the project for consistent ID handling.
 #[must_use]
-pub fn record_id_from_row(v: &Value, default_table_for_bare_number: Option<&str>) -> Option<String> {
-    let id_val = v.get("id").or_else(|| v.get("_id")).or_else(|| v.get("player_id"))?;
+pub fn record_id_from_row(
+    v: &Value,
+    default_table_for_bare_number: Option<&str>,
+) -> Option<String> {
+    let id_val = v
+        .get("id")
+        .or_else(|| v.get("_id"))
+        .or_else(|| v.get("player_id"))?;
     if let Some(s) = id_val.as_str() {
         return Some(normalize_record_id_string(s));
     }
@@ -253,7 +259,9 @@ fn scope_prefix(ns: Option<&str>, db_name: Option<&str>, core: &str) -> (String,
     match (ns, db_name) {
         (Some(ns), Some(db_name)) => {
             let ns_ok = ns.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
-            let db_ok = db_name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+            let db_ok = db_name
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_');
             if ns_ok && db_ok {
                 // USE NS; USE DB; <core> → 3 result sets; actual query is index 2.
                 return (format!("USE NS {}; USE DB {}; {}", ns, db_name, core), 2);
@@ -320,7 +328,10 @@ pub async fn select_one_by_record_id_scoped(
     }
 
     // String key: single-record lookup
-    let core = format!("{} FROM type::record('{}', $key)", SELECT_ONE_PROJECTION, table);
+    let core = format!(
+        "{} FROM type::record('{}', $key)",
+        SELECT_ONE_PROJECTION, table
+    );
     let (q, idx) = scope_prefix(ns, db_name, &core);
     if let Ok(mut r) = db.query(&q).bind(("key", key.clone())).await {
         let rows: Vec<serde_json::Value> = r.take(idx).unwrap_or_default();
@@ -332,8 +343,7 @@ pub async fn select_one_by_record_id_scoped(
     let id_colon = format!("{}:{}", table, key);
     let core = format!(
         "{} FROM {} WHERE {} = $id_colon LIMIT 1",
-        SELECT_ONE_PROJECTION, table,
-        SURREALQL_STRIP_BACKTICKS_ID
+        SELECT_ONE_PROJECTION, table, SURREALQL_STRIP_BACKTICKS_ID
     );
     let (q, idx) = scope_prefix(ns, db_name, &core);
     if let Ok(mut r) = db.query(q).bind(("id_colon", id_colon.clone())).await {
@@ -344,7 +354,10 @@ pub async fn select_one_by_record_id_scoped(
     }
     // Fallback: bind Thing for record-to-record comparison
     let rid = record_id_to_thing(id, table);
-    let core = format!("{} FROM {} WHERE id = $rid LIMIT 1", SELECT_ONE_PROJECTION, table);
+    let core = format!(
+        "{} FROM {} WHERE id = $rid LIMIT 1",
+        SELECT_ONE_PROJECTION, table
+    );
     let (q, idx) = scope_prefix(ns, db_name, &core);
     if let Ok(mut r) = db.query(q).bind(("rid", rid)).await {
         let rows: Vec<serde_json::Value> = r.take(idx).unwrap_or_default();
@@ -368,8 +381,7 @@ pub async fn select_one_by_record_id_scoped(
     let id_canonical = format!("{}/{}", table, key);
     let core = format!(
         "{} FROM {} WHERE {} = $id_canonical LIMIT 1",
-        SELECT_ONE_PROJECTION, table,
-        SURREALQL_NORMALIZE_ID_FOR_COMPARE
+        SELECT_ONE_PROJECTION, table, SURREALQL_NORMALIZE_ID_FOR_COMPARE
     );
     let (q, idx) = scope_prefix(ns, db_name, &core);
     if let Ok(mut r) = db.query(q).bind(("id_canonical", id_canonical)).await {

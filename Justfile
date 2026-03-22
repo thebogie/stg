@@ -78,6 +78,10 @@ stop-stack-local:
 backend-check:
     cargo check -p backend
 
+# Syntax-check critical bash scripts (no execution). Catches `set -e` / `if` mistakes before CI.
+scripts-check:
+    bash -n scripts/full-prod-test.sh
+
 # Run backend with auto-restart on file change. Loads config/.env.dev by default. Requires: cargo install cargo-watch
 # Watches back/api and shared only so frontend edits don't restart the backend.
 # For admin tab: set ADMIN_EMAILS=your@email.com in config/.env.dev

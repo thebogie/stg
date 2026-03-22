@@ -21,7 +21,8 @@ From the **deploy/** directory on the server:
 ```
 
 - `<tag>` = image tag to pull and run (e.g. `latest`, or short SHA from CI like `0013844`).
-- Script: stops service → pulls backend + frontend images from GHCR → compose down → writes image env → starts full stack (SurrealDB, Redis, backend, frontend).
+- Script: stops service → pulls backend + frontend images from GHCR → compose down → starts `surrealdb`+`redis` → runs `run_surreal_migrations.sh` (all `deploy/migrations/*.surql`) → starts full stack.
+- Deploy aborts if migration fails.
 
 See **WEB_AND_TAURI.md** for CI/CD overview and Tauri setup; **env.tauri.prod.template** for production API URL for the desktop app.
 
@@ -30,6 +31,8 @@ See **WEB_AND_TAURI.md** for CI/CD overview and Tauri setup; **env.tauri.prod.te
 | File / dir | Purpose |
 |------------|--------|
 | **deploy_stg.sh** | Deploy/update: pull images, restart full stack. Run from `deploy/`. |
+| **run_surreal_migrations.sh** | Runs SurrealDB migrations in lexical order from `deploy/migrations/*.surql`. |
+| **migrations/** | Versioned SurrealDB migration files (`*.surql`) applied during deploy before backend/frontend start. |
 | **setup_cron_backup_for_surreal.sh** | One-time: install cron for hourly SurrealDB backups. |
 | **docker-compose.full.yml** | Full stack: SurrealDB, Redis, backend, frontend. Uses `BACKEND_IMAGE` and `FRONTEND_IMAGE` (set by deploy_stg.sh). |
 | **Caddyfile.frontend** | Caddy config: static SPA + proxy `/api`, `/health`, `/version` to backend. |
@@ -47,3 +50,12 @@ See **WEB_AND_TAURI.md** for CI/CD overview and Tauri setup; **env.tauri.prod.te
 - Frontend runs standalone via `scripts/start-front.sh` if you prefer.
 
 Run full stack locally (builds images, then compose up): `./scripts/full-prod-test.sh` (see script for env file path). Local/dev data dirs use `VOLUME_PATH` defaulting to **`_build/docker-data`** (prod and CI can override). Project name: **stg**.
+
+---
+
+## DB Migration Workflow (N -> N+1)
+
+1. Add one or more versioned files in `deploy/migrations/` (example: `20260319T190000_n_plus_1.surql`).
+2. Make each migration file idempotent (safe to re-run).
+3. Deploy with `./deploy_stg.sh <tag>`.
+4. The deploy script runs DB migration before starting backend/frontend; if migration fails, app update is blocked.

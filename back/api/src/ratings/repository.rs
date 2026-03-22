@@ -71,9 +71,7 @@ impl RatingsRepository {
         let record_id = surrealdb::types::RecordId::new("contest", key.as_str());
         let mut res = self
             .db
-            .query(
-                "SELECT `out` AS player_id, place FROM resulted_in WHERE `in` = $record_id",
-            )
+            .query("SELECT `out` AS player_id, place FROM resulted_in WHERE `in` = $record_id")
             .bind(("record_id", record_id))
             .await
             .map_err(|e| {
@@ -84,9 +82,9 @@ impl RatingsRepository {
             player_id: Option<surrealdb::types::RecordId>,
             place: Option<i64>,
         }
-        let rows: Vec<Row> = res.take(0).map_err(|e| {
-            SharedError::Database(format!("Failed to take contest results: {}", e))
-        })?;
+        let rows: Vec<Row> = res
+            .take(0)
+            .map_err(|e| SharedError::Database(format!("Failed to take contest results: {}", e)))?;
         let mut out = Vec::new();
         for r in rows {
             let pid = r
@@ -119,9 +117,9 @@ impl RatingsRepository {
         struct Row {
             player_id: Option<surrealdb::types::RecordId>,
         }
-        let rows: Vec<Row> = res.take(0).map_err(|e| {
-            SharedError::Database(format!("Failed to take contest players: {}", e))
-        })?;
+        let rows: Vec<Row> = res
+            .take(0)
+            .map_err(|e| SharedError::Database(format!("Failed to take contest players: {}", e)))?;
         let out: Vec<String> = rows
             .into_iter()
             .filter_map(|r| {
@@ -152,9 +150,9 @@ impl RatingsRepository {
         struct Row {
             game_id: Option<surrealdb::types::RecordId>,
         }
-        let rows: Vec<Row> = res.take(0).map_err(|e| {
-            SharedError::Database(format!("Failed to take contest game: {}", e))
-        })?;
+        let rows: Vec<Row> = res
+            .take(0)
+            .map_err(|e| SharedError::Database(format!("Failed to take contest game: {}", e)))?;
         Ok(rows.into_iter().next().and_then(|r| {
             let id = crate::surreal_helpers::thing_to_record_id(&r.game_id);
             if id.is_empty() {
@@ -183,18 +181,20 @@ impl RatingsRepository {
             "SELECT * FROM rating_latest WHERE scope_type = $scope_type AND player_id = $record_id \
              AND (($scope_id == NONE AND scope_id == NONE) OR scope_id = $scope_id) LIMIT 1",
         );
-        q = q.bind(("scope_type", scope_type)).bind(("record_id", player_record_id));
+        q = q
+            .bind(("scope_type", scope_type))
+            .bind(("record_id", player_record_id));
         if let Some(sid) = scope_id_owned {
             q = q.bind(("scope_id", sid));
         } else {
             q = q.bind(("scope_id", Option::<String>::None));
         }
-        let mut res = q.await.map_err(|e| {
-            SharedError::Database(format!("Failed to fetch latest rating: {}", e))
-        })?;
-        let rows: Vec<Value> = res.take(0).map_err(|e| {
-            SharedError::Database(format!("Failed to take latest rating: {}", e))
-        })?;
+        let mut res = q
+            .await
+            .map_err(|e| SharedError::Database(format!("Failed to fetch latest rating: {}", e)))?;
+        let rows: Vec<Value> = res
+            .take(0)
+            .map_err(|e| SharedError::Database(format!("Failed to take latest rating: {}", e)))?;
         Ok(rows.into_iter().next())
     }
 
@@ -241,29 +241,47 @@ impl RatingsRepository {
     }
 
     pub async fn upsert_latest_rating(&self, doc: Value) -> Result<()> {
-        let player_id = doc.get("player_id").and_then(|v| v.as_str()).map(String::from).unwrap_or_default();
+        let player_id = doc
+            .get("player_id")
+            .and_then(|v| v.as_str())
+            .map(String::from)
+            .unwrap_or_default();
         let pid = player_id
             .trim_start_matches("player/")
             .trim_start_matches("player:")
             .trim_matches('`')
             .to_string();
-        let scope_type = doc.get("scope_type").and_then(|v| v.as_str()).map(String::from).unwrap_or_else(|| "global".to_string());
-        let scope_id: Option<String> = doc.get("scope_id").and_then(|v| v.as_str()).map(String::from);
+        let scope_type = doc
+            .get("scope_type")
+            .and_then(|v| v.as_str())
+            .map(String::from)
+            .unwrap_or_else(|| "global".to_string());
+        let scope_id: Option<String> = doc
+            .get("scope_id")
+            .and_then(|v| v.as_str())
+            .map(String::from);
         // Upsert: delete existing then insert (rating_latest is keyed by player_id + scope)
         let mut del_q = self.db.query(
             "DELETE FROM rating_latest WHERE player_id = type::record('player', $pid) AND scope_type = $scope_type \
              AND (($scope_id == NONE AND scope_id == NONE) OR scope_id = $scope_id)",
         );
-        del_q = del_q.bind(("pid", pid.clone())).bind(("scope_type", scope_type.clone()));
+        del_q = del_q
+            .bind(("pid", pid.clone()))
+            .bind(("scope_type", scope_type.clone()));
         if let Some(sid) = scope_id {
             del_q = del_q.bind(("scope_id", sid));
         } else {
             del_q = del_q.bind(("scope_id", Option::<String>::None));
         }
-        del_q.await.map_err(|e| SharedError::Database(format!("Failed to delete previous latest rating: {}", e)))?;
+        del_q.await.map_err(|e| {
+            SharedError::Database(format!("Failed to delete previous latest rating: {}", e))
+        })?;
         let mut doc_copy = doc.clone();
         if let Some(obj) = doc_copy.as_object_mut() {
-            obj.insert("player_id".into(), serde_json::Value::String(format!("player:{}", pid)));
+            obj.insert(
+                "player_id".into(),
+                serde_json::Value::String(format!("player:{}", pid)),
+            );
         }
         self.db
             .query("INSERT INTO rating_latest $doc")
@@ -278,7 +296,9 @@ impl RatingsRepository {
             .query("INSERT INTO rating_history $doc")
             .bind(("doc", doc))
             .await
-            .map_err(|e| SharedError::Database(format!("Failed to insert rating history: {}", e)))?;
+            .map_err(|e| {
+                SharedError::Database(format!("Failed to insert rating history: {}", e))
+            })?;
         Ok(())
     }
 
@@ -309,12 +329,13 @@ impl RatingsRepository {
              WHERE player_id = $record_id AND scope_type = 'global' AND scope_id == NONE",
         );
         del_q = del_q.bind(("record_id", record_id.clone()));
-        del_q
-            .await
-            .map_err(|e| SharedError::Database(format!("Failed to delete previous latest rating: {}", e)))?;
+        del_q.await.map_err(|e| {
+            SharedError::Database(format!("Failed to delete previous latest rating: {}", e))
+        })?;
 
         // Insert with correctly typed `player_id` (RecordId) and datetime fields (SCHEMAFULL expects datetime).
-        let mut ins_res = self.db
+        let mut ins_res = self
+            .db
             .query(
                 "INSERT INTO rating_latest { \
                     player_id: $record_id, \
@@ -387,7 +408,8 @@ impl RatingsRepository {
         let record_id = surrealdb::types::RecordId::new("player", pid.as_str());
 
         // SCHEMAFULL expects datetime for period_end and created_at; use type::datetime() so server accepts.
-        let mut ins_res = self.db
+        let mut ins_res = self
+            .db
             .query(
                 "INSERT INTO rating_history { \
                     player_id: $record_id, \
@@ -415,7 +437,9 @@ impl RatingsRepository {
             .bind(("draws", draws))
             .bind(("created_at", created_at.to_string()))
             .await
-            .map_err(|e| SharedError::Database(format!("Failed to insert rating history: {}", e)))?;
+            .map_err(|e| {
+                SharedError::Database(format!("Failed to insert rating history: {}", e))
+            })?;
         let inserted: Vec<Value> = match ins_res.take(0) {
             Ok(v) => v,
             Err(e) => {
@@ -455,23 +479,29 @@ impl RatingsRepository {
              AND (($scope_id == NONE AND scope_id == NONE) OR scope_id = $scope_id) \
              AND games_played >= $min_games ORDER BY rating DESC LIMIT $limit",
         );
-        q = q.bind(("scope_type", scope_type)).bind(("min_games", min_games)).bind(("limit", limit));
+        q = q
+            .bind(("scope_type", scope_type))
+            .bind(("min_games", min_games))
+            .bind(("limit", limit));
         if let Some(sid) = scope_id_owned {
             q = q.bind(("scope_id", sid));
         } else {
             q = q.bind(("scope_id", Option::<String>::None));
         }
-        let mut res = q.await.map_err(|e| {
-            SharedError::Database(format!("Failed to fetch leaderboard: {}", e))
-        })?;
-        let rows: Vec<Value> = res.take(0).map_err(|e| {
-            SharedError::Database(format!("Failed to take leaderboard: {}", e))
-        })?;
+        let mut res = q
+            .await
+            .map_err(|e| SharedError::Database(format!("Failed to fetch leaderboard: {}", e)))?;
+        let rows: Vec<Value> = res
+            .take(0)
+            .map_err(|e| SharedError::Database(format!("Failed to take leaderboard: {}", e)))?;
         let mut out = Vec::new();
         for mut row in rows {
             if let Some(obj) = row.as_object_mut() {
                 if let Some(pid) = obj.get("player_id") {
-                    let pid_str = pid.to_string().trim_matches('"').replace("player:", "player/");
+                    let pid_str = pid
+                        .to_string()
+                        .trim_matches('"')
+                        .replace("player:", "player/");
                     obj.insert("player_id".into(), serde_json::Value::String(pid_str));
                 }
                 let pid_str = obj.get("player_id").and_then(Value::as_str);
@@ -490,7 +520,10 @@ impl RatingsRepository {
                         }
                     }
                 }
-                obj.insert("last_active".into(), obj.get("last_period_end").cloned().unwrap_or(Value::Null));
+                obj.insert(
+                    "last_active".into(),
+                    obj.get("last_period_end").cloned().unwrap_or(Value::Null),
+                );
             }
             out.push(row);
         }
@@ -529,7 +562,10 @@ impl RatingsRepository {
              AND (($scope_id == NONE AND scope_id == NONE) OR scope_id = $scope_id) \
              AND games_played >= $min_games ORDER BY rating DESC LIMIT $limit",
         );
-        q = q.bind(("scope_type", scope_type)).bind(("min_games", min_games)).bind(("limit", limit));
+        q = q
+            .bind(("scope_type", scope_type))
+            .bind(("min_games", min_games))
+            .bind(("limit", limit));
         if let Some(sid) = scope_id_owned {
             q = q.bind(("scope_id", sid));
         } else {
@@ -545,10 +581,16 @@ impl RatingsRepository {
         for row in rows {
             if let Some(obj) = row.as_object() {
                 let pid = obj.get("player_id").cloned();
-                let pid_str = pid.as_ref().and_then(|v| v.as_str()).map(|s| s.replace("player:", "player/"));
+                let pid_str = pid
+                    .as_ref()
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.replace("player:", "player/"));
                 let rating = obj.get("rating").cloned();
                 let rd = obj.get("rd").cloned();
-                let games_played = obj.get("games_played").and_then(|v| v.as_i64()).unwrap_or(0);
+                let games_played = obj
+                    .get("games_played")
+                    .and_then(|v| v.as_i64())
+                    .unwrap_or(0);
                 let last_active = obj.get("last_period_end").cloned();
                 let pk = pid_str
                     .as_deref()
@@ -556,16 +598,21 @@ impl RatingsRepository {
                     .trim_start_matches("player/")
                     .trim_start_matches("player:")
                     .trim_matches('`');
-                let (handle, firstname, email) = if let Ok(Some(pl)) = self.get_player_record(pk).await {
-                    (
-                        pl.get("handle").cloned(),
-                        pl.get("firstname").cloned(),
-                        pl.get("email").cloned(),
-                    )
-                } else {
-                    (None, None, None)
-                };
-                let player_id_str = pid_str.or_else(|| pid.as_ref().and_then(|v| v.as_str()).map(|s| s.replace("player:", "player/")));
+                let (handle, firstname, email) =
+                    if let Ok(Some(pl)) = self.get_player_record(pk).await {
+                        (
+                            pl.get("handle").cloned(),
+                            pl.get("firstname").cloned(),
+                            pl.get("email").cloned(),
+                        )
+                    } else {
+                        (None, None, None)
+                    };
+                let player_id_str = pid_str.or_else(|| {
+                    pid.as_ref()
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.replace("player:", "player/"))
+                });
                 out.push(serde_json::json!({
                     "player_id": player_id_str,
                     "rating": rating,
@@ -618,7 +665,10 @@ impl RatingsRepository {
             .map_err(|e| SharedError::Database(format!("Failed to debug tables: {}", e)))?;
         let rows: Vec<Value> = res.take(0).unwrap_or_default();
         let info: Value = rows.into_iter().next().unwrap_or(Value::Null);
-        let tables = info.get("tb").map(|v| v.clone()).unwrap_or(Value::Object(serde_json::Map::new()));
+        let tables = info
+            .get("tb")
+            .map(|v| v.clone())
+            .unwrap_or(Value::Object(serde_json::Map::new()));
         let mut out = Vec::new();
         if let Some(obj) = tables.as_object() {
             for (name, _) in obj {
@@ -655,7 +705,9 @@ impl RatingsRepository {
             .query("SELECT * FROM player WHERE id = $record_id")
             .bind(("record_id", record_id))
             .await
-            .map_err(|e| SharedError::Database(format!("Failed to debug player document: {}", e)))?;
+            .map_err(|e| {
+                SharedError::Database(format!("Failed to debug player document: {}", e))
+            })?;
         let rows: Vec<Value> = res.take(0).unwrap_or_default();
         Ok(rows)
     }
@@ -743,12 +795,12 @@ impl RatingsRepository {
         } else {
             q = q.bind(("scope_id", Option::<String>::None));
         }
-        let mut res = q.await.map_err(|e| {
-            SharedError::Database(format!("Failed to fetch rating history: {}", e))
-        })?;
-        let rows: Vec<Value> = res.take(0).map_err(|e| {
-            SharedError::Database(format!("Failed to take rating history: {}", e))
-        })?;
+        let mut res = q
+            .await
+            .map_err(|e| SharedError::Database(format!("Failed to fetch rating history: {}", e)))?;
+        let rows: Vec<Value> = res
+            .take(0)
+            .map_err(|e| SharedError::Database(format!("Failed to take rating history: {}", e)))?;
         let out: Vec<Value> = rows
             .into_iter()
             .map(|mut v| {
@@ -898,11 +950,13 @@ impl RatingsRepository {
                  LIMIT 1",
             )
             .await
-            .map_err(|e| SharedError::Database(format!("Failed to fetch last rebuild run: {}", e)))?;
+            .map_err(|e| {
+                SharedError::Database(format!("Failed to fetch last rebuild run: {}", e))
+            })?;
 
-        let rows: Vec<RatingsRebuildRun> = res
-            .take(0)
-            .map_err(|e| SharedError::Database(format!("Failed to take last rebuild run: {}", e)))?;
+        let rows: Vec<RatingsRebuildRun> = res.take(0).map_err(|e| {
+            SharedError::Database(format!("Failed to take last rebuild run: {}", e))
+        })?;
         Ok(rows.into_iter().next())
     }
 
@@ -916,15 +970,25 @@ impl RatingsRepository {
             })?;
         #[derive(serde::Deserialize, serde::Serialize, surrealdb::types::SurrealValue)]
         struct Row {
-            start: Option<surrealdb::types::Datetime>,
+            start: Option<serde_json::Value>,
         }
         let rows: Vec<Row> = res.take(0).map_err(|e| {
             SharedError::Database(format!("Failed to take earliest contest: {}", e))
         })?;
+        fn as_rfc3339(v: &serde_json::Value) -> Option<String> {
+            if let Some(s) = v.as_str() {
+                return chrono::DateTime::parse_from_rfc3339(s)
+                    .ok()
+                    .map(|dt| dt.with_timezone(&chrono::Utc).to_rfc3339());
+            }
+            chrono::DateTime::parse_from_rfc3339(&v.to_string())
+                .ok()
+                .map(|dt| dt.with_timezone(&chrono::Utc).to_rfc3339())
+        }
         let earliest_date = rows
             .into_iter()
             .next()
-            .and_then(|r| r.start.map(|dt| dt.to_string()))
+            .and_then(|r| r.start.and_then(|v| as_rfc3339(&v)))
             .unwrap_or_else(|| "2000-01-01T00:00:00Z".to_string());
         Ok(earliest_date)
     }
@@ -956,7 +1020,10 @@ impl RatingsRepository {
             LIMIT $limit
             "#,
         );
-        q = q.bind(("scope_type", scope_type)).bind(("min_games", min_games)).bind(("limit", limit));
+        q = q
+            .bind(("scope_type", scope_type))
+            .bind(("min_games", min_games))
+            .bind(("limit", limit));
         if let Some(sid) = scope_id_owned {
             q = q.bind(("scope_id", sid));
         } else {
@@ -978,11 +1045,17 @@ impl RatingsRepository {
         for mut row in rows {
             if let Some(obj) = row.as_object_mut() {
                 if let Some(pid) = obj.get("player_id") {
-                    let pid_str = pid.to_string().trim_matches('"').replace("player:", "player/");
+                    let pid_str = pid
+                        .to_string()
+                        .trim_matches('"')
+                        .replace("player:", "player/");
                     obj.insert("player_id".into(), serde_json::Value::String(pid_str));
                 }
                 obj.insert("player_handle".into(), Value::String("Player".to_string()));
-                obj.insert("player_firstname".into(), Value::String("Unknown".to_string()));
+                obj.insert(
+                    "player_firstname".into(),
+                    Value::String("Unknown".to_string()),
+                );
                 obj.insert("player_email".into(), Value::String("Unknown".to_string()));
             }
             out.push(row);
@@ -1003,7 +1076,9 @@ impl RatingsRepository {
         struct Row {
             id: Option<surrealdb::types::RecordId>,
         }
-        let rows: Vec<Row> = res.take(0).map_err(|e| SharedError::Database(e.to_string()))?;
+        let rows: Vec<Row> = res
+            .take(0)
+            .map_err(|e| SharedError::Database(e.to_string()))?;
         Ok(rows.into_iter().next().and_then(|r| {
             let id = crate::surreal_helpers::thing_to_record_id(&r.id);
             if id.is_empty() {

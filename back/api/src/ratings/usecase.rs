@@ -69,7 +69,9 @@ impl RatingsUsecase {
         {
             let mut st = self.rebuild_status.lock().unwrap();
             if st.running {
-                return Err(SharedError::BadRequest("Ratings rebuild already running".into()));
+                return Err(SharedError::BadRequest(
+                    "Ratings rebuild already running".into(),
+                ));
             }
             st.running = true;
             st.started_at = Some(started_at.clone());

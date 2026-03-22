@@ -6,28 +6,43 @@ pub async fn migrate_venues_to_timezone(db: &Db) -> Result<(), String> {
     log::info!("🔄 Starting timezone migration for venues...");
 
     let q = db.query("SELECT * FROM venue WHERE timezone = NONE OR timezone = ''");
-    let mut res = q.await.map_err(|e| format!("Failed to fetch venues: {}", e))?;
+    let mut res = q
+        .await
+        .map_err(|e| format!("Failed to fetch venues: {}", e))?;
     let rows: Vec<serde_json::Value> = res.take(0).unwrap_or_default();
     let mut updated_count = 0u32;
     let mut error_count = 0u32;
 
     for venue_data in rows {
-        let venue_id = venue_data.get("id").and_then(|v| v.as_str()).or_else(|| venue_data.get("_id").and_then(|v| v.as_str()));
+        let venue_id = venue_data
+            .get("id")
+            .and_then(|v| v.as_str())
+            .or_else(|| venue_data.get("_id").and_then(|v| v.as_str()));
         if let Some(vid) = venue_id {
             let timezone = infer_timezone_from_location(&venue_data);
-            let key = vid.trim_start_matches("venue:").trim_start_matches("venue/").to_string();
+            let key = vid
+                .trim_start_matches("venue:")
+                .trim_start_matches("venue/")
+                .to_string();
             let up = db.query("UPDATE type::record('venue', $key) SET timezone = $timezone");
-            up.bind(("key", key)).bind(("timezone", timezone.clone())).await.map_err(|e| {
-                log::error!("❌ Failed to update venue {}: {}", vid, e);
-                error_count += 1;
-                format!("Update failed: {}", e)
-            })?;
+            up.bind(("key", key))
+                .bind(("timezone", timezone.clone()))
+                .await
+                .map_err(|e| {
+                    log::error!("❌ Failed to update venue {}: {}", vid, e);
+                    error_count += 1;
+                    format!("Update failed: {}", e)
+                })?;
             log::info!("✅ Updated venue {} with timezone: {}", vid, timezone);
             updated_count += 1;
         }
     }
 
-    log::info!("🎉 Migration completed: {} updated, {} errors", updated_count, error_count);
+    log::info!(
+        "🎉 Migration completed: {} updated, {} errors",
+        updated_count,
+        error_count
+    );
     Ok(())
 }
 

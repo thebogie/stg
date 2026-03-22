@@ -73,8 +73,7 @@ pub fn achievements_tab(props: &AchievementsTabProps) -> Html {
     let sort_by = use_state(|| "progress".to_string());
 
     // Treat "no data yet" as loading so we show skeleton instead of empty-state flash
-    let still_loading = props.loading
-        || (props.achievements.is_none() && props.error.is_none());
+    let still_loading = props.loading || (props.achievements.is_none() && props.error.is_none());
 
     if still_loading {
         return achievements_skeleton();

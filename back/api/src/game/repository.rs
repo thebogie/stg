@@ -1,20 +1,37 @@
+use crate::bgg_catalog::repository::search_bgg_catalog;
 use crate::cache::{CacheKeys, CacheTTL, RedisCache};
 use crate::db::Db;
 use crate::surreal_helpers::{record_id_from_row, select_one_by_record_id_scoped};
 use crate::third_party::BGGService;
 use shared::dto::game::GameDto;
 use shared::models::game::Game;
+use std::collections::HashSet;
 use std::sync::Arc;
 
 fn value_to_game(v: &serde_json::Value) -> Option<Game> {
     let id = record_id_from_row(v, None)?;
     Some(Game {
         id,
-        rev: v.get("_rev").or_else(|| v.get("rev")).and_then(|x| x.as_str()).unwrap_or("").to_string(),
-        name: v.get("name").and_then(|x| x.as_str()).unwrap_or("").to_string(),
-        year_published: v.get("year_published").and_then(|x| x.as_i64()).map(|n| n as i32),
+        rev: v
+            .get("_rev")
+            .or_else(|| v.get("rev"))
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .to_string(),
+        name: v
+            .get("name")
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .to_string(),
+        year_published: v
+            .get("year_published")
+            .and_then(|x| x.as_i64())
+            .map(|n| n as i32),
         bgg_id: v.get("bgg_id").and_then(|x| x.as_i64()).map(|n| n as i32),
-        description: v.get("description").and_then(|x| x.as_str()).map(String::from),
+        description: v
+            .get("description")
+            .and_then(|x| x.as_str())
+            .map(String::from),
         source: shared::models::game::GameSource::Database,
     })
 }
@@ -131,7 +148,9 @@ impl GameRepositoryImpl {
     fn query_with_scope(&self, core: &str) -> String {
         if let (Some(ref ns), Some(ref db_name)) = (&self.ns, &self.db_name) {
             let ns_ok = ns.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
-            let db_ok = db_name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+            let db_ok = db_name
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_');
             if ns_ok && db_ok {
                 return format!("USE NS {}; USE DB {}; {}", ns, db_name, core);
             }
@@ -147,14 +166,53 @@ impl GameRepositoryImpl {
         }
     }
 
-    /// Fill search results with BGG results when DB returns fewer than max_results.
-    pub async fn search_fill_bgg(&self, query: &str, mut results: Vec<Game>) -> Vec<Game> {
-        let max_results = 20;
-        if results.len() < max_results && self.bgg_service.is_some() {
+    fn bgg_ids_in_results(results: &[Game]) -> HashSet<i32> {
+        results.iter().filter_map(|g| g.bgg_id).collect()
+    }
+
+    /// After DB search: fill from `bgg_catalog`, then live BGG API, up to 20 total.
+    pub async fn search_fill_catalog_then_bgg(
+        &self,
+        query: &str,
+        mut results: Vec<Game>,
+    ) -> Vec<Game> {
+        const MAX_RESULTS: usize = 20;
+        if results.len() >= MAX_RESULTS {
+            return results;
+        }
+
+        let mut taken = Self::bgg_ids_in_results(&results);
+
+        self.ensure_scope().await;
+        let remaining = MAX_RESULTS - results.len();
+        let catalog_games = search_bgg_catalog(&self.db, query, remaining, &taken).await;
+        let catalog_n = catalog_games.len();
+        for g in catalog_games {
+            if let Some(id) = g.bgg_id {
+                taken.insert(id);
+            }
+            results.push(g);
+        }
+
+        log::debug!(
+            "game_search tiers: bgg_catalog_added={} query_len={}",
+            catalog_n,
+            query.trim().len()
+        );
+
+        if results.len() < MAX_RESULTS && self.bgg_service.is_some() {
             if let Some(ref bgg_service) = self.bgg_service {
                 if let Ok(bgg_results) = bgg_service.search_games(query).await {
-                    let remaining = max_results - results.len();
-                    for game in bgg_results.into_iter().take(remaining) {
+                    for game in bgg_results {
+                        if results.len() >= MAX_RESULTS {
+                            break;
+                        }
+                        if let Some(id) = game.bgg_id {
+                            if taken.contains(&id) {
+                                continue;
+                            }
+                            taken.insert(id);
+                        }
                         results.push(Game {
                             id: game.id,
                             rev: game.rev,
@@ -171,17 +229,23 @@ impl GameRepositoryImpl {
         results
     }
 
-    async fn update_game_doc_by_key(&self, key: &str, doc: &serde_json::Value) -> Result<(), String> {
+    async fn update_game_doc_by_key(
+        &self,
+        key: &str,
+        doc: &serde_json::Value,
+    ) -> Result<(), String> {
         self.ensure_scope().await;
         // Migration compatibility: depending on how the DB was imported, record id keys may be UUID-typed
         // (type::uuid("...")) or plain string keys. Try UUID first when possible, then string-key fallback.
         if uuid::Uuid::parse_str(key).is_ok() {
-            let _ = self
-                .db
-                .query(self.query_with_scope("UPDATE type::record('game', type::uuid($key)) MERGE $doc"))
-                .bind(("key", key.to_string()))
-                .bind(("doc", doc.clone()))
-                .await;
+            let _ =
+                self.db
+                    .query(self.query_with_scope(
+                        "UPDATE type::record('game', type::uuid($key)) MERGE $doc",
+                    ))
+                    .bind(("key", key.to_string()))
+                    .bind(("doc", doc.clone()))
+                    .await;
         }
         let res = self
             .db
@@ -189,7 +253,8 @@ impl GameRepositoryImpl {
             .bind(("key", key.to_string()))
             .bind(("doc", doc.clone()))
             .await;
-        res.map(|_| ()).map_err(|e| format!("Failed to update game: {}", e))
+        res.map(|_| ())
+            .map_err(|e| format!("Failed to update game: {}", e))
     }
 
     async fn delete_game_by_key(&self, key: &str) -> Result<(), String> {
@@ -206,7 +271,8 @@ impl GameRepositoryImpl {
             .query(self.query_with_scope("DELETE type::record('game', $key)"))
             .bind(("key", key.to_string()))
             .await;
-        res.map(|_| ()).map_err(|e| format!("Failed to delete game: {}", e))
+        res.map(|_| ())
+            .map_err(|e| format!("Failed to delete game: {}", e))
     }
 }
 
@@ -228,11 +294,13 @@ impl GameRepository for GameRepositoryImpl {
             self.ns.as_deref(),
             self.db_name.as_deref(),
         )
-            .await
-            .and_then(|v| value_to_game(&v));
+        .await
+        .and_then(|v| value_to_game(&v));
         if let Some(ref g) = game {
             if let Some(ref cache) = self.cache {
-                let _ = cache.set_with_ttl(&CacheKeys::game(id), g, CacheTTL::game()).await;
+                let _ = cache
+                    .set_with_ttl(&CacheKeys::game(id), g, CacheTTL::game())
+                    .await;
             }
         }
         game
@@ -255,7 +323,9 @@ impl GameRepository for GameRepositoryImpl {
         let rows: Vec<serde_json::Value> = res.take(0).unwrap_or_default();
         let games: Vec<Game> = rows.into_iter().filter_map(|v| value_to_game(&v)).collect();
         if let Some(ref cache) = self.cache {
-            let _ = cache.set_with_ttl(&CacheKeys::game_list(), &games, CacheTTL::game_list()).await;
+            let _ = cache
+                .set_with_ttl(&CacheKeys::game_list(), &games, CacheTTL::game_list())
+                .await;
         }
         games
     }
@@ -283,7 +353,7 @@ impl GameRepository for GameRepositoryImpl {
             Ok(r) => r,
             Err(e) => {
                 log::error!("Failed to search games by name: {}", e);
-                return self.search_fill_bgg(query, results).await;
+                return self.search_fill_catalog_then_bgg(query, results).await;
             }
         };
         let rows: Vec<serde_json::Value> = res.take(0).unwrap_or_default();
@@ -298,7 +368,7 @@ impl GameRepository for GameRepositoryImpl {
                 .await
             {
                 Ok(r) => r,
-                Err(_) => return self.search_fill_bgg(query, results).await,
+                Err(_) => return self.search_fill_catalog_then_bgg(query, results).await,
             };
             let rows2: Vec<serde_json::Value> = res2.take(0).unwrap_or_default();
             for v in rows2 {
@@ -310,9 +380,15 @@ impl GameRepository for GameRepositoryImpl {
             }
         }
 
-        let out = self.search_fill_bgg(query, results).await;
+        let out = self.search_fill_catalog_then_bgg(query, results).await;
         if let Some(ref cache) = self.cache {
-            let _ = cache.set_with_ttl(&CacheKeys::game_search(query), &out, CacheTTL::game_search()).await;
+            let _ = cache
+                .set_with_ttl(
+                    &CacheKeys::game_search(query),
+                    &out,
+                    CacheTTL::game_search(),
+                )
+                .await;
         }
         out
     }
@@ -344,7 +420,11 @@ impl GameRepository for GameRepositoryImpl {
     }
 
     async fn search_dto(&self, query: &str) -> Vec<GameDto> {
-        self.search(query).await.into_iter().map(|g| GameDto::from(&g)).collect()
+        self.search(query)
+            .await
+            .into_iter()
+            .map(|g| GameDto::from(&g))
+            .collect()
     }
 
     async fn search_db_only(&self, query: &str) -> Vec<Game> {
@@ -382,7 +462,11 @@ impl GameRepository for GameRepositoryImpl {
     }
 
     async fn search_db_only_dto(&self, query: &str) -> Vec<GameDto> {
-        self.search_db_only(query).await.into_iter().map(|g| GameDto::from(&g)).collect()
+        self.search_db_only(query)
+            .await
+            .into_iter()
+            .map(|g| GameDto::from(&g))
+            .collect()
     }
 
     async fn create(&self, game: Game) -> Result<Game, String> {
@@ -419,13 +503,15 @@ impl GameRepository for GameRepositoryImpl {
         }
         let doc = serde_json::Value::Object(doc);
         self.ensure_scope().await;
-        let mut res = self
-            .db
-            .query(self.query_with_scope("CREATE type::record('game', $key) CONTENT $doc RETURN AFTER"))
-            .bind(("key", key.clone()))
-            .bind(("doc", doc))
-            .await
-            .map_err(|e| format!("Failed to create game: {}", e))?;
+        let mut res =
+            self.db
+                .query(self.query_with_scope(
+                    "CREATE type::record('game', $key) CONTENT $doc RETURN AFTER",
+                ))
+                .bind(("key", key.clone()))
+                .bind(("doc", doc))
+                .await
+                .map_err(|e| format!("Failed to create game: {}", e))?;
         let rows: Vec<serde_json::Value> = res
             .take(self.scope_result_index())
             .map_err(|e| format!("Failed to parse created game: {}", e))?;
@@ -444,11 +530,18 @@ impl GameRepository for GameRepositoryImpl {
 
     async fn update(&self, game: Game) -> Result<Game, String> {
         let game = game;
-        let key = game.id.trim_start_matches("game/").trim_start_matches("game:").to_string();
+        let key = game
+            .id
+            .trim_start_matches("game/")
+            .trim_start_matches("game:")
+            .to_string();
         self.ensure_scope().await;
         // Omit option fields when None (avoid NULL under SCHEMAFULL option<T>).
         let mut doc = serde_json::Map::new();
-        doc.insert("name".to_string(), serde_json::Value::String(game.name.clone()));
+        doc.insert(
+            "name".to_string(),
+            serde_json::Value::String(game.name.clone()),
+        );
         if let Some(v) = game.year_published {
             doc.insert("year_published".to_string(), serde_json::Value::from(v));
         }
@@ -456,7 +549,10 @@ impl GameRepository for GameRepositoryImpl {
             doc.insert("bgg_id".to_string(), serde_json::Value::from(v));
         }
         if let Some(ref v) = game.description {
-            doc.insert("description".to_string(), serde_json::Value::String(v.clone()));
+            doc.insert(
+                "description".to_string(),
+                serde_json::Value::String(v.clone()),
+            );
         }
         let doc = serde_json::Value::Object(doc);
         self.update_game_doc_by_key(&key, &doc).await?;
@@ -469,7 +565,10 @@ impl GameRepository for GameRepositoryImpl {
     }
 
     async fn delete(&self, id: &str) -> Result<(), String> {
-        let key = id.trim_start_matches("game/").trim_start_matches("game:").to_string();
+        let key = id
+            .trim_start_matches("game/")
+            .trim_start_matches("game:")
+            .to_string();
         self.ensure_scope().await;
         self.delete_game_by_key(&key).await?;
         if let Some(ref cache) = self.cache {

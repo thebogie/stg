@@ -181,10 +181,8 @@ mod tests {
 
     #[test]
     fn test_contest_new_with_validation() {
-        let start = DateTime::parse_from_rfc3339("2023-07-15T14:00:00Z")
-            .unwrap();
-        let stop = DateTime::parse_from_rfc3339("2023-07-15T16:00:00Z")
-            .unwrap();
+        let start = DateTime::parse_from_rfc3339("2023-07-15T14:00:00Z").unwrap();
+        let stop = DateTime::parse_from_rfc3339("2023-07-15T16:00:00Z").unwrap();
 
         let result = Contest::new(
             "contest/test".to_string(),
@@ -203,10 +201,8 @@ mod tests {
 
     #[test]
     fn test_contest_new_with_invalid_name() {
-        let start = DateTime::parse_from_rfc3339("2023-07-15T14:00:00Z")
-            .unwrap();
-        let stop = DateTime::parse_from_rfc3339("2023-07-15T16:00:00Z")
-            .unwrap();
+        let start = DateTime::parse_from_rfc3339("2023-07-15T14:00:00Z").unwrap();
+        let stop = DateTime::parse_from_rfc3339("2023-07-15T16:00:00Z").unwrap();
 
         let result = Contest::new(
             "contest/test".to_string(),

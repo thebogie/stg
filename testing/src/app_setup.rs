@@ -56,8 +56,7 @@ pub async fn setup_test_app_data(env: &TestEnvironment) -> Result<TestAppData> {
         .await
         .map_err(|_| anyhow::anyhow!("SurrealDB connect/signin timed out after 15s (check SURREAL_URL is host-accessible, e.g. http://127.0.0.1:50001)"))??;
 
-    let redis_client =
-        redis::Client::open(env.redis_url()).context("Redis client")?;
+    let redis_client = redis::Client::open(env.redis_url()).context("Redis client")?;
     let redis_data = web::Data::new(redis_client.clone());
     let db_data = web::Data::new(db.clone());
     let session_store = web::Data::new(RedisSessionStore {
@@ -71,8 +70,10 @@ pub async fn setup_test_app_data(env: &TestEnvironment) -> Result<TestAppData> {
         "stg:test:cache:player".to_string(),
         CacheTTL::player(),
     ));
-    let mut player_repo_impl =
-        backend::player::repository::PlayerRepositoryImpl::new_with_cache(db.clone(), player_cache.clone());
+    let mut player_repo_impl = backend::player::repository::PlayerRepositoryImpl::new_with_cache(
+        db.clone(),
+        player_cache.clone(),
+    );
     // Scope can be lost across WS connections; set it explicitly per-query in integration tests.
     player_repo_impl.ns = Some(env.surrealdb_ns.clone());
     player_repo_impl.db_name = Some(env.surrealdb_db.clone());
@@ -85,11 +86,13 @@ pub async fn setup_test_app_data(env: &TestEnvironment) -> Result<TestAppData> {
             env.surrealdb_db.clone(),
         ),
     );
-    let game_repo = web::Data::new(backend::game::repository::GameRepositoryImpl::new_with_scope(
-        db.clone(),
-        env.surrealdb_ns.clone(),
-        env.surrealdb_db.clone(),
-    ));
+    let game_repo = web::Data::new(
+        backend::game::repository::GameRepositoryImpl::new_with_scope(
+            db.clone(),
+            env.surrealdb_ns.clone(),
+            env.surrealdb_db.clone(),
+        ),
+    );
     let contest_repo = web::Data::new(
         backend::contest::repository::ContestRepositoryImpl::new_with_google_config_and_player_repo(
             db.clone(),

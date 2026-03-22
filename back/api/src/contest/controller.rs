@@ -78,7 +78,10 @@ pub async fn get_contest_handler(
     log::info!("Fetching contest details for ID: {}", contest_id);
 
     // Use app's shared Db so we see the same NS/DB as analytics (fixes 404 when repo's clone differs)
-    match repo.find_details_by_id_using(&contest_id, db.get_ref()).await {
+    match repo
+        .find_details_by_id_using(&contest_id, db.get_ref())
+        .await
+    {
         Some(contest_details) => {
             log::info!("Contest details found");
             HttpResponse::Ok().json(contest_details)
@@ -182,9 +185,17 @@ pub async fn search_contests_handler_impl(
         requested_scope,
         page,
         page_size,
-        if q.is_empty() { None::<&str> } else { Some(q.as_str()) },
+        if q.is_empty() {
+            None::<&str>
+        } else {
+            Some(q.as_str())
+        },
         query.venue_id.as_deref(),
-        query.game_ids.as_ref().map(|s| s.split(',').count()).unwrap_or(0)
+        query
+            .game_ids
+            .as_ref()
+            .map(|s| s.split(',').count())
+            .unwrap_or(0)
     );
 
     // If query.player_id is provided, use it for filtering (searching for a specific player's contests)

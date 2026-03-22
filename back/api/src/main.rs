@@ -1,8 +1,5 @@
 use actix_web::{web, App, HttpServer};
-use backend::config::BGGConfig;
-use backend::db::Db;
-use surrealdb::engine::remote::ws::Ws;
-use surrealdb::Surreal;
+use backend::db::{connect_surreal, Db};
 use backend::error::ApiError;
 use backend::player::session::RedisSessionStore;
 use backend::third_party::BGGService;
@@ -102,65 +99,16 @@ async fn main() -> std::io::Result<()> {
     });
     let redis_client_for_ratings = redis_client.clone();
 
-    // Initialize SurrealDB connection (WebSocket)
-    let ws_url = config
-        .database
-        .url
-        .replace("http://", "ws://")
-        .replace("https://", "wss://");
-    log::info!("Connecting to SurrealDB at {}", ws_url);
-    // Use SocketAddr when host is an IP to avoid DNS lookup (fixes Docker Desktop / WSL2)
-    let db: Db = match url::Url::parse(&ws_url).ok().and_then(|u| {
-        let host = u.host_str()?;
-        let ip: std::net::IpAddr = host.parse().ok()?;
-        let port = u.port().unwrap_or(50001);
-        Some(std::net::SocketAddr::new(ip, port))
-    }) {
-        Some(addr) => match Surreal::new::<Ws>(addr).await {
-            Ok(d) => d,
-            Err(e) => {
-                error!("Failed to connect to SurrealDB at {}: {}", addr, e);
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::ConnectionRefused,
-                    e.to_string(),
-                ));
-            }
-        },
-        None => match Surreal::new::<Ws>(ws_url.as_str()).await {
-            Ok(d) => d,
-            Err(e) => {
-                error!("Failed to connect to SurrealDB: {}", e);
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::ConnectionRefused,
-                    e.to_string(),
-                ));
-            }
-        },
+    let db: Db = match connect_surreal(&config.database).await {
+        Ok(d) => d,
+        Err(e) => {
+            error!("SurrealDB connection failed: {}", e);
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::ConnectionRefused,
+                e.to_string(),
+            ));
+        }
     };
-    if let Err(e) = db
-        .signin(surrealdb::opt::auth::Root {
-            username: config.database.root_username.clone(),
-            password: config.database.root_password.clone(),
-        })
-        .await
-    {
-        error!("Failed to sign in to SurrealDB: {}", e);
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::PermissionDenied,
-            e.to_string(),
-        ));
-    }
-    if let Err(e) = db
-        .use_ns(&config.database.ns)
-        .use_db(&config.database.name)
-        .await
-    {
-        error!("Failed to use namespace/database: {}", e);
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::NotFound,
-            e.to_string(),
-        ));
-    }
 
     // Initialize Redis cache for repositories
     use backend::cache::{CacheTTL, RedisCache};
@@ -214,10 +162,7 @@ async fn main() -> std::io::Result<()> {
     );
 
     // Initialize game repository with BGG service
-    let bgg_service = BGGService::new_with_config(&BGGConfig {
-        api_url: config.bgg.api_url.clone(),
-        api_token: config.bgg.api_token.clone(),
-    });
+    let bgg_service = BGGService::new_with_config(&config.bgg);
     log::info!("BGG API configured with URL: {}", config.bgg.api_url);
     if config.bgg.api_token.is_some() {
         log::info!("BGG API token configured (Bearer authentication enabled)");

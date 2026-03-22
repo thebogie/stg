@@ -70,7 +70,10 @@ pub fn admin_page(_props: &AdminPageProps) -> Html {
             stats_error.set(None);
 
             wasm_bindgen_futures::spawn_local(async move {
-                match authenticated_get(&api_url("/api/analytics/platform")).send().await {
+                match authenticated_get(&api_url("/api/analytics/platform"))
+                    .send()
+                    .await
+                {
                     Ok(response) => {
                         if response.ok() {
                             if let Ok(stats) = response.json::<PlatformStatsDto>().await {
@@ -149,7 +152,9 @@ pub fn admin_page(_props: &AdminPageProps) -> Html {
         let stats_error = stats_error.clone();
 
         Callback::from(move |_: ()| {
-            if !gloo::dialogs::confirm("Clear analytics cache? This will refresh platform stats and charts.") {
+            if !gloo::dialogs::confirm(
+                "Clear analytics cache? This will refresh platform stats and charts.",
+            ) {
                 return;
             }
 
@@ -171,7 +176,10 @@ pub fn admin_page(_props: &AdminPageProps) -> Html {
                         system_stats.set(None);
                         stats_loading.set(true);
                         stats_error.set(None);
-                        match authenticated_get(&api_url("/api/analytics/platform")).send().await {
+                        match authenticated_get(&api_url("/api/analytics/platform"))
+                            .send()
+                            .await
+                        {
                             Ok(r) if r.ok() => match r.json::<PlatformStatsDto>().await {
                                 Ok(stats) => system_stats.set(Some(stats)),
                                 Err(_) => stats_error
@@ -179,8 +187,14 @@ pub fn admin_page(_props: &AdminPageProps) -> Html {
                             },
                             Ok(r) => {
                                 let status = r.status();
-                                let text = r.text().await.unwrap_or_else(|_| "Unknown error".to_string());
-                                stats_error.set(Some(format!("Failed to load system stats: {} - {}", status, text)));
+                                let text = r
+                                    .text()
+                                    .await
+                                    .unwrap_or_else(|_| "Unknown error".to_string());
+                                stats_error.set(Some(format!(
+                                    "Failed to load system stats: {} - {}",
+                                    status, text
+                                )));
                             }
                             Err(e) => stats_error
                                 .set(Some(format!("Failed to fetch system stats: {}", e))),
@@ -189,8 +203,12 @@ pub fn admin_page(_props: &AdminPageProps) -> Html {
                     }
                     Ok(resp) => {
                         let status = resp.status();
-                        let text = resp.text().await.unwrap_or_else(|_| "Unknown error".to_string());
-                        show_error_toast.emit(format!("Failed to clear cache: {} - {}", status, text));
+                        let text = resp
+                            .text()
+                            .await
+                            .unwrap_or_else(|_| "Unknown error".to_string());
+                        show_error_toast
+                            .emit(format!("Failed to clear cache: {} - {}", status, text));
                     }
                     Err(e) => show_error_toast.emit(format!("Failed to clear cache: {}", e)),
                 }
@@ -217,8 +235,12 @@ pub fn admin_page(_props: &AdminPageProps) -> Html {
                     }
                     Ok(resp) => {
                         let status = resp.status();
-                        let text = resp.text().await.unwrap_or_else(|_| "Unknown error".to_string());
-                        show_error_toast.emit(format!("Ratings recompute failed: {} - {}", status, text));
+                        let text = resp
+                            .text()
+                            .await
+                            .unwrap_or_else(|_| "Unknown error".to_string());
+                        show_error_toast
+                            .emit(format!("Ratings recompute failed: {} - {}", status, text));
                     }
                     Err(e) => show_error_toast.emit(format!("Ratings recompute failed: {}", e)),
                 }
@@ -230,7 +252,9 @@ pub fn admin_page(_props: &AdminPageProps) -> Html {
         let show_success_toast = show_success_toast.clone();
         let show_error_toast = show_error_toast.clone();
         Callback::from(move |_: ()| {
-            if !gloo::dialogs::confirm("Rebuild ALL ratings from the beginning? This can take a while.") {
+            if !gloo::dialogs::confirm(
+                "Rebuild ALL ratings from the beginning? This can take a while.",
+            ) {
                 return;
             }
             let show_success_toast = show_success_toast.clone();
@@ -245,8 +269,12 @@ pub fn admin_page(_props: &AdminPageProps) -> Html {
                     }
                     Ok(resp) => {
                         let status = resp.status();
-                        let text = resp.text().await.unwrap_or_else(|_| "Unknown error".to_string());
-                        show_error_toast.emit(format!("Ratings rebuild failed: {} - {}", status, text));
+                        let text = resp
+                            .text()
+                            .await
+                            .unwrap_or_else(|_| "Unknown error".to_string());
+                        show_error_toast
+                            .emit(format!("Ratings rebuild failed: {} - {}", status, text));
                     }
                     Err(e) => show_error_toast.emit(format!("Ratings rebuild failed: {}", e)),
                 }
@@ -269,17 +297,30 @@ pub fn admin_page(_props: &AdminPageProps) -> Html {
             let rebuild_status_loading = rebuild_status_loading.clone();
             let show_error_toast = show_error_toast.clone();
             wasm_bindgen_futures::spawn_local(async move {
-                match authenticated_get(&api_url("/api/ratings/rebuild/status")).send().await {
+                match authenticated_get(&api_url("/api/ratings/rebuild/status"))
+                    .send()
+                    .await
+                {
                     Ok(resp) if resp.ok() => match resp.json::<serde_json::Value>().await {
                         Ok(v) => rebuild_status.set(Some(v)),
-                        Err(_) => show_error_toast.emit("Failed to parse rebuild status".to_string()),
+                        Err(_) => {
+                            show_error_toast.emit("Failed to parse rebuild status".to_string())
+                        }
                     },
                     Ok(resp) => {
                         let status = resp.status();
-                        let text = resp.text().await.unwrap_or_else(|_| "Unknown error".to_string());
-                        show_error_toast.emit(format!("Failed to fetch rebuild status: {} - {}", status, text));
+                        let text = resp
+                            .text()
+                            .await
+                            .unwrap_or_else(|_| "Unknown error".to_string());
+                        show_error_toast.emit(format!(
+                            "Failed to fetch rebuild status: {} - {}",
+                            status, text
+                        ));
                     }
-                    Err(e) => show_error_toast.emit(format!("Failed to fetch rebuild status: {}", e)),
+                    Err(e) => {
+                        show_error_toast.emit(format!("Failed to fetch rebuild status: {}", e))
+                    }
                 }
                 rebuild_status_loading.set(false);
             });
@@ -312,8 +353,9 @@ pub fn admin_page(_props: &AdminPageProps) -> Html {
                     let rebuild_status = rebuild_status.clone();
                     let rebuild_status_loading = rebuild_status_loading.clone();
                     wasm_bindgen_futures::spawn_local(async move {
-                        if let Ok(resp) =
-                            authenticated_get(&api_url("/api/ratings/rebuild/status")).send().await
+                        if let Ok(resp) = authenticated_get(&api_url("/api/ratings/rebuild/status"))
+                            .send()
+                            .await
                         {
                             if resp.ok() {
                                 if let Ok(v) = resp.json::<serde_json::Value>().await {

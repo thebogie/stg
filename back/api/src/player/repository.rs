@@ -4,10 +4,10 @@ use crate::surreal_helpers::{
     normalize_record_id_string, record_id_from_row, select_one_by_record_id,
 };
 use async_trait::async_trait;
-use surrealdb::types::SurrealValue;
 use log;
 use shared::models::player::Player;
 use std::sync::Arc;
+use surrealdb::types::SurrealValue;
 
 /// Row shape from SurrealDB SELECT * FROM player. Id is a RecordId in responses.
 #[derive(serde::Deserialize, serde::Serialize, surrealdb::types::SurrealValue)]
@@ -91,11 +91,10 @@ impl PlayerRepositoryImpl {
 }
 
 fn row_to_player(r: PlayerRow) -> Option<Player> {
-    let id = r
-        .id
-        .as_deref()
-        .map(normalize_record_id_string)
-        .unwrap_or_default();
+    let id =
+        r.id.as_deref()
+            .map(normalize_record_id_string)
+            .unwrap_or_default();
     if id.is_empty() {
         return None;
     }
@@ -120,20 +119,47 @@ fn row_to_player(r: PlayerRow) -> Option<Player> {
 /// Map a Surreal record (Value) to Player. Record has id (record id), and stored fields.
 fn value_to_player(v: &serde_json::Value) -> Option<Player> {
     let id = record_id_from_row(v, Some("player"))?;
-    let firstname = v.get("firstname").and_then(|x| x.as_str()).unwrap_or("").to_string();
-    let handle = v.get("handle").and_then(|x| x.as_str()).unwrap_or("").to_string();
-    let email = v.get("email").and_then(|x| x.as_str()).unwrap_or("").to_string();
-    let password = v.get("password").and_then(|x| x.as_str()).unwrap_or("").to_string();
+    let firstname = v
+        .get("firstname")
+        .and_then(|x| x.as_str())
+        .unwrap_or("")
+        .to_string();
+    let handle = v
+        .get("handle")
+        .and_then(|x| x.as_str())
+        .unwrap_or("")
+        .to_string();
+    let email = v
+        .get("email")
+        .and_then(|x| x.as_str())
+        .unwrap_or("")
+        .to_string();
+    let password = v
+        .get("password")
+        .and_then(|x| x.as_str())
+        .unwrap_or("")
+        .to_string();
     let created_at: chrono::DateTime<chrono::Utc> = v
         .get("createdAt")
         .or_else(|| v.get("created_at"))
-        .and_then(|x| serde_json::from_value::<chrono::DateTime<chrono::FixedOffset>>(x.clone()).ok())
+        .and_then(|x| {
+            serde_json::from_value::<chrono::DateTime<chrono::FixedOffset>>(x.clone()).ok()
+        })
         .map(|dt| dt.with_timezone(&chrono::Utc))
         .unwrap_or_else(chrono::Utc::now);
-    let is_admin = v.get("isAdmin").or_else(|| v.get("is_admin")).and_then(|x| x.as_bool()).unwrap_or(false);
+    let is_admin = v
+        .get("isAdmin")
+        .or_else(|| v.get("is_admin"))
+        .and_then(|x| x.as_bool())
+        .unwrap_or(false);
     Some(Player {
         id,
-        rev: v.get("_rev").or_else(|| v.get("rev")).and_then(|x| x.as_str()).unwrap_or("").to_string(),
+        rev: v
+            .get("_rev")
+            .or_else(|| v.get("rev"))
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .to_string(),
         firstname,
         handle,
         email,
@@ -186,7 +212,10 @@ impl PlayerRepository for PlayerRepositoryImpl {
                 p
             }
             Err(e) => {
-                log::warn!("Player find_by_email: typed take failed ({}), trying Value path", e);
+                log::warn!(
+                    "Player find_by_email: typed take failed ({}), trying Value path",
+                    e
+                );
                 let mut res2 = self
                     .db
                     .query(&select_q)
@@ -218,8 +247,12 @@ impl PlayerRepository for PlayerRepositoryImpl {
         }
         if let Some(ref p) = player {
             if let Some(ref cache) = self.cache {
-                let _ = cache.set_with_ttl(&CacheKeys::player_by_email(email), p, CacheTTL::player()).await;
-                let _ = cache.set_with_ttl(&CacheKeys::player(&p.id), p, CacheTTL::player()).await;
+                let _ = cache
+                    .set_with_ttl(&CacheKeys::player_by_email(email), p, CacheTTL::player())
+                    .await;
+                let _ = cache
+                    .set_with_ttl(&CacheKeys::player(&p.id), p, CacheTTL::player())
+                    .await;
             }
         }
         player
@@ -241,10 +274,20 @@ impl PlayerRepository for PlayerRepositoryImpl {
             .and_then(|v| value_to_player(&v));
         if let Some(ref p) = player {
             if let Some(ref cache) = self.cache {
-                let _ = cache.set_with_ttl(&CacheKeys::player(&p.id), p, CacheTTL::player()).await;
-                let _ = cache.set_with_ttl(&CacheKeys::player_by_email(&p.email), p, CacheTTL::player()).await;
+                let _ = cache
+                    .set_with_ttl(&CacheKeys::player(&p.id), p, CacheTTL::player())
+                    .await;
+                let _ = cache
+                    .set_with_ttl(&CacheKeys::player_by_email(&p.email), p, CacheTTL::player())
+                    .await;
                 if !p.handle.is_empty() {
-                    let _ = cache.set_with_ttl(&CacheKeys::player_by_handle(&p.handle), p, CacheTTL::player()).await;
+                    let _ = cache
+                        .set_with_ttl(
+                            &CacheKeys::player_by_handle(&p.handle),
+                            p,
+                            CacheTTL::player(),
+                        )
+                        .await;
                 }
             }
         }
@@ -261,7 +304,9 @@ impl PlayerRepository for PlayerRepositoryImpl {
             Err(_) => return Vec::new(),
         };
         let rows: Vec<serde_json::Value> = res.take(0).unwrap_or_default();
-        rows.into_iter().filter_map(|v| value_to_player(&v)).collect()
+        rows.into_iter()
+            .filter_map(|v| value_to_player(&v))
+            .collect()
     }
 
     async fn create(&self, player: Player) -> Result<Player, String> {
@@ -279,10 +324,15 @@ impl PlayerRepository for PlayerRepositoryImpl {
         self.ensure_scope().await;
         if let (Some(ref ns), Some(ref db_name)) = (&self.ns, &self.db_name) {
             let ns_ok = ns.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
-            let db_ok = db_name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+            let db_ok = db_name
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_');
             if ns_ok && db_ok {
                 let use_q = format!("USE NS {}; USE DB {};", ns, db_name);
-                self.db.query(use_q).await.map_err(|e| format!("Failed to set scope: {}", e))?;
+                self.db
+                    .query(use_q)
+                    .await
+                    .map_err(|e| format!("Failed to set scope: {}", e))?;
             }
         }
         self.db
@@ -302,10 +352,28 @@ impl PlayerRepository for PlayerRepositoryImpl {
             is_admin: player.is_admin,
         };
         if let Some(ref cache) = self.cache {
-            let _ = cache.set_with_ttl(&CacheKeys::player(&created_player.id), &created_player, CacheTTL::player()).await;
-            let _ = cache.set_with_ttl(&CacheKeys::player_by_email(&created_player.email), &created_player, CacheTTL::player()).await;
+            let _ = cache
+                .set_with_ttl(
+                    &CacheKeys::player(&created_player.id),
+                    &created_player,
+                    CacheTTL::player(),
+                )
+                .await;
+            let _ = cache
+                .set_with_ttl(
+                    &CacheKeys::player_by_email(&created_player.email),
+                    &created_player,
+                    CacheTTL::player(),
+                )
+                .await;
             if !created_player.handle.is_empty() {
-                let _ = cache.set_with_ttl(&CacheKeys::player_by_handle(&created_player.handle), &created_player, CacheTTL::player()).await;
+                let _ = cache
+                    .set_with_ttl(
+                        &CacheKeys::player_by_handle(&created_player.handle),
+                        &created_player,
+                        CacheTTL::player(),
+                    )
+                    .await;
             }
         }
         Ok(created_player)
@@ -361,14 +429,36 @@ impl PlayerRepository for PlayerRepositoryImpl {
 
         let updated_player = stored_player.clone();
         if let Some(ref cache) = self.cache {
-            let _ = cache.delete(&CacheKeys::player_by_email(&updated_player.email)).await;
+            let _ = cache
+                .delete(&CacheKeys::player_by_email(&updated_player.email))
+                .await;
             if !player.handle.is_empty() {
-                let _ = cache.delete(&CacheKeys::player_by_handle(&player.handle)).await;
+                let _ = cache
+                    .delete(&CacheKeys::player_by_handle(&player.handle))
+                    .await;
             }
-            let _ = cache.set_with_ttl(&CacheKeys::player(&updated_player.id), &updated_player, CacheTTL::player()).await;
-            let _ = cache.set_with_ttl(&CacheKeys::player_by_email(&updated_player.email), &updated_player, CacheTTL::player()).await;
+            let _ = cache
+                .set_with_ttl(
+                    &CacheKeys::player(&updated_player.id),
+                    &updated_player,
+                    CacheTTL::player(),
+                )
+                .await;
+            let _ = cache
+                .set_with_ttl(
+                    &CacheKeys::player_by_email(&updated_player.email),
+                    &updated_player,
+                    CacheTTL::player(),
+                )
+                .await;
             if !updated_player.handle.is_empty() {
-                let _ = cache.set_with_ttl(&CacheKeys::player_by_handle(&updated_player.handle), &updated_player, CacheTTL::player()).await;
+                let _ = cache
+                    .set_with_ttl(
+                        &CacheKeys::player_by_handle(&updated_player.handle),
+                        &updated_player,
+                        CacheTTL::player(),
+                    )
+                    .await;
             }
         }
         Ok(updated_player)
@@ -405,14 +495,27 @@ impl PlayerRepository for PlayerRepositoryImpl {
         }
         let record_ids: Vec<String> = ids
             .iter()
-            .map(|id| format!("player:{}", id.trim_start_matches("player/").trim_start_matches("player:")))
+            .map(|id| {
+                format!(
+                    "player:{}",
+                    id.trim_start_matches("player/")
+                        .trim_start_matches("player:")
+                )
+            })
             .collect();
-        let mut res = match self.db.query("SELECT * FROM player WHERE id INSIDE $ids").bind(("ids", record_ids)).await {
+        let mut res = match self
+            .db
+            .query("SELECT * FROM player WHERE id INSIDE $ids")
+            .bind(("ids", record_ids))
+            .await
+        {
             Ok(r) => r,
             Err(_) => return Vec::new(),
         };
         let rows: Vec<serde_json::Value> = res.take(0).unwrap_or_default();
-        rows.into_iter().filter_map(|v| value_to_player(&v)).collect()
+        rows.into_iter()
+            .filter_map(|v| value_to_player(&v))
+            .collect()
     }
 }
 

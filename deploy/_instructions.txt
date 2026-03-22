@@ -1,0 +1,22 @@
+dev:
+split screen: 
+  clear; just backend-watch
+
+
+  clear; ./scripts/start-deps.sh
+  clear; ./scripts/start-tauri.sh
+
+
+run  ./scripts/full-prod-test.sh
+then when failures happend run FULL_PROD_TEST_ITERATE=1 ./scripts/full-prod-test.sh
+then one more time with the full-prod-test.sh
+
+
+prod shuffle:
+rsync -az ./deploy/ thebogie@192.168.1.51:/home/thebogie/stg/deploy/
+
+Local: ./scripts/full-prod-test.sh passes (and iterate variant as needed).
+Push main → CI green → note the image tag (SHA or latest).
+rsync (or copy) refreshed deploy/ to the server, including migrations/.
+On server, from deploy/: ./deploy_stg.sh <tag> (same tag CI built).
+If this release added bgg_catalog (or similar), run data steps once: e.g. copy CSV to the path you use in prod, then cargo run / container to run import_bgg_catalog with prod env — not part of deploy_stg.sh by default.

@@ -108,7 +108,11 @@ pub fn scheduler_monitor(props: &SchedulerMonitorProps) -> Html {
 
             wasm_bindgen_futures::spawn_local(async move {
                 let url = if !period_clone.is_empty() {
-                    format!("{}?period={}", api_url("/api/ratings/scheduler/trigger"), period_clone)
+                    format!(
+                        "{}?period={}",
+                        api_url("/api/ratings/scheduler/trigger"),
+                        period_clone
+                    )
                 } else {
                     api_url("/api/ratings/scheduler/trigger")
                 };

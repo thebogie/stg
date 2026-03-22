@@ -43,7 +43,9 @@ pub fn invoke_tauri(cmd: &str, args: JsValue) -> Option<js_sys::Promise> {
         return None;
     }
     let invoke_fn = invoke_fn.dyn_ref::<js_sys::Function>()?;
-    let promise = invoke_fn.call2(&core, &JsValue::from_str(cmd), &args).ok()?;
+    let promise = invoke_fn
+        .call2(&core, &JsValue::from_str(cmd), &args)
+        .ok()?;
     let promise = promise.dyn_into::<js_sys::Promise>().ok()?;
     Some(promise)
 }

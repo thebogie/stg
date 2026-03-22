@@ -38,27 +38,21 @@ fn record_id_to_key_strips_prefix_and_wrappers() {
 #[test]
 fn record_id_from_row_extracts_string_id_and_normalizes() {
     let v = json!({ "id": "game:`⟨abc⟩`" });
-    assert_eq!(
-        record_id_from_row(&v, None).as_deref(),
-        Some("game/abc")
-    );
+    assert_eq!(record_id_from_row(&v, None).as_deref(), Some("game/abc"));
 }
 
 #[test]
 fn record_id_from_row_extracts_thing_object_tb_id_string() {
     let v = json!({ "id": { "tb": "player", "id": "123" } });
-    assert_eq!(
-        record_id_from_row(&v, None).as_deref(),
-        Some("player/123")
-    );
+    assert_eq!(record_id_from_row(&v, None).as_deref(), Some("player/123"));
 }
 
 #[test]
 fn record_id_from_row_extracts_thing_object_tb_id_uuid_obj() {
-    let v = json!({ "id": { "tb": "game", "id": { "uuid": "550e8400-e29b-41d4-a716-446655440000" } } });
+    let v =
+        json!({ "id": { "tb": "game", "id": { "uuid": "550e8400-e29b-41d4-a716-446655440000" } } });
     assert_eq!(
         record_id_from_row(&v, None).as_deref(),
         Some("game/550e8400-e29b-41d4-a716-446655440000")
     );
 }
-

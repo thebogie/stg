@@ -12,7 +12,7 @@
 # 2. Stop the stg service (if running).
 # 3. docker pull backend and frontend images from GHCR with <label>.
 # 4. docker compose down (docker-compose.full.yml in this directory).
-# 5. Write BACKEND_IMAGE, FRONTEND_IMAGE, IMAGE_TAG to /etc/stg/stg.env, then start the stg service (full stack).
+# 5. Start SurrealDB + Redis, run DB migrations, then start backend + frontend with new images.
 #
 # Requires: this deploy/ directory on the host (docker-compose.full.yml, Caddyfile.frontend, config/.env.prod); Docker.
 # Optional: run as root so systemd unit can be installed and /etc/stg/stg.env written.
@@ -128,6 +128,11 @@ compose_down() {
   fi
   echo "==> Bringing stack down (docker compose down)"
   cd "$DEPLOY_ROOT"
+  # docker compose parses/interpolates image fields even for "down".
+  # Ensure required IMAGE_* env vars are set so a fresh deploy doesn't fail interpolation.
+  export BACKEND_IMAGE="$BACKEND_IMAGE_FULL"
+  export FRONTEND_IMAGE="$FRONTEND_IMAGE_FULL"
+  export IMAGE_TAG="$LABEL"
   docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" down || true
 }
 
@@ -147,10 +152,31 @@ start_service() {
   fi
 }
 
+start_deps_only() {
+  echo "==> Starting SurrealDB + Redis only"
+  cd "$DEPLOY_ROOT"
+  export COMPOSE_PROJECT_NAME=stg
+  export BACKEND_IMAGE="$BACKEND_IMAGE_FULL"
+  export FRONTEND_IMAGE="$FRONTEND_IMAGE_FULL"
+  export IMAGE_TAG="$LABEL"
+  docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d surrealdb redis
+}
+
+run_db_migrations() {
+  if [ ! -x "$DEPLOY_ROOT/run_surreal_migrations.sh" ]; then
+    echo "==> Migration runner missing or not executable: $DEPLOY_ROOT/run_surreal_migrations.sh" >&2
+    exit 1
+  fi
+  echo "==> Running SurrealDB migrations..."
+  DEPLOY_ROOT="$DEPLOY_ROOT" ENV_FILE="$ENV_FILE" "$DEPLOY_ROOT/run_surreal_migrations.sh"
+}
+
 # --- Main ---
 install_unit_if_missing
 stop_service
 pull_images
 compose_down
+start_deps_only
+run_db_migrations
 start_service
 echo "✅ Deploy finished: backend $BACKEND_IMAGE_FULL, frontend $FRONTEND_IMAGE_FULL"

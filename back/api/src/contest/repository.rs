@@ -253,13 +253,13 @@ impl ContestRepository for ContestRepositoryImpl {
         if creator_key.is_empty() {
             return Err("Invalid creator_id for contest".to_string());
         }
-        // Use string key for contest so SurrealDB does not coerce record id to schema "id" (string); UUID key caused: Expected `string` but found `u'...'`.
+        // Contest record id uses a UUID string key; player ids are opaque string keys (often numeric), not UUIDs — do not use type::uuid on creator_key.
         let create_sql = self.query_with_scope(
             "CREATE type::record('contest', $key) CONTENT {\
              name: $name,\
              start: type::datetime($start),\
              stop: type::datetime($stop),\
-             creator_id: type::record('player', type::uuid($creator_key)),\
+             creator_id: type::record('player', $creator_key),\
              created_at: type::datetime($created_at)\
              }",
         );
@@ -973,7 +973,7 @@ impl ContestRepositoryImpl {
         }
         let result_str = outcome.result.clone();
         let sql = self.query_with_scope(
-            "INSERT INTO resulted_in (`in`, `out`, place, result) VALUES (type::record('contest', $contest_key), type::record('player', type::uuid($player_key)), $place, $result)",
+            "INSERT INTO resulted_in (`in`, `out`, place, result) VALUES (type::record('contest', $contest_key), type::record('player', $player_key), $place, $result)",
         );
         self.db
             .query(&sql)

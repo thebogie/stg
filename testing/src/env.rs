@@ -24,7 +24,8 @@ impl TestEnvironment {
     /// Use existing stack via env vars. Always connects to 127.0.0.1 (ports from SURREALDB_PORT, REDIS_PORT).
     /// If you see "name resolution" failure, run tests from a system terminal (not the IDE) so the process has network.
     pub fn from_env() -> Result<Self> {
-        let surrealdb_port = std::env::var("SURREALDB_PORT").unwrap_or_else(|_| "50001".to_string());
+        let surrealdb_port =
+            std::env::var("SURREALDB_PORT").unwrap_or_else(|_| "50001".to_string());
         let redis_port = std::env::var("REDIS_PORT").unwrap_or_else(|_| "6379".to_string());
         let surrealdb_url = format!("http://127.0.0.1:{}", surrealdb_port);
         let redis_url = format!("redis://127.0.0.1:{}/", redis_port);
@@ -71,13 +72,20 @@ impl TestEnvironment {
     pub async fn wait_for_ready(&self) -> Result<()> {
         use surrealdb::engine::remote::ws::Ws;
         use surrealdb::Surreal;
-        let ws_url = self.surrealdb_url.replace("http://", "ws://").replace("https://", "wss://");
+        let ws_url = self
+            .surrealdb_url
+            .replace("http://", "ws://")
+            .replace("https://", "wss://");
         let mut last_connect_err = None::<String>;
         let mut last_auth_err = None::<String>;
         let attempt_timeout = Duration::from_secs(15);
         const MAX_ATTEMPTS: u32 = 8;
         for attempt in 0..MAX_ATTEMPTS {
-            eprintln!("Waiting for SurrealDB (attempt {}/{}).", attempt + 1, MAX_ATTEMPTS);
+            eprintln!(
+                "Waiting for SurrealDB (attempt {}/{}).",
+                attempt + 1,
+                MAX_ATTEMPTS
+            );
             let connect_fut = async {
                 let db = match TestEnvironment::surreal_socket_addr(&self.surrealdb_url) {
                     Some(addr) => Surreal::new::<Ws>(addr).await?,
@@ -99,7 +107,12 @@ impl TestEnvironment {
                     break;
                 }
                 Ok(Err(e)) => last_auth_err = Some(e.to_string()),
-                Err(_) => last_connect_err = Some(format!("connect/signin timed out ({}s)", attempt_timeout.as_secs())),
+                Err(_) => {
+                    last_connect_err = Some(format!(
+                        "connect/signin timed out ({}s)",
+                        attempt_timeout.as_secs()
+                    ))
+                }
             }
             if attempt == MAX_ATTEMPTS - 1 {
                 let msg = match (last_connect_err.as_deref(), last_auth_err.as_deref()) {
@@ -117,11 +130,12 @@ impl TestEnvironment {
             eprintln!("Waiting for Redis (attempt {}/20).", attempt + 1);
             // Redis connect can hang (e.g. network/DNS issues in some environments),
             // so bound it with a short timeout per attempt to avoid "stuck" tests.
-            let conn_ok = tokio::time::timeout(Duration::from_secs(2), redis_client.get_async_connection())
-                .await
-                .ok()
-                .and_then(|r| r.ok())
-                .is_some();
+            let conn_ok =
+                tokio::time::timeout(Duration::from_secs(2), redis_client.get_async_connection())
+                    .await
+                    .ok()
+                    .and_then(|r| r.ok())
+                    .is_some();
             if conn_ok {
                 log::debug!("Redis ready after {} attempts", attempt + 1);
                 return Ok(());

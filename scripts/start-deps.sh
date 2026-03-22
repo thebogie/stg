@@ -104,6 +104,18 @@ if [ "$RUST_ENV" = "dev" ] || [ "$RUST_ENV" = "development" ]; then
 
   # Apply optional SurrealDB functions (contest_row, contest_with_edges, etc.); use host network so we hit 127.0.0.1
   if [ -f "$ROOT/tools/arango-to-surreal/surreal-functions.surql" ]; then
+    REMOVE_FILE="$ROOT/tools/arango-to-surreal/surreal-functions-remove.surql"
+    if [ -f "$REMOVE_FILE" ]; then
+      echo "==> Removing existing SurrealDB functions (if any) for idempotent apply..."
+      docker run --rm --network host \
+        -v "$ROOT/tools/arango-to-surreal:/import:ro" \
+        surrealdb/surrealdb:v3 \
+        import \
+        --endpoint "$SURREAL_ENDPOINT" \
+        --username "$SURREAL_USER" --password "$SURREAL_PASSWORD" \
+        --namespace "$SURREAL_NS" --database "$SURREAL_DB" \
+        "/import/surreal-functions-remove.surql" 2>/dev/null || true
+    fi
     echo "==> Applying SurrealDB functions (tools/arango-to-surreal/surreal-functions.surql)..."
     if docker run --rm --network host \
       -v "$ROOT/tools/arango-to-surreal:/import:ro" \

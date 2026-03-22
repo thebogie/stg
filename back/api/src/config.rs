@@ -238,7 +238,10 @@ impl Config {
                 }
                 // Prefer 127.0.0.1 over localhost to avoid "Temporary failure in name resolution" in some environments (WSL/Docker)
                 let mut url = surreal_url.unwrap_or_else(|| "http://127.0.0.1:50001".to_string());
-                if let Some(port) = env::var("SURREALDB_PORT").ok().and_then(|p| p.parse::<u16>().ok()) {
+                if let Some(port) = env::var("SURREALDB_PORT")
+                    .ok()
+                    .and_then(|p| p.parse::<u16>().ok())
+                {
                     if let Ok(parsed) = url::Url::parse(&url) {
                         let host = parsed.host_str().unwrap_or("");
                         if host != "127.0.0.1" && host != "localhost" {
@@ -247,22 +250,32 @@ impl Config {
                         }
                     }
                 }
-                let db_name = Self::db_env_opt("SURREAL_DB", "ARANGO_DB").unwrap_or_else(|| "stg_rd_dev".to_string());
-                let ns = env::var("SURREAL_NS").ok().unwrap_or_else(|| db_name.clone());
+                let db_name = Self::db_env_opt("SURREAL_DB", "ARANGO_DB")
+                    .unwrap_or_else(|| "stg_rd_dev".to_string());
+                let ns = env::var("SURREAL_NS")
+                    .ok()
+                    .unwrap_or_else(|| db_name.clone());
                 DatabaseConfig {
                     url,
                     ns,
                     name: db_name,
-                    username: Self::db_env_opt("SURREAL_USER", "ARANGO_USERNAME").unwrap_or_else(|| "root".to_string()),
-                    password: Self::db_env_opt("SURREAL_PASSWORD", "ARANGO_PASSWORD").unwrap_or_else(|| "root".to_string()),
+                    username: Self::db_env_opt("SURREAL_USER", "ARANGO_USERNAME")
+                        .unwrap_or_else(|| "root".to_string()),
+                    password: Self::db_env_opt("SURREAL_PASSWORD", "ARANGO_PASSWORD")
+                        .unwrap_or_else(|| "root".to_string()),
                     root_username: "root".to_string(),
-                    root_password: Self::db_env_opt("SURREAL_PASSWORD", "ARANGO_PASSWORD").unwrap_or_else(|| "root".to_string()),
+                    root_password: Self::db_env_opt("SURREAL_PASSWORD", "ARANGO_PASSWORD")
+                        .unwrap_or_else(|| "root".to_string()),
                     pool_size: env::var("DB_POOL_SIZE")
-                        .unwrap_or_else(|_| env::var("REDIS_POOL_SIZE").unwrap_or_else(|_| "5".to_string()))
+                        .unwrap_or_else(|_| {
+                            env::var("REDIS_POOL_SIZE").unwrap_or_else(|_| "5".to_string())
+                        })
                         .parse()
                         .unwrap_or(5),
                     _timeout_seconds: env::var("DB_TIMEOUT")
-                        .unwrap_or_else(|_| env::var("REDIS_TIMEOUT").unwrap_or_else(|_| "30".to_string()))
+                        .unwrap_or_else(|_| {
+                            env::var("REDIS_TIMEOUT").unwrap_or_else(|_| "30".to_string())
+                        })
                         .parse()
                         .unwrap_or(30),
                 }
@@ -274,16 +287,23 @@ impl Config {
                     url: env::var("SURREAL_URL").expect("SURREAL_URL must be set in production"),
                     ns,
                     name: db_name,
-                    username: env::var("SURREAL_USER").expect("SURREAL_USER must be set in production"),
-                    password: env::var("SURREAL_PASSWORD").expect("SURREAL_PASSWORD must be set in production"),
+                    username: env::var("SURREAL_USER")
+                        .expect("SURREAL_USER must be set in production"),
+                    password: env::var("SURREAL_PASSWORD")
+                        .expect("SURREAL_PASSWORD must be set in production"),
                     root_username: "root".to_string(),
-                    root_password: env::var("SURREAL_PASSWORD").expect("SURREAL_PASSWORD must be set in production"),
+                    root_password: env::var("SURREAL_PASSWORD")
+                        .expect("SURREAL_PASSWORD must be set in production"),
                     pool_size: env::var("DB_POOL_SIZE")
-                        .unwrap_or_else(|_| env::var("REDIS_POOL_SIZE").unwrap_or_else(|_| "20".to_string()))
+                        .unwrap_or_else(|_| {
+                            env::var("REDIS_POOL_SIZE").unwrap_or_else(|_| "20".to_string())
+                        })
                         .parse()
                         .unwrap_or(20),
                     _timeout_seconds: env::var("DB_TIMEOUT")
-                        .unwrap_or_else(|_| env::var("REDIS_TIMEOUT").unwrap_or_else(|_| "120".to_string()))
+                        .unwrap_or_else(|_| {
+                            env::var("REDIS_TIMEOUT").unwrap_or_else(|_| "120".to_string())
+                        })
                         .parse()
                         .unwrap_or(120),
                 }
@@ -292,19 +312,25 @@ impl Config {
                 let db_name = env::var("SURREAL_DB").unwrap_or_else(|_| "stg_rd_test".to_string());
                 let ns = env::var("SURREAL_NS").unwrap_or_else(|_| db_name.clone());
                 DatabaseConfig {
-                    url: env::var("SURREAL_URL").unwrap_or_else(|_| "http://test-surrealdb:8000".to_string()),
+                    url: env::var("SURREAL_URL")
+                        .unwrap_or_else(|_| "http://test-surrealdb:8000".to_string()),
                     ns,
                     name: db_name,
                     username: env::var("SURREAL_USER").unwrap_or_else(|_| "root".to_string()),
                     password: env::var("SURREAL_PASSWORD").unwrap_or_else(|_| "test".to_string()),
                     root_username: "root".to_string(),
-                    root_password: env::var("SURREAL_PASSWORD").unwrap_or_else(|_| "test".to_string()),
+                    root_password: env::var("SURREAL_PASSWORD")
+                        .unwrap_or_else(|_| "test".to_string()),
                     pool_size: env::var("DB_POOL_SIZE")
-                        .unwrap_or_else(|_| env::var("REDIS_POOL_SIZE").unwrap_or_else(|_| "5".to_string()))
+                        .unwrap_or_else(|_| {
+                            env::var("REDIS_POOL_SIZE").unwrap_or_else(|_| "5".to_string())
+                        })
                         .parse()
                         .unwrap_or(5),
                     _timeout_seconds: env::var("DB_TIMEOUT")
-                        .unwrap_or_else(|_| env::var("REDIS_TIMEOUT").unwrap_or_else(|_| "30".to_string()))
+                        .unwrap_or_else(|_| {
+                            env::var("REDIS_TIMEOUT").unwrap_or_else(|_| "30".to_string())
+                        })
                         .parse()
                         .unwrap_or(30),
                 }

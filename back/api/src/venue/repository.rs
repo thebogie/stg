@@ -21,13 +21,36 @@ fn value_to_venue(v: &serde_json::Value) -> Option<Venue> {
     let id = record_id_to_string(v)?;
     Some(Venue {
         id,
-        rev: v.get("_rev").or_else(|| v.get("rev")).and_then(|x| x.as_str()).unwrap_or("").to_string(),
-        display_name: v.get("displayName").or_else(|| v.get("display_name")).and_then(|x| x.as_str()).unwrap_or("").to_string(),
-        formatted_address: v.get("formattedAddress").or_else(|| v.get("formatted_address")).and_then(|x| x.as_str()).unwrap_or("").to_string(),
-        place_id: v.get("place_id").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+        rev: v
+            .get("_rev")
+            .or_else(|| v.get("rev"))
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .to_string(),
+        display_name: v
+            .get("displayName")
+            .or_else(|| v.get("display_name"))
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .to_string(),
+        formatted_address: v
+            .get("formattedAddress")
+            .or_else(|| v.get("formatted_address"))
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .to_string(),
+        place_id: v
+            .get("place_id")
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .to_string(),
         lat: v.get("lat").and_then(|x| x.as_f64()).unwrap_or(0.0),
         lng: v.get("lng").and_then(|x| x.as_f64()).unwrap_or(0.0),
-        timezone: v.get("timezone").and_then(|x| x.as_str()).unwrap_or("UTC").to_string(),
+        timezone: v
+            .get("timezone")
+            .and_then(|x| x.as_str())
+            .unwrap_or("UTC")
+            .to_string(),
         source: shared::models::venue::VenueSource::Database,
     })
 }
@@ -77,7 +100,11 @@ impl VenueRepositoryImpl {
         }
     }
 
-    pub fn new_with_cache(db: Db, google_config: Option<(String, String)>, cache: Arc<RedisCache>) -> Self {
+    pub fn new_with_cache(
+        db: Db,
+        google_config: Option<(String, String)>,
+        cache: Arc<RedisCache>,
+    ) -> Self {
         let google_places = google_config
             .as_ref()
             .map(|(api_url, api_key)| GooglePlacesService::new(api_url.clone(), api_key.clone()));
@@ -129,7 +156,9 @@ impl VenueRepositoryImpl {
     fn query_with_scope(&self, core: &str) -> String {
         if let (Some(ref ns), Some(ref db_name)) = (&self.ns, &self.db_name) {
             let ns_ok = ns.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
-            let db_ok = db_name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+            let db_ok = db_name
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_');
             if ns_ok && db_ok {
                 return format!("USE NS {}; USE DB {}; {}", ns, db_name, core);
             }
@@ -175,24 +204,37 @@ impl VenueRepositoryImpl {
     async fn update_venue_timezone(&self, venue_id: &str, timezone: &str) -> Result<(), String> {
         self.ensure_scope().await;
         log::info!("🔄 Updating venue {} timezone to: {}", venue_id, timezone);
-        let key = venue_id.trim_start_matches("venue/").trim_start_matches("venue:").to_string();
+        let key = venue_id
+            .trim_start_matches("venue/")
+            .trim_start_matches("venue:")
+            .to_string();
         let tz = timezone.to_string();
         // Try UUID-typed first (preferred), then fallback to string-key record ids for older imports.
         if uuid::Uuid::parse_str(&key).is_ok() {
             let _ = self
                 .db
-                .query(self.query_with_scope("UPDATE type::record('venue', type::uuid($key)) SET timezone = $timezone"))
+                .query(self.query_with_scope(
+                    "UPDATE type::record('venue', type::uuid($key)) SET timezone = $timezone",
+                ))
                 .bind(("key", key.clone()))
                 .bind(("timezone", tz.clone()))
                 .await;
         }
         self.db
-            .query(self.query_with_scope("UPDATE type::record('venue', $key) SET timezone = $timezone"))
+            .query(
+                self.query_with_scope(
+                    "UPDATE type::record('venue', $key) SET timezone = $timezone",
+                ),
+            )
             .bind(("key", key))
             .bind(("timezone", tz))
             .await
             .map_err(|e| format!("Failed to update venue timezone: {}", e))?;
-        log::info!("✅ Successfully updated venue {} timezone to: {}", venue_id, timezone);
+        log::info!(
+            "✅ Successfully updated venue {} timezone to: {}",
+            venue_id,
+            timezone
+        );
         Ok(())
     }
 
@@ -367,7 +409,10 @@ mod search_dto_tests {
         let dtos: Vec<VenueDto> = venues.iter().map(VenueDto::from).collect();
         assert_eq!(dtos[0].timezone, "America/Chicago");
         assert_eq!(dtos[1].timezone, "Europe/Paris");
-        assert!(matches!(dtos[0].source, shared::models::venue::VenueSource::Database));
+        assert!(matches!(
+            dtos[0].source,
+            shared::models::venue::VenueSource::Database
+        ));
     }
 }
 
@@ -391,12 +436,14 @@ impl VenueRepository for VenueRepositoryImpl {
             self.ns.as_deref(),
             self.db_name.as_deref(),
         )
-            .await
-            .and_then(|row| value_to_venue(&row));
+        .await
+        .and_then(|row| value_to_venue(&row));
         if let Some(ref v) = venue {
             log::info!("✅ Found venue by ID: '{}' -> '{}'", id, v.display_name);
             if let Some(ref cache) = self.cache {
-                let _ = cache.set_with_ttl(&CacheKeys::venue(id), v, CacheTTL::venue()).await;
+                let _ = cache
+                    .set_with_ttl(&CacheKeys::venue(id), v, CacheTTL::venue())
+                    .await;
             }
         } else {
             log::error!("❌ Venue not found by ID: '{}'", id);
@@ -415,7 +462,10 @@ impl VenueRepository for VenueRepositoryImpl {
             }
         };
         let rows: Vec<serde_json::Value> = res.take(0).unwrap_or_default();
-        let venues: Vec<Venue> = rows.into_iter().filter_map(|v| value_to_venue(&v)).collect();
+        let venues: Vec<Venue> = rows
+            .into_iter()
+            .filter_map(|v| value_to_venue(&v))
+            .collect();
         log::info!("📊 Found {} total venues in database", venues.len());
         venues
     }
@@ -480,7 +530,13 @@ impl VenueRepository for VenueRepositoryImpl {
         let venues = self.search(query).await;
         let results: Vec<VenueDto> = venues.into_iter().map(|v| VenueDto::from(&v)).collect();
         if let Some(ref cache) = self.cache {
-            let _ = cache.set_with_ttl(&CacheKeys::venue_search(query), &results, CacheTTL::venue_search()).await;
+            let _ = cache
+                .set_with_ttl(
+                    &CacheKeys::venue_search(query),
+                    &results,
+                    CacheTTL::venue_search(),
+                )
+                .await;
         }
         results
     }
@@ -488,7 +544,10 @@ impl VenueRepository for VenueRepositoryImpl {
     async fn get_venue_performance(&self, venue_id: &str) -> Result<serde_json::Value, String> {
         log::info!("🔍 Getting venue performance for venue: {}", venue_id);
         // TODO: implement with SurrealQL (played_at `out`=contest, `in`=venue; resulted_in, played_with)
-        let venue = self.find_by_id(venue_id).await.ok_or_else(|| format!("Venue not found: {}", venue_id))?;
+        let venue = self
+            .find_by_id(venue_id)
+            .await
+            .ok_or_else(|| format!("Venue not found: {}", venue_id))?;
         Ok(serde_json::json!({
             "venue": { "id": venue.id, "name": venue.display_name, "address": venue.formatted_address },
             "total_contests": 0,
@@ -498,7 +557,10 @@ impl VenueRepository for VenueRepositoryImpl {
         }))
     }
 
-    async fn get_player_venue_stats(&self, _player_id: &str) -> Result<Vec<serde_json::Value>, String> {
+    async fn get_player_venue_stats(
+        &self,
+        _player_id: &str,
+    ) -> Result<Vec<serde_json::Value>, String> {
         log::info!("🔍 Getting venue stats for player");
         // TODO: implement with SurrealQL
         Ok(Vec::new())
@@ -581,7 +643,11 @@ impl VenueRepository for VenueRepositoryImpl {
 
     async fn update(&self, venue: Venue) -> Result<Venue, String> {
         self.ensure_scope().await;
-        let key = venue.id.trim_start_matches("venue/").trim_start_matches("venue:").to_string();
+        let key = venue
+            .id
+            .trim_start_matches("venue/")
+            .trim_start_matches("venue:")
+            .to_string();
         let doc = serde_json::json!({
             "displayName": venue.display_name,
             "formattedAddress": venue.formatted_address,
@@ -592,12 +658,14 @@ impl VenueRepository for VenueRepositoryImpl {
         });
         self.ensure_scope().await;
         if uuid::Uuid::parse_str(&key).is_ok() {
-            let _ = self
-                .db
-                .query(self.query_with_scope("UPDATE type::record('venue', type::uuid($key)) MERGE $doc"))
-                .bind(("key", key.clone()))
-                .bind(("doc", doc.clone()))
-                .await;
+            let _ =
+                self.db
+                    .query(self.query_with_scope(
+                        "UPDATE type::record('venue', type::uuid($key)) MERGE $doc",
+                    ))
+                    .bind(("key", key.clone()))
+                    .bind(("doc", doc.clone()))
+                    .await;
         }
         self.db
             .query(self.query_with_scope("UPDATE type::record('venue', $key) MERGE $doc"))
@@ -614,7 +682,10 @@ impl VenueRepository for VenueRepositoryImpl {
 
     async fn delete(&self, id: &str) -> Result<(), String> {
         self.ensure_scope().await;
-        let key = id.trim_start_matches("venue/").trim_start_matches("venue:").to_string();
+        let key = id
+            .trim_start_matches("venue/")
+            .trim_start_matches("venue:")
+            .to_string();
         if uuid::Uuid::parse_str(&key).is_ok() {
             let _ = self
                 .db
@@ -635,8 +706,16 @@ impl VenueRepository for VenueRepositoryImpl {
     }
 
     async fn search_dto_with_external(&self, query: &str) -> Vec<VenueDto> {
-        log::info!("🔍 Starting venue search with external APIs for query: '{}'", query);
-        let mut results: Vec<VenueDto> = self.search(query).await.into_iter().map(|v| VenueDto::from(&v)).collect();
+        log::info!(
+            "🔍 Starting venue search with external APIs for query: '{}'",
+            query
+        );
+        let mut results: Vec<VenueDto> = self
+            .search(query)
+            .await
+            .into_iter()
+            .map(|v| VenueDto::from(&v))
+            .collect();
         let max_results = 20;
         if results.len() < max_results && self.google_places.is_some() {
             if let Some(ref google_places) = self.google_places {

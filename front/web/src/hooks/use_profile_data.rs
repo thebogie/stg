@@ -10,7 +10,9 @@ use crate::api::utils::authenticated_get;
 use crate::context::profile_cache::{CachedProfileEntry, ProfileCacheContextValue};
 use futures::future::join3;
 use js_sys::{encode_uri_component, Date};
-use shared::dto::analytics::{HeadToHeadRecordDto, ProfileBundleDto, ProfileOpponentsDto, ProfileSummaryDto};
+use shared::dto::analytics::{
+    HeadToHeadRecordDto, ProfileBundleDto, ProfileOpponentsDto, ProfileSummaryDto,
+};
 use shared::models::client_analytics::{CoreStats, GamePerformance, PerformanceTrend};
 use shared::PlayerAchievementsDto;
 use wasm_bindgen_futures::spawn_local;
@@ -273,10 +275,11 @@ pub fn use_profile_data(
 
                     let summary_url =
                         format!("/api/analytics/players/{}/profile/summary", profile_param);
-                    let achievements_url =
-                        format!("/api/analytics/players/{}/achievements?refresh=true", profile_param);
-                    let profile_url =
-                        format!("/api/analytics/players/{}/profile", profile_param);
+                    let achievements_url = format!(
+                        "/api/analytics/players/{}/achievements?refresh=true",
+                        profile_param
+                    );
+                    let profile_url = format!("/api/analytics/players/{}/profile", profile_param);
                     let ratings_url = if player_id == "me" {
                         "/api/ratings/current".to_string()
                     } else {
@@ -315,7 +318,10 @@ pub fn use_profile_data(
                                     loading.set(false);
                                 }
                                 Ok(resp) => {
-                                    error.set(Some(format!("Profile summary failed (status {})", resp.status())));
+                                    error.set(Some(format!(
+                                        "Profile summary failed (status {})",
+                                        resp.status()
+                                    )));
                                     loading.set(false);
                                 }
                                 Err(e) => {
@@ -341,7 +347,8 @@ pub fn use_profile_data(
                     }
 
                     // Task 1c: opponents only (nemesis) — so Nemesis tab can show data without waiting for full bundle.
-                    let opponents_url = format!("/api/analytics/players/{}/profile/opponents", profile_param);
+                    let opponents_url =
+                        format!("/api/analytics/players/{}/profile/opponents", profile_param);
                     {
                         let opponents_who_beat_me = opponents_who_beat_me.clone();
                         let opponents_i_beat = opponents_i_beat.clone();
@@ -452,7 +459,12 @@ pub fn use_profile_data(
                             };
                             let use_bundle_stats = bundle.player_stats.total_contests > 0
                                 && (core_stats.as_ref().is_none()
-                                    || core_stats.as_ref().map(|c| bundle.player_stats.total_contests >= c.total_contests).unwrap_or(true));
+                                    || core_stats
+                                        .as_ref()
+                                        .map(|c| {
+                                            bundle.player_stats.total_contests >= c.total_contests
+                                        })
+                                        .unwrap_or(true));
                             if use_bundle_stats {
                                 core_stats.set(Some(new_core));
                             }
@@ -525,7 +537,7 @@ pub fn use_profile_data(
                                         contest_history: vec![],
                                     })
                                     .collect(),
-                            )                            );
+                            ));
 
                             // Store in local cache only when bundle has real stats (never cache zeros).
                             if let Some(ref cache_ctx) = cache_ctx_for_fetch {

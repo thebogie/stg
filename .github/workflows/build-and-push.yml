@@ -168,6 +168,7 @@ jobs:
             GIT_COMMIT=${{ steps.env.outputs.short_sha }}
             BUILD_DATE=${{ steps.env.outputs.date }}
             BUILD_VERSION=${{ steps.env.outputs.build_version }}
+            SOURCE_HASH=${{ steps.env.outputs.short_sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

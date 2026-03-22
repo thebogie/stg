@@ -62,7 +62,9 @@ async fn game_json_ids_canonical_http_uses_raw_key() -> Result<()> {
     let create_req = test::TestRequest::post()
         .uri("/api/games")
         .insert_header(("Authorization", format!("Bearer {}", session_id)))
-        .set_json(&json!({ "name": "RID Contract Game", "year_published": 2024, "source": "database" }))
+        .set_json(
+            &json!({ "name": "RID Contract Game", "year_published": 2024, "source": "database" }),
+        )
         .to_request();
     let create_resp = test::call_service(&app, create_req).await;
     if !create_resp.status().is_success() {

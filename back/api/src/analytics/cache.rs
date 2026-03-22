@@ -1,8 +1,8 @@
+use log::warn;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
-use log::warn;
 
 /// Cache entry with expiration
 #[derive(Clone)]
@@ -155,7 +155,8 @@ impl RedisAnalyticsCache {
     }
 
     pub async fn set(&self, key: String, value: String) {
-        self.set_with_ttl(key, value, Duration::from_secs(300)).await;
+        self.set_with_ttl(key, value, Duration::from_secs(300))
+            .await;
     }
 
     pub async fn set_with_ttl(&self, key: String, value: String, ttl: Duration) {
@@ -185,7 +186,10 @@ impl RedisAnalyticsCache {
             Ok(c) => c,
             Err(_) => return,
         };
-        let _ = redis::cmd("DEL").arg(&full_key).query_async::<_, ()>(&mut conn).await;
+        let _ = redis::cmd("DEL")
+            .arg(&full_key)
+            .query_async::<_, ()>(&mut conn)
+            .await;
     }
 
     pub async fn cleanup(&self) {
@@ -227,7 +231,10 @@ impl RedisAnalyticsCache {
             };
             cursor = result.0;
             if !result.1.is_empty() {
-                let _ = redis::cmd("DEL").arg(&result.1).query_async::<_, ()>(&mut conn).await;
+                let _ = redis::cmd("DEL")
+                    .arg(&result.1)
+                    .query_async::<_, ()>(&mut conn)
+                    .await;
             }
             if cursor == 0 {
                 break;
@@ -323,7 +330,10 @@ impl CacheKeys {
     }
 
     pub fn leaderboard(category: &str, time_period: &str, limit: i32, offset: i32) -> String {
-        format!("analytics:leaderboard:{}:{}:{}:{}", category, time_period, limit, offset)
+        format!(
+            "analytics:leaderboard:{}:{}:{}:{}",
+            category, time_period, limit, offset
+        )
     }
 
     pub fn player_stats(player_id: &str) -> String {
@@ -424,7 +434,7 @@ impl CacheTTL {
             player_opponents: Duration::from_secs(15 * 60), // 15 minutes
             head_to_head: Duration::from_secs(10 * 60),  // 10 minutes
             player_trends: Duration::from_secs(30 * 60), // 30 minutes
-            profile_bundle: Duration::from_secs(60),    // 1 minute
+            profile_bundle: Duration::from_secs(60),     // 1 minute
         }
     }
 

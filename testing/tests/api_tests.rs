@@ -66,12 +66,24 @@ async fn test_player_registration() -> Result<()> {
         String::from_utf8_lossy(&body_bytes)
     );
 
-    let body: PlayerDto = serde_json::from_slice(body_bytes.as_ref())
-        .unwrap_or_else(|e| panic!("Register response should be PlayerDto: {} body: {}", e, String::from_utf8_lossy(body_bytes.as_ref())));
+    let body: PlayerDto = serde_json::from_slice(body_bytes.as_ref()).unwrap_or_else(|e| {
+        panic!(
+            "Register response should be PlayerDto: {} body: {}",
+            e,
+            String::from_utf8_lossy(body_bytes.as_ref())
+        )
+    });
     assert_eq!(body.handle, "testuser");
     assert_eq!(body.email, email);
-    assert!(!body.id.is_empty(), "Register must return non-empty player id");
-    assert!(body.id.starts_with("player/"), "Register must return id in form player/<key>, got {}", body.id);
+    assert!(
+        !body.id.is_empty(),
+        "Register must return non-empty player id"
+    );
+    assert!(
+        body.id.starts_with("player/"),
+        "Register must return id in form player/<key>, got {}",
+        body.id
+    );
     assert!(!body.firstname.is_empty());
 
     Ok(())
@@ -168,7 +180,13 @@ async fn test_player_login() -> Result<()> {
     .await;
 
     // Use unique email per run so we don't hit conflicts or stale data
-    let email = format!("login-{}@example.com", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("system time").as_millis());
+    let email = format!(
+        "login-{}@example.com",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system time")
+            .as_millis()
+    );
     let register_req = test::TestRequest::post()
         .uri("/api/players/register")
         .set_json(&json!({
@@ -212,8 +230,13 @@ async fn test_player_login() -> Result<()> {
         last_status,
         String::from_utf8_lossy(&last_body)
     );
-    let body: LoginResponse = serde_json::from_slice(&last_body)
-        .unwrap_or_else(|e| panic!("Login body should be LoginResponse: {} body: {}", e, String::from_utf8_lossy(&last_body)));
+    let body: LoginResponse = serde_json::from_slice(&last_body).unwrap_or_else(|e| {
+        panic!(
+            "Login body should be LoginResponse: {} body: {}",
+            e,
+            String::from_utf8_lossy(&last_body)
+        )
+    });
     assert_eq!(body.player.email, email);
     assert_eq!(body.player.handle, "loginuser");
     assert!(!body.session_id.is_empty());
@@ -269,100 +292,115 @@ async fn test_get_current_player() -> Result<()> {
         env.wait_for_ready().await?;
 
         let app_data = app_setup::setup_test_app_data(&env).await?;
-    let app = test::init_service(
-        App::new()
-            .wrap(backend::middleware::Logger::new())
-            .wrap(backend::middleware::cors_middleware())
-            .app_data(actix_web::web::JsonConfig::default().limit(256 * 1024))
-            .app_data(app_data.redis_data.clone())
-            .app_data(app_data.player_repo.clone())
-            .app_data(app_data.session_store.clone())
-            .service(
-                web::scope("/api/players")
-                    .service(backend::player::controller::register_handler_prod)
-                    .service(backend::player::controller::login_handler_prod)
-                    .service(
-                        web::scope("/me")
-                            .wrap(backend::auth::AuthMiddleware {
-                                redis: app_data.redis_arc.clone(),
-                            })
-                            .service(backend::player::controller::me_handler_prod),
-                    ),
-            ),
-    )
-    .await;
+        let app = test::init_service(
+            App::new()
+                .wrap(backend::middleware::Logger::new())
+                .wrap(backend::middleware::cors_middleware())
+                .app_data(actix_web::web::JsonConfig::default().limit(256 * 1024))
+                .app_data(app_data.redis_data.clone())
+                .app_data(app_data.player_repo.clone())
+                .app_data(app_data.session_store.clone())
+                .service(
+                    web::scope("/api/players")
+                        .service(backend::player::controller::register_handler_prod)
+                        .service(backend::player::controller::login_handler_prod)
+                        .service(
+                            web::scope("/me")
+                                .wrap(backend::auth::AuthMiddleware {
+                                    redis: app_data.redis_arc.clone(),
+                                })
+                                .service(backend::player::controller::me_handler_prod),
+                        ),
+                ),
+        )
+        .await;
 
-    // Use unique email so we don't conflict with leftover data; register then login.
-    let email = format!("meuser-{}@example.com", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("system time").as_millis());
-    let register_req = test::TestRequest::post()
-        .uri("/api/players/register")
-        .set_json(&json!({
-            "username": "meuser",
-            "email": &email,
-            "password": "password123"
-        }))
-        .to_request();
-    let register_resp = test::call_service(&app, register_req).await;
-    let register_status = register_resp.status();
-    let register_body = test::read_body(register_resp).await;
-    assert!(
-        register_status.is_success(),
-        "Register should succeed, got status: {} body: {:?}",
-        register_status,
-        register_body
-    );
-
-    // Retry login a few times in case of read-after-write delay in SurrealDB
-    let mut login_body_bytes = Vec::new();
-    let mut login_status = actix_web::http::StatusCode::OK;
-    for _ in 0..3 {
-        let login_req = test::TestRequest::post()
-            .uri("/api/players/login")
+        // Use unique email so we don't conflict with leftover data; register then login.
+        let email = format!(
+            "meuser-{}@example.com",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system time")
+                .as_millis()
+        );
+        let register_req = test::TestRequest::post()
+            .uri("/api/players/register")
             .set_json(&json!({
+                "username": "meuser",
                 "email": &email,
                 "password": "password123"
             }))
             .to_request();
-        let login_resp = test::call_service(&app, login_req).await;
-        login_status = login_resp.status();
-        login_body_bytes = test::read_body(login_resp).await.to_vec();
-        if login_status.is_success() {
-            break;
+        let register_resp = test::call_service(&app, register_req).await;
+        let register_status = register_resp.status();
+        let register_body = test::read_body(register_resp).await;
+        assert!(
+            register_status.is_success(),
+            "Register should succeed, got status: {} body: {:?}",
+            register_status,
+            register_body
+        );
+
+        // Retry login a few times in case of read-after-write delay in SurrealDB
+        let mut login_body_bytes = Vec::new();
+        let mut login_status = actix_web::http::StatusCode::OK;
+        for _ in 0..3 {
+            let login_req = test::TestRequest::post()
+                .uri("/api/players/login")
+                .set_json(&json!({
+                    "email": &email,
+                    "password": "password123"
+                }))
+                .to_request();
+            let login_resp = test::call_service(&app, login_req).await;
+            login_status = login_resp.status();
+            login_body_bytes = test::read_body(login_resp).await.to_vec();
+            if login_status.is_success() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(150)).await;
         }
-        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
-    }
-    assert!(
-        login_status.is_success(),
-        "Login should succeed after register, got status: {} body: {}",
-        login_status,
-        String::from_utf8_lossy(&login_body_bytes)
-    );
+        assert!(
+            login_status.is_success(),
+            "Login should succeed after register, got status: {} body: {}",
+            login_status,
+            String::from_utf8_lossy(&login_body_bytes)
+        );
 
-    // Extract session ID from response
-    let login_body: LoginResponse = serde_json::from_slice(&login_body_bytes)
-        .unwrap_or_else(|e| panic!("Login body should be LoginResponse: {} body: {}", e, String::from_utf8_lossy(&login_body_bytes)));
-    let session_id = login_body.session_id;
+        // Extract session ID from response
+        let login_body: LoginResponse =
+            serde_json::from_slice(&login_body_bytes).unwrap_or_else(|e| {
+                panic!(
+                    "Login body should be LoginResponse: {} body: {}",
+                    e,
+                    String::from_utf8_lossy(&login_body_bytes)
+                )
+            });
+        let session_id = login_body.session_id;
 
-    // Get current player using session ID in Authorization header
-    // The backend expects: "Authorization: Bearer <session_id>"
-    let me_req = test::TestRequest::get()
-        .uri("/api/players/me")
-        .insert_header(("Authorization", format!("Bearer {}", session_id)))
-        .to_request();
+        // Get current player using session ID in Authorization header
+        // The backend expects: "Authorization: Bearer <session_id>"
+        let me_req = test::TestRequest::get()
+            .uri("/api/players/me")
+            .insert_header(("Authorization", format!("Bearer {}", session_id)))
+            .to_request();
 
-    let me_resp = test::call_service(&app, me_req).await;
+        let me_resp = test::call_service(&app, me_req).await;
 
-    assert!(
-        me_resp.status().is_success(),
-        "Get current player should succeed, got status: {}",
-        me_resp.status()
-    );
+        assert!(
+            me_resp.status().is_success(),
+            "Get current player should succeed, got status: {}",
+            me_resp.status()
+        );
 
-    let me_body: PlayerDto = test::read_body_json(me_resp).await;
-    assert_eq!(me_body.email, email, "GET /me should return the registered player's email");
-    assert_eq!(me_body.handle, "meuser");
+        let me_body: PlayerDto = test::read_body_json(me_resp).await;
+        assert_eq!(
+            me_body.email, email,
+            "GET /me should return the registered player's email"
+        );
+        assert_eq!(me_body.handle, "meuser");
 
-    Ok::<(), anyhow::Error>(())
+        Ok::<(), anyhow::Error>(())
     };
     tokio::time::timeout(timeout, body)
         .await

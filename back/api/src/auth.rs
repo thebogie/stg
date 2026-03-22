@@ -1,10 +1,10 @@
+use crate::db::Db;
 use actix_web::{
-    body::{MessageBody, BoxBody},
+    body::{BoxBody, MessageBody},
     dev::{forward_ready, Service, ServiceRequest, ServiceResponse, Transform},
     error::ErrorUnauthorized,
     Error, HttpMessage,
 };
-use crate::db::Db;
 use futures_util::future::{ready, Ready};
 use redis::AsyncCommands;
 use std::future::Future;
@@ -126,8 +126,8 @@ where
                 .unwrap_or_default()
                 .eq_ignore_ascii_case("test");
             // Public endpoints: health checks and read-only db_search only. Contest search requires auth.
-            let is_public = path.starts_with("/health")
-                || (method == "GET" && path.contains("/db_search"));
+            let is_public =
+                path.starts_with("/health") || (method == "GET" && path.contains("/db_search"));
             let is_public_effective =
                 is_public || (in_test && method == "GET" && path.starts_with("/health"));
 

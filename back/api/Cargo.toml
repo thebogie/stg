@@ -2,11 +2,17 @@
 name = "backend"
 version = "0.2.1"
 edition = "2021"
+# `cargo run -p backend` (e.g. backend-watch) when multiple [[bin]] targets exist
+default-run = "backend"
 
 # Explicitly define the binary (even though main.rs exists, this ensures it's built)
 [[bin]]
 name = "backend"
 path = "src/main.rs"
+
+[[bin]]
+name = "import_bgg_catalog"
+path = "src/bin/import_bgg_catalog.rs"
 
 [dependencies]
 # Web framework
@@ -74,6 +80,7 @@ approx = "0.5"
 shared = { path = "../../shared", features = ["surrealdb"] }
 random_word = "0.3"
 fastrand = "2.3.0"
+csv = "1.3"
 
 # OpenAPI/Swagger documentation
 utoipa = { version = "4.2", features = ["actix_extras", "chrono"] }

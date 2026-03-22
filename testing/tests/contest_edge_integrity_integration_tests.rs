@@ -159,4 +159,3 @@ async fn contest_create_then_get_has_edge_ids() -> Result<()> {
 
     Ok(())
 }
-

@@ -14,7 +14,10 @@ async fn test_game_cache_integration() {
     let client = match redis::Client::open(redis_url) {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("Skipping test_game_cache_integration: cannot create Redis client: {}", e);
+            eprintln!(
+                "Skipping test_game_cache_integration: cannot create Redis client: {}",
+                e
+            );
             return;
         }
     };
@@ -75,7 +78,10 @@ async fn test_venue_cache_integration() {
     let client = match redis::Client::open(redis_url) {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("Skipping test_venue_cache_integration: cannot create Redis client: {}", e);
+            eprintln!(
+                "Skipping test_venue_cache_integration: cannot create Redis client: {}",
+                e
+            );
             return;
         }
     };
@@ -144,7 +150,10 @@ async fn test_player_cache_integration() {
     let client = match redis::Client::open(redis_url) {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("Skipping test_player_cache_integration: cannot create Redis client: {}", e);
+            eprintln!(
+                "Skipping test_player_cache_integration: cannot create Redis client: {}",
+                e
+            );
             return;
         }
     };
@@ -271,7 +280,10 @@ async fn test_cache_ttl_respect() {
     let client = match redis::Client::open(redis_url) {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("Skipping test_cache_ttl_respect: cannot create Redis client: {}", e);
+            eprintln!(
+                "Skipping test_cache_ttl_respect: cannot create Redis client: {}",
+                e
+            );
             return;
         }
     };

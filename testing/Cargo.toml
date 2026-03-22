@@ -25,6 +25,7 @@ chrono = { workspace = true }
 # Error handling
 anyhow = { workspace = true }
 thiserror = { workspace = true }
+validator = { workspace = true }
 
 # Logging
 log = { workspace = true }

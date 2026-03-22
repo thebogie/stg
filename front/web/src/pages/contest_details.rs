@@ -1,5 +1,5 @@
-use crate::api::utils::authenticated_get;
 use crate::api::contests::contest_key_from_any;
+use crate::api::utils::authenticated_get;
 use crate::auth::AuthContext;
 use crate::Route;
 use gloo_storage::Storage;

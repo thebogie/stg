@@ -1,18 +1,19 @@
+pub mod admin;
 pub mod auth;
+pub mod bgg_catalog;
 pub mod cache;
 pub mod config;
-pub mod db;
-pub mod surreal_helpers;
 pub mod contest;
+pub mod db;
 pub mod error;
 pub mod game;
 pub mod health;
 pub mod metrics;
 pub mod middleware;
 pub mod player;
+pub mod surreal_helpers;
 pub mod third_party;
 pub mod venue;
-pub mod admin;
 pub mod timezone {
     pub mod controller;
 }
@@ -24,7 +25,9 @@ pub mod analytics {
     pub mod usecase;
     pub mod visualization;
 
-    pub use cache::{AnalyticsCache, AnalyticsCacheKind, CacheKeys, CacheStats, CacheTTL, RedisAnalyticsCache};
+    pub use cache::{
+        AnalyticsCache, AnalyticsCacheKind, CacheKeys, CacheStats, CacheTTL, RedisAnalyticsCache,
+    };
     pub use controller::AnalyticsController;
     pub use engine::AnalyticsEngine;
     pub use repository::AnalyticsRepository;

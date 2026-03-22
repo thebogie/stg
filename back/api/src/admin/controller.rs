@@ -36,4 +36,3 @@ pub fn configure_routes(
             ),
     );
 }
-
