@@ -19,4 +19,4 @@ Local: ./scripts/full-prod-test.sh passes (and iterate variant as needed).
 Push main → CI green → note the image tag (SHA or latest).
 rsync (or copy) refreshed deploy/ to the server, including migrations/.
 On server, from deploy/: ./deploy_stg.sh <tag> (same tag CI built).
-If this release added bgg_catalog (or similar), run data steps once: e.g. copy CSV to the path you use in prod, then cargo run / container to run import_bgg_catalog with prod env — not part of deploy_stg.sh by default.
+If this release added bgg_catalog (or similar), run data once: copy boardgames_ranks.csv on the server, then from deploy/: ./import_bgg_catalog.sh /path/to/boardgames_ranks.csv (uses BACKEND_IMAGE from /etc/stg/stg.env — no cargo). Optional: BGG_IMPORT_MAX_ROWS=10000 ./import_bgg_catalog.sh ...

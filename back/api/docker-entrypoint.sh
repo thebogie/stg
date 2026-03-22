@@ -10,4 +10,8 @@ if [ -z "${SURREAL_URL}" ] || [ -z "${REDIS_URL}" ]; then
     export REDIS_URL="${REDIS_URL:-redis://${HOST_IP}:${REDIS_PORT:-6379}/}"
   fi
 fi
+if [ "$#" -ge 1 ] && [ "$1" = "import_bgg_catalog" ]; then
+  shift
+  exec /usr/local/bin/import_bgg_catalog "$@"
+fi
 exec /usr/local/bin/backend "$@"

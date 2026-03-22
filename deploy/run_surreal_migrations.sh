@@ -75,10 +75,13 @@ for migration in "${MIGRATION_FILES[@]}"; do
 
   marker_file="$(mktemp)"
   cat > "$marker_file" <<EOF
+OPTION IMPORT;
 UPSERT type::record("schema_migrations", "${migration_id}") SET
   appliedAt = time::now(),
   name = "${migration_id}";
 EOF
+  # mktemp is 0600; surrealdb in Docker runs as another UID and must read this bind mount.
+  chmod a+r "$marker_file"
 
   docker run --rm --network host \
     -v "$(dirname "$marker_file"):/import:ro" \

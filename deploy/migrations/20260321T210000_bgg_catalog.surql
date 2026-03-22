@@ -1,3 +1,5 @@
+OPTION IMPORT;
+
 -- BGG reference catalog (boardgames_ranks.csv import). Idempotent: safe to re-run.
 -- Search tier for /api/games/search after `game`, before live BGG API.
 

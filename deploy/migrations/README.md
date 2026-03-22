@@ -3,6 +3,7 @@
 Put versioned `.surql` migration files in this directory.
 
 - Applied in lexical order by `deploy/run_surreal_migrations.sh`.
+- **First statement must be `OPTION IMPORT;`** — required by SurrealDB v3 `surreal import` (see [CLI import](https://surrealdb.com/docs/surrealdb/cli/import)). Put comments after that line.
 - Files should be idempotent (safe to re-run).
 - Recommended naming: `YYYYMMDDTHHMMSS_description.surql`
 
