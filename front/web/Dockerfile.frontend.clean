@@ -13,12 +13,13 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Binaryen
-RUN LATEST_URL=$(curl -s https://api.github.com/repos/WebAssembly/binaryen/releases/latest | \
-    grep "browser_download_url.*x86_64-linux.tar.gz\"" | grep -v "sha256" | head -1 | cut -d '"' -f 4) && \
-    wget -q -O binaryen.tar.gz "$LATEST_URL" && \
+# Install Binaryen (pinned; avoid GitHub API in CI)
+ARG BINARYEN_VERSION=128
+RUN wget -q -O binaryen.tar.gz \
+    "https://github.com/WebAssembly/binaryen/releases/download/version_${BINARYEN_VERSION}/binaryen-version_${BINARYEN_VERSION}-x86_64-linux.tar.gz" && \
     tar -xzf binaryen.tar.gz && \
-    mv binaryen-* /opt/binaryen && \
+    BINARYEN_DIR=$(tar -tzf binaryen.tar.gz | head -1 | cut -f1 -d"/") && \
+    mv "$BINARYEN_DIR" /opt/binaryen && \
     rm binaryen.tar.gz
 
 ENV PATH="/opt/binaryen/bin:${PATH}"
