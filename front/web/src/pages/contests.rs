@@ -24,10 +24,10 @@ pub struct ContestsProps {
 #[derive(Debug, Clone, PartialEq)]
 pub struct SearchState {
     pub query: String,
+    /// Inclusive range lower bound on contest `start` (API `start_from`).
     pub start_from: String,
+    /// Inclusive range upper bound on contest `start` (API `start_to`).
     pub start_to: String,
-    pub stop_from: String,
-    pub stop_to: String,
     pub venue_id: String,
     pub game_ids: Vec<String>,
     pub player_ids: Vec<String>,
@@ -44,8 +44,6 @@ impl Default for SearchState {
             query: String::new(),
             start_from: String::new(),
             start_to: String::new(),
-            stop_from: String::new(),
-            stop_to: String::new(),
             venue_id: String::new(),
             game_ids: Vec::new(),
             player_ids: Vec::new(),
@@ -152,12 +150,6 @@ pub fn contests(props: &ContestsProps) -> Html {
                 }
                 if !state.start_to.is_empty() {
                     params.push(("start_to", state.start_to.clone()));
-                }
-                if !state.stop_from.is_empty() {
-                    params.push(("stop_from", state.stop_from.clone()));
-                }
-                if !state.stop_to.is_empty() {
-                    params.push(("stop_to", state.stop_to.clone()));
                 }
                 if !state.venue_id.is_empty() {
                     params.push(("venue_id", state.venue_id.clone()));
@@ -438,7 +430,7 @@ pub fn contests(props: &ContestsProps) -> Html {
         let draft_state = draft_state.clone();
         let draft_players = draft_players.clone();
         let schedule_apply = schedule_apply.clone();
-        Callback::from(move |e: Event| {
+        Callback::from(move |e: InputEvent| {
             let input: web_sys::HtmlInputElement = e.target_unchecked_into();
             let mut state = (*draft_state).clone();
             state.start_from = input.value();
@@ -452,7 +444,7 @@ pub fn contests(props: &ContestsProps) -> Html {
         let draft_state = draft_state.clone();
         let draft_players = draft_players.clone();
         let schedule_apply = schedule_apply.clone();
-        Callback::from(move |e: Event| {
+        Callback::from(move |e: InputEvent| {
             let input: web_sys::HtmlInputElement = e.target_unchecked_into();
             let mut state = (*draft_state).clone();
             state.start_to = input.value();
@@ -713,7 +705,7 @@ pub fn contests(props: &ContestsProps) -> Html {
         if !search_state.start_from.is_empty() {
             chips.push(html!{
                 <span class="inline-flex items-center gap-1 px-2 py-1 bg-gray-100 text-gray-800 text-xs rounded-full">
-                    {format!("Start ≥ {}", search_state.start_from)}
+                    {format!("Started from {}", search_state.start_from)}
                     <button onclick={remove_start_from.reform(|_| ())} class="ml-1 text-gray-500 hover:text-gray-700">{"✕"}</button>
                 </span>
             });
@@ -721,7 +713,7 @@ pub fn contests(props: &ContestsProps) -> Html {
         if !search_state.start_to.is_empty() {
             chips.push(html!{
                 <span class="inline-flex items-center gap-1 px-2 py-1 bg-gray-100 text-gray-800 text-xs rounded-full">
-                    {format!("Start ≤ {}", search_state.start_to)}
+                    {format!("Started through {}", search_state.start_to)}
                     <button onclick={remove_start_to.reform(|_| ())} class="ml-1 text-gray-500 hover:text-gray-700">{"✕"}</button>
                 </span>
             });
@@ -858,28 +850,27 @@ pub fn contests(props: &ContestsProps) -> Html {
                     // Advanced Filters (collapsible)
                     if *show_filters {
                         <div class="mt-4 pt-4 border-t border-gray-200">
+                            <p class="text-sm text-gray-600 mb-3">
+                                {"Contest start date: include contests whose scheduled start falls on or between the dates below (inclusive). Leave blank for no bound."}
+                            </p>
                             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                                 <div>
-                                    <label class="block text-sm font-medium text-gray-700 mb-1">{"Start Date From"}</label>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">{"From"}</label>
                                     <input
                                         type="date"
                                         value={draft_state.start_from.clone()}
-                                        onchange={on_start_from_change}
+                                        oninput={on_start_from_change}
                                         class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                                        placeholder="2022-01-01"
                                     />
-                                    <p class="text-xs text-gray-500 mt-1">{"e.g., 2022-01-01 for all contests from 2022"}</p>
                                 </div>
                                 <div>
-                                    <label class="block text-sm font-medium text-gray-700 mb-1">{"Start Date To"}</label>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">{"To"}</label>
                                     <input
                                         type="date"
                                         value={draft_state.start_to.clone()}
-                                        onchange={on_start_to_change}
+                                        oninput={on_start_to_change}
                                         class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                                        placeholder="2023-12-31"
                                     />
-                                    <p class="text-xs text-gray-500 mt-1">{"e.g., 2023-12-31 for all contests until end of 2023"}</p>
                                 </div>
                                 <div>
                                     <label class="block text-sm font-medium text-gray-700 mb-1">

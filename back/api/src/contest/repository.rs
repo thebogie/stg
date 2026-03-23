@@ -1742,16 +1742,17 @@ impl ContestRepositoryImpl {
                 );
             }
             if start_from.is_some() {
-                where_parts.push("start >= $start_from".to_string());
+                // `start` is SCHEMAFULL datetime; compare with typed bounds (string compare fails).
+                where_parts.push("start >= type::datetime($start_from)".to_string());
             }
             if start_to.is_some() {
-                where_parts.push("start <= $start_to".to_string());
+                where_parts.push("start <= type::datetime($start_to)".to_string());
             }
             if stop_from.is_some() {
-                where_parts.push("stop >= $stop_from".to_string());
+                where_parts.push("stop >= type::datetime($stop_from)".to_string());
             }
             if stop_to.is_some() {
-                where_parts.push("stop <= $stop_to".to_string());
+                where_parts.push("stop <= type::datetime($stop_to)".to_string());
             }
             let where_clause = if where_parts.is_empty() {
                 "true".to_string()
@@ -2032,16 +2033,16 @@ impl ContestRepositoryImpl {
             );
         }
         if start_from.is_some() {
-            where_parts.push("start >= $start_from".to_string());
+            where_parts.push("start >= type::datetime($start_from)".to_string());
         }
         if start_to.is_some() {
-            where_parts.push("start <= $start_to".to_string());
+            where_parts.push("start <= type::datetime($start_to)".to_string());
         }
         if stop_from.is_some() {
-            where_parts.push("stop >= $stop_from".to_string());
+            where_parts.push("stop >= type::datetime($stop_from)".to_string());
         }
         if stop_to.is_some() {
-            where_parts.push("stop <= $stop_to".to_string());
+            where_parts.push("stop <= type::datetime($stop_to)".to_string());
         }
         let where_clause = where_parts.join(" AND ");
 

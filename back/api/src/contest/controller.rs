@@ -3,10 +3,32 @@ use crate::player::repository::PlayerRepository;
 use crate::surreal_helpers::canonical_id_from_http_path_param;
 use actix_web::HttpMessage;
 use actix_web::{delete, get, post, web, HttpRequest, HttpResponse, Responder};
+use chrono::{NaiveDate, NaiveTime, TimeZone, Utc};
 use serde::Deserialize;
 use serde_json::json;
 use shared::dto::contest::ContestDto;
 use validator::Validate;
+
+/// HTML `type="date"` sends `YYYY-MM-DD`. Comparing stored RFC3339 `start`/`stop` to that bare date
+/// uses string ordering: `2023-12-31T15:00:00Z` is *greater* than `2023-12-31`, so `start <= $start_to`
+/// excludes the entire end calendar day. Expand to [start, end] of day UTC in ISO form.
+fn normalize_contest_search_date_param(s: Option<String>, is_upper_bound: bool) -> Option<String> {
+    let s = s.filter(|x| !x.trim().is_empty())?;
+    let t = s.trim();
+    if t.len() != 10 || t.contains('T') {
+        return Some(t.to_string());
+    }
+    let d = NaiveDate::parse_from_str(t, "%Y-%m-%d").ok()?;
+    let naive = if is_upper_bound {
+        let upper = NaiveTime::from_hms_micro_opt(23, 59, 59, 999_999)
+            .or_else(|| NaiveTime::from_hms_opt(23, 59, 59))?;
+        d.and_time(upper)
+    } else {
+        d.and_hms_opt(0, 0, 0)?
+    };
+    let utc = Utc.from_utc_datetime(&naive);
+    Some(utc.to_rfc3339())
+}
 
 #[post("")]
 pub async fn create_contest_handler(
@@ -283,13 +305,18 @@ pub async fn search_contests_handler_impl(
         })
         .unwrap_or_else(|| vec![]);
 
+    let start_from = normalize_contest_search_date_param(query.start_from.clone(), false);
+    let start_to = normalize_contest_search_date_param(query.start_to.clone(), true);
+    let stop_from = normalize_contest_search_date_param(query.stop_from.clone(), false);
+    let stop_to = normalize_contest_search_date_param(query.stop_to.clone(), true);
+
     match repo
         .search_contests(
             &q,
-            query.start_from.as_deref(),
-            query.start_to.as_deref(),
-            query.stop_from.as_deref(),
-            query.stop_to.as_deref(),
+            start_from.as_deref(),
+            start_to.as_deref(),
+            stop_from.as_deref(),
+            stop_to.as_deref(),
             venue_id.as_deref(),
             &game_ids,
             &sort_by,
@@ -325,6 +352,30 @@ pub async fn search_contests_handler(
     req: actix_web::HttpRequest,
 ) -> impl Responder {
     search_contests_handler_impl(query, repo, player_repo, db, req).await
+}
+
+#[cfg(test)]
+mod contest_search_date_tests {
+    use super::normalize_contest_search_date_param;
+
+    #[test]
+    fn calendar_start_to_expands_to_end_of_utc_day() {
+        let out = normalize_contest_search_date_param(Some("2023-06-15".to_string()), true).unwrap();
+        assert!(out.contains("2023-06-15T23:59:59"), "got {}", out);
+    }
+
+    #[test]
+    fn calendar_start_from_expands_to_start_of_utc_day() {
+        let out = normalize_contest_search_date_param(Some("2023-06-15".to_string()), false).unwrap();
+        assert!(out.contains("2023-06-15T00:00:00"), "got {}", out);
+    }
+
+    #[test]
+    fn full_iso_datetime_passes_through_unchanged() {
+        let s = "2023-06-15T12:00:00Z".to_string();
+        let out = normalize_contest_search_date_param(Some(s.clone()), true).unwrap();
+        assert_eq!(out, s);
+    }
 }
 
 /// Deletes a contest and its graph edges (`played_at`, `played_with`, `resulted_in`).
