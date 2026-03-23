@@ -18,6 +18,7 @@ fn unique_test_id() -> String {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn test_create_venue() -> Result<()> {
     let env = create_test_env_with_timeout().await?;
     let app_data = app_setup::setup_test_app_data(&env).await?;
@@ -121,6 +122,7 @@ async fn test_create_venue() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn test_get_venue() -> Result<()> {
     let env = create_test_env_with_timeout().await?;
     let app_data = app_setup::setup_test_app_data(&env).await?;
@@ -240,6 +242,7 @@ async fn test_get_venue() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn test_get_all_venues() -> Result<()> {
     let env = create_test_env_with_timeout().await?;
     let app_data = app_setup::setup_test_app_data(&env).await?;
@@ -337,6 +340,7 @@ async fn test_get_all_venues() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn test_update_venue() -> Result<()> {
     let env = create_test_env_with_timeout().await?;
     let app_data = app_setup::setup_test_app_data(&env).await?;
@@ -455,6 +459,7 @@ async fn test_update_venue() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn test_delete_venue() -> Result<()> {
     let env = create_test_env_with_timeout().await?;
     let app_data = app_setup::setup_test_app_data(&env).await?;
@@ -572,6 +577,7 @@ async fn test_delete_venue() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn test_venue_validation_errors() -> Result<()> {
     let env = create_test_env_with_timeout().await?;
     let app_data = app_setup::setup_test_app_data(&env).await?;
@@ -640,6 +646,7 @@ async fn test_venue_validation_errors() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn test_venue_unauthorized_access() -> Result<()> {
     let env = create_test_env_with_timeout().await?;
     let app_data = app_setup::setup_test_app_data(&env).await?;

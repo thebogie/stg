@@ -138,7 +138,8 @@ async fn main() -> std::io::Result<()> {
     );
     player_repo_impl.ns = Some(config.database.ns.clone());
     player_repo_impl.db_name = Some(config.database.name.clone());
-    let player_repo = web::Data::new(player_repo_impl);
+    let player_repo_arc = std::sync::Arc::new(player_repo_impl.clone());
+    let player_repo = web::Data::from(player_repo_arc.clone());
 
     // Initialize venue repository with Google Places API if configured
     let google_config = if let Some(api_key) = &config.google.location_api_key {
@@ -388,7 +389,16 @@ async fn main() -> std::io::Result<()> {
                     .service(backend::contest::controller::create_contest_handler)
                     .service(backend::contest::controller::get_player_game_contests_handler)
                     .service(backend::contest::controller::search_contests_handler)
-                    .service(backend::contest::controller::get_contest_handler),
+                    .service(backend::contest::controller::get_contest_handler)
+                    .service(
+                        web::scope("")
+                            .wrap(backend::auth::AdminAuthMiddleware {
+                                redis: std::sync::Arc::new(redis_data.get_ref().clone()),
+                                player_repo: player_repo_arc.clone(),
+                            })
+                            .app_data(contest_repo.clone())
+                            .service(backend::contest::controller::delete_contest_handler),
+                    ),
             )
             .service(
                 web::scope("/contests")
@@ -400,7 +410,16 @@ async fn main() -> std::io::Result<()> {
                     .service(backend::contest::controller::create_contest_handler)
                     .service(backend::contest::controller::get_player_game_contests_handler)
                     .service(backend::contest::controller::search_contests_handler)
-                    .service(backend::contest::controller::get_contest_handler),
+                    .service(backend::contest::controller::get_contest_handler)
+                    .service(
+                        web::scope("")
+                            .wrap(backend::auth::AdminAuthMiddleware {
+                                redis: std::sync::Arc::new(redis_data.get_ref().clone()),
+                                player_repo: player_repo_arc.clone(),
+                            })
+                            .app_data(contest_repo.clone())
+                            .service(backend::contest::controller::delete_contest_handler),
+                    ),
             )
             .configure(|cfg| {
                 log::debug!("Registering /api/analytics routes");
@@ -466,6 +485,7 @@ async fn main() -> std::io::Result<()> {
                     ratings_scheduler.clone(),
                     redis_client_for_ratings.clone(),
                     "/api",
+                    player_repo_arc.clone(),
                 );
             })
             .configure(|cfg| {
@@ -476,6 +496,7 @@ async fn main() -> std::io::Result<()> {
                     ratings_scheduler.clone(),
                     redis_client_for_ratings.clone(),
                     "",
+                    player_repo_arc.clone(),
                 );
             })
             .configure(|cfg| {
@@ -491,9 +512,9 @@ async fn main() -> std::io::Result<()> {
                 log::debug!("Registering /api/admin routes");
                 backend::admin::controller::configure_routes(
                     cfg,
-                    db.clone(),
                     std::sync::Arc::new(redis_data.get_ref().clone()),
                     "/api",
+                    player_repo_arc.clone(),
                 );
             })
             .configure(|cfg| {
@@ -509,9 +530,9 @@ async fn main() -> std::io::Result<()> {
                 log::debug!("Registering /admin routes (Trunk proxy)");
                 backend::admin::controller::configure_routes(
                     cfg,
-                    db.clone(),
                     std::sync::Arc::new(redis_data.get_ref().clone()),
                     "",
+                    player_repo_arc.clone(),
                 );
             })
     })

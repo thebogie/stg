@@ -121,6 +121,7 @@ async fn get_all_games(base_url: &str) -> Result<Vec<GameItem>> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn e2e_game_search_actually_filters() -> Result<()> {
     let base = match skip_if_no_backend() {
         Some(url) => url,
@@ -213,6 +214,7 @@ async fn e2e_game_search_actually_filters() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn e2e_game_search_nonexistent_returns_empty() -> Result<()> {
     let base = match skip_if_no_backend() {
         Some(url) => url,

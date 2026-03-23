@@ -8,12 +8,15 @@ use backend::player::session::RedisSessionStore;
 use std::sync::Arc;
 use std::time::Duration;
 
+use super::env::lock_stack_wait_or_timeout;
 use super::TestEnvironment;
 
 #[derive(Clone)]
 pub struct TestAppData {
     pub redis_data: web::Data<redis::Client>,
     pub db: web::Data<Db>,
+    /// Same `Arc` as inside `player_repo` Data — use for `AdminAuthMiddleware` (same DB + scope as handlers).
+    pub player_repo_arc: Arc<backend::player::repository::PlayerRepositoryImpl>,
     pub player_repo: web::Data<backend::player::repository::PlayerRepositoryImpl>,
     pub venue_repo: web::Data<backend::venue::repository::VenueRepositoryImpl>,
     pub game_repo: web::Data<backend::game::repository::GameRepositoryImpl>,
@@ -23,9 +26,13 @@ pub struct TestAppData {
 }
 
 /// Set up test app data connected to the same stack (SurrealDB + Redis from env).
+/// **Call [`TestEnvironment::wait_for_ready`] once before this** (tests already do).
 /// Connect/signin/use_ns are wrapped in a 15s timeout so we never hang.
 pub async fn setup_test_app_data(env: &TestEnvironment) -> Result<TestAppData> {
-    env.wait_for_ready().await?;
+    // Serialize with `wait_for_ready`'s full handshake: parallel tests otherwise each open a new WS
+    // to Surreal at the same time and can stall the server or the client pool.
+    let _setup_guard = lock_stack_wait_or_timeout("setup_test_app_data").await?;
+    eprintln!("Opening SurrealDB client for integration test app (up to 15s)…");
 
     let ws_url = env
         .surrealdb_url
@@ -77,7 +84,8 @@ pub async fn setup_test_app_data(env: &TestEnvironment) -> Result<TestAppData> {
     // Scope can be lost across WS connections; set it explicitly per-query in integration tests.
     player_repo_impl.ns = Some(env.surrealdb_ns.clone());
     player_repo_impl.db_name = Some(env.surrealdb_db.clone());
-    let player_repo = web::Data::new(player_repo_impl.clone());
+    let player_repo_arc = Arc::new(player_repo_impl.clone());
+    let player_repo = web::Data::from(player_repo_arc.clone());
     let venue_repo = web::Data::new(
         backend::venue::repository::VenueRepositoryImpl::new_with_scope(
             db.clone(),
@@ -106,6 +114,7 @@ pub async fn setup_test_app_data(env: &TestEnvironment) -> Result<TestAppData> {
     Ok(TestAppData {
         redis_data,
         db: db_data,
+        player_repo_arc,
         player_repo,
         venue_repo,
         game_repo,

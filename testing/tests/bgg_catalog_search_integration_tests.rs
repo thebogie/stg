@@ -8,11 +8,7 @@ use testing::{app_setup, TestEnvironment};
 
 use backend::bgg_catalog::repository::search_bgg_catalog;
 
-async fn ensure_db_scope(
-    db: &backend::db::Db,
-    ns: &str,
-    db_name: &str,
-) -> Result<()> {
+async fn ensure_db_scope(db: &backend::db::Db, ns: &str, db_name: &str) -> Result<()> {
     db.use_ns(ns)
         .use_db(db_name)
         .await
@@ -56,6 +52,7 @@ async fn seed_bgg_catalog_row(
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn search_bgg_catalog_returns_seeded_row() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
@@ -71,22 +68,12 @@ async fn search_bgg_catalog_returns_seeded_row() -> Result<()> {
     let name = format!("{} Unique Boardgame Title", token);
 
     let db = app_data.db.as_ref();
-    seed_bgg_catalog_row(
-        db,
-        &env.surrealdb_ns,
-        &env.surrealdb_db,
-        bgg_id,
-        &name,
-    )
-    .await?;
+    seed_bgg_catalog_row(db, &env.surrealdb_ns, &env.surrealdb_db, bgg_id, &name).await?;
 
     ensure_db_scope(db, &env.surrealdb_ns, &env.surrealdb_db).await?;
 
     let q = token.as_str();
-    assert!(
-        q.len() >= 2,
-        "search_bgg_catalog requires query len >= 2"
-    );
+    assert!(q.len() >= 2, "search_bgg_catalog requires query len >= 2");
 
     let games = search_bgg_catalog(db, q, 10, &HashSet::new()).await;
     let hit = games.iter().find(|g| g.bgg_id == Some(bgg_id));

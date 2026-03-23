@@ -71,6 +71,7 @@ async fn find_real_player(base_url: &str) -> Result<Option<(String, String)>> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn e2e_auth_login_with_valid_credentials() -> Result<()> {
     let base = match skip_if_no_backend() {
         Some(url) => url,
@@ -151,6 +152,7 @@ async fn e2e_auth_login_with_valid_credentials() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn e2e_auth_login_with_invalid_credentials() -> Result<()> {
     let base = match skip_if_no_backend() {
         Some(url) => url,
@@ -183,6 +185,7 @@ async fn e2e_auth_login_with_invalid_credentials() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn e2e_auth_logout_invalidates_session() -> Result<()> {
     let base = match skip_if_no_backend() {
         Some(url) => url,
@@ -289,6 +292,7 @@ async fn e2e_auth_logout_invalidates_session() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn e2e_auth_get_current_player_requires_auth() -> Result<()> {
     let base = match skip_if_no_backend() {
         Some(url) => url,

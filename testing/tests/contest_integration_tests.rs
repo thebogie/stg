@@ -8,6 +8,7 @@ use testing::create_authenticated_user;
 use testing::{app_setup, TestEnvironment};
 
 #[tokio::test]
+#[serial_test::serial]
 async fn test_create_contest() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
@@ -223,6 +224,7 @@ async fn test_create_contest() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn test_get_contest() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
@@ -238,6 +240,7 @@ async fn test_get_contest() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn test_get_player_game_contests() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;

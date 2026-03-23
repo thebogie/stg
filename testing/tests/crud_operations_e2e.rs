@@ -122,6 +122,7 @@ async fn get_authenticated_session(base_url: &str) -> Result<Option<String>> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn e2e_venue_crud_create_and_read() -> Result<()> {
     let base = match skip_if_no_backend() {
         Some(url) => url,
@@ -210,6 +211,7 @@ async fn e2e_venue_crud_create_and_read() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn e2e_game_crud_create_and_read() -> Result<()> {
     let base = match skip_if_no_backend() {
         Some(url) => url,
@@ -295,6 +297,7 @@ async fn e2e_game_crud_create_and_read() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn e2e_crud_get_nonexistent_returns_404() -> Result<()> {
     let base = match skip_if_no_backend() {
         Some(url) => url,

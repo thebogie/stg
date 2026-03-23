@@ -45,6 +45,7 @@ fn create_test_game_dto() -> GameDto {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn test_create_contest_success() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
@@ -130,6 +131,7 @@ async fn test_create_contest_success() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn test_create_contest_validation_errors() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
@@ -206,6 +208,7 @@ async fn test_create_contest_validation_errors() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn test_get_contest_success() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
@@ -308,6 +311,7 @@ async fn test_get_contest_success() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn test_get_contest_not_found() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
@@ -363,6 +367,7 @@ async fn test_get_contest_not_found() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn test_search_contests() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
@@ -528,6 +533,7 @@ async fn test_search_contests() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn test_contest_unauthorized_access() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;

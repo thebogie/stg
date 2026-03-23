@@ -14,6 +14,7 @@ async fn read_body_text<B: actix_web::body::MessageBody>(resp: ServiceResponse<B
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn test_create_game() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
@@ -115,6 +116,7 @@ async fn test_create_game() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn test_get_all_games() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
@@ -215,6 +217,7 @@ async fn test_get_all_games() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn test_update_game() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
@@ -346,6 +349,7 @@ async fn test_update_game() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn test_delete_game() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;

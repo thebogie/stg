@@ -1,5 +1,15 @@
 //! Integration testing against the same docker stack (SurrealDB + Redis).
-//! Start stack: ./deploy/stack.sh start
+//! Start stack: `./deploy/stack.sh start` (or `docker compose` with `config/.env.prod`).
+//!
+//! **Credentials:** run `source scripts/load-env.sh prod` (or `dev`) in the same shell before
+//! `cargo test -p testing` so `SURREAL_USER` / `SURREAL_PASSWORD` match the SurrealDB container.
+//! A persisted `surrealdb_data` volume keeps the root password from first boot; changing `.env`
+//! without wiping the volume causes “There was a problem with authentication”.
+//!
+//! Prefer **`cargo test-integration`** from the repo root (see workspace `.cargo/config.toml`).
+//! Each `#[tokio::test]` in `testing/tests/` is also **`#[serial_test::serial]`** so the suite does not
+//! open many Surreal WebSocket clients at once; the stack mutex still has a **180s** bounded wait
+//! (`lock_stack_wait_or_timeout`) so a stuck peer fails fast instead of freezing forever.
 
 pub mod app_setup;
 pub mod env;

@@ -6,6 +6,7 @@ use redis::AsyncCommands;
 use testing::{test_env_with_prod_data, TestEnvironment, TestEnvironmentBuilder};
 
 #[tokio::test]
+#[serial_test::serial]
 async fn test_environment_creation() -> Result<()> {
     let env = TestEnvironment::new().await?;
     assert!(!env.surrealdb_url().is_empty());
@@ -14,6 +15,7 @@ async fn test_environment_creation() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn test_redis_connection() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
@@ -33,6 +35,7 @@ async fn test_redis_connection() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn test_environment_with_data_dump() -> Result<()> {
     // Builder still works (no dump loading with SurrealDB same-stack)
     let env = TestEnvironmentBuilder::new()
@@ -45,6 +48,7 @@ async fn test_environment_with_data_dump() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn test_with_automatic_prod_data_discovery() -> Result<()> {
     // This test demonstrates the convenience helper that automatically
     // finds and loads production data from common locations
@@ -62,6 +66,7 @@ async fn test_with_automatic_prod_data_discovery() -> Result<()> {
 // Example of table-driven testing - using regular test instead of rstest
 // to avoid async_std dependency issue
 #[tokio::test]
+#[serial_test::serial]
 async fn test_redis_multiple_keys() -> Result<()> {
     let test_cases = vec![
         ("test_key_1", "test_value_1"),

@@ -255,7 +255,10 @@ fn table_allowed_for_select_one(table: &str) -> bool {
 /// deserialize into JSON values. Using a projection avoids losing rows due to serialization errors.
 const SELECT_ONE_PROJECTION: &str = "SELECT *, string::replace(string::concat(id), '`', '') AS id";
 
-fn scope_prefix(ns: Option<&str>, db_name: Option<&str>, core: &str) -> (String, usize) {
+/// `USE NS; USE DB;` + `core` when `ns`/`db_name` are set (validated). Returns `(query, take_index)` so
+/// `response.take(take_index)` reads the `core` result — required when Surreal scope does not persist
+/// across pooled WS connections (see `select_one_by_record_id_scoped`).
+pub(crate) fn scope_prefix(ns: Option<&str>, db_name: Option<&str>, core: &str) -> (String, usize) {
     match (ns, db_name) {
         (Some(ns), Some(db_name)) => {
             let ns_ok = ns.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');

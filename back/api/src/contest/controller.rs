@@ -1,7 +1,8 @@
 use crate::contest::repository::{ContestRepository, ContestRepositoryImpl};
 use crate::player::repository::PlayerRepository;
+use crate::surreal_helpers::canonical_id_from_http_path_param;
 use actix_web::HttpMessage;
-use actix_web::{get, post, web, HttpRequest, HttpResponse, Responder};
+use actix_web::{delete, get, post, web, HttpRequest, HttpResponse, Responder};
 use serde::Deserialize;
 use serde_json::json;
 use shared::dto::contest::ContestDto;
@@ -324,4 +325,30 @@ pub async fn search_contests_handler(
     req: actix_web::HttpRequest,
 ) -> impl Responder {
     search_contests_handler_impl(query, repo, player_repo, db, req).await
+}
+
+/// Deletes a contest and its graph edges (`played_at`, `played_with`, `resulted_in`).
+/// Requires an authenticated admin session (see `AdminAuthMiddleware` on the route).
+#[delete("/{id}")]
+pub async fn delete_contest_handler(
+    path: web::Path<String>,
+    repo: web::Data<ContestRepositoryImpl>,
+) -> impl Responder {
+    let param = path.into_inner();
+    let id = canonical_id_from_http_path_param("contest", &param);
+    if id.is_empty() {
+        return HttpResponse::BadRequest().json(json!({
+            "error": "Invalid contest id",
+        }));
+    }
+    match repo.delete(&id).await {
+        Ok(()) => HttpResponse::NoContent().finish(),
+        Err(e) => {
+            if e.contains("not found") {
+                HttpResponse::NotFound().json(json!({ "error": e }))
+            } else {
+                HttpResponse::InternalServerError().json(json!({ "error": e }))
+            }
+        }
+    }
 }

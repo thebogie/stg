@@ -17,6 +17,7 @@ fn key_only(id: &str) -> &str {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn game_json_ids_canonical_http_uses_raw_key() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
@@ -122,6 +123,7 @@ async fn game_json_ids_canonical_http_uses_raw_key() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn venue_json_ids_canonical_http_uses_raw_key() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;

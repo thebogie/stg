@@ -763,8 +763,35 @@ impl ContestRepository for ContestRepositoryImpl {
     async fn update(&self, _contest: Contest) -> Result<Contest, String> {
         unimplemented!()
     }
-    async fn delete(&self, _id: &str) -> Result<(), String> {
-        unimplemented!()
+    async fn delete(&self, id: &str) -> Result<(), String> {
+        if self.find_by_id(id).await.is_none() {
+            return Err("Contest not found".to_string());
+        }
+        let key = record_id_to_key(id, "contest");
+        if key.is_empty() {
+            return Err("Contest not found".to_string());
+        }
+        let contest_rid = surrealdb::types::RecordId::new("contest", key.as_str());
+
+        for table in ["played_at", "played_with", "resulted_in"] {
+            let sql =
+                self.query_with_scope(&format!("DELETE FROM {} WHERE `in` = $contest_id", table));
+            self.db
+                .query(&sql)
+                .bind(("contest_id", contest_rid.clone()))
+                .await
+                .map_err(|e| format!("Failed to remove {} edges: {}", table, e))?;
+        }
+
+        let delete_sql = self.query_with_scope("DELETE FROM contest WHERE id = $record_id");
+        self.db
+            .query(&delete_sql)
+            .bind(("record_id", contest_rid))
+            .await
+            .map_err(|e| format!("Failed to delete contest: {}", e))?;
+
+        log::info!("Deleted contest {}", id);
+        Ok(())
     }
 
     async fn find_contests_by_player_and_game(

@@ -17,6 +17,7 @@ use testing::create_authenticated_user;
 use testing::{app_setup, TestEnvironment};
 
 #[tokio::test]
+#[serial_test::serial]
 async fn test_create_game_success() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
@@ -87,6 +88,7 @@ async fn test_create_game_success() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn test_create_game_validation_errors() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
@@ -148,6 +150,7 @@ async fn test_create_game_validation_errors() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn test_get_game_success() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
@@ -230,6 +233,7 @@ async fn test_get_game_success() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn test_get_game_not_found() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
@@ -285,6 +289,7 @@ async fn test_get_game_not_found() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn test_update_game_success() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
@@ -375,6 +380,7 @@ async fn test_update_game_success() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn test_update_game_not_found() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
@@ -436,6 +442,7 @@ async fn test_update_game_not_found() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn test_delete_game_success() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
@@ -527,6 +534,7 @@ async fn test_delete_game_success() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn test_delete_game_not_found() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
@@ -582,6 +590,7 @@ async fn test_delete_game_not_found() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn test_get_all_games() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
@@ -658,6 +667,7 @@ async fn test_get_all_games() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn test_game_unauthorized_access() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;

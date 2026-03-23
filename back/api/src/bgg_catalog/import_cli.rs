@@ -56,6 +56,8 @@ mod tests {
         assert!(looks_like_doc_placeholder(Path::new("…")));
         assert!(looks_like_doc_placeholder(Path::new("...")));
         assert!(looks_like_doc_placeholder(Path::new("<path>")));
-        assert!(!looks_like_doc_placeholder(Path::new("data/bgg/boardgames_ranks.csv")));
+        assert!(!looks_like_doc_placeholder(Path::new(
+            "data/bgg/boardgames_ranks.csv"
+        )));
     }
 }

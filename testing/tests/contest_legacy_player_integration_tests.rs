@@ -65,6 +65,7 @@ async fn seed_legacy_player_with_numeric_key(
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn contest_create_succeeds_with_numeric_player_ids() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;

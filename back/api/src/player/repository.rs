@@ -1,7 +1,7 @@
 use crate::cache::{CacheKeys, CacheTTL, RedisCache};
 use crate::db::Db;
 use crate::surreal_helpers::{
-    normalize_record_id_string, record_id_from_row, select_one_by_record_id,
+    normalize_record_id_string, record_id_from_row, scope_prefix, select_one_by_record_id,
 };
 use async_trait::async_trait;
 use log;
@@ -78,6 +78,26 @@ impl PlayerRepositoryImpl {
         if let (Some(ref ns), Some(ref db_name)) = (&self.ns, &self.db_name) {
             let _ = self.db.use_ns(ns).use_db(db_name).await;
         }
+    }
+
+    /// Same prelude as `create`: SDK `use_ns`/`use_db`, then a SurrealQL `USE NS; USE DB;`
+    /// round-trip so the following `query` runs in the intended namespace.
+    async fn ensure_scope_via_query(&self) -> Result<(), String> {
+        self.ensure_scope().await;
+        if let (Some(ref ns), Some(ref db_name)) = (&self.ns, &self.db_name) {
+            let ns_ok = ns.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+            let db_ok = db_name
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_');
+            if ns_ok && db_ok {
+                let use_q = format!("USE NS {}; USE DB {};", ns, db_name);
+                self.db
+                    .query(use_q)
+                    .await
+                    .map_err(|e| format!("Failed to set scope: {}", e))?;
+            }
+        }
+        Ok(())
     }
 
     /// When ns/db are set, prefix query with USE NS/DB so the same connection gets correct scope.
@@ -169,25 +189,150 @@ fn value_to_player(v: &serde_json::Value) -> Option<Player> {
     })
 }
 
-#[async_trait]
-impl PlayerRepository for PlayerRepositoryImpl {
-    async fn find_by_email(&self, email: &str) -> Option<Player> {
-        if let Some(ref cache) = self.cache {
-            let cache_key = CacheKeys::player_by_email(email);
-            if let Ok(Some(cached_player)) = cache.get::<Player>(&cache_key).await {
-                log::debug!("Cache hit for player by email: {}", email);
-                // Defensive: older cached values may contain backticks/colon ids.
-                let mut p = cached_player;
-                p.id = normalize_record_id_string(&p.id);
-                return Some(p);
+fn json_value_as_bool(v: &serde_json::Value) -> Option<bool> {
+    match v {
+        serde_json::Value::Bool(b) => Some(*b),
+        serde_json::Value::Number(n) => n.as_u64().map(|u| u != 0),
+        serde_json::Value::String(s) => match s.to_lowercase().as_str() {
+            "true" | "1" | "yes" => Some(true),
+            "false" | "0" | "no" => Some(false),
+            _ => None,
+        },
+        serde_json::Value::Null => None,
+        _ => None,
+    }
+}
+
+fn is_admin_from_row_json(row: &serde_json::Value) -> Option<bool> {
+    row.get("isAdmin")
+        .or_else(|| row.get("is_admin"))
+        .and_then(|v| json_value_as_bool(v))
+}
+
+impl PlayerRepositoryImpl {
+    /// Same scoped Surreal path as email lookups; matches `UPDATE player SET isAdmin … WHERE email`.
+    /// Record-id fetches alone can miss `isAdmin` depending on Surreal JSON shape / id binding.
+    async fn load_is_admin_for_email(&self, email: &str) -> Option<bool> {
+        let email_owned = email.trim().to_string();
+        if email_owned.is_empty() {
+            return None;
+        }
+        const CORE: &str = "SELECT isAdmin FROM player WHERE string::lowercase(email) = string::lowercase($email) LIMIT 1";
+        // Integration tests: match `create` — `ensure_scope_via_query` before SELECT (see module docs).
+        if self.ns.is_some() && self.db_name.is_some() {
+            self.ensure_scope_via_query().await.ok()?;
+            let mut res = self.db.query(CORE).bind(("email", email_owned)).await.ok()?;
+            let rows: Vec<serde_json::Value> = res.take(0).unwrap_or_default();
+            return rows.into_iter().next().and_then(|v| {
+                json_value_as_bool(&v).or_else(|| is_admin_from_row_json(&v))
+            });
+        }
+        let (q, take_idx) = scope_prefix(self.ns.as_deref(), self.db_name.as_deref(), CORE);
+        if take_idx == 0 {
+            self.ensure_scope().await;
+        }
+        let mut res = self.db.query(&q).bind(("email", email_owned)).await.ok()?;
+        let rows: Vec<serde_json::Value> = res.take(take_idx).unwrap_or_default();
+        rows.into_iter()
+            .next()
+            .and_then(|v| json_value_as_bool(&v).or_else(|| is_admin_from_row_json(&v)))
+    }
+
+    /// Resolve player by email from Surreal only (no Redis cache). Used by admin middleware so `isAdmin`
+    /// cannot be stale after `UPDATE` or cache eviction races.
+    pub async fn find_by_email_for_auth(&self, email: &str) -> Option<Player> {
+        let mut p = self.load_player_row_by_email_from_db(email).await?;
+        if let Some(ia) = self.load_is_admin_for_email(email).await {
+            p.is_admin = ia;
+        }
+        Some(p)
+    }
+
+    async fn load_player_row_by_email_from_db(&self, email: &str) -> Option<Player> {
+        let email_owned = email.trim().to_string();
+        if email_owned.is_empty() {
+            return None;
+        }
+        // Case-insensitive match: session/Redis may differ in casing from the Surreal row.
+        // Force id to string and strip backticks so app never sees Surreal wrappers.
+        const SELECT_CORE: &str = "SELECT firstname, handle, email, password, createdAt, isAdmin, string::replace(string::concat(id), '`', '') AS id FROM player WHERE string::lowercase(email) = string::lowercase($email) LIMIT 1";
+
+        if self.ns.is_some() && self.db_name.is_some() {
+            self.ensure_scope_via_query().await.ok()?;
+            let mut res = match self
+                .db
+                .query(SELECT_CORE)
+                .bind(("email", email_owned.clone()))
+                .await
+            {
+                Ok(r) => r,
+                Err(e) => {
+                    log::error!("Error querying player by email '{}': {:?}", email, e);
+                    return None;
+                }
+            };
+            let player = match res.take::<Vec<PlayerRow>>(0) {
+                Ok(rows) => {
+                    let count = rows.len();
+                    let p = rows.into_iter().next().and_then(row_to_player);
+                    if p.is_none() && count > 0 {
+                        log::warn!(
+                            "Player find_by_email: got {} row(s) but row_to_player returned None (email {})",
+                            count, email
+                        );
+                    } else if p.is_none() {
+                        log::info!("Player find_by_email: no rows for email {}", email);
+                    }
+                    p
+                }
+                Err(e) => {
+                    log::warn!(
+                        "Player find_by_email: typed take failed ({}), trying Value path",
+                        e
+                    );
+                    let mut res2 = self
+                        .db
+                        .query(SELECT_CORE)
+                        .bind(("email", email_owned))
+                        .await
+                        .ok()?;
+                    let rows: Vec<serde_json::Value> = res2.take(0).unwrap_or_default();
+                    let row_count = rows.len();
+                    let p = rows.into_iter().next().and_then(|v| {
+                        let out = value_to_player(&v);
+                        if out.is_none() {
+                            let keys: Vec<&str> = v
+                                .as_object()
+                                .map(|o| o.keys().map(String::as_str).collect())
+                                .unwrap_or_default();
+                            log::warn!(
+                                "Player find_by_email: value_to_player returned None for row keys={:?} id={:?}",
+                                keys,
+                                v.get("id").or_else(|| v.get("_id"))
+                            );
+                        }
+                        out
+                    });
+                    if p.is_none() && row_count > 0 {
+                        log::warn!(
+                            "Player find_by_email: Value path got {} row(s) but value_to_player returned None",
+                            row_count
+                        );
+                    }
+                    p
+                }
+            };
+            if player.is_none() {
+                log::info!("Player find_by_email: no player for email {}", email);
             }
+            return player;
         }
 
-        let email_owned = email.to_string();
-        // Force id to string and strip backticks so app never sees Surreal wrappers.
-        const SELECT_CORE: &str = "SELECT firstname, handle, email, password, createdAt, isAdmin, string::replace(string::concat(id), '`', '') AS id FROM player WHERE email = $email LIMIT 1";
-        let select_q = self.query_with_scope(SELECT_CORE);
-        self.ensure_scope().await;
+        let (select_q, take_idx) =
+            scope_prefix(self.ns.as_deref(), self.db_name.as_deref(), SELECT_CORE);
+        if take_idx == 0 {
+            self.ensure_scope().await;
+        }
         let mut res = match self
             .db
             .query(&select_q)
@@ -200,7 +345,7 @@ impl PlayerRepository for PlayerRepositoryImpl {
                 return None;
             }
         };
-        let player = match res.take::<Vec<PlayerRow>>(0) {
+        let player = match res.take::<Vec<PlayerRow>>(take_idx) {
             Ok(rows) => {
                 let count = rows.len();
                 let p = rows.into_iter().next().and_then(row_to_player);
@@ -222,7 +367,7 @@ impl PlayerRepository for PlayerRepositoryImpl {
                     .bind(("email", email_owned))
                     .await
                     .ok()?;
-                let rows: Vec<serde_json::Value> = res2.take(0).unwrap_or_default();
+                let rows: Vec<serde_json::Value> = res2.take(take_idx).unwrap_or_default();
                 let row_count = rows.len();
                 let p = rows.into_iter().next().and_then(|v| {
                     let out = value_to_player(&v);
@@ -245,6 +390,29 @@ impl PlayerRepository for PlayerRepositoryImpl {
         if player.is_none() {
             log::info!("Player find_by_email: no player for email {}", email);
         }
+        player
+    }
+}
+
+#[async_trait]
+impl PlayerRepository for PlayerRepositoryImpl {
+    async fn find_by_email(&self, email: &str) -> Option<Player> {
+        let email = email.trim();
+        if email.is_empty() {
+            return None;
+        }
+        if let Some(ref cache) = self.cache {
+            let cache_key = CacheKeys::player_by_email(email);
+            if let Ok(Some(cached_player)) = cache.get::<Player>(&cache_key).await {
+                log::debug!("Cache hit for player by email: {}", email);
+                // Defensive: older cached values may contain backticks/colon ids.
+                let mut p = cached_player;
+                p.id = normalize_record_id_string(&p.id);
+                return Some(p);
+            }
+        }
+
+        let player = self.load_player_row_by_email_from_db(email).await;
         if let Some(ref p) = player {
             if let Some(ref cache) = self.cache {
                 let _ = cache
@@ -321,20 +489,9 @@ impl PlayerRepository for PlayerRepositoryImpl {
             "isAdmin": player.is_admin,
         });
         // When ns/db are set, run USE then CREATE so scope is set before CREATE (--test-threads 1 helps reuse connection).
-        self.ensure_scope().await;
-        if let (Some(ref ns), Some(ref db_name)) = (&self.ns, &self.db_name) {
-            let ns_ok = ns.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
-            let db_ok = db_name
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() || c == '_');
-            if ns_ok && db_ok {
-                let use_q = format!("USE NS {}; USE DB {};", ns, db_name);
-                self.db
-                    .query(use_q)
-                    .await
-                    .map_err(|e| format!("Failed to set scope: {}", e))?;
-            }
-        }
+        self.ensure_scope_via_query()
+            .await
+            .map_err(|e| format!("Failed to set scope: {}", e))?;
         self.db
             .query("CREATE type::record('player', type::uuid($key)) CONTENT $doc")
             .bind(("key", key.clone()))

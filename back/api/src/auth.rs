@@ -1,4 +1,4 @@
-use crate::db::Db;
+use crate::player::repository::PlayerRepositoryImpl;
 use actix_web::{
     body::{BoxBody, MessageBody},
     dev::{forward_ready, Service, ServiceRequest, ServiceResponse, Transform},
@@ -41,7 +41,8 @@ impl SessionValidator for AuthMiddleware {
 
 pub struct AdminAuthMiddleware {
     pub redis: Arc<redis::Client>,
-    pub db: Arc<Db>,
+    /// Same `Arc` as `web::Data<PlayerRepositoryImpl>` so admin checks use the same DB + NS/DB as handlers.
+    pub player_repo: Arc<PlayerRepositoryImpl>,
 }
 
 #[async_trait::async_trait]
@@ -210,9 +211,9 @@ impl<S, B> Transform<S, ServiceRequest> for AdminAuthMiddleware
 where
     S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error> + 'static,
     S::Future: 'static,
-    B: 'static,
+    B: MessageBody + 'static,
 {
-    type Response = ServiceResponse<B>;
+    type Response = ServiceResponse<BoxBody>;
     type Error = Error;
     type Transform = AdminAuthMiddlewareService<S>;
     type InitError = ();
@@ -222,7 +223,7 @@ where
         ready(Ok(AdminAuthMiddlewareService {
             service: Arc::new(service),
             redis: self.redis.clone(),
-            db: self.db.clone(),
+            player_repo: self.player_repo.clone(),
         }))
     }
 }
@@ -230,16 +231,16 @@ where
 pub struct AdminAuthMiddlewareService<S> {
     service: Arc<S>,
     redis: Arc<redis::Client>,
-    db: Arc<Db>,
+    player_repo: Arc<PlayerRepositoryImpl>,
 }
 
 impl<S, B> Service<ServiceRequest> for AdminAuthMiddlewareService<S>
 where
     S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error> + 'static,
     S::Future: 'static,
-    B: 'static,
+    B: MessageBody + 'static,
 {
-    type Response = ServiceResponse<B>;
+    type Response = ServiceResponse<BoxBody>;
     type Error = Error;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>>>>;
 
@@ -248,7 +249,6 @@ where
     fn call(&self, req: ServiceRequest) -> Self::Future {
         let redis = self.redis.clone();
         let service = self.service.clone();
-        let db = self.db.clone();
         let path = req.path().to_string();
         let method = req.method().to_string();
 
@@ -258,22 +258,23 @@ where
             path
         );
 
+        let player_repo = self.player_repo.clone();
+
         Box::pin(async move {
             // In test environment, allow admin-protected routes for integration tests
             let in_test = std::env::var("RUST_ENV")
                 .unwrap_or_default()
                 .eq_ignore_ascii_case("test");
-            if in_test
-                && (path.starts_with("/api/venues")
-                    || path.starts_with("/api/games")
-                    || path.starts_with("/api/contests"))
-            {
+            // Do not bypass `/api/contests` here: contest DELETE is admin-only and integration
+            // tests rely on real `isAdmin` / env admin checks (see contest_admin_delete_integration_tests).
+            if in_test && (path.starts_with("/api/venues") || path.starts_with("/api/games")) {
                 log::debug!(
                     "AdminAuthMiddleware: test env detected, allowing {} {} without admin auth",
                     method,
                     path
                 );
-                return service.call(req).await;
+                let res = service.call(req).await?;
+                return Ok(res.map_into_boxed_body());
             }
 
             // Authorization header-based authentication only
@@ -293,7 +294,7 @@ where
                     method,
                     path
                 );
-                return Err(ErrorUnauthorized("Authentication required"));
+                return Ok(req.error_response(ErrorUnauthorized("Authentication required")));
             }
 
             let session_id = session_id.unwrap();
@@ -304,7 +305,9 @@ where
                 Ok(conn) => conn,
                 Err(e) => {
                     log::error!("AdminAuthMiddleware: Failed to get Redis connection: {}", e);
-                    return Err(ErrorUnauthorized("Authentication service unavailable"));
+                    return Ok(
+                        req.error_response(ErrorUnauthorized("Authentication service unavailable"))
+                    );
                 }
             };
 
@@ -313,74 +316,48 @@ where
                 Ok(email) => email,
                 Err(e) => {
                     log::error!("AdminAuthMiddleware: Failed to get email from Redis: {}", e);
-                    return Err(ErrorUnauthorized("Invalid session"));
+                    return Ok(req.error_response(ErrorUnauthorized("Invalid session")));
                 }
             };
 
             if email.is_none() {
                 log::warn!("AdminAuthMiddleware: No email found for session");
-                return Err(ErrorUnauthorized("Invalid session"));
+                return Ok(req.error_response(ErrorUnauthorized("Invalid session")));
             }
 
             let email = email.unwrap();
+            let email = email.trim();
+            if email.is_empty() {
+                log::warn!("AdminAuthMiddleware: Empty email for session");
+                return Ok(req.error_response(ErrorUnauthorized("Invalid session")));
+            }
             log::debug!("AdminAuthMiddleware: Found email for session");
 
-            // Check if player has admin privileges (SurrealQL). Keep the projection minimal
-            // and normalize `id` so deserialization doesn't fail (record -> string).
-            let res = db
-                .query(
-                    "SELECT \
-                        string::replace(string::concat(id), '`', '') AS id, \
-                        isAdmin \
-                     FROM player \
-                     WHERE string::lowercase(email) = string::lowercase($email) \
-                     LIMIT 1",
-                )
-                .bind(("email", email.clone()))
-                .await;
+            // `isAdmin` must come from Surreal on every request — not the Redis player cache — so promotions
+            // and raw `UPDATE player SET isAdmin = …` are visible immediately (`find_by_email_for_auth`,
+            // which uses scoped Surreal queries, not `find_by_email` cache).
+            let player = player_repo.find_by_email_for_auth(email).await;
+            let admin_by_env = admin_email_from_env(&email);
+            let admin_by_db = player.as_ref().map(|p| p.is_admin).unwrap_or(false);
 
-            let rows_result: Result<Vec<serde_json::Value>, _> = match res {
-                Ok(mut q) => q.take(0),
-                Err(e) => {
-                    log::error!("AdminAuthMiddleware: Failed to query player: {}", e);
-                    return Err(ErrorUnauthorized("Authentication service error"));
-                }
-            };
-
-            match rows_result {
-                Ok(rows) => {
-                    let admin_by_env = admin_email_from_env(&email);
-                    let admin_by_db = rows
-                        .first()
-                        .and_then(|v| v.get("isAdmin").and_then(|x| x.as_bool()))
-                        .unwrap_or(false);
-
-                    if admin_by_db || admin_by_env {
-                        log::debug!(
-                            "AdminAuthMiddleware: Player {} is admin (db={}, env={}), allowing access",
-                            email,
-                            admin_by_db,
-                            admin_by_env
-                        );
-                        let res = service.call(req).await?;
-                        Ok(res)
-                    } else {
-                        if rows.is_empty() {
-                            log::warn!("AdminAuthMiddleware: Player not found: {}", email);
-                            Err(ErrorUnauthorized("Player not found"))
-                        } else {
-                            log::warn!(
-                                "AdminAuthMiddleware: Player {} is not admin, denying access",
-                                email
-                            );
-                            Err(ErrorUnauthorized("Administrative privileges required"))
-                        }
-                    }
-                }
-                Err(e) => {
-                    log::error!("AdminAuthMiddleware: Failed to query player: {}", e);
-                    Err(ErrorUnauthorized("Authentication service error"))
-                }
+            if admin_by_db || admin_by_env {
+                log::debug!(
+                    "AdminAuthMiddleware: Player {} is admin (db={}, env={}), allowing access",
+                    email,
+                    admin_by_db,
+                    admin_by_env
+                );
+                let res = service.call(req).await?;
+                Ok(res.map_into_boxed_body())
+            } else if player.is_none() {
+                log::warn!("AdminAuthMiddleware: Player not found: {}", email);
+                Ok(req.error_response(ErrorUnauthorized("Player not found")))
+            } else {
+                log::warn!(
+                    "AdminAuthMiddleware: Player {} is not admin, denying access",
+                    email
+                );
+                Ok(req.error_response(ErrorUnauthorized("Administrative privileges required")))
             }
         })
     }

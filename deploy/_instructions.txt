@@ -1,4 +1,7 @@
 dev:
+Integration tests (no freeze): from repo root run  cargo test-integration
+  (parallel cargo test -p testing queues on Surreal connect lock).
+
 split screen: 
   clear; just backend-watch
 
@@ -8,6 +11,7 @@ split screen:
 
 
 run  ./scripts/full-prod-test.sh
+If it runs forever: BGG CSV import can take hours — FULL_PROD_TEST_SKIP_BGG_IMPORT=1 or FULL_PROD_TEST_ITERATE=1 (reuse DB, skip big import). FULL_PROD_TEST_SKIP_CLEAN=1 speeds rebuilds.
 then when failures happend run FULL_PROD_TEST_ITERATE=1 ./scripts/full-prod-test.sh
 then one more time with the full-prod-test.sh
 
@@ -15,7 +19,9 @@ then one more time with the full-prod-test.sh
 prod shuffle:
 rsync -az ./deploy/ thebogie@192.168.1.51:/home/thebogie/stg/deploy/
 
-Local: ./scripts/full-prod-test.sh passes (and iterate variant as needed).
+Local: ./scripts/full-prod-test.sh passes (iterate flags only speed retries — they do not replace tests).
+  Green exit means all three passed: unit (cargo test -p backend), full integration (testing crate, --include-ignored),
+  and Playwright E2E. _build/<BUILD_VERSION>/deploy_gate.txt records that.
 Push main → CI green → note the image tag (SHA or latest).
 rsync (or copy) refreshed deploy/ to the server, including migrations/.
 On server, from deploy/: ./deploy_stg.sh <tag> (same tag CI built).

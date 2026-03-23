@@ -18,6 +18,7 @@ fn key_only(id: &str) -> &str {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn contest_create_then_get_has_edge_ids() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;

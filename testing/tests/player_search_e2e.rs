@@ -41,6 +41,7 @@ async fn find_players_by_search(base_url: &str, query: &str) -> Result<Vec<Playe
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn e2e_player_search_by_email_actually_filters() -> Result<()> {
     let base = match skip_if_no_backend() {
         Some(url) => url,
@@ -113,6 +114,7 @@ async fn e2e_player_search_by_email_actually_filters() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn e2e_player_search_by_handle_actually_filters() -> Result<()> {
     let base = match skip_if_no_backend() {
         Some(url) => url,
@@ -173,6 +175,7 @@ async fn e2e_player_search_by_handle_actually_filters() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn e2e_player_search_nonexistent_returns_empty() -> Result<()> {
     let base = match skip_if_no_backend() {
         Some(url) => url,

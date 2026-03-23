@@ -74,11 +74,7 @@ fn sort_newest_first(a: &ParsedRow, b: &ParsedRow) -> Ordering {
     }
 }
 
-async fn upsert_parsed_row(
-    db: &Db,
-    row: &ParsedRow,
-    import_batch: &str,
-) -> anyhow::Result<()> {
+async fn upsert_parsed_row(db: &Db, row: &ParsedRow, import_batch: &str) -> anyhow::Result<()> {
     let key = row.bgg_id.to_string();
     let rid = RecordId::new("bgg_catalog", key.as_str());
 
@@ -246,10 +242,7 @@ mod tests {
 
     #[test]
     fn sort_newest_first_puts_missing_year_last() {
-        let mut rows = vec![
-            row(1, "a", None, None),
-            row(2, "b", Some(2019), Some(10)),
-        ];
+        let mut rows = vec![row(1, "a", None, None), row(2, "b", Some(2019), Some(10))];
         rows.sort_unstable_by(sort_newest_first);
         assert_eq!(rows[0].bgg_id, 2);
         assert_eq!(rows[1].bgg_id, 1);

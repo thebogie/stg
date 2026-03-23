@@ -18,6 +18,7 @@ use testing::create_authenticated_user;
 use testing::{app_setup, TestEnvironment};
 
 #[tokio::test]
+#[serial_test::serial]
 #[ignore = "requires SurrealDB + Redis; run with --include-ignored when stack is up"]
 async fn test_session_expiration() -> Result<()> {
     let env = TestEnvironment::new().await?;
@@ -97,6 +98,7 @@ async fn test_session_expiration() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 #[ignore = "requires SurrealDB + Redis; run with --include-ignored when stack is up"]
 async fn test_invalid_session_token() -> Result<()> {
     let env = TestEnvironment::new().await?;
@@ -187,6 +189,7 @@ async fn test_invalid_session_token() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 #[ignore = "requires SurrealDB + Redis; run with --include-ignored when stack is up"]
 async fn test_malformed_authorization_header() -> Result<()> {
     let env = TestEnvironment::new().await?;
@@ -279,6 +282,7 @@ async fn test_malformed_authorization_header() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 #[ignore = "requires SurrealDB + Redis; run with --include-ignored when stack is up"]
 async fn test_missing_authorization_header() -> Result<()> {
     let env = TestEnvironment::new().await?;
@@ -366,6 +370,7 @@ async fn test_missing_authorization_header() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 #[ignore = "requires SurrealDB + Redis; run with --include-ignored when stack is up"]
 async fn test_logout_invalidates_session() -> Result<()> {
     let env = TestEnvironment::new().await?;
@@ -485,6 +490,7 @@ async fn test_logout_invalidates_session() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 #[ignore = "requires SurrealDB + Redis; run with --include-ignored when stack is up"]
 async fn test_session_persistence_across_requests() -> Result<()> {
     let env = TestEnvironment::new().await?;
@@ -566,6 +572,7 @@ async fn test_session_persistence_across_requests() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 #[ignore = "requires SurrealDB + Redis; run with --include-ignored when stack is up"]
 async fn test_concurrent_sessions() -> Result<()> {
     let env = TestEnvironment::new().await?;
@@ -678,6 +685,7 @@ async fn test_concurrent_sessions() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 #[ignore = "requires SurrealDB + Redis; run with --include-ignored when stack is up"]
 async fn test_protected_endpoints_require_auth() -> Result<()> {
     let env = TestEnvironment::new().await?;

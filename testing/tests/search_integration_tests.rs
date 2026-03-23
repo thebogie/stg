@@ -8,6 +8,7 @@ use testing::create_authenticated_user;
 use testing::{app_setup, TestEnvironment};
 
 #[tokio::test]
+#[serial_test::serial]
 async fn test_search_players() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
@@ -65,6 +66,7 @@ async fn test_search_players() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn test_search_venues() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
@@ -169,6 +171,7 @@ async fn test_search_venues() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn test_search_games() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
@@ -270,6 +273,7 @@ async fn test_search_games() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn test_search_empty_query() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
@@ -300,6 +304,7 @@ async fn test_search_empty_query() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn test_search_special_characters() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;

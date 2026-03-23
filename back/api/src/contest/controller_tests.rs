@@ -87,8 +87,14 @@ mod contest_controller_tests {
             Err("Not implemented in mock".to_string())
         }
 
-        async fn delete(&self, _id: &str) -> Result<(), String> {
-            Err("Not implemented in mock".to_string())
+        async fn delete(&self, id: &str) -> Result<(), String> {
+            let mut contests = self.contests.lock().await;
+            if let Some(pos) = contests.iter().position(|c| c.id == id) {
+                contests.remove(pos);
+                Ok(())
+            } else {
+                Err("Contest not found".to_string())
+            }
         }
 
         async fn find_contests_by_player_and_game(&self, _player_id: &str, _game_id: &str) -> Result<Vec<serde_json::Value>, String> {

@@ -15,6 +15,7 @@ use shared::dto::player::{LoginResponse, PlayerDto};
 // We extract it and use it in the Cookie header for authenticated requests.
 
 #[tokio::test]
+#[serial_test::serial]
 async fn test_player_registration() -> Result<()> {
     // Set explicit timeout for test environment setup
     let env = tokio::time::timeout(std::time::Duration::from_secs(120), TestEnvironment::new())
@@ -90,6 +91,7 @@ async fn test_player_registration() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn test_player_registration_duplicate_email() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
@@ -158,6 +160,7 @@ async fn test_player_registration_duplicate_email() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn test_player_login() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
@@ -245,6 +248,7 @@ async fn test_player_login() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn test_player_login_invalid_credentials() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
@@ -285,6 +289,7 @@ async fn test_player_login_invalid_credentials() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn test_get_current_player() -> Result<()> {
     let timeout = std::time::Duration::from_secs(90);
     let body = async {
@@ -409,6 +414,7 @@ async fn test_get_current_player() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn test_get_current_player_unauthorized() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
@@ -472,6 +478,7 @@ async fn test_get_current_player_unauthorized() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn test_player_logout() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;

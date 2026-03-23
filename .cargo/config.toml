@@ -2,3 +2,9 @@
 # This consolidates all generated objects in one directory
 [build]
 target-dir = "_build/target"
+
+# Integration tests (`testing` crate) share SurrealDB + Redis. Tests use `#[serial_test::serial]`
+# (one at a time) plus a 180s cap on the stack mutex so a hung Surreal connect fails fast.
+# Prefer: cargo test-integration  or  cargo test -p testing -- --test-threads=1 --nocapture
+[alias]
+test-integration = "test -p testing -- --test-threads=1 --nocapture"

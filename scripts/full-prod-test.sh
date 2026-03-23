@@ -1,38 +1,53 @@
 #!/usr/bin/env bash
-# Full production-style test pipeline. Builds and runs the full stack as production would.
-# - Stops and clears the local docker-compose stack (including volumes) for this project
-# - Builds production-style backend and frontend images (same Dockerfiles/labels as CI/GHCR)
-# - Starts the full stack (SurrealDB, Redis, backend, frontend) via deploy/docker-compose.full.yml
-# - Waits for all services (including frontend at FRONTEND_PORT) to be ready
-# - Applies minimal SurrealDB schema and functions for tests
-# - Optionally imports data/bgg/boardgames_ranks.csv into bgg_catalog when that file exists (defaults to
-#   10k newest-by-year games for speed; full ~175k-row import is opt-in — see BGG catalog block below)
-# - Runs backend unit tests, integration tests, and Playwright E2E against the stack
-# - Prints a summary and writes detailed logs under _build/<build_version>/
 #
-# No services are assumed running: the script brings up the entire stack itself.
+# Production deploy gate — push-ready only when every test tier passes.
 #
-# Usage:
+# Exit 0 requires ALL of the following (any failure → exit 1, summary shows which tier failed):
+#   1) Unit:        cargo test -p backend (full backend crate against live Redis/Surreal ports below)
+#   2) Integration: cargo test -p testing --test api_tests (smoke), then
+#                   cargo test -p testing -- --include-ignored --test-threads 1 (full crate, incl. ignored)
+#   3) E2E:         npx playwright test (full Playwright suite vs stack frontend; USE_PRODUCTION_CONTAINERS=1)
+#
+# BGG CSV import and docker iterate/clean skips only affect speed/data — they do not substitute for the three tiers above.
+#
+# What else a green run validates (same Dockerfiles / compose as production):
+#   • Stack: docker compose (optional volume wipe unless iterating), images stg-backend / stg-frontend :BUILD_VERSION
+#   • Services: SurrealDB, Redis, backend /health, frontend at FRONTEND_PORT
+#   • Schema + Surreal functions applied
+#   • Optional bgg_catalog import when data/bgg/boardgames_ranks.csv exists (see BGG block; timeouts in header below)
+#
+# Artifacts: _build/<BUILD_VERSION>/summary.txt, summary.json, deploy_gate.txt (on success), and per-phase logs.
+#
+# Usage (from repo root, after config/.env.prod exists — see config/setup-env.sh prod):
 #   ./scripts/full-prod-test.sh
 #
-# Iterating after a failed test (avoid ~10 min full BGG re-import + volume wipe):
+# Faster iteration after a failure (keep volumes; skip BGG re-import when catalog is already large):
 #   FULL_PROD_TEST_ITERATE=1 ./scripts/full-prod-test.sh
 #   • Skips docker compose down -v so Surreal/Redis volumes keep bgg_catalog from the last run.
-#   • Skips BGG CSV import when bgg_catalog row count is already high enough (jq + HTTP /sql).
+#   • With FULL_PROD_TEST_REUSE_BGG_CATALOG=1: skips import when row count is high enough (jq + HTTP /sql).
 #   Full catalog reuse threshold defaults to 100000 rows; capped imports use ~90% of BGG_IMPORT_MAX_ROWS.
 #   Force a fresh import: FULL_PROD_TEST_FORCE_BGG_IMPORT=1
 #   Only keep volumes (still re-import): FULL_PROD_TEST_KEEP_VOLUMES=1 (without ITERATE)
 #
-# Requires: config/.env.prod (see config/setup-env.sh prod), Docker, cargo, Node/npx (Playwright)
-#           jq recommended when using FULL_PROD_TEST_ITERATE / FULL_PROD_TEST_REUSE_BGG_CATALOG
-# Flow: run locally → all pass → commit & push to main → GHCR builds and labels backend (and
-#       frontend artifact in CI) → on production: ./deploy/deploy_stg.sh <tag> (from repo) or ./deploy_stg.sh <tag> (from deploy/ on server)
+# If a run stalls for hours, typical causes:
+#   • BGG import: FULL_PROD_TEST_BGG_CATALOG_FULL=1 or huge CSV — use FULL_PROD_TEST_SKIP_BGG_IMPORT=1 or
+#     FULL_PROD_TEST_BGG_IMPORT_TIMEOUT_SEC (default 10800 = 3h; 0 = no timeout).
+#   • cargo clean every run: FULL_PROD_TEST_SKIP_CLEAN=1 (faster rebuilds when iterating).
+#   • Playwright: PLAYWRIGHT_GLOBAL_TIMEOUT_MS (default 7200000 = 2h for the whole E2E run).
+#
+# Requires: Docker, cargo, Node/npx (Playwright), jq recommended for ITERATE / REUSE_BGG_CATALOG
+#
+# For line coverage reports (optional, separate from this gate): just coverage  (see docs/testing/COVERAGE_GUIDE.md)
+#
+# After green: commit & push → CI/GHCR → on server: ./deploy_stg.sh <tag> from deploy/ (see deploy/_instructions.txt).
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$ROOT"
+
+stamp() { echo "==> [$(date -u +%Y-%m-%dT%H:%M:%SZ)] $*"; }
 
 # Load production env (BACKEND_PORT, SURREAL_*, etc.)
 source "$SCRIPT_DIR/load-env.sh" prod
@@ -219,7 +234,8 @@ count_bgg_catalog_rows() {
 }
 
 CSV_BGG="$ROOT/data/bgg/boardgames_ranks.csv"
-if [ -f "$CSV_BGG" ]; then
+BGG_GATE_STATUS=""
+if [ -f "$CSV_BGG" ] && [ "${FULL_PROD_TEST_SKIP_BGG_IMPORT:-0}" != "1" ]; then
   SKIP_BGG_IMPORT=0
   if [ "${FULL_PROD_TEST_FORCE_BGG_IMPORT:-0}" = "1" ]; then
     echo "==> FULL_PROD_TEST_FORCE_BGG_IMPORT=1 — will run BGG import even if bgg_catalog is already populated."
@@ -255,16 +271,31 @@ if [ -f "$CSV_BGG" ]; then
       export BGG_IMPORT_MAX_ROWS="${BGG_IMPORT_MAX_ROWS:-10000}"
       echo "==> Importing BGG catalog (${BGG_IMPORT_MAX_ROWS} newest-by-year games; full import: FULL_PROD_TEST_BGG_CATALOG_FULL=1) from $CSV_BGG ..."
     fi
+    stamp "Starting BGG catalog import (skip entirely: FULL_PROD_TEST_SKIP_BGG_IMPORT=1 next run)"
     (
       cd "$ROOT"
       export ENV_FILE_PATH="$ENV_FILE"
-      cargo run -p backend --bin import_bgg_catalog -- "$CSV_BGG" "full-prod-test-$BUILD_VERSION"
+      _bgg_timeout="${FULL_PROD_TEST_BGG_IMPORT_TIMEOUT_SEC:-10800}"
+      if command -v timeout >/dev/null 2>&1 && [ "$_bgg_timeout" != "0" ]; then
+        stamp "BGG import: GNU timeout ${_bgg_timeout}s (no cap: FULL_PROD_TEST_BGG_IMPORT_TIMEOUT_SEC=0)"
+        timeout "${_bgg_timeout}" cargo run -p backend --bin import_bgg_catalog -- "$CSV_BGG" "full-prod-test-$BUILD_VERSION"
+      else
+        stamp "BGG import: no timeout (install coreutils timeout, or set FULL_PROD_TEST_BGG_IMPORT_TIMEOUT_SEC=0)"
+        cargo run -p backend --bin import_bgg_catalog -- "$CSV_BGG" "full-prod-test-$BUILD_VERSION"
+      fi
     ) || {
-      echo "Warning: BGG catalog import failed; continuing (game search will not use bgg_catalog tier)." >&2
+      echo "Warning: BGG catalog import failed or hit timeout; continuing (game search may not use bgg_catalog tier)." >&2
     }
+    BGG_GATE_STATUS="bgg_catalog import attempted (capped or full; warnings above if timeout/failure)"
+  else
+    BGG_GATE_STATUS="bgg_catalog unchanged (reuse: row count >= threshold)"
   fi
+elif [ "${FULL_PROD_TEST_SKIP_BGG_IMPORT:-0}" = "1" ]; then
+  echo "==> FULL_PROD_TEST_SKIP_BGG_IMPORT=1 — skipping BGG catalog import block."
+  BGG_GATE_STATUS="bgg_catalog skipped (FULL_PROD_TEST_SKIP_BGG_IMPORT=1)"
 else
   echo "==> No $CSV_BGG — skipping BGG catalog import (place CSV there to exercise the catalog search tier)."
+  BGG_GATE_STATUS="bgg_catalog skipped (no CSV at data/bgg/boardgames_ranks.csv)"
 fi
 
 # Match integration-test env so `cargo test -p backend` (including Redis-backed tests) uses the same
@@ -282,10 +313,18 @@ export SURREAL_PASSWORD="${SURREAL_PASSWORD:-root}"
 CARGO_NO_FAIL_FAST=(--no-fail-fast)
 
 # Clean test crates so unit/integration always use current source (avoids stale backend artifact).
-echo "==> [4/7] Cleaning backend and testing crates (fresh build for tests)"
-cargo clean -p backend -p testing 2>/dev/null || true
+if [ "${FULL_PROD_TEST_SKIP_CLEAN:-0}" = "1" ]; then
+  stamp "[4/7] Skipping cargo clean (FULL_PROD_TEST_SKIP_CLEAN=1 — faster; use when source is unchanged)"
+else
+  echo "==> [4/7] Cleaning backend and testing crates (fresh build for tests)"
+  cargo clean -p backend -p testing 2>/dev/null || true
+fi
 
-echo "==> Unit tests (backend)"
+echo ""
+echo "==> Production gate — all three tiers must pass (unit + integration + E2E). Any failure aborts green exit."
+echo ""
+
+stamp "[4/7] Unit tests (backend)"
 set +e
 cargo test -p backend "${CARGO_NO_FAIL_FAST[@]}" 2>&1 | tee "$BUILD_DIR/unit.log"
 UNIT_OK=${PIPESTATUS[0]:-$?}
@@ -293,7 +332,7 @@ set -e
 [ "$UNIT_OK" -eq 0 ] && UNIT_RESULT="pass" || UNIT_RESULT="fail"
 
 # --- Phase 5: Integration tests ---
-echo "==> [5/7] Integration tests (against production stack)"
+stamp "[5/7] Integration tests (against production stack)"
 # SURREAL_*/REDIS_URL already exported before unit tests (same stack).
 
 # Single thread so Surreal scope (USE NS/DB) is reused within each test (register then login)
@@ -316,12 +355,13 @@ set -e
 [ "$INTEG_OK" -eq 0 ] && INTEG_RESULT="pass" || INTEG_RESULT="fail"
 
 # --- Phase 6: Full E2E (Playwright against stack frontend) ---
-echo "==> [6/7] Running Playwright E2E against stack frontend http://127.0.0.1:${FRONTEND_PORT:-50003}"
+stamp "[6/7] Playwright E2E — http://127.0.0.1:${FRONTEND_PORT:-50003} (global timeout ${PLAYWRIGHT_GLOBAL_TIMEOUT_MS:-7200000} ms)"
 export USE_PRODUCTION_CONTAINERS=1
 export PLAYWRIGHT_BASE_URL="http://127.0.0.1:${FRONTEND_PORT:-50003}"
 export CI=1
 set +e
-npx playwright test 2>&1 | tee "$BUILD_DIR/e2e.log"
+PW_GLOBAL="${PLAYWRIGHT_GLOBAL_TIMEOUT_MS:-7200000}"
+npx playwright test --global-timeout="$PW_GLOBAL" 2>&1 | tee "$BUILD_DIR/e2e.log"
 E2E_OK=$?
 set -e
 [ "$E2E_OK" -eq 0 ] && E2E_RESULT="pass" || E2E_RESULT="fail"
@@ -360,6 +400,30 @@ EOF
 } > "$SUMMARY_TXT"
 cat "$SUMMARY_TXT"
 
+DEPLOY_GATE_TXT="$BUILD_DIR/deploy_gate.txt"
+if [ "$OVERALL" = "pass" ]; then
+  {
+    echo "Production deploy gate: PASS"
+    echo ""
+    echo "Build version: $BUILD_VERSION"
+    echo "Git commit:    $GIT_COMMIT"
+    echo "Build date:    $BUILD_DATE (UTC in summary.json)"
+    echo ""
+    echo "Validated for deploy (all required):"
+    echo "  - Unit:         PASS — cargo test -p backend (see unit.log)"
+    echo "  - Integration:  PASS — cargo test -p testing incl. --include-ignored (see integration*.log)"
+    echo "  - E2E:          PASS — npx playwright test (see e2e.log)"
+    echo ""
+    echo "Stack / data (supporting):"
+    echo "  - Images:       stg-backend:$BUILD_VERSION, stg-frontend:$BUILD_VERSION"
+    echo "  - Stack:        SurrealDB, Redis, backend /health, frontend http://127.0.0.1:${FRONTEND_PORT:-50003}"
+    echo "  - Schema:       minimal surql + Surreal functions applied"
+    echo "  - bgg_catalog:  ${BGG_GATE_STATUS:-unknown}"
+    echo ""
+    echo "Next: push main → CI tags GHCR → ./deploy_stg.sh $BUILD_VERSION (see deploy/_instructions.txt)"
+  } | tee "$DEPLOY_GATE_TXT"
+fi
+
 if [ "$OVERALL" = "fail" ]; then
   echo ""
   echo "==> One or more phases failed. See $BUILD_DIR for logs."
@@ -368,6 +432,8 @@ if [ "$OVERALL" = "fail" ]; then
 fi
 
 echo ""
-echo "==> All passed. Images stg-backend:$BUILD_VERSION and stg-frontend:$BUILD_VERSION are ready."
+echo "==> Production deploy gate: PASS (unit + integration + E2E)"
+echo "==> Proof written to $DEPLOY_GATE_TXT"
+echo "==> Images stg-backend:$BUILD_VERSION and stg-frontend:$BUILD_VERSION built; full stack + all three test tiers passed."
 echo "==> Commit and push to main → GHCR builds and labels backend (and CI produces frontend artifact)."
 echo "==> On production (from deploy/ on server): ./deploy_stg.sh $BUILD_VERSION  (or ./deploy_stg.sh latest after CI)."

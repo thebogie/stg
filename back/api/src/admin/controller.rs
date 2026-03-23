@@ -2,15 +2,15 @@ use actix_web::{web, HttpResponse};
 use serde_json::json;
 
 use crate::auth::AdminAuthMiddleware;
-use crate::db::Db;
+use crate::player::repository::PlayerRepositoryImpl;
 
 /// Configure admin-only utility routes.
 /// Pass prefix "/api" for /api/admin, "" for /admin (Trunk proxy).
 pub fn configure_routes(
     cfg: &mut web::ServiceConfig,
-    db: Db,
     redis_client: std::sync::Arc<redis::Client>,
     prefix: &str,
+    player_repo: std::sync::Arc<PlayerRepositoryImpl>,
 ) {
     let scope_path = if prefix.is_empty() {
         "/admin".to_string()
@@ -22,7 +22,7 @@ pub fn configure_routes(
         web::scope(&scope_path)
             .wrap(AdminAuthMiddleware {
                 redis: redis_client.clone(),
-                db: std::sync::Arc::new(db.clone()),
+                player_repo,
             })
             .route(
                 "/cache/analytics/clear",

@@ -15,6 +15,7 @@ use testing::create_authenticated_user;
 use testing::{app_setup, TestEnvironment};
 
 #[tokio::test]
+#[serial_test::serial]
 async fn test_400_bad_request_validation_errors() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
@@ -84,6 +85,7 @@ async fn test_400_bad_request_validation_errors() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn test_401_unauthorized_missing_auth() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
@@ -153,6 +155,7 @@ async fn test_401_unauthorized_missing_auth() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn test_401_unauthorized_invalid_session() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
@@ -225,6 +228,7 @@ async fn test_401_unauthorized_invalid_session() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn test_404_not_found_resources() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
@@ -313,6 +317,7 @@ async fn test_404_not_found_resources() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn test_malformed_json_request() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
@@ -374,6 +379,7 @@ async fn test_malformed_json_request() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn test_missing_required_fields() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
@@ -439,6 +445,7 @@ async fn test_missing_required_fields() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn test_invalid_field_types() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
@@ -507,6 +514,7 @@ async fn test_invalid_field_types() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn test_oversized_request_body() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
@@ -575,6 +583,7 @@ async fn test_oversized_request_body() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn test_invalid_content_type() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;

@@ -13,6 +13,7 @@ use testing::create_authenticated_user;
 use testing::{app_setup, TestEnvironment};
 
 #[tokio::test]
+#[serial_test::serial]
 async fn test_create_venue_success() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
@@ -83,6 +84,7 @@ async fn test_create_venue_success() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn test_create_venue_validation_errors() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
@@ -163,6 +165,7 @@ async fn test_create_venue_validation_errors() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn test_get_venue_success() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
@@ -249,6 +252,7 @@ async fn test_get_venue_success() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn test_get_venue_not_found() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
@@ -298,6 +302,7 @@ async fn test_get_venue_not_found() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn test_update_venue_success() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
@@ -389,6 +394,7 @@ async fn test_update_venue_success() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn test_update_venue_not_found() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
@@ -447,6 +453,7 @@ async fn test_update_venue_not_found() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn test_delete_venue_success() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
@@ -539,6 +546,7 @@ async fn test_delete_venue_success() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn test_delete_venue_not_found() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
@@ -588,6 +596,7 @@ async fn test_delete_venue_not_found() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn test_get_all_venues() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;
@@ -661,6 +670,7 @@ async fn test_get_all_venues() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn test_venue_unauthorized_access() -> Result<()> {
     let env = TestEnvironment::new().await?;
     env.wait_for_ready().await?;

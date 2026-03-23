@@ -1,6 +1,7 @@
-use crate::api::contests::contest_key_from_any;
+use crate::api::contests::{contest_key_from_any, delete_contest};
 use crate::api::utils::authenticated_get;
 use crate::auth::AuthContext;
+use crate::components::common::toast::{Toast, ToastContext, ToastType};
 use crate::Route;
 use gloo_storage::Storage;
 use serde_json::Value;
@@ -98,7 +99,8 @@ struct ContestStats {
 
 #[function_component(ContestDetails)]
 pub fn contest_details(props: &ContestDetailsProps) -> Html {
-    let _auth = use_context::<AuthContext>().expect("Auth context not found");
+    let auth = use_context::<AuthContext>().expect("Auth context not found");
+    let toast_context = use_context::<ToastContext>().expect("Toast context not found");
     let navigator = use_navigator().unwrap();
 
     // Use contest_id from props instead of URL
@@ -372,6 +374,40 @@ pub fn contest_details(props: &ContestDetailsProps) -> Html {
         })
     };
 
+    let on_delete_contest = {
+        let navigator = navigator.clone();
+        let toast_context = toast_context.clone();
+        let contest_details = contest_details.clone();
+        Callback::from(move |_| {
+            let Some(contest) = (*contest_details).clone() else {
+                return;
+            };
+            if !gloo::dialogs::confirm(&format!(
+                "Permanently delete contest \"{}\"? This cannot be undone.",
+                contest.name
+            )) {
+                return;
+            }
+            let navigator = navigator.clone();
+            let toast_context = toast_context.clone();
+            let id_for_api = contest_key_from_any(&contest.id);
+            wasm_bindgen_futures::spawn_local(async move {
+                match delete_contest(&id_for_api).await {
+                    Ok(()) => {
+                        let toast = Toast::new("Contest deleted".to_string(), ToastType::Success)
+                            .with_duration(5000);
+                        toast_context.add_toast.emit(toast);
+                        navigator.push(&Route::Contests);
+                    }
+                    Err(e) => {
+                        let toast = Toast::new(e, ToastType::Error).with_duration(8000);
+                        toast_context.add_toast.emit(toast);
+                    }
+                }
+            });
+        })
+    };
+
     html! {
         <div class="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
             <header class="bg-white shadow-sm border-b border-gray-200">
@@ -390,6 +426,15 @@ pub fn contest_details(props: &ContestDetailsProps) -> Html {
                             <h1 class="text-xl font-bold text-gray-900">{"Contest Details"}</h1>
                             <p class="text-sm text-gray-600">{"View contest information, participants, and statistics"}</p>
                         </div>
+                        if auth.state.is_admin() && contest_details.is_some() {
+                            <button
+                                type="button"
+                                onclick={on_delete_contest.clone()}
+                                class="px-3 py-1.5 text-sm font-medium text-red-700 bg-red-50 border border-red-200 rounded-md hover:bg-red-100 transition-colors"
+                            >
+                                {"Delete contest"}
+                            </button>
+                        }
                     </div>
                 </div>
             </header>

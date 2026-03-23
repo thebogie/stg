@@ -122,6 +122,7 @@ async fn get_all_venues(base_url: &str) -> Result<Vec<VenueItem>> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn e2e_venue_search_actually_filters() -> Result<()> {
     let base = match skip_if_no_backend() {
         Some(url) => url,
@@ -218,6 +219,7 @@ async fn e2e_venue_search_actually_filters() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn e2e_venue_search_empty_query_returns_error() -> Result<()> {
     let base = match skip_if_no_backend() {
         Some(url) => url,
@@ -247,6 +249,7 @@ async fn e2e_venue_search_empty_query_returns_error() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn e2e_venue_search_nonexistent_returns_empty() -> Result<()> {
     let base = match skip_if_no_backend() {
         Some(url) => url,

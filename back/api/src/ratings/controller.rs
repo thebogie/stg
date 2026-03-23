@@ -1,4 +1,5 @@
 use crate::db::Db;
+use crate::player::repository::PlayerRepositoryImpl;
 use actix_web::{web, HttpMessage, HttpRequest, HttpResponse};
 use serde::Deserialize;
 use shared::dto::ratings::RatingScope;
@@ -36,6 +37,7 @@ impl RatingsController {
         scheduler: RatingsScheduler,
         redis: redis::Client,
         prefix: &str,
+        player_repo: std::sync::Arc<PlayerRepositoryImpl>,
     ) {
         let repo = RatingsRepository::new(db.clone());
         let controller = web::Data::new(RatingsController {
@@ -53,7 +55,7 @@ impl RatingsController {
                 .app_data(controller.clone())
                 .route("/recompute", web::post().to(|req: HttpRequest, query: web::Query<RecomputeQuery>, ctrl: web::Data<RatingsController>| async move {
                     ctrl.recompute(req, query.into_inner()).await
-                }).wrap(crate::auth::AdminAuthMiddleware { redis: std::sync::Arc::new(redis.clone()), db: std::sync::Arc::new(db.clone()) }))
+                }).wrap(crate::auth::AdminAuthMiddleware { redis: std::sync::Arc::new(redis.clone()), player_repo: player_repo.clone() }))
                 .route("/leaderboard", web::get().to(|_req: HttpRequest, query: web::Query<LeaderboardQuery>, ctrl: web::Data<RatingsController>| async move {
                     let scope = match query.scope.as_deref() { Some("global") | None => RatingScope::Global, Some(s) if s.starts_with("game/") => RatingScope::Game(s.to_string()), _ => RatingScope::Global };
                     let min_games = query.min_games.unwrap_or(10);
@@ -166,7 +168,7 @@ impl RatingsController {
                 .route("/scheduler/status", web::get().to(|_req: HttpRequest, ctrl: web::Data<RatingsController>| async move {
                     let status = ctrl.scheduler.get_status();
                     Ok::<HttpResponse, actix_web::Error>(HttpResponse::Ok().json(status))
-                }).wrap(crate::auth::AdminAuthMiddleware { redis: std::sync::Arc::new(redis.clone()), db: std::sync::Arc::new(db.clone()) }))
+                }).wrap(crate::auth::AdminAuthMiddleware { redis: std::sync::Arc::new(redis.clone()), player_repo: player_repo.clone() }))
                 .route("/scheduler/trigger", web::post().to(|_req: HttpRequest, query: web::Query<TriggerQuery>, ctrl: web::Data<RatingsController>| async move {
                     let period = query.period.clone();
                     let period_resp = period.clone();
@@ -174,7 +176,7 @@ impl RatingsController {
                         Ok(()) => Ok::<HttpResponse, actix_web::Error>(HttpResponse::Ok().json(serde_json::json!({"status": "triggered", "period": period_resp}))),
                         Err(e) => Ok(HttpResponse::InternalServerError().json(serde_json::json!({"error": e.to_string()})))
                     }
-                }).wrap(crate::auth::AdminAuthMiddleware { redis: std::sync::Arc::new(redis.clone()), db: std::sync::Arc::new(db.clone()) }))
+                }).wrap(crate::auth::AdminAuthMiddleware { redis: std::sync::Arc::new(redis.clone()), player_repo: player_repo.clone() }))
                 .route("/recalculate/historical", web::post().to(|_req: HttpRequest, ctrl: web::Data<RatingsController>| async move {
                     let st = ctrl.usecase.rebuild_status();
                     if st.running {
@@ -194,10 +196,10 @@ impl RatingsController {
                         "status": "started",
                         "message": "Historical ratings rebuild started"
                     })))
-                }).wrap(crate::auth::AdminAuthMiddleware { redis: std::sync::Arc::new(redis.clone()), db: std::sync::Arc::new(db.clone()) }))
+                }).wrap(crate::auth::AdminAuthMiddleware { redis: std::sync::Arc::new(redis.clone()), player_repo: player_repo.clone() }))
                 .route("/rebuild/status", web::get().to(|_req: HttpRequest, ctrl: web::Data<RatingsController>| async move {
                     Ok::<HttpResponse, actix_web::Error>(HttpResponse::Ok().json(ctrl.usecase.rebuild_status_with_last_completed().await))
-                }).wrap(crate::auth::AdminAuthMiddleware { redis: std::sync::Arc::new(redis.clone()), db: std::sync::Arc::new(db.clone()) }))
+                }).wrap(crate::auth::AdminAuthMiddleware { redis: std::sync::Arc::new(redis.clone()), player_repo: player_repo.clone() }))
         );
     }
 

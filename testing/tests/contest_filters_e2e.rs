@@ -241,6 +241,7 @@ async fn find_game_with_contests(base_url: &str) -> Result<Option<String>> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn e2e_contest_filters_basic_pagination() -> Result<()> {
     if base_url().is_none() {
         eprintln!("Skipping test: BACKEND_URL not set");
@@ -278,6 +279,7 @@ async fn e2e_contest_filters_basic_pagination() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn e2e_contest_filters_game_ids_any_semantics_shape() -> Result<()> {
     if base_url().is_none() {
         eprintln!("Skipping test: BACKEND_URL not set");
@@ -313,6 +315,7 @@ async fn e2e_contest_filters_game_ids_any_semantics_shape() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn e2e_contest_filters_venue_and_player_params_shape() -> Result<()> {
     if base_url().is_none() {
         eprintln!("Skipping test: BACKEND_URL not set");
@@ -352,6 +355,7 @@ async fn e2e_contest_filters_venue_and_player_params_shape() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn e2e_contest_filters_player_id_actually_filters() -> Result<()> {
     let base = match skip_if_no_backend() {
         Some(url) => url,
@@ -446,6 +450,7 @@ async fn e2e_contest_filters_player_id_actually_filters() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn e2e_contest_filters_venue_id_actually_filters() -> Result<()> {
     let base = match skip_if_no_backend() {
         Some(url) => url,
@@ -548,6 +553,7 @@ async fn e2e_contest_filters_venue_id_actually_filters() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn e2e_contest_filters_game_ids_actually_filters() -> Result<()> {
     let base = match skip_if_no_backend() {
         Some(url) => url,
@@ -640,6 +646,7 @@ async fn e2e_contest_filters_game_ids_actually_filters() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn e2e_contest_filters_combined_filters_work() -> Result<()> {
     let base = match skip_if_no_backend() {
         Some(url) => url,
@@ -754,6 +761,7 @@ async fn e2e_contest_filters_combined_filters_work() -> Result<()> {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn e2e_contest_filters_player_email_lookup_works() -> Result<()> {
     let base = match skip_if_no_backend() {
         Some(url) => url,
