@@ -22,6 +22,9 @@ pub struct ContestDto {
     /// ID of the player who created this contest (set by backend)
     #[serde(default)]
     pub creator_id: String,
+    /// Player handle for `creator_id` when known (set by backend on read/create response)
+    #[serde(default)]
+    pub creator_handle: Option<String>,
     /// When this contest was created (set by backend)
     #[serde(default)]
     pub created_at: Option<DateTime<FixedOffset>>,
@@ -102,6 +105,7 @@ impl From<&Contest> for ContestDto {
             games: Vec::new(),
             outcomes: Vec::new(),
             creator_id: contest.creator_id.clone(),
+            creator_handle: None,
             created_at: Some(contest.created_at.into()),
         }
     }
@@ -180,6 +184,7 @@ mod tests {
                 handle: "player1".to_string(),
             }],
             creator_id: "player/test-creator".to_string(),
+            creator_handle: Some("testcreator".to_string()),
             created_at: Some(DateTime::parse_from_rfc3339("2023-07-15T10:00:00Z").unwrap()),
         }
     }
@@ -437,6 +442,7 @@ mod tests {
         assert_eq!(dto.id, deserialized.id);
         assert_eq!(dto.name, deserialized.name);
         assert_eq!(dto.creator_id, deserialized.creator_id);
+        assert_eq!(dto.creator_handle, deserialized.creator_handle);
         assert_eq!(dto.created_at, deserialized.created_at);
     }
 

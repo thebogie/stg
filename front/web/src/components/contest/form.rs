@@ -30,6 +30,7 @@ pub struct ContestFormProps {
     pub on_start_change: Callback<chrono::DateTime<chrono::FixedOffset>>,
     pub on_stop_change: Callback<chrono::DateTime<chrono::FixedOffset>>,
     pub on_venue_select: Callback<VenueDto>,
+    pub on_venue_clear: Callback<()>,
     pub on_games_change: Callback<Vec<GameDto>>,
     pub on_outcomes_change: Callback<Vec<OutcomeDto>>,
     pub on_submit: Callback<()>,
@@ -527,6 +528,7 @@ pub fn contest_form(props: &ContestFormProps) -> Html {
                     </h3>
                     <VenuePicker
                         on_venue_select={props.on_venue_select.clone()}
+                        on_venue_clear={props.on_venue_clear.clone()}
                         initial_venue={props.venue.clone()}
                     />
                     if venue_missing {

@@ -1,13 +1,19 @@
 use crate::api::venues::{get_all_venues, search_venues_for_create};
 use gloo::timers::callback::Timeout;
+use gloo_storage::{LocalStorage, Storage};
 use shared::dto::venue::VenueDto;
 use shared::models::venue::VenueSource;
 use wasm_bindgen_futures::spawn_local;
 use yew::prelude::*;
 
+/// LocalStorage key: set when the user edits the venue search field so async venue preload can skip.
+pub const VENUE_SEARCH_TOUCHED_STORAGE_KEY: &str = "venue_search_touched";
+
 #[derive(Properties, PartialEq, Clone)]
 pub struct VenuePickerProps {
     pub on_venue_select: Callback<VenueDto>,
+    /// Clears parent-held venue when the user edits the search (so stale preload cannot win submit).
+    pub on_venue_clear: Callback<()>,
     pub initial_venue: Option<VenueDto>,
 }
 
@@ -58,13 +64,18 @@ pub fn venue_picker(props: &VenuePickerProps) -> Html {
             } else {
                 gloo::console::log!("VenuePicker: Clearing venue from initial_venue");
                 selected_venue.set(None);
-                search_query.set(String::new());
+                // If the parent cleared venue while the user is typing a new query, keep the input text.
+                let current = (*search_query).clone();
+                if current.is_empty() {
+                    search_query.set(String::new());
+                }
             }
             || ()
         }
     });
 
     let on_search = {
+        let props = props.clone();
         let search_query = search_query.clone();
         let venue_suggestions = venue_suggestions.clone();
         let show_suggestions = show_suggestions.clone();
@@ -76,11 +87,16 @@ pub fn venue_picker(props: &VenuePickerProps) -> Html {
         Callback::from(move |e: InputEvent| {
             let input: web_sys::HtmlInputElement = e.target_unchecked_into();
             let query = input.value();
+            let _ = LocalStorage::set(VENUE_SEARCH_TOUCHED_STORAGE_KEY, true);
+            // Apply query before clearing parent venue so sync effect sees the new text when initial_venue becomes None.
             search_query.set(query.clone());
 
             // Clear selected venue when user starts typing
             selected_venue.set(None);
             search_error.set(None);
+            if props.initial_venue.is_some() {
+                props.on_venue_clear.emit(());
+            }
 
             if query.is_empty() {
                 venue_suggestions.set(Vec::new());

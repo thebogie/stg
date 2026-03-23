@@ -12,6 +12,7 @@ extern "C" {
 #[derive(Properties, Clone)]
 pub struct ContestConfirmationProps {
     pub contest: ContestDto,
+    pub creator_display: String,
     pub on_confirm: Callback<()>,
     pub on_cancel: Callback<()>,
     pub on_edit: Callback<()>,
@@ -20,7 +21,8 @@ pub struct ContestConfirmationProps {
 impl PartialEq for ContestConfirmationProps {
     fn eq(&self, other: &Self) -> bool {
         // Compare the fields we care about for equality
-        self.on_confirm == other.on_confirm
+        self.creator_display == other.creator_display
+            && self.on_confirm == other.on_confirm
             && self.on_cancel == other.on_cancel
             && self.on_edit == other.on_edit
         // Note: We're intentionally not comparing contest field
@@ -124,6 +126,18 @@ pub fn contest_confirmation(props: &ContestConfirmationProps) -> Html {
         <div class="space-y-6">
             <h2 class="text-xl font-semibold text-gray-800">{"Confirm Contest Details"}</h2>
             <p class="text-gray-600">{"Please review the contest details before creating."}</p>
+
+            if !props.creator_display.is_empty() {
+                <div class="rounded-lg border border-gray-200 bg-white p-4 text-sm text-gray-700">
+                    <h3 class="text-xs font-semibold uppercase tracking-wide text-gray-500">{"Created by"}</h3>
+                    <p class="mt-1 font-medium text-gray-900">
+                        {"@"}{props.creator_display.clone()}
+                    </p>
+                    <p class="mt-2 text-xs text-gray-500">
+                        {"The contest record will include the exact time when you confirm below."}
+                    </p>
+                </div>
+            }
 
             <div class="space-y-4 bg-gray-50 p-4 rounded-material">
                 <div>

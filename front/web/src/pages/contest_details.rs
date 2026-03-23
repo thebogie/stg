@@ -18,6 +18,30 @@ fn format_date(date_str: &str, timezone_name: &str) -> String {
     }
 }
 
+/// Reads `creator_id` from API JSON (string or Surreal record object).
+fn contest_json_creator_id(contest: &Value) -> String {
+    match contest.get("creator_id") {
+        Some(v) if v.is_string() => v.as_str().unwrap_or("").to_string(),
+        Some(v) if v.is_object() => {
+            let tb = v.get("tb").and_then(|x| x.as_str()).unwrap_or("player");
+            v.get("id")
+                .and_then(|id| {
+                    if let Some(s) = id.as_str() {
+                        Some(format!("{}/{}", tb, s.trim_matches(|c| c == '`')))
+                    } else if let Some(n) = id.as_i64() {
+                        Some(format!("{}/{}", tb, n))
+                    } else if let Some(n) = id.as_u64() {
+                        Some(format!("{}/{}", tb, n))
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or_default()
+        }
+        _ => String::new(),
+    }
+}
+
 fn format_duration(minutes: i32) -> String {
     if minutes == 0 {
         "Unknown".to_string()
@@ -55,6 +79,45 @@ struct ContestData {
     games: Vec<GameInfo>,
     participants: Vec<ParticipantInfo>,
     stats: Option<ContestStats>,
+    creator_id: String,
+    creator_handle: Option<String>,
+    created_at: Option<String>,
+}
+
+impl ContestData {
+    fn creator_summary_line(&self) -> String {
+        let who = self
+            .creator_handle
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .map(|h| format!("@{}", h))
+            .or_else(|| {
+                if self.creator_id.is_empty() {
+                    None
+                } else {
+                    Some(
+                        self.creator_id
+                            .strip_prefix("player/")
+                            .unwrap_or(&self.creator_id)
+                            .to_string(),
+                    )
+                }
+            })
+            .unwrap_or_default();
+        let when_str = self
+            .created_at
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .map(|s| format_date(s, &self.venue.timezone))
+            .filter(|s| !s.is_empty());
+
+        match (who.is_empty(), when_str) {
+            (true, None) => String::new(),
+            (true, Some(w)) => format!("Created {}", w),
+            (false, None) => format!("Created by {}", who),
+            (false, Some(w)) => format!("Created by {} · {}", who, w),
+        }
+    }
 }
 
 #[derive(Clone, PartialEq)]
@@ -180,6 +243,15 @@ pub fn contest_details(props: &ContestDetailsProps) -> Html {
                                         .to_string(),
                                     start: contest_data["start"].as_str().unwrap_or("").to_string(),
                                     stop: contest_data["stop"].as_str().unwrap_or("").to_string(),
+                                    creator_id: contest_json_creator_id(&contest_data),
+                                    creator_handle: contest_data["creator_handle"]
+                                        .as_str()
+                                        .or_else(|| contest_data["creatorHandle"].as_str())
+                                        .map(|s| s.to_string()),
+                                    created_at: contest_data["created_at"]
+                                        .as_str()
+                                        .or_else(|| contest_data["createdAt"].as_str())
+                                        .map(|s| s.to_string()),
                                     venue: VenueInfo {
                                         id: contest_data["venue"]["id"]
                                             .as_str()
@@ -482,6 +554,11 @@ pub fn contest_details(props: &ContestDetailsProps) -> Html {
                                                 <span>{"Duration: "}{format_duration(contest.stats.as_ref().map(|s| s.duration_minutes).unwrap_or(0))}</span>
                                             </div>
                                         </div>
+                                        if !contest.creator_summary_line().is_empty() {
+                                            <p class="mt-2 text-sm text-blue-50/95 border-t border-white/20 pt-2">
+                                                {contest.creator_summary_line()}
+                                            </p>
+                                        }
                                     </div>
                                     if let Some(stats) = &contest.stats {
                                         <div class="text-right bg-white bg-opacity-20 rounded-md p-2 backdrop-blur-sm">

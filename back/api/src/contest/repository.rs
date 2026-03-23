@@ -5,7 +5,8 @@ use crate::game::usecase::{GameUseCase, GameUseCaseImpl};
 use crate::player::repository::{PlayerRepository, PlayerRepositoryImpl};
 use crate::player::usecase::{PlayerUseCase, PlayerUseCaseImpl};
 use crate::surreal_helpers::{
-    record_id_from_field, record_id_from_row, record_id_to_key, select_one_by_record_id,
+    normalize_record_id_string, record_id_from_field, record_id_from_row, record_id_to_key,
+    select_one_by_record_id,
 };
 use crate::venue::repository::VenueRepositoryImpl;
 use crate::venue::usecase::{VenueUseCase, VenueUseCaseImpl};
@@ -127,6 +128,44 @@ impl ContestRepositoryImpl {
         } else {
             0
         }
+    }
+
+    /// Loads `player.handle` for the given canonical creator id (`player/...`).
+    async fn fetch_creator_handle(&self, db: &Db, creator_id: &str) -> Option<String> {
+        if creator_id.is_empty() {
+            return None;
+        }
+        let pkey = record_id_to_key(creator_id, "player");
+        if pkey.is_empty() {
+            return None;
+        }
+        let player_record_id = surrealdb::types::RecordId::new("player", pkey.as_str());
+        let player_sel_sql =
+            self.query_with_scope("SELECT handle FROM player WHERE id = $record_id LIMIT 1");
+        let idx = self.scope_result_index();
+        let pres = db
+            .query(&player_sel_sql)
+            .bind(("record_id", player_record_id))
+            .await
+            .ok();
+        let prow: Vec<serde_json::Value> = pres
+            .and_then(|mut r| r.take(idx).ok())
+            .unwrap_or_default();
+        prow.into_iter().next().and_then(|p| {
+            p.get("handle")
+                .and_then(|x| x.as_str())
+                .map(std::string::ToString::to_string)
+        })
+    }
+
+    fn creator_id_from_contest_value(contest_data: &serde_json::Value) -> String {
+        record_id_from_field(contest_data, "creator_id").unwrap_or_else(|| {
+            contest_data
+                .get("creator_id")
+                .and_then(|x| x.as_str())
+                .map(normalize_record_id_string)
+                .unwrap_or_default()
+        })
     }
 }
 
@@ -625,6 +664,13 @@ impl ContestRepository for ContestRepositoryImpl {
         let game_dtos: Vec<GameDto> = processed_games.iter().map(|g| GameDto::from(g)).collect();
         log::info!("📋 Game DTOs created: {} games", game_dtos.len());
 
+        let creator_handle = self
+            .player_usecase
+            .get_player(&created_contest.creator_id)
+            .await
+            .ok()
+            .map(|p| p.handle);
+
         let created_dto = ContestDto {
             id: created_contest.id.clone(),
             name: created_contest.name.clone(),
@@ -634,6 +680,7 @@ impl ContestRepository for ContestRepositoryImpl {
             games: game_dtos,
             outcomes: processed_outcomes,
             creator_id: created_contest.creator_id.clone(),
+            creator_handle,
             created_at: Some(created_contest.created_at.into()),
         };
 
@@ -1276,16 +1323,14 @@ impl ContestRepositoryImpl {
             })
             .collect();
 
-        let creator_id = contest_data
-            .get("creator_id")
-            .and_then(|x| x.as_str())
-            .unwrap_or("")
-            .to_string();
+        let creator_id = Self::creator_id_from_contest_value(&contest_data);
         let created_at = contest_data
             .get("created_at")
             .and_then(|x| x.as_str())
             .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
             .map(|dt| dt.with_timezone(&chrono::FixedOffset::east_opt(0).unwrap()));
+
+        let creator_handle = self.fetch_creator_handle(db, &creator_id).await;
 
         log::info!(
             "✅ Contest details loaded via fn::contest_with_edges for: {}",
@@ -1300,6 +1345,7 @@ impl ContestRepositoryImpl {
             games,
             outcomes,
             creator_id,
+            creator_handle,
             created_at,
         })
     }
@@ -1634,6 +1680,9 @@ impl ContestRepositoryImpl {
             });
         }
 
+        let creator_id = Self::creator_id_from_contest_value(&contest_data);
+        let creator_handle = self.fetch_creator_handle(db, &creator_id).await;
+
         let contest_dto = ContestDto {
             id: id.to_string(),
             name,
@@ -1642,11 +1691,8 @@ impl ContestRepositoryImpl {
             venue: venue_dto,
             games,
             outcomes,
-            creator_id: contest_data
-                .get("creator_id")
-                .and_then(|x| x.as_str())
-                .unwrap_or("")
-                .to_string(),
+            creator_id,
+            creator_handle,
             created_at: contest_data
                 .get("created_at")
                 .and_then(|x| x.as_str())

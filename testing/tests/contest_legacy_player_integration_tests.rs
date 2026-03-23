@@ -164,6 +164,7 @@ async fn contest_create_succeeds_with_numeric_player_ids() -> Result<()> {
             handle: String::new(),
         }],
         creator_id: String::new(),
+        creator_handle: None,
         created_at: None,
     };
 

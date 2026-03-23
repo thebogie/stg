@@ -5,6 +5,8 @@ use yew::prelude::*;
 #[derive(Properties, Clone, PartialEq)]
 pub struct ContestConfirmationModalProps {
     pub contest: Option<ContestDto>,
+    /// Logged-in player handle (or empty) shown as contest creator before submit.
+    pub creator_display: String,
     pub is_open: bool,
     pub on_confirm: Callback<()>,
     pub on_cancel: Callback<()>,
@@ -75,6 +77,7 @@ pub fn contest_confirmation_modal(props: &ContestConfirmationModalProps) -> Html
                 <div class="p-6">
                     <ContestConfirmation
                         contest={contest}
+                        creator_display={props.creator_display.clone()}
                         on_confirm={on_confirm}
                         on_cancel={confirmation_on_cancel}
                         on_edit={confirmation_on_edit}

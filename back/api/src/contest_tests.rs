@@ -26,6 +26,7 @@ mod contest_tests {
             games: vec![],
             outcomes: vec![],
             creator_id: String::new(),
+            creator_handle: None,
             created_at: None,
         };
 
@@ -113,6 +114,7 @@ mod contest_integration_like_tests {
             games: vec![],
             outcomes: vec![],
             creator_id: String::new(),
+            creator_handle: None,
             created_at: None,
         };
         assert!(contest_dto.stop > contest_dto.start);

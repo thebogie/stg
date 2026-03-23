@@ -7,6 +7,7 @@ use crate::api::timezone::{resolve_timezone, resolve_timezone_by_place_id};
 use crate::auth::AuthContext;
 use crate::components::contest::confirmation_modal::ContestConfirmationModal;
 use crate::components::contest::form::ContestForm;
+use crate::components::contest::venue_picker::VENUE_SEARCH_TOUCHED_STORAGE_KEY;
 use crate::Route;
 use shared::dto::contest::OutcomeDto;
 use shared::dto::game::GameDto;
@@ -190,6 +191,7 @@ pub fn contest() -> Html {
     {
         let reducer = reducer.clone();
         use_effect_with((), move |_| {
+            let _ = LocalStorage::set(VENUE_SEARCH_TOUCHED_STORAGE_KEY, false);
             // Only preload venue if no venue is currently selected AND user hasn't made a selection this session
             let user_already_selected =
                 LocalStorage::get::<bool>("user_selected_venue").unwrap_or(false);
@@ -202,13 +204,17 @@ pub fn contest() -> Html {
                     wasm_bindgen_futures::spawn_local(async move {
                         match get_venue_by_id(&id).await {
                             Ok(v) => {
+                                let search_touched = LocalStorage::get::<bool>(
+                                    VENUE_SEARCH_TOUCHED_STORAGE_KEY,
+                                )
+                                .unwrap_or(false);
                                 // Double-check that no venue was selected while we were fetching
-                                if (*reducer).venue.is_none() {
+                                if (*reducer).venue.is_none() && !search_touched {
                                     log!(format!("Preloading last venue: {}", v.display_name));
                                     reducer.dispatch(ContestFormAction::SetVenue(Some(v.clone())));
                                     reducer.dispatch(ContestFormAction::SetTimezone(v.timezone));
                                 } else {
-                                    log!("Skipping preload - venue was selected while fetching");
+                                    log!("Skipping preload - venue was selected while fetching or user edited search");
                                 }
                             }
                             Err(e) => log!(format!("Failed to preload last venue: {}", e)),
@@ -255,6 +261,13 @@ pub fn contest() -> Html {
             reducer.dispatch(ContestFormAction::SetStop(dt));
         })
     };
+    let on_venue_clear = {
+        let reducer = reducer.clone();
+        Callback::from(move |_| {
+            reducer.dispatch(ContestFormAction::SetVenue(None));
+        })
+    };
+
     let on_venue_select = {
         let reducer = reducer.clone();
         Callback::from(move |v: VenueDto| {
@@ -409,6 +422,7 @@ pub fn contest() -> Html {
                     games: state_for_submit.games.clone(),
                     outcomes: state_for_submit.outcomes.clone(),
                     creator_id: String::new(),
+                    creator_handle: None,
                     created_at: None,
                 };
 
@@ -502,6 +516,7 @@ pub fn contest() -> Html {
                                 on_start_change={on_start_change.clone()}
                                 on_stop_change={on_stop_change.clone()}
                                 on_venue_select={on_venue_select.clone()}
+                                on_venue_clear={on_venue_clear.clone()}
                                 on_games_change={on_games_change.clone()}
                                 on_outcomes_change={on_outcomes_change.clone()}
                                 on_submit={on_contest_submit.clone()}
@@ -509,6 +524,12 @@ pub fn contest() -> Html {
                             />
                             <ContestConfirmationModal
                                 contest={(*contest_data).clone()}
+                                creator_display={auth
+                                    .state
+                                    .player
+                                    .as_ref()
+                                    .map(|p| p.handle.clone())
+                                    .unwrap_or_default()}
                                 is_open={*show_confirmation}
                                 on_confirm={on_confirmation_confirm}
                                 on_cancel={on_confirmation_cancel.clone()}
