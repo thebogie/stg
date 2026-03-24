@@ -166,6 +166,10 @@ async fn contest_create_succeeds_with_numeric_player_ids() -> Result<()> {
         creator_id: String::new(),
         creator_handle: None,
         created_at: None,
+        moderation_status: String::new(),
+        moderated_at: None,
+        moderated_by: None,
+        moderation_note: None,
     };
 
     contest_dto.validate()?;

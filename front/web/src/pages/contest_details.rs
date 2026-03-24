@@ -1,4 +1,5 @@
 use crate::api::contests::{contest_key_from_any, delete_contest};
+use shared::models::contest_moderation::moderation_status;
 use crate::api::utils::authenticated_get;
 use crate::auth::AuthContext;
 use crate::components::common::toast::{Toast, ToastContext, ToastType};
@@ -82,6 +83,16 @@ struct ContestData {
     creator_id: String,
     creator_handle: Option<String>,
     created_at: Option<String>,
+    /// `pending` | `approved` | `rejected` (empty treated like legacy approved).
+    moderation_status: String,
+    moderation_note: Option<String>,
+}
+
+fn viewer_is_contest_creator(contest: &ContestData, auth: &AuthContext) -> bool {
+    let Some(p) = auth.state.player.as_ref() else {
+        return false;
+    };
+    contest_key_from_any(&p.id) == contest_key_from_any(&contest.creator_id)
 }
 
 impl ContestData {
@@ -400,6 +411,14 @@ pub fn contest_details(props: &ContestDetailsProps) -> Html {
                                             .as_f64()
                                             .unwrap_or(5.0),
                                     }),
+                                    moderation_status: contest_data["moderation_status"]
+                                        .as_str()
+                                        .unwrap_or("")
+                                        .to_string(),
+                                    moderation_note: contest_data["moderation_note"]
+                                        .as_str()
+                                        .filter(|s| !s.is_empty())
+                                        .map(|s| s.to_string()),
                                 };
 
                                 // Debug: Log the final parsed venue data
@@ -533,6 +552,26 @@ pub fn contest_details(props: &ContestDetailsProps) -> Html {
                     </div>
                 } else if let Some(contest) = &*contest_details {
                     <div class="space-y-6">
+                        if (auth.state.is_admin() || viewer_is_contest_creator(contest, &auth))
+                            && contest.moderation_status == moderation_status::PENDING
+                        {
+                            <div class="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950 shadow-sm">
+                                <strong>{"Pending review"}</strong>
+                                {" — This contest is not public yet. It will appear in search after a moderator approves it. Community moderation is not legal advice."}
+                            </div>
+                        }
+                        if (auth.state.is_admin() || viewer_is_contest_creator(contest, &auth))
+                            && contest.moderation_status == moderation_status::REJECTED
+                        {
+                            <div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900 shadow-sm">
+                                <strong>{"Not approved"}</strong>
+                                {if let Some(note) = contest.moderation_note.as_deref().filter(|s| !s.is_empty()) {
+                                    html! { <span>{format!(" — {}", note)}</span> }
+                                } else {
+                                    html! { <span>{" — See a moderator if you think this was a mistake."}</span> }
+                                }}
+                            </div>
+                        }
                         // Contest Header with gradient background
                         <div class="relative overflow-hidden rounded-lg bg-gradient-to-br from-blue-500 via-purple-500 to-indigo-600 p-4 text-white shadow-lg">
                             <div class="absolute inset-0 bg-black opacity-5"></div>

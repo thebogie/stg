@@ -130,7 +130,7 @@ docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d
 # Wait for each service to be reachable on host (same as production)
 echo "==> Waiting for SurrealDB on 127.0.0.1:${SURREALDB_PORT}..."
 for i in $(seq 1 30); do
-  if curl -sf --connect-timeout 2 "http://127.0.0.1:${SURREALDB_PORT}" >/dev/null 2>&1; then
+  if curl -sf --connect-timeout 2 "http://127.0.0.1:${SURREALDB_PORT}/health" >/dev/null 2>&1; then
     echo "SurrealDB ready."
     break
   fi

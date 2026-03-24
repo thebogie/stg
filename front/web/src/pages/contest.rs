@@ -15,9 +15,12 @@ use shared::dto::venue::VenueDto;
 
 use crate::api::venues::get_venue_by_id;
 use gloo::console::log;
-use gloo_storage::{LocalStorage, Storage};
+use gloo_storage::{LocalStorage, SessionStorage, Storage};
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
+
+/// Set after successful submit; contests list reads once and shows a one-time notice.
+pub const CONTEST_SUBMITTED_MODERATION_FLASH: &str = "stg_contest_submitted_moderation";
 
 #[wasm_bindgen(module = "/src/js/timezone.js")]
 extern "C" {
@@ -424,6 +427,10 @@ pub fn contest() -> Html {
                     creator_id: String::new(),
                     creator_handle: None,
                     created_at: None,
+                    moderation_status: String::new(),
+                    moderated_at: None,
+                    moderated_by: None,
+                    moderation_note: None,
                 };
 
                 log!(format!(
@@ -467,6 +474,7 @@ pub fn contest() -> Html {
                             is_submitting.set(false);
                             dispatch.dispatch(ContestFormAction::Reset);
                             let _ = LocalStorage::delete("contest_form_state");
+                            let _ = SessionStorage::set(CONTEST_SUBMITTED_MODERATION_FLASH, "1");
                             navigator.push(&Route::Contests);
                         }
                         Err(err) => {

@@ -81,7 +81,7 @@ if [ "$RUST_ENV" = "dev" ] || [ "$RUST_ENV" = "development" ]; then
   wait_surrealdb() {
     echo "==> Waiting for SurrealDB at $SURREAL_ENDPOINT (up to 60s)..."
     for i in $(seq 1 20); do
-      if wget -q -O- --tries=1 "http://127.0.0.1:${SURREALDB_PORT}" >/dev/null 2>&1; then
+      if wget -q -O- --tries=1 "http://127.0.0.1:${SURREALDB_PORT}/health" >/dev/null 2>&1; then
         echo "==> SurrealDB is ready."
         return 0
       fi

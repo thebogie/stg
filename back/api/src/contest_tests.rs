@@ -28,6 +28,10 @@ mod contest_tests {
             creator_id: String::new(),
             creator_handle: None,
             created_at: None,
+            moderation_status: String::new(),
+            moderated_at: None,
+            moderated_by: None,
+            moderation_note: None,
         };
 
         assert_eq!(contest_dto.name, "Test Contest");
@@ -59,6 +63,11 @@ mod contest_tests {
             stop: Utc::now() + Duration::hours(2),
             creator_id: "player/test-creator".to_string(),
             created_at: Utc::now(),
+            moderation_status: shared::models::contest_moderation::moderation_status::APPROVED
+                .to_string(),
+            moderated_at: None,
+            moderated_by: String::new(),
+            moderation_note: None,
         };
 
         assert_eq!(contest.name, "Test Contest");
@@ -75,6 +84,11 @@ mod contest_tests {
             stop: Utc::now() + Duration::hours(2),
             creator_id: "player/test-creator".to_string(),
             created_at: Utc::now(),
+            moderation_status: shared::models::contest_moderation::moderation_status::APPROVED
+                .to_string(),
+            moderated_at: None,
+            moderated_by: String::new(),
+            moderation_note: None,
         };
 
         let json = serde_json::to_string(&contest).unwrap();
@@ -116,6 +130,10 @@ mod contest_integration_like_tests {
             creator_id: String::new(),
             creator_handle: None,
             created_at: None,
+            moderation_status: String::new(),
+            moderated_at: None,
+            moderated_by: None,
+            moderation_note: None,
         };
         assert!(contest_dto.stop > contest_dto.start);
         assert_eq!(contest_dto.venue.timezone, "Europe/Paris");

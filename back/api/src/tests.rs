@@ -150,6 +150,11 @@ mod tests {
             stop: Utc::now() + Duration::days(1),
             creator_id: "player/test_creator".to_string(),
             created_at: Utc::now(),
+            moderation_status: shared::models::contest_moderation::moderation_status::APPROVED
+                .to_string(),
+            moderated_at: None,
+            moderated_by: String::new(),
+            moderation_note: None,
         };
 
         assert_eq!(contest.name, "Test Contest");

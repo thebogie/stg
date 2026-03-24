@@ -1,4 +1,5 @@
 use crate::api::api_url;
+use crate::api::contests::{approve_contest, list_pending_contests, reject_contest};
 use crate::api::utils::authenticated_get;
 use crate::api::utils::authenticated_post;
 use crate::api::version::{get_version_info, VersionInfo};
@@ -6,6 +7,7 @@ use crate::components::common::toast::{Toast, ToastContext, ToastType};
 use crate::components::scheduler_monitor::SchedulerMonitor;
 use gloo_timers::callback::Interval;
 use shared::dto::analytics::PlatformStatsDto;
+use shared::dto::contest::ContestDto;
 use yew::prelude::*;
 
 #[derive(Properties, PartialEq, Clone, Debug)]
@@ -14,6 +16,7 @@ pub struct AdminPageProps {}
 #[derive(Clone, PartialEq, Debug)]
 enum AdminTab {
     Dashboard,
+    Contests,
     Ratings,
     System,
     Users,
@@ -33,6 +36,10 @@ pub fn admin_page(_props: &AdminPageProps) -> Html {
     // Version info state
     let version_info = use_state(|| None::<VersionInfo>);
     let version_loading = use_state(|| false);
+
+    let pending_contests = use_state(Vec::<ContestDto>::new);
+    let pending_loading = use_state(|| false);
+    let pending_error = use_state(|| None::<String>);
 
     // Check if user is admin
     if !auth.state.is_admin() {
@@ -143,6 +150,43 @@ pub fn admin_page(_props: &AdminPageProps) -> Html {
             toast_context.add_toast.emit(toast);
         })
     };
+
+    let reload_pending_contests = {
+        let pending_contests = pending_contests.clone();
+        let pending_loading = pending_loading.clone();
+        let pending_error = pending_error.clone();
+        let show_error_toast = show_error_toast.clone();
+        Callback::from(move |_| {
+            pending_loading.set(true);
+            let pending_contests = pending_contests.clone();
+            let pending_error = pending_error.clone();
+            let pending_loading = pending_loading.clone();
+            let show_error_toast = show_error_toast.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                match list_pending_contests().await {
+                    Ok(rows) => {
+                        pending_contests.set(rows);
+                        pending_error.set(None);
+                    }
+                    Err(e) => {
+                        pending_error.set(Some(e.clone()));
+                        show_error_toast.emit(e);
+                    }
+                }
+                pending_loading.set(false);
+            });
+        })
+    };
+
+    {
+        let reload_pending_contests = reload_pending_contests.clone();
+        use_effect_with((*current_tab).clone(), move |tab: &AdminTab| {
+            if *tab == AdminTab::Contests {
+                reload_pending_contests.emit(());
+            }
+            || ()
+        });
+    }
 
     let clear_analytics_cache = {
         let show_success_toast = show_success_toast.clone();
@@ -405,6 +449,16 @@ pub fn admin_page(_props: &AdminPageProps) -> Html {
                         class={classes!(
                             "flex-none", "sm:flex-1", "px-4", "py-3", "text-sm", "font-medium", "rounded-md",
                             "transition-all", "duration-200", "whitespace-nowrap",
+                            if *current_tab == AdminTab::Contests { "bg-yellow-500 text-yellow-950 shadow-sm" } else { "text-gray-600 hover:text-gray-900 hover:bg-gray-50" }
+                        )}
+                        onclick={on_tab_click.clone().reform(|_| AdminTab::Contests)}
+                    >
+                        {"🗳️ Contest review"}
+                    </button>
+                    <button
+                        class={classes!(
+                            "flex-none", "sm:flex-1", "px-4", "py-3", "text-sm", "font-medium", "rounded-md",
+                            "transition-all", "duration-200", "whitespace-nowrap",
                             if *current_tab == AdminTab::Ratings { "bg-yellow-500 text-yellow-950 shadow-sm" } else { "text-gray-600 hover:text-gray-900 hover:bg-gray-50" }
                         )}
                         onclick={on_tab_click.clone().reform(|_| AdminTab::Ratings)}
@@ -498,6 +552,111 @@ pub fn admin_page(_props: &AdminPageProps) -> Html {
                                         </div>
                                     </div>
                                 </div>
+                            </div>
+                        },
+
+                        AdminTab::Contests => html! {
+                            <div class="contests-moderation-section">
+                                <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-4">
+                                    <div>
+                                        <h2 class="text-xl font-semibold text-gray-900">{"Contests pending review"}</h2>
+                                        <p class="mt-1 text-sm text-gray-600">
+                                            {"Approve to show in public search, or reject with an optional note for the organizer. Community moderation is not legal advice."}
+                                        </p>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        class="px-4 py-2 text-sm font-medium rounded-md bg-yellow-600 text-white hover:bg-yellow-700 transition-colors"
+                                        onclick={reload_pending_contests.reform(|_| ())}
+                                        disabled={*pending_loading}
+                                    >
+                                        {if *pending_loading { "Loading…" } else { "Refresh" }}
+                                    </button>
+                                </div>
+                                if *pending_loading && (*pending_contests).is_empty() {
+                                    <p class="text-gray-600 py-6">{"Loading queue…"}</p>
+                                } else if let Some(err) = (*pending_error).as_ref() {
+                                    <div class="bg-red-50 border border-red-200 rounded-lg p-4 text-sm text-red-800">{err}</div>
+                                } else if (*pending_contests).is_empty() {
+                                    <p class="text-gray-600 py-6">{"No contests awaiting approval."}</p>
+                                } else {
+                                    <div class="overflow-x-auto border border-gray-200 rounded-lg">
+                                        <table class="min-w-full divide-y divide-gray-200 text-sm">
+                                            <thead class="bg-gray-50">
+                                                <tr>
+                                                    <th class="px-4 py-2 text-left font-medium text-gray-700">{"Name"}</th>
+                                                    <th class="px-4 py-2 text-left font-medium text-gray-700">{"Start"}</th>
+                                                    <th class="px-4 py-2 text-right font-medium text-gray-700">{"Actions"}</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody class="divide-y divide-gray-100">
+                                                {for (*pending_contests).iter().map(|c| {
+                                                    let id_a = c.id.clone();
+                                                    let id_r = c.id.clone();
+                                                    let reload_a = reload_pending_contests.clone();
+                                                    let reload_r = reload_pending_contests.clone();
+                                                    let ok_a = show_success_toast.clone();
+                                                    let err_a = show_error_toast.clone();
+                                                    let ok_r = show_success_toast.clone();
+                                                    let err_r = show_error_toast.clone();
+                                                    let name = c.name.clone();
+                                                    let start = format!("{}", c.start);
+                                                    html! {
+                                                        <tr>
+                                                            <td class="px-4 py-2 font-medium text-gray-900">{name}</td>
+                                                            <td class="px-4 py-2 text-gray-700">{start}</td>
+                                                            <td class="px-4 py-2 text-right whitespace-nowrap space-x-2">
+                                                                <button
+                                                                    type="button"
+                                                                    class="px-3 py-1.5 text-xs font-medium rounded-md bg-green-600 text-white hover:bg-green-700"
+                                                                    onclick={Callback::from(move |_| {
+                                                                        let id = id_a.clone();
+                                                                        let reload = reload_a.clone();
+                                                                        let ok = ok_a.clone();
+                                                                        let err = err_a.clone();
+                                                                        wasm_bindgen_futures::spawn_local(async move {
+                                                                            match approve_contest(&id).await {
+                                                                                Ok(()) => {
+                                                                                    ok.emit("Contest approved".to_string());
+                                                                                    reload.emit(());
+                                                                                }
+                                                                                Err(e) => err.emit(e),
+                                                                            }
+                                                                        });
+                                                                    })}
+                                                                >
+                                                                    {"Approve"}
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    class="px-3 py-1.5 text-xs font-medium rounded-md bg-red-600 text-white hover:bg-red-700"
+                                                                    onclick={Callback::from(move |_| {
+                                                                        let id = id_r.clone();
+                                                                        let reload = reload_r.clone();
+                                                                        let ok = ok_r.clone();
+                                                                        let err = err_r.clone();
+                                                                        let reason = gloo::dialogs::prompt("Optional reason for rejection:", None);
+                                                                        wasm_bindgen_futures::spawn_local(async move {
+                                                                            match reject_contest(&id, reason.as_deref()).await {
+                                                                                Ok(()) => {
+                                                                                    ok.emit("Contest rejected".to_string());
+                                                                                    reload.emit(());
+                                                                                }
+                                                                                Err(e) => err.emit(e),
+                                                                            }
+                                                                        });
+                                                                    })}
+                                                                >
+                                                                    {"Reject"}
+                                                                </button>
+                                                            </td>
+                                                        </tr>
+                                                    }
+                                                })}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                }
                             </div>
                         },
 
@@ -803,14 +962,17 @@ mod tests {
     #[wasm_bindgen_test]
     async fn test_admin_tab_enum() {
         let dashboard_tab = AdminTab::Dashboard;
+        let contests_tab = AdminTab::Contests;
         let ratings_tab = AdminTab::Ratings;
         let system_tab = AdminTab::System;
         let users_tab = AdminTab::Users;
 
         // Test that all tabs are different
+        assert_ne!(dashboard_tab, contests_tab);
         assert_ne!(dashboard_tab, ratings_tab);
         assert_ne!(dashboard_tab, system_tab);
         assert_ne!(dashboard_tab, users_tab);
+        assert_ne!(contests_tab, ratings_tab);
         assert_ne!(ratings_tab, system_tab);
         assert_ne!(ratings_tab, users_tab);
         assert_ne!(system_tab, users_tab);

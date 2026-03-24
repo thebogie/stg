@@ -238,10 +238,11 @@ impl PlayerRepositoryImpl {
             .and_then(|v| json_value_as_bool(&v).or_else(|| is_admin_from_row_json(&v)))
     }
 
-    /// Resolve player by email from Surreal only (no Redis cache). Used by admin middleware so `isAdmin`
-    /// cannot be stale after `UPDATE` or cache eviction races.
+    /// Resolve player for auth and admin middleware: same cache-backed lookup as `find_by_email`
+    /// (so behavior matches contest create and other authenticated flows), then overlays `isAdmin`
+    /// from Surreal via `load_is_admin_for_email` so promotions are visible immediately.
     pub async fn find_by_email_for_auth(&self, email: &str) -> Option<Player> {
-        let mut p = self.load_player_row_by_email_from_db(email).await?;
+        let mut p = self.find_by_email(email).await?;
         if let Some(ia) = self.load_is_admin_for_email(email).await {
             p.is_admin = ia;
         }

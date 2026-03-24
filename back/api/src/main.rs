@@ -397,6 +397,9 @@ async fn main() -> std::io::Result<()> {
                                 player_repo: player_repo_arc.clone(),
                             })
                             .app_data(contest_repo.clone())
+                            .service(backend::contest::controller::list_pending_contests_handler)
+                            .service(backend::contest::controller::approve_contest_handler)
+                            .service(backend::contest::controller::reject_contest_handler)
                             .service(backend::contest::controller::delete_contest_handler),
                     ),
             )
@@ -418,6 +421,9 @@ async fn main() -> std::io::Result<()> {
                                 player_repo: player_repo_arc.clone(),
                             })
                             .app_data(contest_repo.clone())
+                            .service(backend::contest::controller::list_pending_contests_handler)
+                            .service(backend::contest::controller::approve_contest_handler)
+                            .service(backend::contest::controller::reject_contest_handler)
                             .service(backend::contest::controller::delete_contest_handler),
                     ),
             )

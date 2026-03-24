@@ -17,7 +17,8 @@ services:
     depends_on:
       surrealdb:
         condition: service_started
-    command: ["sh", "-c", "for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do wget -q -O- --tries=1 http://surrealdb:8000/ && echo SurrealDB is up && exit 0; sleep 2; done; echo Timeout; exit 1"]
+    # SurrealDB v3: GET / returns 307 → HTTPS (busybox wget follows and fails TLS). Use /health (200).
+    command: ["sh", "-c", "for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do wget -q -O- --tries=1 http://surrealdb:8000/health && echo SurrealDB is up && exit 0; sleep 2; done; echo Timeout; exit 1"]
     networks:
       - stg
 

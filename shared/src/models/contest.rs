@@ -37,6 +37,24 @@ pub struct Contest {
 
     /// When this contest was created (UTC; stored as Utc for SurrealDB)
     pub created_at: DateTime<Utc>,
+
+    /// `pending` | `approved` | `rejected` — public listing uses `approved` only.
+    #[serde(default = "default_moderation_status_approved")]
+    pub moderation_status: String,
+
+    #[serde(default)]
+    pub moderated_at: Option<DateTime<Utc>>,
+
+    /// Canonical `player/...` id of the moderator (admin) who last acted.
+    #[serde(default)]
+    pub moderated_by: String,
+
+    #[serde(default)]
+    pub moderation_note: Option<String>,
+}
+
+fn default_moderation_status_approved() -> String {
+    crate::models::contest_moderation::moderation_status::APPROVED.to_string()
 }
 
 impl Contest {
@@ -58,6 +76,11 @@ impl Contest {
             name,
             creator_id,
             created_at: created_at.with_timezone(&Utc),
+            moderation_status: crate::models::contest_moderation::moderation_status::APPROVED
+                .to_string(),
+            moderated_at: None,
+            moderated_by: String::new(),
+            moderation_note: None,
         };
         contest.validate_fields()?;
         Ok(contest)
@@ -92,6 +115,11 @@ mod tests {
             created_at: DateTime::parse_from_rfc3339("2023-07-15T10:00:00Z")
                 .unwrap()
                 .with_timezone(&Utc),
+            moderation_status: crate::models::contest_moderation::moderation_status::APPROVED
+                .to_string(),
+            moderated_at: None,
+            moderated_by: String::new(),
+            moderation_note: None,
         }
     }
 
@@ -168,6 +196,11 @@ mod tests {
             created_at: DateTime::parse_from_rfc3339("2023-07-15T10:00:00Z")
                 .unwrap()
                 .with_timezone(&Utc),
+            moderation_status: crate::models::contest_moderation::moderation_status::APPROVED
+                .to_string(),
+            moderated_at: None,
+            moderated_by: String::new(),
+            moderation_note: None,
         };
         assert!(contest.validate().is_ok());
     }

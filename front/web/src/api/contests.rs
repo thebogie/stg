@@ -1,5 +1,5 @@
 use crate::api::api_url;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 /// Extract a stable contest key from various id formats.
 ///
@@ -244,5 +244,70 @@ pub async fn delete_contest(id: &str) -> Result<(), String> {
     }
 
     debug!("Successfully deleted contest with ID: {}", id);
+    Ok(())
+}
+
+/// Contests awaiting moderator approval (admin API).
+pub async fn list_pending_contests() -> Result<Vec<ContestDto>, String> {
+    let url = api_url("/api/contests/moderation/pending");
+    let response = authenticated_get(&url)
+        .send()
+        .await
+        .map_err(|e| format!("Failed to list pending contests: {}", e))?;
+    if !response.ok() {
+        let error = response
+            .json::<ErrorResponse>()
+            .await
+            .map_err(|_| "Unknown error occurred".to_string())?;
+        return Err(error.error);
+    }
+    response
+        .json::<Vec<ContestDto>>()
+        .await
+        .map_err(|e| format!("Failed to parse pending contests: {}", e))
+}
+
+pub async fn approve_contest(id: &str) -> Result<(), String> {
+    let key = contest_key_from_any(id);
+    let url = format!("{}/{}/approve", api_url("/api/contests"), key);
+    let response = authenticated_post(&url)
+        .send()
+        .await
+        .map_err(|e| format!("Failed to approve contest: {}", e))?;
+    if !(response.ok() || response.status() == 204) {
+        let error = response
+            .json::<ErrorResponse>()
+            .await
+            .map_err(|_| "Unknown error occurred".to_string())?;
+        return Err(error.error);
+    }
+    Ok(())
+}
+
+#[derive(Serialize)]
+pub struct RejectContestPayload {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+pub async fn reject_contest(id: &str, reason: Option<&str>) -> Result<(), String> {
+    let key = contest_key_from_any(id);
+    let url = format!("{}/{}/reject", api_url("/api/contests"), key);
+    let body = RejectContestPayload {
+        reason: reason.map(|s| s.to_string()).filter(|s| !s.trim().is_empty()),
+    };
+    let response = authenticated_post(&url)
+        .json(&body)
+        .map_err(|e| format!("Failed to serialize reject body: {}", e))?
+        .send()
+        .await
+        .map_err(|e| format!("Failed to reject contest: {}", e))?;
+    if !(response.ok() || response.status() == 204) {
+        let error = response
+            .json::<ErrorResponse>()
+            .await
+            .map_err(|_| "Unknown error occurred".to_string())?;
+        return Err(error.error);
+    }
     Ok(())
 }

@@ -167,6 +167,43 @@ impl ContestRepositoryImpl {
                 .unwrap_or_default()
         })
     }
+
+    /// Public contest lists only approved (or legacy rows with no status).
+    fn sql_moderation_public_filter() -> &'static str {
+        "(moderation_status = 'approved' OR moderation_status = NONE)"
+    }
+
+    fn moderation_fields_from_contest_value(
+        contest_data: &serde_json::Value,
+    ) -> (
+        String,
+        Option<chrono::DateTime<chrono::FixedOffset>>,
+        Option<String>,
+        Option<String>,
+    ) {
+        let status = contest_data
+            .get("moderation_status")
+            .and_then(|v| v.as_str())
+            .unwrap_or(shared::models::contest_moderation::moderation_status::APPROVED);
+        let moderated_at = contest_data
+            .get("moderated_at")
+            .and_then(|c| c.as_str())
+            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+            .map(|dt| dt.with_timezone(&chrono::FixedOffset::east_opt(0).unwrap()));
+        let moderated_by = record_id_from_field(contest_data, "moderated_by")
+            .or_else(|| contest_data.get("moderated_by").and_then(|x| x.as_str()).map(std::string::ToString::to_string))
+            .filter(|s| !s.is_empty());
+        let moderation_note = contest_data
+            .get("moderation_note")
+            .and_then(|v| v.as_str())
+            .map(std::string::ToString::to_string);
+        (
+            status.to_string(),
+            moderated_at,
+            moderated_by,
+            moderation_note,
+        )
+    }
 }
 
 #[async_trait]
@@ -277,6 +314,11 @@ impl ContestRepository for ContestRepositoryImpl {
             stop: contest_dto.stop.into(),
             creator_id: creator_id.clone(),
             created_at: chrono::Utc::now(),
+            moderation_status: shared::models::contest_moderation::moderation_status::PENDING
+                .to_string(),
+            moderated_at: None,
+            moderated_by: String::new(),
+            moderation_note: None,
         };
 
         log::info!("📄 Contest model created: id='{}', name='{}', start='{}', stop='{}', creator='{}', created_at='{}'", 
@@ -299,7 +341,8 @@ impl ContestRepository for ContestRepositoryImpl {
              start: type::datetime($start),\
              stop: type::datetime($stop),\
              creator_id: type::record('player', $creator_key),\
-             created_at: type::datetime($created_at)\
+             created_at: type::datetime($created_at),\
+             moderation_status: 'pending'\
              }",
         );
         log::info!("💾 Inserting contest document...");
@@ -333,6 +376,10 @@ impl ContestRepository for ContestRepositoryImpl {
             stop: contest.stop,
             creator_id: contest.creator_id,
             created_at: contest.created_at,
+            moderation_status: contest.moderation_status,
+            moderated_at: contest.moderated_at,
+            moderated_by: contest.moderated_by,
+            moderation_note: contest.moderation_note,
         };
 
         log::info!(
@@ -682,6 +729,14 @@ impl ContestRepository for ContestRepositoryImpl {
             creator_id: created_contest.creator_id.clone(),
             creator_handle,
             created_at: Some(created_contest.created_at.into()),
+            moderation_status: created_contest.moderation_status.clone(),
+            moderated_at: created_contest.moderated_at.map(|t| t.into()),
+            moderated_by: if created_contest.moderated_by.is_empty() {
+                None
+            } else {
+                Some(created_contest.moderated_by.clone())
+            },
+            moderation_note: created_contest.moderation_note.clone(),
         };
 
         log::info!("✅ Contest creation process completed successfully!");
@@ -722,6 +777,8 @@ impl ContestRepository for ContestRepositoryImpl {
                             .map(|dt| dt.with_timezone(&chrono::FixedOffset::east_opt(0).unwrap()))
                             .unwrap_or_else(|| chrono::Utc::now().fixed_offset())
                     };
+                    let (moderation_status, moderated_at, moderated_by, moderation_note) =
+                        Self::moderation_fields_from_contest_value(&v);
                     let contest = Contest {
                         id: id_str,
                         rev: v
@@ -743,6 +800,10 @@ impl ContestRepository for ContestRepositoryImpl {
                             .unwrap_or("")
                             .to_string(),
                         created_at: parse_dt(&v, "created_at").into(),
+                        moderation_status,
+                        moderated_at: moderated_at.map(|t| t.into()),
+                        moderated_by: moderated_by.unwrap_or_default(),
+                        moderation_note,
                     };
                     log::info!("✅ Found contest via fn::contest_row: {}", contest.name);
                     return Some(contest);
@@ -776,6 +837,8 @@ impl ContestRepository for ContestRepositoryImpl {
                     .map(|dt| dt.with_timezone(&chrono::FixedOffset::east_opt(0).unwrap()))
                     .unwrap_or_else(|| chrono::Utc::now().fixed_offset())
             };
+        let (moderation_status, moderated_at, moderated_by, moderation_note) =
+            Self::moderation_fields_from_contest_value(&v);
         let contest = Contest {
             id: id_str,
             rev: v
@@ -797,6 +860,10 @@ impl ContestRepository for ContestRepositoryImpl {
                 .unwrap_or("")
                 .to_string(),
             created_at: parse_dt(&v, "created_at").into(),
+            moderation_status,
+            moderated_at: moderated_at.map(|t| t.into()),
+            moderated_by: moderated_by.unwrap_or_default(),
+            moderation_note,
         };
         log::info!("✅ Found contest: {}", contest.name);
         Some(contest)
@@ -1332,6 +1399,9 @@ impl ContestRepositoryImpl {
 
         let creator_handle = self.fetch_creator_handle(db, &creator_id).await;
 
+        let (moderation_status, moderated_at, moderated_by, moderation_note) =
+            Self::moderation_fields_from_contest_value(&contest_data);
+
         log::info!(
             "✅ Contest details loaded via fn::contest_with_edges for: {}",
             id_str
@@ -1347,6 +1417,10 @@ impl ContestRepositoryImpl {
             creator_id,
             creator_handle,
             created_at,
+            moderation_status,
+            moderated_at,
+            moderated_by,
+            moderation_note,
         })
     }
 
@@ -1683,6 +1757,9 @@ impl ContestRepositoryImpl {
         let creator_id = Self::creator_id_from_contest_value(&contest_data);
         let creator_handle = self.fetch_creator_handle(db, &creator_id).await;
 
+        let (moderation_status, moderated_at, moderated_by, moderation_note) =
+            Self::moderation_fields_from_contest_value(&contest_data);
+
         let contest_dto = ContestDto {
             id: id.to_string(),
             name,
@@ -1698,6 +1775,10 @@ impl ContestRepositoryImpl {
                 .and_then(|x| x.as_str())
                 .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
                 .map(|dt| dt.with_timezone(&chrono::FixedOffset::east_opt(0).unwrap())),
+            moderation_status,
+            moderated_at,
+            moderated_by,
+            moderation_note,
         };
         log::info!("✅ Successfully created ContestDto for contest: {}", id);
         Some(contest_dto)
@@ -1781,7 +1862,8 @@ impl ContestRepositoryImpl {
             && filter_player_key.is_none();
         if no_filters {
             log::info!("contest search: fast path (scope=all, no venue/game/player filter)");
-            let mut where_parts: Vec<String> = vec![];
+            let mut where_parts: Vec<String> =
+                vec![Self::sql_moderation_public_filter().to_string()];
             if !q.is_empty() {
                 where_parts.push(
                     "string::contains(string::lowercase(name), string::lowercase($q))".to_string(),
@@ -2002,8 +2084,10 @@ impl ContestRepositoryImpl {
 
         // When no venue/game filters and edge intersection is empty (e.g. fresh DB or import without edges), list all contests from the contest table
         if contest_ids.is_empty() && venue_key.is_none() && game_keys.is_empty() {
-            let all_contest_sql =
-                self.query_with_scope("SELECT string::concat(id) AS id FROM contest");
+            let all_contest_sql = self.query_with_scope(&format!(
+                "SELECT string::concat(id) AS id FROM contest WHERE {}",
+                Self::sql_moderation_public_filter()
+            ));
             let all_res: Vec<serde_json::Value> = db
                 .query(&all_contest_sql)
                 .await
@@ -2072,7 +2156,10 @@ impl ContestRepositoryImpl {
             }));
         }
 
-        let mut where_parts = vec!["id INSIDE $contest_ids".to_string()];
+        let mut where_parts = vec![
+            Self::sql_moderation_public_filter().to_string(),
+            "id INSIDE $contest_ids".to_string(),
+        ];
         if !q.is_empty() {
             where_parts.push(
                 "string::contains(string::lowercase(name), string::lowercase($q))".to_string(),
@@ -2184,6 +2271,85 @@ impl ContestRepositoryImpl {
         Ok(
             serde_json::json!({"items": items, "total": total, "page": page, "page_size": page_size}),
         )
+    }
+
+    /// Contests with `moderation_status = pending` (newest first, capped).
+    pub async fn list_pending_contests(&self, db: &Db) -> Result<Vec<ContestDto>, String> {
+        let result_idx = self.scope_result_index();
+        let sql = self.query_with_scope(
+            "SELECT string::concat(id) AS id FROM contest WHERE moderation_status = 'pending' ORDER BY created_at DESC LIMIT 200",
+        );
+        let rows: Vec<serde_json::Value> = db
+            .query(&sql)
+            .await
+            .map_err(|e| format!("list_pending_contests: {}", e))?
+            .take(result_idx)
+            .unwrap_or_default();
+        let mut out = Vec::new();
+        for row in rows {
+            let id_norm = record_id_from_row(&row, None);
+            if let Some(id_norm) = id_norm {
+                let key = record_id_to_key(&id_norm, "contest");
+                if key.is_empty() {
+                    continue;
+                }
+                let id_canonical = format!("contest/{}", key);
+                if let Some(dto) = self.find_details_by_id_using(&id_canonical, db).await {
+                    out.push(dto);
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// Approve or reject a contest (admin). `note` is stored on reject (optional).
+    pub async fn set_contest_moderation(
+        &self,
+        db: &Db,
+        contest_id: &str,
+        status: &str,
+        moderator_player_id: &str,
+        note: Option<&str>,
+    ) -> Result<(), String> {
+        let key = record_id_to_key(contest_id, "contest");
+        if key.is_empty() {
+            return Err("Invalid contest id".to_string());
+        }
+        let contest_rid = surrealdb::types::RecordId::new("contest", key.as_str());
+        let mod_key = record_id_to_key(moderator_player_id, "player");
+        if mod_key.is_empty() {
+            return Err("Invalid moderator id".to_string());
+        }
+        let now_rfc = chrono::Utc::now().to_rfc3339();
+        let result_idx = self.scope_result_index();
+
+        let mut res = if let Some(n) = note {
+            let sql = self.query_with_scope(
+                "UPDATE contest SET moderation_status = $status, moderated_at = type::datetime($now), moderated_by = type::record('player', $mod_key), moderation_note = $note WHERE id = $contest_rid",
+            );
+            db.query(&sql)
+                .bind(("status", status.to_string()))
+                .bind(("now", now_rfc))
+                .bind(("mod_key", mod_key.clone()))
+                .bind(("note", n.to_string()))
+                .bind(("contest_rid", contest_rid))
+                .await
+        } else {
+            let sql = self.query_with_scope(
+                "UPDATE contest SET moderation_status = $status, moderated_at = type::datetime($now), moderated_by = type::record('player', $mod_key), moderation_note = NONE WHERE id = $contest_rid",
+            );
+            db.query(&sql)
+                .bind(("status", status.to_string()))
+                .bind(("now", now_rfc))
+                .bind(("mod_key", mod_key.clone()))
+                .bind(("contest_rid", contest_rid))
+                .await
+        }
+        .map_err(|e| format!("set_contest_moderation: {}", e))?;
+        let _: Vec<serde_json::Value> = res
+            .take(result_idx)
+            .map_err(|e| format!("set_contest_moderation take: {}", e))?;
+        Ok(())
     }
 }
 

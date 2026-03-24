@@ -4,6 +4,7 @@ pub mod models {
     pub mod client_analytics;
     pub mod client_storage;
     pub mod contest;
+    pub mod contest_moderation;
     pub mod game;
     pub mod player;
     pub mod relations;

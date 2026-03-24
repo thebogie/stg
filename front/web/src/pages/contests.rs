@@ -3,7 +3,9 @@ use crate::api::games::{get_all_games, search_games};
 use crate::api::players::search_players;
 use crate::api::venues::get_all_venues;
 use crate::auth::AuthContext;
+use crate::pages::contest::CONTEST_SUBMITTED_MODERATION_FLASH;
 use crate::Route;
+use gloo_storage::{SessionStorage, Storage};
 use chrono::DateTime;
 use gloo_timers::callback::Timeout;
 use shared::dto::player::PlayerDto;
@@ -100,6 +102,23 @@ pub fn contests(props: &ContestsProps) -> Html {
     let last_applied_players = use_state(|| Vec::<PlayerDto>::new());
     let undo_timeout = use_mut_ref(|| None::<Timeout>);
     let apply_timeout = use_mut_ref(|| None::<Timeout>);
+    let submit_moderation_flash = use_state(|| None::<String>);
+
+    {
+        let submit_moderation_flash = submit_moderation_flash.clone();
+        use_effect_with((), move |_| {
+            if let Ok(v) = SessionStorage::get::<String>(CONTEST_SUBMITTED_MODERATION_FLASH) {
+                if v == "1" {
+                    let _ = SessionStorage::delete(CONTEST_SUBMITTED_MODERATION_FLASH);
+                    submit_moderation_flash.set(Some(
+                        "Submitted for review. It will appear in public listings after a moderator approves it. Community moderation is not legal advice."
+                            .to_string(),
+                    ));
+                }
+            }
+            || ()
+        });
+    }
 
     let on_create_contest = {
         let navigator = navigator.clone();
@@ -783,6 +802,11 @@ pub fn contests(props: &ContestsProps) -> Html {
             </header>
 
             <main class="container mx-auto px-4 py-6">
+                if let Some(msg) = (*submit_moderation_flash).clone() {
+                    <div class="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+                        {msg}
+                    </div>
+                }
                 // Search Bar
                 <div class="bg-white rounded-lg shadow-sm p-4 mb-6">
                     <div class="flex flex-col md:flex-row gap-4">

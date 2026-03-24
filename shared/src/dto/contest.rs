@@ -28,6 +28,15 @@ pub struct ContestDto {
     /// When this contest was created (set by backend)
     #[serde(default)]
     pub created_at: Option<DateTime<FixedOffset>>,
+    /// `pending` until an admin approves; public search lists `approved` only.
+    #[serde(default)]
+    pub moderation_status: String,
+    #[serde(default)]
+    pub moderated_at: Option<DateTime<FixedOffset>>,
+    #[serde(default)]
+    pub moderated_by: Option<String>,
+    #[serde(default)]
+    pub moderation_note: Option<String>,
 }
 
 impl Validate for ContestDto {
@@ -107,6 +116,14 @@ impl From<&Contest> for ContestDto {
             creator_id: contest.creator_id.clone(),
             creator_handle: None,
             created_at: Some(contest.created_at.into()),
+            moderation_status: contest.moderation_status.clone(),
+            moderated_at: contest.moderated_at.map(|t| t.into()),
+            moderated_by: if contest.moderated_by.is_empty() {
+                None
+            } else {
+                Some(contest.moderated_by.clone())
+            },
+            moderation_note: contest.moderation_note.clone(),
         }
     }
 }
@@ -124,6 +141,14 @@ impl From<ContestDto> for Contest {
                 .created_at
                 .unwrap_or_else(|| chrono::Utc::now().fixed_offset())
                 .into(),
+            moderation_status: if dto.moderation_status.is_empty() {
+                crate::models::contest_moderation::moderation_status::APPROVED.to_string()
+            } else {
+                dto.moderation_status
+            },
+            moderated_at: dto.moderated_at.map(|t| t.into()),
+            moderated_by: dto.moderated_by.unwrap_or_default(),
+            moderation_note: dto.moderation_note,
         }
     }
 }
@@ -186,6 +211,11 @@ mod tests {
             creator_id: "player/test-creator".to_string(),
             creator_handle: Some("testcreator".to_string()),
             created_at: Some(DateTime::parse_from_rfc3339("2023-07-15T10:00:00Z").unwrap()),
+            moderation_status: crate::models::contest_moderation::moderation_status::APPROVED
+                .to_string(),
+            moderated_at: None,
+            moderated_by: None,
+            moderation_note: None,
         }
     }
 
@@ -286,6 +316,11 @@ mod tests {
             created_at: DateTime::parse_from_rfc3339("2023-07-15T10:00:00Z")
                 .unwrap()
                 .into(),
+            moderation_status: crate::models::contest_moderation::moderation_status::APPROVED
+                .to_string(),
+            moderated_at: None,
+            moderated_by: String::new(),
+            moderation_note: None,
         };
 
         let dto = ContestDto::from(&contest);
@@ -322,6 +357,11 @@ mod tests {
             created_at: DateTime::parse_from_rfc3339("2023-01-01T00:00:00Z")
                 .unwrap()
                 .into(),
+            moderation_status: crate::models::contest_moderation::moderation_status::APPROVED
+                .to_string(),
+            moderated_at: None,
+            moderated_by: String::new(),
+            moderation_note: None,
         };
 
         dto.update_contest(&mut contest);
@@ -444,6 +484,7 @@ mod tests {
         assert_eq!(dto.creator_id, deserialized.creator_id);
         assert_eq!(dto.creator_handle, deserialized.creator_handle);
         assert_eq!(dto.created_at, deserialized.created_at);
+        assert_eq!(dto.moderation_status, deserialized.moderation_status);
     }
 
     #[test]
@@ -462,6 +503,11 @@ mod tests {
             created_at: DateTime::parse_from_rfc3339("2023-07-15T10:00:00Z")
                 .unwrap()
                 .into(),
+            moderation_status: crate::models::contest_moderation::moderation_status::APPROVED
+                .to_string(),
+            moderated_at: None,
+            moderated_by: String::new(),
+            moderation_note: None,
         };
 
         let dto = ContestDto::from(&contest);
@@ -504,6 +550,11 @@ mod tests {
             created_at: DateTime::parse_from_rfc3339("2023-01-01T00:00:00Z")
                 .unwrap()
                 .into(),
+            moderation_status: crate::models::contest_moderation::moderation_status::APPROVED
+                .to_string(),
+            moderated_at: None,
+            moderated_by: String::new(),
+            moderation_note: None,
         };
 
         dto.update_contest(&mut contest);

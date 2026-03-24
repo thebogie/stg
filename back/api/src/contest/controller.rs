@@ -1,13 +1,44 @@
 use crate::contest::repository::{ContestRepository, ContestRepositoryImpl};
 use crate::player::repository::PlayerRepository;
-use crate::surreal_helpers::canonical_id_from_http_path_param;
+use crate::surreal_helpers::{canonical_id_from_http_path_param, record_id_to_key};
 use actix_web::HttpMessage;
 use actix_web::{delete, get, post, web, HttpRequest, HttpResponse, Responder};
+use shared::models::contest_moderation::moderation_status;
 use chrono::{NaiveDate, NaiveTime, TimeZone, Utc};
 use serde::Deserialize;
 use serde_json::json;
 use shared::dto::contest::ContestDto;
 use validator::Validate;
+
+/// True if `email` is listed in `ADMIN_EMAILS` (comma-separated, case-insensitive).
+fn admin_email_from_env(email: &str) -> bool {
+    let list = match std::env::var("ADMIN_EMAILS") {
+        Ok(s) if !s.trim().is_empty() => s,
+        _ => return false,
+    };
+    let email_lower = email.trim().to_lowercase();
+    list.split(',')
+        .any(|e| e.trim().to_lowercase() == email_lower)
+}
+
+/// Approved (or legacy empty / missing field) contests are visible to everyone with auth.
+/// Pending/rejected are visible to creator or admin only.
+fn contest_is_visible_to_viewer(
+    dto: &ContestDto,
+    viewer_player_id: &str,
+    viewer_is_admin: bool,
+) -> bool {
+    let status = dto.moderation_status.as_str();
+    if status.is_empty() || status == moderation_status::APPROVED {
+        return true;
+    }
+    if viewer_is_admin {
+        return true;
+    }
+    let creator_key = record_id_to_key(&dto.creator_id, "player");
+    let viewer_key = record_id_to_key(viewer_player_id, "player");
+    !creator_key.is_empty() && creator_key == viewer_key
+}
 
 /// HTML `type="date"` sends `YYYY-MM-DD`. Comparing stored RFC3339 `start`/`stop` to that bare date
 /// uses string ordering: `2023-12-31T15:00:00Z` is *greater* than `2023-12-31`, so `start <= $start_to`
@@ -88,6 +119,7 @@ pub async fn get_contest_handler(
     path: web::Path<String>,
     repo: web::Data<ContestRepositoryImpl>,
     db: web::Data<crate::db::Db>,
+    req: HttpRequest,
 ) -> impl Responder {
     let contest_param = path.into_inner();
 
@@ -100,22 +132,48 @@ pub async fn get_contest_handler(
 
     log::info!("Fetching contest details for ID: {}", contest_id);
 
-    // Use app's shared Db so we see the same NS/DB as analytics (fixes 404 when repo's clone differs)
-    match repo
+    let Some(contest_details) = repo
         .find_details_by_id_using(&contest_id, db.get_ref())
         .await
-    {
-        Some(contest_details) => {
-            log::info!("Contest details found");
-            HttpResponse::Ok().json(contest_details)
-        }
-        None => {
-            log::warn!("Contest not found");
-            HttpResponse::NotFound().json(serde_json::json!({
-                "error": "Contest not found"
-            }))
-        }
+    else {
+        log::warn!("Contest not found");
+        return HttpResponse::NotFound().json(serde_json::json!({
+            "error": "Contest not found"
+        }));
+    };
+
+    let Some(email) = req.extensions().get::<String>().cloned() else {
+        log::warn!("get_contest: missing session email extension");
+        return HttpResponse::Unauthorized().json(serde_json::json!({
+            "error": "Authentication required"
+        }));
+    };
+
+    let Some(player) = repo
+        .player_usecase
+        .repo
+        .find_by_email_for_auth(email.as_str())
+        .await
+    else {
+        return HttpResponse::Unauthorized().json(serde_json::json!({
+            "error": "user_not_found"
+        }));
+    };
+
+    let viewer_is_admin = player.is_admin || admin_email_from_env(&email);
+    if !contest_is_visible_to_viewer(&contest_details, &player.id, viewer_is_admin) {
+        log::debug!(
+            "Contest {} hidden from non-creator non-admin (status={})",
+            contest_id,
+            contest_details.moderation_status
+        );
+        return HttpResponse::NotFound().json(serde_json::json!({
+            "error": "Contest not found"
+        }));
     }
+
+    log::info!("Contest details found");
+    HttpResponse::Ok().json(contest_details)
 }
 
 #[get("/player/{player_id}/game/{game_id}")]
@@ -375,6 +433,131 @@ mod contest_search_date_tests {
         let s = "2023-06-15T12:00:00Z".to_string();
         let out = normalize_contest_search_date_param(Some(s.clone()), true).unwrap();
         assert_eq!(out, s);
+    }
+}
+
+/// JSON body for `POST .../reject` (reason is optional).
+#[derive(Debug, Deserialize)]
+pub struct RejectContestBody {
+    #[serde(default)]
+    pub reason: Option<String>,
+}
+
+/// Lists contests with `moderation_status = pending` (newest first).
+/// Requires an authenticated admin session (see `AdminAuthMiddleware` on the route).
+#[get("/moderation/pending")]
+pub async fn list_pending_contests_handler(
+    repo: web::Data<ContestRepositoryImpl>,
+    db: web::Data<crate::db::Db>,
+) -> impl Responder {
+    match repo.list_pending_contests(db.get_ref()).await {
+        Ok(rows) => HttpResponse::Ok().json(rows),
+        Err(e) => {
+            log::error!("list_pending_contests: {}", e);
+            HttpResponse::InternalServerError().json(json!({ "error": e }))
+        }
+    }
+}
+
+/// Approves a contest for public listing.
+/// Requires an authenticated admin session (see `AdminAuthMiddleware` on the route).
+#[post("/{contest_id}/approve")]
+pub async fn approve_contest_handler(
+    path: web::Path<String>,
+    repo: web::Data<ContestRepositoryImpl>,
+    db: web::Data<crate::db::Db>,
+    req: HttpRequest,
+) -> impl Responder {
+    let param = path.into_inner();
+    let id = canonical_id_from_http_path_param("contest", &param);
+    if id.is_empty() {
+        return HttpResponse::BadRequest().json(json!({ "error": "Invalid contest id" }));
+    }
+    if repo
+        .find_details_by_id_using(&id, db.get_ref())
+        .await
+        .is_none()
+    {
+        return HttpResponse::NotFound().json(json!({ "error": "Contest not found" }));
+    }
+    let Some(email) = req.extensions().get::<String>().cloned() else {
+        return HttpResponse::Unauthorized().json(json!({ "error": "Authentication required" }));
+    };
+    let Some(player) = repo
+        .player_usecase
+        .repo
+        .find_by_email_for_auth(email.as_str())
+        .await
+    else {
+        return HttpResponse::Unauthorized().json(json!({ "error": "user_not_found" }));
+    };
+    match repo
+        .set_contest_moderation(
+            db.get_ref(),
+            &id,
+            moderation_status::APPROVED,
+            &player.id,
+            None,
+        )
+        .await
+    {
+        Ok(()) => HttpResponse::NoContent().finish(),
+        Err(e) => {
+            log::error!("approve_contest: {}", e);
+            HttpResponse::InternalServerError().json(json!({ "error": e }))
+        }
+    }
+}
+
+/// Rejects a contest (not shown in public search). Optional `reason` is stored on the record.
+/// Requires an authenticated admin session (see `AdminAuthMiddleware` on the route).
+#[post("/{contest_id}/reject")]
+pub async fn reject_contest_handler(
+    path: web::Path<String>,
+    body: web::Json<RejectContestBody>,
+    repo: web::Data<ContestRepositoryImpl>,
+    db: web::Data<crate::db::Db>,
+    req: HttpRequest,
+) -> impl Responder {
+    let param = path.into_inner();
+    let id = canonical_id_from_http_path_param("contest", &param);
+    if id.is_empty() {
+        return HttpResponse::BadRequest().json(json!({ "error": "Invalid contest id" }));
+    }
+    if repo
+        .find_details_by_id_using(&id, db.get_ref())
+        .await
+        .is_none()
+    {
+        return HttpResponse::NotFound().json(json!({ "error": "Contest not found" }));
+    }
+    let Some(email) = req.extensions().get::<String>().cloned() else {
+        return HttpResponse::Unauthorized().json(json!({ "error": "Authentication required" }));
+    };
+    let Some(player) = repo
+        .player_usecase
+        .repo
+        .find_by_email_for_auth(email.as_str())
+        .await
+    else {
+        return HttpResponse::Unauthorized().json(json!({ "error": "user_not_found" }));
+    };
+    let note = body.reason.as_deref().filter(|s| !s.trim().is_empty());
+    match repo
+        .set_contest_moderation(
+            db.get_ref(),
+            &id,
+            moderation_status::REJECTED,
+            &player.id,
+            note,
+        )
+        .await
+    {
+        Ok(()) => HttpResponse::NoContent().finish(),
+        Err(e) => {
+            log::error!("reject_contest: {}", e);
+            HttpResponse::InternalServerError().json(json!({ "error": e }))
+        }
     }
 }
 

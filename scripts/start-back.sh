@@ -87,7 +87,7 @@ if [ "$RUST_ENV" = "dev" ] || [ "$RUST_ENV" = "development" ]; then
 
 wait_surrealdb() {
   for i in 1 2 3 4 5 6 7 8 9 10; do
-    if wget -q -O- --tries=1 "http://127.0.0.1:${SURREALDB_PORT}" >/dev/null 2>&1; then return 0; fi
+    if wget -q -O- --tries=1 "http://127.0.0.1:${SURREALDB_PORT}/health" >/dev/null 2>&1; then return 0; fi
     sleep 2
   done
   echo "Warning: SurrealDB not ready; skipping import."

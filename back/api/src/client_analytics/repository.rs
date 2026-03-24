@@ -351,6 +351,12 @@ impl ClientAnalyticsRepository for ClientAnalyticsRepositoryImpl {
                                     stop: st,
                                     creator_id: String::new(),
                                     created_at: s,
+                                    moderation_status:
+                                        shared::models::contest_moderation::moderation_status::APPROVED
+                                            .to_string(),
+                                    moderated_at: None,
+                                    moderated_by: String::new(),
+                                    moderation_note: None,
                                 });
                             }
                             _ => {}
