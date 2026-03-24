@@ -2276,8 +2276,9 @@ impl ContestRepositoryImpl {
     /// Contests with `moderation_status = pending` (newest first, capped).
     pub async fn list_pending_contests(&self, db: &Db) -> Result<Vec<ContestDto>, String> {
         let result_idx = self.scope_result_index();
+        // SurrealDB v3: ORDER BY idioms must appear in SELECT (else parse error on `created_at`).
         let sql = self.query_with_scope(
-            "SELECT string::concat(id) AS id FROM contest WHERE moderation_status = 'pending' ORDER BY created_at DESC LIMIT 200",
+            "SELECT string::concat(id) AS id, created_at FROM contest WHERE moderation_status = 'pending' ORDER BY created_at DESC LIMIT 200",
         );
         let rows: Vec<serde_json::Value> = db
             .query(&sql)

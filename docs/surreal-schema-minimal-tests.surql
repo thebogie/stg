@@ -1,3 +1,5 @@
+OPTION IMPORT;
+
 -- Minimal schema for integration tests. No production data required.
 -- Goal: allow integration tests to CREATE/UPDATE/SELECT core entities and contest edges on an empty NS/DB.
 -- SurrealDB v3 note: DEFINE TABLE syntax is `DEFINE TABLE IF NOT EXISTS <name> SCHEMAFULL;`

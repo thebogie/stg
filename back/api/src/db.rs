@@ -50,5 +50,33 @@ pub async fn connect_surreal(database: &DatabaseConfig) -> anyhow::Result<Db> {
         .await
         .context("SurrealDB USE NS/DB")?;
 
+    ensure_contest_moderation_schema(&db)
+        .await
+        .context("contest moderation schema bootstrap")?;
+
     Ok(db)
+}
+
+/// Ensures `contest` exists and has moderation columns for SCHEMAFULL writes (`CREATE` sets `moderation_status`).
+/// Idempotent (`IF NOT EXISTS`); aligns with `deploy/migrations/20260322_contest_moderation_schema.surql`.
+/// One statement per query (SurrealDB Rust SDK / project conventions).
+pub async fn ensure_contest_moderation_schema(db: &Db) -> anyhow::Result<()> {
+    db.query("DEFINE TABLE IF NOT EXISTS contest SCHEMAFULL")
+        .await
+        .context("DEFINE TABLE contest")?;
+    db.query("DEFINE FIELD IF NOT EXISTS moderation_status ON contest TYPE option<string>")
+        .await
+        .context("DEFINE FIELD moderation_status ON contest")?;
+    db.query("DEFINE FIELD IF NOT EXISTS moderated_at ON contest TYPE option<datetime>")
+        .await
+        .context("DEFINE FIELD moderated_at ON contest")?;
+    db.query(
+        "DEFINE FIELD IF NOT EXISTS moderated_by ON contest TYPE option<record<player>>",
+    )
+    .await
+    .context("DEFINE FIELD moderated_by ON contest")?;
+    db.query("DEFINE FIELD IF NOT EXISTS moderation_note ON contest TYPE option<string>")
+        .await
+        .context("DEFINE FIELD moderation_note ON contest")?;
+    Ok(())
 }
