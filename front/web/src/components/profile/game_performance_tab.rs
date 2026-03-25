@@ -227,6 +227,7 @@ pub fn game_performance_tab(props: &GamePerformanceTabProps) -> Html {
                                 <ul class="list-disc list-inside space-y-0.5">
                                     <li><strong>{"Best opponent"}</strong>{" — Opponent you’ve beaten most often in this game (min 3 contests together). Shown as handle, your win % vs them, and number of contests."}</li>
                                     <li><strong>{"Toughest opponent"}</strong>{" — Opponent you’ve lost to most often in this game (min 3 contests together). Shown as handle, your win % vs them, and number of contests."}</li>
+                                    <li><strong>{"Best venue"}</strong>{" — Venue where you played this game most often. The name links to that venue’s page."}</li>
                                 </ul>
                             </div>
                             <div class="flex flex-wrap gap-2">
@@ -302,7 +303,36 @@ pub fn game_performance_tab(props: &GamePerformanceTabProps) -> Html {
                                                         {r.toughest_opponent.as_ref().map(|o| format!("{} ({:.0}% / {}c)", o.player_handle, o.my_win_rate, o.contests_played)).unwrap_or_else(|| "-".into())}
                                                     </td>
                                                     <td class="px-3 py-2 text-sm text-gray-700">
-                                                        {r.best_venue.as_ref().map(|v| format!("{} ({} plays)", v.venue_name, v.plays)).unwrap_or_else(|| "-".into())}
+                                                        {match r.best_venue.as_ref() {
+                                                            Some(v) => {
+                                                                let venue_key = v
+                                                                    .venue_id
+                                                                    .strip_prefix("venue/")
+                                                                    .or_else(|| v.venue_id.strip_prefix("venue:"))
+                                                                    .unwrap_or(v.venue_id.as_str())
+                                                                    .to_string();
+                                                                let label: String = {
+                                                                    let n = v.venue_name.trim();
+                                                                    if n.is_empty() {
+                                                                        venue_key.clone()
+                                                                    } else {
+                                                                        n.to_string()
+                                                                    }
+                                                                };
+                                                                html! {
+                                                                    <>
+                                                                        <Link<Route>
+                                                                            to={Route::VenueDetails { venue_id: venue_key.clone() }}
+                                                                            classes="font-medium text-blue-600 hover:text-blue-800 hover:underline"
+                                                                        >
+                                                                            {label}
+                                                                        </Link<Route>>
+                                                                        <span class="text-gray-500">{" "}{format!("({} plays)", v.plays)}</span>
+                                                                    </>
+                                                                }
+                                                            }
+                                                            None => html! { "-" },
+                                                        }}
                                                     </td>
                                                     <td class="px-3 py-2 text-sm text-gray-700">{r.last_played.to_rfc3339()}</td>
                                                 </tr>

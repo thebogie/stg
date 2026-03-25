@@ -292,44 +292,14 @@ pub fn admin_page(_props: &AdminPageProps) -> Html {
         })
     };
 
-    let run_ratings_rebuild_all = {
-        let show_success_toast = show_success_toast.clone();
-        let show_error_toast = show_error_toast.clone();
-        Callback::from(move |_: ()| {
-            if !gloo::dialogs::confirm(
-                "Rebuild ALL ratings from the beginning? This can take a while.",
-            ) {
-                return;
-            }
-            let show_success_toast = show_success_toast.clone();
-            let show_error_toast = show_error_toast.clone();
-            wasm_bindgen_futures::spawn_local(async move {
-                match authenticated_post(&api_url("/api/ratings/recalculate/historical"))
-                    .send()
-                    .await
-                {
-                    Ok(resp) if resp.ok() => {
-                        show_success_toast.emit("Ratings rebuild started".to_string());
-                    }
-                    Ok(resp) => {
-                        let status = resp.status();
-                        let text = resp
-                            .text()
-                            .await
-                            .unwrap_or_else(|_| "Unknown error".to_string());
-                        show_error_toast
-                            .emit(format!("Ratings rebuild failed: {} - {}", status, text));
-                    }
-                    Err(e) => show_error_toast.emit(format!("Ratings rebuild failed: {}", e)),
-                }
-            });
-        })
-    };
-
     // Ratings rebuild status (admin only)
     let rebuild_status = use_state(|| None::<serde_json::Value>);
     let rebuild_status_loading = use_state(|| false);
     let rebuild_status_interval = use_mut_ref(|| None::<Interval>);
+    let rebuild_poll_desired = (*rebuild_status)
+        .as_ref()
+        .and_then(|v| v.get("running").and_then(|x| x.as_bool()))
+        .unwrap_or(false);
 
     let refresh_rebuild_status = {
         let rebuild_status = rebuild_status.clone();
@@ -371,22 +341,19 @@ pub fn admin_page(_props: &AdminPageProps) -> Html {
         })
     };
 
-    // Auto-refresh rebuild status while running.
+    // Auto-refresh rebuild status while running. Depend on the `running` flag (not the state
+    // handle): `UseStateHandle` is stable across renders, so use_effect_with would otherwise only
+    // ever run once and never start this interval after status loads.
     {
         let rebuild_status = rebuild_status.clone();
         let rebuild_status_loading = rebuild_status_loading.clone();
         let rebuild_status_interval = rebuild_status_interval.clone();
 
-        use_effect_with(rebuild_status.clone(), move |st| {
-            let running = st
-                .as_ref()
-                .and_then(|v| v.get("running").and_then(|x| x.as_bool()))
-                .unwrap_or(false);
-
+        use_effect_with(rebuild_poll_desired, move |running| {
             // Stop existing interval if any.
             rebuild_status_interval.borrow_mut().take();
 
-            if running {
+            if *running {
                 let rebuild_status = rebuild_status.clone();
                 let rebuild_status_loading = rebuild_status_loading.clone();
                 let interval = Interval::new(2000, move || {
@@ -416,6 +383,43 @@ pub fn admin_page(_props: &AdminPageProps) -> Html {
             || {}
         });
     }
+
+    let run_ratings_rebuild_all = {
+        let show_success_toast = show_success_toast.clone();
+        let show_error_toast = show_error_toast.clone();
+        let refresh_rebuild_status = refresh_rebuild_status.clone();
+        Callback::from(move |_: ()| {
+            if !gloo::dialogs::confirm(
+                "Rebuild ALL ratings from the beginning? This can take a while.",
+            ) {
+                return;
+            }
+            let show_success_toast = show_success_toast.clone();
+            let show_error_toast = show_error_toast.clone();
+            let refresh_rebuild_status = refresh_rebuild_status.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                match authenticated_post(&api_url("/api/ratings/recalculate/historical"))
+                    .send()
+                    .await
+                {
+                    Ok(resp) if resp.ok() => {
+                        show_success_toast.emit("Ratings rebuild started".to_string());
+                        refresh_rebuild_status.emit(());
+                    }
+                    Ok(resp) => {
+                        let status = resp.status();
+                        let text = resp
+                            .text()
+                            .await
+                            .unwrap_or_else(|_| "Unknown error".to_string());
+                        show_error_toast
+                            .emit(format!("Ratings rebuild failed: {} - {}", status, text));
+                    }
+                    Err(e) => show_error_toast.emit(format!("Ratings rebuild failed: {}", e)),
+                }
+            });
+        })
+    };
 
     html! {
         <div class="min-h-screen bg-gray-50">

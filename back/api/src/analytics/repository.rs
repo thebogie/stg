@@ -17,7 +17,7 @@ use crate::config::DatabaseConfig;
 use crate::db::Db;
 use crate::surreal_helpers::{
     normalize_record_id_string, record_id_from_field, record_id_from_row, record_id_to_key,
-    thing_to_record_id,
+    select_one_by_record_id, thing_to_record_id,
 };
 use chrono::{Datelike, Timelike};
 use shared::dto::analytics::{
@@ -3417,51 +3417,80 @@ impl AnalyticsRepository {
             }
         }
 
-        // Names for venues we reference
+        // Names for venues we reference. Bind INSIDE as `table:key` strings (see get_top_venues):
+        // `Vec<RecordId>` batches often return no rows for string/numeric venue keys in SurrealDB v3.
         let mut venue_ids: Vec<String> = agg_by_game
             .values()
             .flat_map(|g| g.venue_counts.keys().cloned())
             .collect();
         venue_ids.sort();
         venue_ids.dedup();
-        let venue_rids: Vec<surrealdb::types::RecordId> = venue_ids
-            .iter()
-            .filter_map(|s| {
-                let key = record_id_to_key(s, "venue");
-                if key.is_empty() {
-                    None
-                } else {
-                    Some(surrealdb::types::RecordId::new("venue", key.as_str()))
-                }
-            })
-            .collect();
-        #[derive(
-            Clone, Debug, serde::Deserialize, serde::Serialize, surrealdb::types::SurrealValue,
-        )]
-        struct VenueNameRow {
-            id: Option<surrealdb::types::RecordId>,
-            #[serde(alias = "displayName")]
-            display_name: Option<String>,
-        }
+        let venue_ids_inside: Vec<String> =
+            venue_ids.iter().map(|s| s.replace('/', ":")).collect();
         let mut venue_name_by_id: HashMap<String, String> = HashMap::new();
-        if !venue_rids.is_empty() {
+        if !venue_ids_inside.is_empty() {
             let mut res = self
                 .db
-                .query("SELECT id, display_name, displayName FROM venue WHERE id INSIDE $ids")
-                .bind(("ids", venue_rids))
+                .query(
+                    "SELECT string::concat(id) AS venue_id, displayName AS dn, display_name AS ds \
+                     FROM venue WHERE id INSIDE $ids",
+                )
+                .bind(("ids", venue_ids_inside))
                 .await
                 .map_err(|e| {
                     SharedError::Database(format!("Failed to fetch venue names: {}", e))
                 })?;
-            let rows: Vec<VenueNameRow> = res
+            let rows: Vec<serde_json::Value> = res
                 .take(0)
                 .map_err(|e| SharedError::Database(format!("Failed to take venue names: {}", e)))?;
-            for r in rows {
-                if let Some(id) = r.id {
-                    let id_s = crate::surreal_helpers::record_id_to_canonical(&id)
-                        .replace("venue:", "venue/");
-                    let name = r.display_name.clone().unwrap_or_else(|| id_s.clone());
-                    venue_name_by_id.insert(id_s, name);
+            for v in rows {
+                let id_key = record_id_from_field(&v, "venue_id").unwrap_or_else(|| {
+                    v.get("venue_id")
+                        .and_then(|x| x.as_str())
+                        .map(normalize_record_id_string)
+                        .filter(|s| !s.is_empty())
+                        .map(|s| {
+                            if s.starts_with("venue/") {
+                                s
+                            } else if s.contains('/') {
+                                s
+                            } else {
+                                format!("venue/{}", s)
+                            }
+                        })
+                        .unwrap_or_default()
+                });
+                if id_key.is_empty() || !id_key.starts_with("venue/") {
+                    continue;
+                }
+                let name = ["dn", "displayName", "ds", "display_name"]
+                    .iter()
+                    .find_map(|k| {
+                        v.get(*k).and_then(|x| x.as_str()).map(str::trim).filter(|s| {
+                            !s.is_empty()
+                        })
+                    })
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| id_key.clone());
+                venue_name_by_id.insert(id_key, name);
+            }
+            // Batch INSIDE can still miss rows (id shape / driver JSON). Resolve any remaining ids.
+            for vid in &venue_ids {
+                if venue_name_by_id.contains_key(vid) {
+                    continue;
+                }
+                if let Some(row) = select_one_by_record_id(&self.db, "venue", vid).await {
+                    let name = ["displayName", "display_name", "dn", "ds"]
+                        .iter()
+                        .find_map(|k| {
+                            row.get(*k).and_then(|x| x.as_str()).map(str::trim).filter(|s| {
+                                !s.is_empty()
+                            })
+                        })
+                        .map(|s| s.to_string());
+                    if let Some(n) = name {
+                        venue_name_by_id.insert(vid.clone(), n);
+                    }
                 }
             }
         }
@@ -3583,13 +3612,21 @@ impl AnalyticsRepository {
                 .venue_counts
                 .into_iter()
                 .max_by_key(|(_, n)| *n)
-                .map(|(vid, n)| GamePerformanceVenueDto {
-                    venue_id: vid.clone(),
-                    venue_name: venue_name_by_id
+                .map(|(vid, n)| {
+                    let resolved = venue_name_by_id
                         .get(&vid)
-                        .cloned()
-                        .unwrap_or_else(|| "Unknown".into()),
-                    plays: n,
+                        .map(|s| s.as_str().trim())
+                        .filter(|s| !s.is_empty());
+                    let fallback_key = record_id_to_key(&vid, "venue");
+                    let venue_name = resolved
+                        .map(|s| s.to_string())
+                        .or_else(|| (!fallback_key.is_empty()).then_some(fallback_key))
+                        .unwrap_or_else(|| vid.clone());
+                    GamePerformanceVenueDto {
+                        venue_id: vid.clone(),
+                        venue_name,
+                        plays: n,
+                    }
                 });
 
             out.push(GamePerformanceDetailDto {

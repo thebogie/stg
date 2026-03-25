@@ -1045,7 +1045,7 @@ impl AnalyticsUseCase {
         &self,
         player_id: &str,
     ) -> Result<Vec<GamePerformanceDetailDto>> {
-        let cache_key = format!("analytics:player_game_performance_detail:v1:{}", player_id);
+        let cache_key = format!("analytics:player_game_performance_detail:v2:{}", player_id);
         if let Some(cached) = self.cache.get(&cache_key).await {
             if let Ok(v) = serde_json::from_str::<Vec<GamePerformanceDetailDto>>(&cached) {
                 return Ok(v);
