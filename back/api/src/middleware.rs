@@ -195,9 +195,7 @@ fn normalize_endpoint(path: &str) -> String {
             // Check if segment looks like an ID
             if segment.is_empty() {
                 segment
-            } else if segment.parse::<u64>().is_ok() {
-                "{id}"
-            } else if uuid::Uuid::parse_str(segment).is_ok() {
+            } else if segment.parse::<u64>().is_ok() || uuid::Uuid::parse_str(segment).is_ok() {
                 "{id}"
             } else if segment.contains('@') {
                 // Email addresses

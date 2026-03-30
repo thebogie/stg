@@ -6,7 +6,6 @@
 use backend::cache::{CacheKeys, CacheTTL, RedisCache};
 use std::sync::Arc;
 use std::time::Duration;
-use tokio;
 
 /// Helper to create a test Redis client
 fn create_test_redis_client() -> redis::Client {

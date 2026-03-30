@@ -53,6 +53,7 @@ pub struct Player {
 
 impl Player {
     /// Creates a new player with validation
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         id: String,
         rev: String,

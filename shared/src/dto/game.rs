@@ -41,7 +41,7 @@ impl From<&Game> for GameDto {
             year_published: game.year_published,
             bgg_id: game.bgg_id,
             description: game.description.clone(),
-            source: game.source.clone(),
+            source: game.source,
         }
     }
 }
@@ -74,7 +74,7 @@ impl GameDto {
         game.year_published = self.year_published;
         game.bgg_id = self.bgg_id;
         game.description = self.description.clone();
-        game.source = self.source.clone();
+        game.source = self.source;
     }
 
     /// Validates the DTO and converts to Game if valid
@@ -84,7 +84,7 @@ impl GameDto {
     }
 }
 
-fn validate_description_len(text: &String) -> Result<(), validator::ValidationError> {
+fn validate_description_len(text: &str) -> Result<(), validator::ValidationError> {
     if text.len() > 4000 {
         let mut err = validator::ValidationError::new("length");
         err.message = Some("Description must be at most 4000 characters".into());

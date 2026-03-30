@@ -481,7 +481,7 @@ impl From<&ContestStats> for ContestStatsDto {
             most_popular_game: stats.most_popular_game.clone(),
             difficulty_rating: stats.difficulty_rating,
             excitement_rating: stats.excitement_rating,
-            last_updated: stats.last_updated.into(),
+            last_updated: stats.last_updated,
         }
     }
 }
@@ -585,7 +585,7 @@ impl From<&PlatformStats> for PlatformStatsDto {
                     activity_score: v.activity_score,
                 })
                 .collect(),
-            last_updated: stats.last_updated.into(),
+            last_updated: stats.last_updated,
         }
     }
 }

@@ -175,16 +175,14 @@ mod utility_tests {
     fn validate_contest_data(contest: &serde_json::Value) -> bool {
         contest["contest_id"]
             .as_str()
-            .map_or(false, |s| !s.is_empty())
+            .is_some_and(|s| !s.is_empty())
             && contest["contest_name"]
                 .as_str()
-                .map_or(false, |s| !s.is_empty())
-            && contest["game_id"].as_str().map_or(false, |s| !s.is_empty())
-            && contest["venue_id"]
-                .as_str()
-                .map_or(false, |s| !s.is_empty())
-            && contest["my_placement"].as_i64().map_or(false, |p| p > 0)
-            && contest["total_players"].as_i64().map_or(false, |t| t > 0)
+                .is_some_and(|s| !s.is_empty())
+            && contest["game_id"].as_str().is_some_and(|s| !s.is_empty())
+            && contest["venue_id"].as_str().is_some_and(|s| !s.is_empty())
+            && contest["my_placement"].as_i64().is_some_and(|p| p > 0)
+            && contest["total_players"].as_i64().is_some_and(|t| t > 0)
     }
 
     fn format_placement(placement: i64) -> String {

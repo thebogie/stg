@@ -70,11 +70,9 @@ pub async fn ensure_contest_moderation_schema(db: &Db) -> anyhow::Result<()> {
     db.query("DEFINE FIELD IF NOT EXISTS moderated_at ON contest TYPE option<datetime>")
         .await
         .context("DEFINE FIELD moderated_at ON contest")?;
-    db.query(
-        "DEFINE FIELD IF NOT EXISTS moderated_by ON contest TYPE option<record<player>>",
-    )
-    .await
-    .context("DEFINE FIELD moderated_by ON contest")?;
+    db.query("DEFINE FIELD IF NOT EXISTS moderated_by ON contest TYPE option<record<player>>")
+        .await
+        .context("DEFINE FIELD moderated_by ON contest")?;
     db.query("DEFINE FIELD IF NOT EXISTS moderation_note ON contest TYPE option<string>")
         .await
         .context("DEFINE FIELD moderation_note ON contest")?;

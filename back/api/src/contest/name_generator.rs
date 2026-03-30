@@ -11,8 +11,8 @@ fn capitalize(word: &str) -> String {
 
 /// Generates a random contest name using an adjective and noun
 pub fn generate_contest_name() -> String {
-    let adjective = capitalize(&gen());
-    let noun = capitalize(&gen());
+    let adjective = capitalize(gen());
+    let noun = capitalize(gen());
     format!("{} {}", adjective, noun)
 }
 

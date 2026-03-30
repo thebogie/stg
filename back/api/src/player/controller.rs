@@ -220,11 +220,9 @@ pub async fn logout_handler<S: SessionStore + 'static>(
     // Get session ID from Authorization header
     let session_id = req.headers().get("Authorization").and_then(|auth_header| {
         auth_header.to_str().ok().and_then(|header_str| {
-            if header_str.starts_with("Bearer ") {
-                Some(header_str[7..].trim().to_string())
-            } else {
-                None
-            }
+            header_str
+                .strip_prefix("Bearer ")
+                .map(|t| t.trim().to_string())
         })
     });
 
@@ -328,7 +326,7 @@ where
 
     let players = repo.search_players(search_query).await;
     // Always return 200 OK with an empty list if no players found
-    let player_dtos: Vec<PlayerDto> = players.iter().map(|p| PlayerDto::from(p)).collect();
+    let player_dtos: Vec<PlayerDto> = players.iter().map(PlayerDto::from).collect();
     Ok(HttpResponse::Ok().json(player_dtos))
 }
 

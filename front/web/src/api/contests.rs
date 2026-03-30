@@ -294,7 +294,9 @@ pub async fn reject_contest(id: &str, reason: Option<&str>) -> Result<(), String
     let key = contest_key_from_any(id);
     let url = format!("{}/{}/reject", api_url("/api/contests"), key);
     let body = RejectContestPayload {
-        reason: reason.map(|s| s.to_string()).filter(|s| !s.trim().is_empty()),
+        reason: reason
+            .map(|s| s.to_string())
+            .filter(|s| !s.trim().is_empty()),
     };
     let response = authenticated_post(&url)
         .json(&body)

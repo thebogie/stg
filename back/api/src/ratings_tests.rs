@@ -193,9 +193,8 @@ pub mod glicko_tests {
             ..Glicko2Params::default()
         };
 
-        let low_tau_result = update_period(base_state.clone(), &[opponent.clone()], low_tau_params);
-        let high_tau_result =
-            update_period(base_state.clone(), &[opponent.clone()], high_tau_params);
+        let low_tau_result = update_period(base_state, &[opponent], low_tau_params);
+        let high_tau_result = update_period(base_state, &[opponent], high_tau_params);
 
         // Higher tau should allow more volatility change
         let low_tau_vol_change = (low_tau_result.vol - base_state.vol).abs();
@@ -224,7 +223,7 @@ pub mod glicko_tests {
         let params = Glicko2Params::default();
 
         // Single game with weight 1
-        let single_result = update_period(base_state.clone(), &[opponent.clone()], params);
+        let single_result = update_period(base_state, &[opponent], params);
 
         // Same game with weight 2 (should have more impact)
         let weighted_opponent = OpponentSample {
@@ -232,7 +231,7 @@ pub mod glicko_tests {
             ..opponent
         };
 
-        let weighted_result = update_period(base_state.clone(), &[weighted_opponent], params);
+        let weighted_result = update_period(base_state, &[weighted_opponent], params);
 
         // Higher weight should result in larger rating change
         let single_change = (single_result.rating - base_state.rating).abs();
@@ -269,9 +268,9 @@ pub mod glicko_tests {
         let params = Glicko2Params::default();
 
         // Run the same update multiple times
-        let result1 = update_period(base_state.clone(), &opponents, params);
-        let result2 = update_period(base_state.clone(), &opponents, params);
-        let result3 = update_period(base_state.clone(), &opponents, params);
+        let result1 = update_period(base_state, &opponents, params);
+        let result2 = update_period(base_state, &opponents, params);
+        let result3 = update_period(base_state, &opponents, params);
 
         // Results should be identical (deterministic)
         assert_relative_eq!(result1.rating, result2.rating, epsilon = 1e-10);

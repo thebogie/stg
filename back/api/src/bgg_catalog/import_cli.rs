@@ -26,7 +26,7 @@ pub fn parse_bgg_import_max_rows() -> Option<usize> {
 /// Returns true when the path argument looks like a documentation placeholder (Unicode ellipsis, `<path>`, etc.).
 #[must_use]
 pub fn looks_like_doc_placeholder(path: &Path) -> bool {
-    path.to_str().map_or(false, |s| {
+    path.to_str().is_some_and(|s| {
         let t = s.trim();
         t == "…"
             || t == "..."

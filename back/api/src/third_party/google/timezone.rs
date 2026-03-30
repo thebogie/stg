@@ -7,7 +7,7 @@ use serde::Deserialize;
 /// This uses a more intelligent approach than hardcoding mappings
 fn utc_offset_to_timezone(offset_minutes: i64) -> String {
     // Guard: out-of-range offsets should fall back to UTC
-    if offset_minutes < -720 || offset_minutes > 720 {
+    if !(-720..=720).contains(&offset_minutes) {
         return "UTC".to_string();
     }
     let now = chrono::Utc::now();
@@ -108,7 +108,7 @@ impl GoogleTimezoneService {
     /// Infer timezone from coordinates using Google Timezone API
     pub async fn infer_timezone_from_coordinates(&self, lat: f64, lng: f64) -> String {
         // Validate coordinates
-        if lat < -90.0 || lat > 90.0 || lng < -180.0 || lng > 180.0 {
+        if !(-90.0..=90.0).contains(&lat) || !(-180.0..=180.0).contains(&lng) {
             warn!("Invalid coordinates: lat={}, lng={}", lat, lng);
             return "UTC".to_string();
         }

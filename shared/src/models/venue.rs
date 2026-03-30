@@ -106,6 +106,7 @@ impl Venue {
         }
     }
     /// Creates a new venue with validation
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         id: String,
         rev: String,

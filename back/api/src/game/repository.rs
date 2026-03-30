@@ -529,7 +529,6 @@ impl GameRepository for GameRepositoryImpl {
     }
 
     async fn update(&self, game: Game) -> Result<Game, String> {
-        let game = game;
         let key = game
             .id
             .trim_start_matches("game/")

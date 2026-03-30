@@ -207,10 +207,9 @@ pub fn contest() -> Html {
                     wasm_bindgen_futures::spawn_local(async move {
                         match get_venue_by_id(&id).await {
                             Ok(v) => {
-                                let search_touched = LocalStorage::get::<bool>(
-                                    VENUE_SEARCH_TOUCHED_STORAGE_KEY,
-                                )
-                                .unwrap_or(false);
+                                let search_touched =
+                                    LocalStorage::get::<bool>(VENUE_SEARCH_TOUCHED_STORAGE_KEY)
+                                        .unwrap_or(false);
                                 // Double-check that no venue was selected while we were fetching
                                 if (*reducer).venue.is_none() && !search_touched {
                                     log!(format!("Preloading last venue: {}", v.display_name));

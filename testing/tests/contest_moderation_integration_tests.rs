@@ -124,10 +124,7 @@ async fn contest_pending_not_in_search_until_approved() -> Result<()> {
 
     let venue_req = test::TestRequest::post()
         .uri("/api/venues")
-        .insert_header((
-            "Authorization",
-            format!("Bearer {}", creator_session),
-        ))
+        .insert_header(("Authorization", format!("Bearer {}", creator_session)))
         .set_json(&json!({
             "displayName": "Mod Test Venue",
             "formattedAddress": "1 Mod St",
@@ -144,10 +141,7 @@ async fn contest_pending_not_in_search_until_approved() -> Result<()> {
 
     let game_req = test::TestRequest::post()
         .uri("/api/games")
-        .insert_header((
-            "Authorization",
-            format!("Bearer {}", creator_session),
-        ))
+        .insert_header(("Authorization", format!("Bearer {}", creator_session)))
         .set_json(&json!({ "name": "Mod Test Game", "year_published": 2024, "source": "database" }))
         .to_request();
     let game_resp = test::call_service(&app, game_req).await;
@@ -158,10 +152,7 @@ async fn contest_pending_not_in_search_until_approved() -> Result<()> {
     let stop: DateTime<FixedOffset> = (Utc::now() + chrono::Duration::hours(2)).into();
     let contest_req = test::TestRequest::post()
         .uri("/api/contests")
-        .insert_header((
-            "Authorization",
-            format!("Bearer {}", creator_session),
-        ))
+        .insert_header(("Authorization", format!("Bearer {}", creator_session)))
         .set_json(&json!({
             "name": unique_name,
             "start": start.to_rfc3339(),
@@ -197,10 +188,7 @@ async fn contest_pending_not_in_search_until_approved() -> Result<()> {
             "/api/contests/search?q={}&scope=all&page=1&page_size=20",
             unique_name
         ))
-        .insert_header((
-            "Authorization",
-            format!("Bearer {}", creator_session),
-        ))
+        .insert_header(("Authorization", format!("Bearer {}", creator_session)))
         .to_request();
     let search_resp = test::call_service(&app, search_req).await;
     assert!(search_resp.status().is_success());
@@ -225,19 +213,13 @@ async fn contest_pending_not_in_search_until_approved() -> Result<()> {
             "/api/contests/search?q={}&scope=all&page=1&page_size=20",
             unique_name
         ))
-        .insert_header((
-            "Authorization",
-            format!("Bearer {}", creator_session),
-        ))
+        .insert_header(("Authorization", format!("Bearer {}", creator_session)))
         .to_request();
     let search_after_resp = test::call_service(&app, search_after).await;
     assert!(search_after_resp.status().is_success());
     let search_after_json: serde_json::Value = test::read_body_json(search_after_resp).await;
     let total_after = search_after_json["total"].as_u64().unwrap_or(0);
-    assert!(
-        total_after >= 1,
-        "approved contest should appear in search"
-    );
+    assert!(total_after >= 1, "approved contest should appear in search");
 
     Ok(())
 }

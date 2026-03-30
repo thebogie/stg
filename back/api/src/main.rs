@@ -75,10 +75,7 @@ async fn main() -> std::io::Result<()> {
         Ok(config) => config,
         Err(e) => {
             error!("Failed to load configuration: {}", e);
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                e.to_string(),
-            ));
+            return Err(std::io::Error::other(e.to_string()));
         }
     };
 
@@ -242,10 +239,10 @@ async fn main() -> std::io::Result<()> {
         }
         Err(e) => {
             log::error!("Failed to initialize metrics: {}", e);
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("Failed to initialize metrics: {}", e),
-            ));
+            return Err(std::io::Error::other(format!(
+                "Failed to initialize metrics: {}",
+                e
+            )));
         }
     };
     let metrics_data = web::Data::new(metrics.clone());

@@ -114,11 +114,9 @@ where
 
             let session_id = req.headers().get("Authorization").and_then(|auth_header| {
                 auth_header.to_str().ok().and_then(|header_str| {
-                    if header_str.starts_with("Bearer ") {
-                        Some(header_str[7..].trim().to_string())
-                    } else {
-                        None
-                    }
+                    header_str
+                        .strip_prefix("Bearer ")
+                        .map(|t| t.trim().to_string())
                 })
             });
 
@@ -183,7 +181,7 @@ where
                     path
                 );
                 let res = service.call(req).await?;
-                return Ok(res.map_into_boxed_body());
+                Ok(res.map_into_boxed_body())
             } else {
                 log::warn!(
                     "Authentication failed: Invalid or expired session for {} {}",
@@ -280,11 +278,9 @@ where
             // Authorization header-based authentication only
             let session_id = req.headers().get("Authorization").and_then(|auth_header| {
                 auth_header.to_str().ok().and_then(|header_str| {
-                    if header_str.starts_with("Bearer ") {
-                        Some(header_str[7..].trim().to_string())
-                    } else {
-                        None
-                    }
+                    header_str
+                        .strip_prefix("Bearer ")
+                        .map(|t| t.trim().to_string())
                 })
             });
 
@@ -337,7 +333,7 @@ where
             // and raw `UPDATE player SET isAdmin = …` are visible immediately (`find_by_email_for_auth`,
             // which uses scoped Surreal queries, not `find_by_email` cache).
             let player = player_repo.find_by_email_for_auth(email).await;
-            let admin_by_env = admin_email_from_env(&email);
+            let admin_by_env = admin_email_from_env(email);
             let admin_by_db = player.as_ref().map(|p| p.is_admin).unwrap_or(false);
 
             if admin_by_db || admin_by_env {
@@ -655,26 +651,24 @@ mod tests {
             test::TestRequest::post().uri("/api/games").to_request(),
         )
         .await;
-        match result {
-            Ok(resp) => assert!(
+        if let Ok(resp) = result {
+            assert!(
                 resp.status().is_client_error(),
                 "expected 4xx when accessing /api/games without auth, got {}",
                 resp.status()
-            ),
-            Err(_) => {}
+            )
         }
         let result = test::try_call_service(
             &app,
             test::TestRequest::put().uri("/api/games/123").to_request(),
         )
         .await;
-        match result {
-            Ok(resp) => assert!(
+        if let Ok(resp) = result {
+            assert!(
                 resp.status().is_client_error(),
                 "expected 4xx when accessing /api/games/123 without auth (PUT), got {}",
                 resp.status()
-            ),
-            Err(_) => {}
+            )
         }
         let result = test::try_call_service(
             &app,
@@ -683,13 +677,12 @@ mod tests {
                 .to_request(),
         )
         .await;
-        match result {
-            Ok(resp) => assert!(
+        if let Ok(resp) = result {
+            assert!(
                 resp.status().is_client_error(),
                 "expected 4xx when accessing /api/games/123 without auth (DELETE), got {}",
                 resp.status()
-            ),
-            Err(_) => {}
+            )
         }
 
         // Venues
@@ -698,26 +691,24 @@ mod tests {
             test::TestRequest::post().uri("/api/venues").to_request(),
         )
         .await;
-        match result {
-            Ok(resp) => assert!(
+        if let Ok(resp) = result {
+            assert!(
                 resp.status().is_client_error(),
                 "expected 4xx when accessing /api/venues without auth, got {}",
                 resp.status()
-            ),
-            Err(_) => {}
+            )
         }
         let result = test::try_call_service(
             &app,
             test::TestRequest::put().uri("/api/venues/abc").to_request(),
         )
         .await;
-        match result {
-            Ok(resp) => assert!(
+        if let Ok(resp) = result {
+            assert!(
                 resp.status().is_client_error(),
                 "expected 4xx when accessing /api/venues/abc without auth (PUT), got {}",
                 resp.status()
-            ),
-            Err(_) => {}
+            )
         }
         let result = test::try_call_service(
             &app,
@@ -726,13 +717,12 @@ mod tests {
                 .to_request(),
         )
         .await;
-        match result {
-            Ok(resp) => assert!(
+        if let Ok(resp) = result {
+            assert!(
                 resp.status().is_client_error(),
                 "expected 4xx when accessing /api/venues/abc without auth (DELETE), got {}",
                 resp.status()
-            ),
-            Err(_) => {}
+            )
         }
 
         // Contests
@@ -741,13 +731,12 @@ mod tests {
             test::TestRequest::post().uri("/api/contests").to_request(),
         )
         .await;
-        match result {
-            Ok(resp) => assert!(
+        if let Ok(resp) = result {
+            assert!(
                 resp.status().is_client_error(),
                 "expected 4xx when accessing /api/contests without auth, got {}",
                 resp.status()
-            ),
-            Err(_) => {}
+            )
         }
     }
 }

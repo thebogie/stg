@@ -36,6 +36,12 @@ impl Default for EloConfig {
     }
 }
 
+impl Default for AnalyticsEngine {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AnalyticsEngine {
     /// Creates a new analytics engine with default configuration
     pub fn new() -> Self {
@@ -229,7 +235,7 @@ impl AnalyticsEngine {
         let participant_factor = (participant_count as f64 - 2.0) / 8.0; // Normalize to 0-1
 
         let difficulty = 5.0 + skill_factor * 3.0 + participant_factor * 2.0;
-        difficulty.max(1.0).min(10.0)
+        difficulty.clamp(1.0, 10.0)
     }
 
     /// Calculates excitement rating based on close finishes
@@ -255,7 +261,7 @@ impl AnalyticsEngine {
         };
 
         let excitement = 5.0 + closeness_factor * 5.0;
-        excitement.max(1.0).min(10.0)
+        excitement.clamp(1.0, 10.0)
     }
 
     /// Calculates win rate distribution for a game
@@ -499,7 +505,7 @@ mod tests {
         let engine = AnalyticsEngine::new();
 
         let difficulty = engine.calculate_difficulty_rating(1200.0, 4);
-        assert!(difficulty >= 1.0 && difficulty <= 10.0);
+        assert!((1.0..=10.0).contains(&difficulty));
     }
 
     #[test]
@@ -524,6 +530,6 @@ mod tests {
         ];
 
         let excitement = engine.calculate_excitement_rating(&participants);
-        assert!(excitement >= 1.0 && excitement <= 10.0);
+        assert!((1.0..=10.0).contains(&excitement));
     }
 }

@@ -49,7 +49,7 @@ where
     };
     match usecase.get_all_venues().await {
         Ok(venues) => {
-            let venue_dtos: Vec<VenueDto> = venues.iter().map(|v| VenueDto::from(v)).collect();
+            let venue_dtos: Vec<VenueDto> = venues.iter().map(VenueDto::from).collect();
             HttpResponse::Ok().json(venue_dtos)
         }
         Err(e) => HttpResponse::InternalServerError().body(e),

@@ -47,7 +47,7 @@ impl Validate for ContestDto {
             use validator::ValidationErrorsKind;
             errors
                 .errors_mut()
-                .entry("venue".into())
+                .entry("venue")
                 .or_insert(ValidationErrorsKind::Struct(Box::new(e)));
         }
         // Validate stop > start
@@ -57,7 +57,7 @@ impl Validate for ContestDto {
             err.message = Some("stop must be after start".into());
             errors
                 .errors_mut()
-                .entry("stop".into())
+                .entry("stop")
                 .or_insert(ValidationErrorsKind::Field(vec![err]));
         }
         if errors.errors().is_empty() {

@@ -87,7 +87,7 @@ pub enum ChartData {
 }
 
 /// Visualization service for generating charts
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct AnalyticsVisualization;
 
 impl AnalyticsVisualization {
@@ -177,9 +177,9 @@ impl AnalyticsVisualization {
             },
             data: ChartData::SingleSeries(data_points),
             metadata: HashMap::from([
-                ("description".to_string(), format!("Top 10 players ranked by {}. Shows player performance and ranking in this category.", leaderboard.category.to_string())),
+                ("description".to_string(), format!("Top 10 players ranked by {}. Shows player performance and ranking in this category.", leaderboard.category)),
                 ("x_axis".to_string(), "Player Names".to_string()),
-                ("y_axis".to_string(), format!("{} Score", leaderboard.category.to_string())),
+                ("y_axis".to_string(), format!("{} Score", leaderboard.category)),
                 ("insight".to_string(), "Use this to identify top performers and set benchmarks for other players.".to_string()),
             ]),
         })
@@ -637,7 +637,7 @@ impl AnalyticsVisualization {
             let series = ChartSeries {
                 name: format!("{} Players", player_count),
                 data: games
-                    .into_iter()
+                    .iter()
                     .map(|(game_name, count)| DataPoint {
                         label: game_name.clone(),
                         value: *count as f64,

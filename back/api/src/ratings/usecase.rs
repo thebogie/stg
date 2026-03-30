@@ -597,7 +597,7 @@ impl RatingsUsecase {
                 .get("_id")
                 .and_then(|v| v.as_str())
                 .ok_or(SharedError::Database("contest missing _id".into()))?;
-            let contest_results = self.repo.get_contest_results(&cid).await?;
+            let contest_results = self.repo.get_contest_results(cid).await?;
             if contest_results.len() < 2 {
                 continue;
             }

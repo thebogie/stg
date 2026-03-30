@@ -341,25 +341,22 @@ impl ClientAnalyticsRepository for ClientAnalyticsRepositoryImpl {
                         let stop = chrono::DateTime::parse_from_rfc3339(stop_str)
                             .ok()
                             .map(|dt| dt.with_timezone(&chrono::Utc));
-                        match (start, stop) {
-                            (Some(s), Some(st)) => {
-                                contests.push(Contest {
-                                    id,
-                                    rev: String::new(),
-                                    name,
-                                    start: s,
-                                    stop: st,
-                                    creator_id: String::new(),
-                                    created_at: s,
-                                    moderation_status:
-                                        shared::models::contest_moderation::moderation_status::APPROVED
-                                            .to_string(),
-                                    moderated_at: None,
-                                    moderated_by: String::new(),
-                                    moderation_note: None,
-                                });
-                            }
-                            _ => {}
+                        if let (Some(s), Some(st)) = (start, stop) {
+                            contests.push(Contest {
+                                id,
+                                rev: String::new(),
+                                name,
+                                start: s,
+                                stop: st,
+                                creator_id: String::new(),
+                                created_at: s,
+                                moderation_status:
+                                    shared::models::contest_moderation::moderation_status::APPROVED
+                                        .to_string(),
+                                moderated_at: None,
+                                moderated_by: String::new(),
+                                moderation_note: None,
+                            });
                         }
                     }
                     if !contests.is_empty() {

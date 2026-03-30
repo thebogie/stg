@@ -1,3 +1,14 @@
+//! Backend HTTP API (Actix). Test builds: see `cfg_attr(test, allow(...))` for clippy noise from placeholder tests.
+#![cfg_attr(
+    test,
+    allow(
+        clippy::assertions_on_constants,
+        clippy::module_inception,
+        clippy::new_ret_no_self,
+        clippy::nonminimal_bool
+    )
+)]
+
 pub mod admin;
 pub mod auth;
 pub mod bgg_catalog;

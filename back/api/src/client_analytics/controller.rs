@@ -36,8 +36,16 @@ where
         &self,
         req: &HttpRequest,
     ) -> Result<String, actix_web::Error> {
-        if let Some(email) = req.extensions().get::<String>() {
-            let mut res = self.db.query("SELECT string::concat(id) AS id FROM player WHERE string::lowercase(email) = string::lowercase($email) LIMIT 1").bind(("email", email.clone())).await.map_err(|_| actix_web::error::ErrorInternalServerError("DB error"))?;
+        let email_opt = req.extensions().get::<String>().cloned();
+        if let Some(email) = email_opt {
+            let mut res = self
+                .db
+                .query(
+                    "SELECT string::concat(id) AS id FROM player WHERE string::lowercase(email) = string::lowercase($email) LIMIT 1",
+                )
+                .bind(("email", email))
+                .await
+                .map_err(|_| actix_web::error::ErrorInternalServerError("DB error"))?;
             let rows: Vec<serde_json::Value> = res.take(0).unwrap_or_default();
             if let Some(row) = rows.into_iter().next() {
                 if let Some(id) = row.get("id").and_then(|v| v.as_str()) {
@@ -345,27 +353,6 @@ where
     }
 }
 
-#[cfg(test)]
-mod tests {
-
-    #[test]
-    fn test_player_id_normalization() {
-        // Test basic string operations that would be used in normalization
-        let input = "abc123";
-        let expected = "player/abc123";
-        let result = format!("player/{}", input);
-        assert_eq!(result, expected);
-    }
-
-    #[test]
-    fn test_player_id_validation() {
-        // Test that player IDs can be validated
-        let player_id = "player/abc123";
-        assert!(player_id.starts_with("player/"));
-        assert_eq!(player_id.len(), 13);
-    }
-}
-
 /// Configures client analytics routes. Pass prefix "/api" or "" for Trunk proxy.
 pub fn configure_routes<U>(
     cfg: &mut web::ServiceConfig,
@@ -523,4 +510,25 @@ pub fn configure_enhanced_routes<U>(
                 ),
             ),
     );
+}
+
+#[cfg(test)]
+mod tests {
+
+    #[test]
+    fn test_player_id_normalization() {
+        // Test basic string operations that would be used in normalization
+        let input = "abc123";
+        let expected = "player/abc123";
+        let result = format!("player/{}", input);
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_player_id_validation() {
+        // Test that player IDs can be validated
+        let player_id = "player/abc123";
+        assert!(player_id.starts_with("player/"));
+        assert_eq!(player_id.len(), 13);
+    }
 }

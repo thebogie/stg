@@ -206,7 +206,6 @@ impl ClientAnalyticsCache {
         let mut total_placement = 0;
         let mut best_placement = i32::MAX;
         let mut worst_placement = 0;
-        let current_streak;
         let mut longest_streak = 0;
         let mut temp_streak: i32 = 0;
 
@@ -237,8 +236,7 @@ impl ClientAnalyticsCache {
             longest_streak = longest_streak.max(temp_streak.abs());
         }
 
-        // Set current streak (most recent)
-        current_streak = temp_streak;
+        let current_streak = temp_streak;
 
         self.core_stats = CoreStats {
             total_contests,

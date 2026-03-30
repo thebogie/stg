@@ -2,6 +2,7 @@ use crate::models::client_analytics::*;
 use chrono::{DateTime, FixedOffset};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fmt;
 
 /// Storage configuration for client-side analytics
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -38,15 +39,15 @@ pub enum StorageKey {
     SyncMetadata(String),   // player_id
 }
 
-impl StorageKey {
-    pub fn to_string(&self) -> String {
+impl fmt::Display for StorageKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            StorageKey::AnalyticsCache(player_id) => format!("analytics_cache_{}", player_id),
-            StorageKey::ContestData(player_id) => format!("contest_data_{}", player_id),
-            StorageKey::GameData(game_id) => format!("game_data_{}", game_id),
-            StorageKey::VenueData(venue_id) => format!("venue_data_{}", venue_id),
-            StorageKey::PlayerData(player_id) => format!("player_data_{}", player_id),
-            StorageKey::SyncMetadata(player_id) => format!("sync_metadata_{}", player_id),
+            StorageKey::AnalyticsCache(player_id) => write!(f, "analytics_cache_{player_id}"),
+            StorageKey::ContestData(player_id) => write!(f, "contest_data_{player_id}"),
+            StorageKey::GameData(game_id) => write!(f, "game_data_{game_id}"),
+            StorageKey::VenueData(venue_id) => write!(f, "venue_data_{venue_id}"),
+            StorageKey::PlayerData(player_id) => write!(f, "player_data_{player_id}"),
+            StorageKey::SyncMetadata(player_id) => write!(f, "sync_metadata_{player_id}"),
         }
     }
 }

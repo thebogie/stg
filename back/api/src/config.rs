@@ -3,17 +3,12 @@ use log::{info, warn};
 use serde::Deserialize;
 use std::env;
 
-#[derive(Debug, Clone, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Default)]
 pub enum Environment {
+    #[default]
     Development,
     Test,
     Production,
-}
-
-impl Default for Environment {
-    fn default() -> Self {
-        Environment::Development
-    }
 }
 
 impl std::str::FromStr for Environment {
@@ -173,7 +168,7 @@ impl Config {
                 let (host, port) = Self::parse_backend_url(&backend_url);
 
                 ServerConfig {
-                    host: env::var("SERVER_HOST").unwrap_or_else(|_| host),
+                    host: env::var("SERVER_HOST").unwrap_or(host),
 
                     port: env::var("SERVER_PORT")
                         .unwrap_or_else(|_| port.to_string())
@@ -192,7 +187,7 @@ impl Config {
 
                 ServerConfig {
                     // SERVER_HOST environment variable takes precedence over BACKEND_URL host
-                    host: env::var("SERVER_HOST").unwrap_or_else(|_| host),
+                    host: env::var("SERVER_HOST").unwrap_or(host),
                     port: env::var("SERVER_PORT")
                         .unwrap_or_else(|_| port.to_string())
                         .parse()
@@ -209,7 +204,7 @@ impl Config {
                 let (host, port) = Self::parse_backend_url(&backend_url);
 
                 ServerConfig {
-                    host: env::var("SERVER_HOST").unwrap_or_else(|_| host),
+                    host: env::var("SERVER_HOST").unwrap_or(host),
                     port: env::var("SERVER_PORT")
                         .unwrap_or_else(|_| port.to_string())
                         .parse()
@@ -412,7 +407,7 @@ impl Config {
         log::info!("Using Google API URL: {}", api_url);
 
         GoogleConfig {
-            api_url: api_url,
+            api_url,
             location_api_key: env::var("GOOGLE_LOCATION_API").ok(),
         }
     }

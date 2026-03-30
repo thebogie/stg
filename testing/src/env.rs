@@ -175,13 +175,12 @@ impl TestEnvironment {
             if attempt == MAX_ATTEMPTS - 1 {
                 let auth_hint = last_auth_err.as_deref().map_or(String::new(), |a| {
                     if a.to_lowercase().contains("auth") {
-                        format!(
-                            "\n\n\
+                        "\n\n\
                             Hint (authentication failed): `SURREAL_USER` / `SURREAL_PASSWORD` must match the running SurrealDB instance. \
                             `deploy/docker-compose.yml` passes them as `surreal start --user/--pass`. \
                             If the DB volume was created with different credentials, sign-in will fail until you use the original password or wipe `surrealdb_data` and restart. \
                             Before `cargo test -p testing`, run: `source scripts/load-env.sh prod` (or `dev`) so env matches the stack."
-                        )
+                            .to_string()
                     } else {
                         String::new()
                     }

@@ -28,6 +28,16 @@ use shared::{dto::analytics::TimePeriod, models::analytics::*, Result, SharedErr
 use std::collections::HashMap;
 use surrealdb::types::SurrealValue;
 
+type GamePerformanceAggMap = HashMap<
+    String,
+    (
+        i32,
+        i32,
+        Vec<i32>,
+        Option<chrono::DateTime<chrono::FixedOffset>>,
+    ),
+>;
+
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize, surrealdb::types::SurrealValue)]
 pub struct HeatRow {
     pub day: i32,
@@ -238,7 +248,7 @@ fn extract_month_from_value(v: Option<&serde_json::Value>) -> String {
             .or_else(|| obj.get("mon"))
             .and_then(|x| x.as_i64())
             .unwrap_or(1);
-        return format!("{:04}-{:02}", y, m.max(1).min(12));
+        return format!("{:04}-{:02}", y, m.clamp(1, 12));
     }
     "0000-00".to_string()
 }
@@ -540,7 +550,7 @@ impl AnalyticsRepository {
             total_points: total_wins * 10,
             current_streak,
             longest_streak,
-            last_updated: chrono::Utc::now().into(),
+            last_updated: chrono::Utc::now(),
         })
     }
 
@@ -558,7 +568,7 @@ impl AnalyticsRepository {
             total_points: 0,
             current_streak: 0,
             longest_streak: 0,
-            last_updated: chrono::Utc::now().into(),
+            last_updated: chrono::Utc::now(),
         }
     }
 
@@ -693,7 +703,7 @@ impl AnalyticsRepository {
             total_points: total_wins * 10,
             current_streak: 0,
             longest_streak: 0,
-            last_updated: chrono::Utc::now().into(),
+            last_updated: chrono::Utc::now(),
         })
     }
 
@@ -873,7 +883,7 @@ impl AnalyticsRepository {
             total_points: total_wins * 10,
             current_streak: cur,
             longest_streak: long,
-            last_updated: chrono::Utc::now().into(),
+            last_updated: chrono::Utc::now(),
         };
         Ok(Some(stats))
     }
@@ -1445,50 +1455,6 @@ impl AnalyticsRepository {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_query_building() {
-        // Test that query building functions work without database connection
-        // Create a minimal config for testing
-        let config = DatabaseConfig {
-            url: "http://localhost:50001".to_string(),
-            ns: "test".to_string(),
-            name: "test".to_string(),
-            root_username: "root".to_string(),
-            root_password: "".to_string(),
-            username: "root".to_string(),
-            password: "root".to_string(),
-            pool_size: 10,
-            _timeout_seconds: 30,
-        };
-
-        // Test that we can create the config
-        assert_eq!(config.name, "test");
-        assert_eq!(config.url, "http://localhost:50001");
-    }
-
-    #[test]
-    fn test_analytics_repository_creation() {
-        // Test that we can create a repository structure
-        let config = DatabaseConfig {
-            url: "http://localhost:50001".to_string(),
-            ns: "test".to_string(),
-            name: "test".to_string(),
-            root_username: "root".to_string(),
-            root_password: "".to_string(),
-            username: "test_user".to_string(),
-            password: "test_pass".to_string(),
-            pool_size: 10,
-            _timeout_seconds: 30,
-        };
-
-        assert_eq!(config.name, "test");
-    }
-}
-
 impl AnalyticsRepository {
     /// Get a display label for a player (handle -> email -> name)
     pub async fn get_player_display_label(&self, player_id: &str) -> Result<Option<String>> {
@@ -1517,7 +1483,7 @@ impl AnalyticsRepository {
             (Some(first), None) => Some(first.to_string()),
             _ => None,
         };
-        Ok(handle.or_else(|| email).or(name))
+        Ok(handle.or(email).or(name))
     }
 
     /// Get latest global rating info for a player
@@ -1668,7 +1634,7 @@ impl AnalyticsRepository {
             total_points: total_wins * 10,
             current_streak: cur,
             longest_streak: long,
-            last_updated: chrono::Utc::now().into(),
+            last_updated: chrono::Utc::now(),
         };
         Ok(Some(stats))
     }
@@ -1738,7 +1704,7 @@ impl AnalyticsRepository {
             total_points: total_wins * 10,
             current_streak: cur,
             longest_streak: long,
-            last_updated: chrono::Utc::now().into(),
+            last_updated: chrono::Utc::now(),
         };
         Ok(Some(stats))
     }
@@ -1937,7 +1903,7 @@ impl AnalyticsRepository {
             excitement_rating: 5.0,
             last_updated: chrono::Utc::now().into(),
         };
-        return Ok(Some(stats));
+        Ok(Some(stats))
     }
 
     /// Get contest trends (monthly contest frequency)
@@ -1954,12 +1920,10 @@ impl AnalyticsRepository {
         let rows: Vec<serde_json::Value> = res.take(0).unwrap_or_default();
         let trends: Vec<MonthlyContests> = rows
             .into_iter()
-            .filter_map(|v| {
-                Some(MonthlyContests {
-                    year: v.get("year").and_then(|x| x.as_i64()).unwrap_or(0) as i32,
-                    month: v.get("month").and_then(|x| x.as_i64()).unwrap_or(1) as u32,
-                    contests: v.get("contests").and_then(|x| x.as_u64()).unwrap_or(0) as i32,
-                })
+            .map(|v| MonthlyContests {
+                year: v.get("year").and_then(|x| x.as_i64()).unwrap_or(0) as i32,
+                month: v.get("month").and_then(|x| x.as_i64()).unwrap_or(1) as u32,
+                contests: v.get("contests").and_then(|x| x.as_u64()).unwrap_or(0) as i32,
             })
             .collect();
         Ok(trends)
@@ -2185,7 +2149,7 @@ impl AnalyticsRepository {
             .into_iter()
             .filter_map(|v| v.get("score").and_then(|s| s.as_f64()))
             .collect();
-        let (first, second) = (scores.get(0).copied(), scores.get(1).copied());
+        let (first, second) = (scores.first().copied(), scores.get(1).copied());
         let (score_diff, max_score) = match (first, second) {
             (Some(a), Some(b)) => ((a - b).abs(), a.max(b)),
             _ => return Ok(5.0),
@@ -2218,7 +2182,7 @@ impl AnalyticsRepository {
         let contests: Vec<ContestRow> = res.take(0).unwrap_or_default();
         let contest_rids: Vec<String> = contests
             .iter()
-            .filter_map(|c| c.id.as_ref().map(|s| s.replace("contest:", "contest:")))
+            .filter_map(|c| c.id.as_ref().map(std::string::ToString::to_string))
             .collect();
         if contest_rids.is_empty() {
             return Ok(Vec::new());
@@ -2671,15 +2635,7 @@ impl AnalyticsRepository {
                                 Some((cid, gid))
                             })
                             .collect();
-                        let mut by_game: HashMap<
-                            String,
-                            (
-                                i32,
-                                i32,
-                                Vec<i32>,
-                                Option<chrono::DateTime<chrono::FixedOffset>>,
-                            ),
-                        > = HashMap::new();
+                        let mut by_game: GamePerformanceAggMap = HashMap::new();
                         for (contest_id, place) in &ri_rows {
                             let contest_start = contest_start_by_id.get(contest_id).cloned();
                             let last_played = contest_start
@@ -2864,15 +2820,7 @@ impl AnalyticsRepository {
             .map_err(|e| SharedError::Database(format!("game performance played_with: {}", e)))?;
 
         // Build (contest_id, place, game_id, contest_start) and aggregate by game
-        let mut by_game: HashMap<
-            String,
-            (
-                i32,
-                i32,
-                Vec<i32>,
-                Option<chrono::DateTime<chrono::FixedOffset>>,
-            ),
-        > = HashMap::new();
+        let mut by_game: GamePerformanceAggMap = HashMap::new();
         for r in &ri_rows {
             let contest_id = thing_to_record_id(&r.contest_id);
             if contest_id.is_empty() {
@@ -3304,6 +3252,7 @@ impl AnalyticsRepository {
     }
 
     /// Build GamePerformanceDetailDto list from pre-aggregated maps (used by fn:: path and multi-query fallback).
+    #[allow(clippy::too_many_arguments)]
     async fn build_game_performance_detail_dtos(
         &self,
         player_id: &str,
@@ -3425,8 +3374,7 @@ impl AnalyticsRepository {
             .collect();
         venue_ids.sort();
         venue_ids.dedup();
-        let venue_ids_inside: Vec<String> =
-            venue_ids.iter().map(|s| s.replace('/', ":")).collect();
+        let venue_ids_inside: Vec<String> = venue_ids.iter().map(|s| s.replace('/', ":")).collect();
         let mut venue_name_by_id: HashMap<String, String> = HashMap::new();
         if !venue_ids_inside.is_empty() {
             let mut res = self
@@ -3450,9 +3398,7 @@ impl AnalyticsRepository {
                         .map(normalize_record_id_string)
                         .filter(|s| !s.is_empty())
                         .map(|s| {
-                            if s.starts_with("venue/") {
-                                s
-                            } else if s.contains('/') {
+                            if s.starts_with("venue/") || s.contains('/') {
                                 s
                             } else {
                                 format!("venue/{}", s)
@@ -3466,9 +3412,10 @@ impl AnalyticsRepository {
                 let name = ["dn", "displayName", "ds", "display_name"]
                     .iter()
                     .find_map(|k| {
-                        v.get(*k).and_then(|x| x.as_str()).map(str::trim).filter(|s| {
-                            !s.is_empty()
-                        })
+                        v.get(*k)
+                            .and_then(|x| x.as_str())
+                            .map(str::trim)
+                            .filter(|s| !s.is_empty())
                     })
                     .map(|s| s.to_string())
                     .unwrap_or_else(|| id_key.clone());
@@ -3483,9 +3430,10 @@ impl AnalyticsRepository {
                     let name = ["displayName", "display_name", "dn", "ds"]
                         .iter()
                         .find_map(|k| {
-                            row.get(*k).and_then(|x| x.as_str()).map(str::trim).filter(|s| {
-                                !s.is_empty()
-                            })
+                            row.get(*k)
+                                .and_then(|x| x.as_str())
+                                .map(str::trim)
+                                .filter(|s| !s.is_empty())
                         })
                         .map(|s| s.to_string());
                     if let Some(n) = name {
@@ -5255,5 +5203,49 @@ impl AnalyticsRepository {
     pub async fn get_games_by_player_count(&self) -> Result<Vec<(i32, Vec<(String, i32)>)>> {
         // TODO: implement with SurrealQL (group by participant count and game name)
         Ok((2..=10).map(|pc| (pc, Vec::new())).collect())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_query_building() {
+        // Test that query building functions work without database connection
+        // Create a minimal config for testing
+        let config = DatabaseConfig {
+            url: "http://localhost:50001".to_string(),
+            ns: "test".to_string(),
+            name: "test".to_string(),
+            root_username: "root".to_string(),
+            root_password: "".to_string(),
+            username: "root".to_string(),
+            password: "root".to_string(),
+            pool_size: 10,
+            _timeout_seconds: 30,
+        };
+
+        // Test that we can create the config
+        assert_eq!(config.name, "test");
+        assert_eq!(config.url, "http://localhost:50001");
+    }
+
+    #[test]
+    fn test_analytics_repository_creation() {
+        // Test that we can create a repository structure
+        let config = DatabaseConfig {
+            url: "http://localhost:50001".to_string(),
+            ns: "test".to_string(),
+            name: "test".to_string(),
+            root_username: "root".to_string(),
+            root_password: "".to_string(),
+            username: "test_user".to_string(),
+            password: "test_pass".to_string(),
+            pool_size: 10,
+            _timeout_seconds: 30,
+        };
+
+        assert_eq!(config.name, "test");
     }
 }

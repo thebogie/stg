@@ -13,34 +13,6 @@ pub struct AnalyticsController {
     usecase: AnalyticsUseCase,
 }
 
-#[cfg(test)]
-mod tests {
-    use super::AnalyticsController;
-
-    #[test]
-    fn normalize_player_key_to_id() {
-        let id = AnalyticsController::normalize_id("player", "abc123");
-        assert_eq!(id, "player/abc123");
-    }
-
-    #[test]
-    fn normalize_player_full_id_kept() {
-        let id = AnalyticsController::normalize_id("player", "player/abc123");
-        assert_eq!(id, "player/abc123");
-    }
-
-    #[test]
-    fn normalize_contest_key_to_id() {
-        let id = AnalyticsController::normalize_id("contest", "c123");
-        assert_eq!(id, "contest/c123");
-    }
-
-    #[test]
-    fn test_analytics_controller_creation() {
-        assert!(true);
-    }
-}
-
 impl AnalyticsController {
     /// Creates a new analytics controller (in-memory cache).
     pub fn new(db: Db, config: DatabaseConfig) -> Self {
@@ -1897,4 +1869,32 @@ pub fn configure_routes(
                     }))
             )
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::AnalyticsController;
+
+    #[test]
+    fn normalize_player_key_to_id() {
+        let id = AnalyticsController::normalize_id("player", "abc123");
+        assert_eq!(id, "player/abc123");
+    }
+
+    #[test]
+    fn normalize_player_full_id_kept() {
+        let id = AnalyticsController::normalize_id("player", "player/abc123");
+        assert_eq!(id, "player/abc123");
+    }
+
+    #[test]
+    fn normalize_contest_key_to_id() {
+        let id = AnalyticsController::normalize_id("contest", "c123");
+        assert_eq!(id, "contest/c123");
+    }
+
+    #[test]
+    fn test_analytics_controller_creation() {
+        assert!(true);
+    }
 }

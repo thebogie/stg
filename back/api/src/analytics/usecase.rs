@@ -88,12 +88,12 @@ impl AnalyticsUseCase {
         weeks: i32,
         game_id: Option<&str>,
     ) -> Result<serde_json::Value> {
-        let weeks = weeks.max(1).min(52);
+        let weeks = weeks.clamp(1, 52);
         let rows = self.repo.get_contest_heatmap(weeks, game_id).await?;
         let mut buckets = vec![vec![0u64; 24]; 7];
         for r in rows {
-            let d = (r.day.max(0).min(6)) as usize;
-            let h = (r.hour.max(0).min(23)) as usize;
+            let d = r.day.clamp(0, 6) as usize;
+            let h = r.hour.clamp(0, 23) as usize;
             buckets[d][h] = r.plays as u64;
         }
         Ok(serde_json::json!({ "weeks": weeks, "buckets": buckets }))
@@ -176,7 +176,7 @@ impl AnalyticsUseCase {
                     LeaderboardCategory::BestPlacement => 0.0,  // Default for now
                 };
                 LeaderboardEntry {
-                    rank: (offset + index as i32 + 1) as i32,
+                    rank: (offset + index as i32 + 1),
                     player_id: entry.player_id.clone(),
                     player_handle: entry.player_handle.clone(),
                     player_name: if entry.player_handle.is_empty() {
@@ -735,7 +735,7 @@ impl AnalyticsUseCase {
 
         // For now, we'll get stats for a few sample players
         // In a real implementation, you'd get this from the repository
-        let sample_players = vec!["player/1", "player/2", "player/3", "player/4", "player/5"];
+        let sample_players = ["player/1", "player/2", "player/3", "player/4", "player/5"];
 
         for player_id in sample_players.iter().take(limit as usize) {
             if let Ok(stats) = self
@@ -849,7 +849,7 @@ impl AnalyticsUseCase {
                     } else if stats.player_handle.is_empty() {
                         stats.player_handle = normalized_id
                             .split('/')
-                            .last()
+                            .next_back()
                             .unwrap_or("Unknown")
                             .to_string();
                         stats.player_name = stats.player_handle.clone();

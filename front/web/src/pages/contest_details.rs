@@ -1,11 +1,11 @@
 use crate::api::contests::{contest_key_from_any, delete_contest};
-use shared::models::contest_moderation::moderation_status;
 use crate::api::utils::authenticated_get;
 use crate::auth::AuthContext;
 use crate::components::common::toast::{Toast, ToastContext, ToastType};
 use crate::Route;
 use gloo_storage::Storage;
 use serde_json::Value;
+use shared::models::contest_moderation::moderation_status;
 use yew::prelude::*;
 use yew_router::prelude::*;
 

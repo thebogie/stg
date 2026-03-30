@@ -40,6 +40,18 @@ pub fn admin_page(_props: &AdminPageProps) -> Html {
     let pending_contests = use_state(Vec::<ContestDto>::new);
     let pending_loading = use_state(|| false);
     let pending_error = use_state(|| None::<String>);
+    let pending_expanded_id = use_state(|| None::<String>);
+
+    let toggle_pending_detail = {
+        let pending_expanded_id = pending_expanded_id.clone();
+        Callback::from(move |id: String| {
+            if (*pending_expanded_id).as_ref() == Some(&id) {
+                pending_expanded_id.set(None);
+            } else {
+                pending_expanded_id.set(Some(id));
+            }
+        })
+    };
 
     // Check if user is admin
     if !auth.state.is_admin() {
@@ -421,6 +433,9 @@ pub fn admin_page(_props: &AdminPageProps) -> Html {
         })
     };
 
+    let pending_expanded_snapshot = (*pending_expanded_id).clone();
+    let toggle_pending_detail_cb = toggle_pending_detail.clone();
+
     html! {
         <div class="min-h-screen bg-gray-50">
             <div class="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
@@ -585,6 +600,9 @@ pub fn admin_page(_props: &AdminPageProps) -> Html {
                                     <p class="text-gray-600 py-6">{"No contests awaiting approval."}</p>
                                 } else {
                                     <div class="overflow-x-auto border border-gray-200 rounded-lg">
+                                        <p class="px-4 py-2 text-xs text-gray-500 border-b border-gray-200 bg-gray-50">
+                                            {"Click a contest name to view full details before approving or rejecting."}
+                                        </p>
                                         <table class="min-w-full divide-y divide-gray-200 text-sm">
                                             <thead class="bg-gray-50">
                                                 <tr>
@@ -597,6 +615,7 @@ pub fn admin_page(_props: &AdminPageProps) -> Html {
                                                 {for (*pending_contests).iter().map(|c| {
                                                     let id_a = c.id.clone();
                                                     let id_r = c.id.clone();
+                                                    let id_toggle = c.id.clone();
                                                     let reload_a = reload_pending_contests.clone();
                                                     let reload_r = reload_pending_contests.clone();
                                                     let ok_a = show_success_toast.clone();
@@ -605,9 +624,34 @@ pub fn admin_page(_props: &AdminPageProps) -> Html {
                                                     let err_r = show_error_toast.clone();
                                                     let name = c.name.clone();
                                                     let start = format!("{}", c.start);
+                                                    let is_expanded = pending_expanded_snapshot.as_deref() == Some(c.id.as_str());
+                                                    let toggle_row = toggle_pending_detail_cb.clone();
+                                                    let venue = c.venue.clone();
+                                                    let games = c.games.clone();
+                                                    let outcomes = c.outcomes.clone();
+                                                    let creator_line = c
+                                                        .creator_handle
+                                                        .clone()
+                                                        .filter(|s| !s.is_empty())
+                                                        .unwrap_or_else(|| c.creator_id.clone());
+                                                    let created = c
+                                                        .created_at
+                                                        .map(|t| format!("{}", t))
+                                                        .unwrap_or_else(|| "—".to_string());
+                                                    let stop_s = format!("{}", c.stop);
                                                     html! {
-                                                        <tr>
-                                                            <td class="px-4 py-2 font-medium text-gray-900">{name}</td>
+                                                        <>
+                                                        <tr class={if is_expanded { "bg-amber-50/50" } else { "" }}>
+                                                            <td class="px-4 py-2">
+                                                                <button
+                                                                    type="button"
+                                                                    class="text-left font-medium text-yellow-900 hover:text-yellow-700 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-yellow-500 rounded"
+                                                                    aria-expanded={is_expanded.to_string()}
+                                                                    onclick={Callback::from(move |_| toggle_row.emit(id_toggle.clone()))}
+                                                                >
+                                                                    {name.clone()}
+                                                                </button>
+                                                            </td>
                                                             <td class="px-4 py-2 text-gray-700">{start}</td>
                                                             <td class="px-4 py-2 text-right whitespace-nowrap space-x-2">
                                                                 <button
@@ -655,6 +699,95 @@ pub fn admin_page(_props: &AdminPageProps) -> Html {
                                                                 </button>
                                                             </td>
                                                         </tr>
+                                                        if is_expanded {
+                                                            <tr class="bg-gray-50">
+                                                                <td colspan="3" class="px-4 py-4 text-sm text-gray-800 border-t border-gray-100">
+                                                                    <div class="space-y-4">
+                                                                        <div class="grid gap-4 sm:grid-cols-2">
+                                                                            <div>
+                                                                                <h4 class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">{"Schedule"}</h4>
+                                                                                <p class="text-gray-900">
+                                                                                    <span class="font-medium">{"Start: "}</span>{format!("{}", c.start)}
+                                                                                </p>
+                                                                                <p class="text-gray-900 mt-1">
+                                                                                    <span class="font-medium">{"End: "}</span>{stop_s.clone()}
+                                                                                </p>
+                                                                            </div>
+                                                                            <div>
+                                                                                <h4 class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">{"Organizer"}</h4>
+                                                                                <p class="text-gray-900">{creator_line}</p>
+                                                                                <p class="text-gray-600 mt-1 text-xs">
+                                                                                    <span class="font-medium text-gray-700">{"Submitted: "}</span>{created.clone()}
+                                                                                </p>
+                                                                            </div>
+                                                                        </div>
+                                                                        <div>
+                                                                            <h4 class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">{"Venue"}</h4>
+                                                                            if venue.display_name.is_empty() && venue.formatted_address.is_empty() {
+                                                                                <p class="text-gray-600 italic">{"No venue details"}</p>
+                                                                            } else {
+                                                                                <p class="text-gray-900 font-medium">{venue.display_name.clone()}</p>
+                                                                                <p class="text-gray-700 mt-1">{venue.formatted_address.clone()}</p>
+                                                                                <p class="text-gray-600 mt-1 text-xs">{format!("Timezone: {}", venue.timezone)}</p>
+                                                                            }
+                                                                        </div>
+                                                                        <div>
+                                                                            <h4 class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">{"Games"}</h4>
+                                                                            if games.is_empty() {
+                                                                                <p class="text-gray-600 italic">{"No games linked"}</p>
+                                                                            } else {
+                                                                                <ul class="list-disc list-inside space-y-1 text-gray-900">
+                                                                                    {for games.iter().map(|g| {
+                                                                                        let label = match g.year_published {
+                                                                                            Some(y) => format!("{} ({})", g.name, y),
+                                                                                            None => g.name.clone(),
+                                                                                        };
+                                                                                        html! { <li key={g.id.clone()}>{label}</li> }
+                                                                                    })}
+                                                                                </ul>
+                                                                            }
+                                                                        </div>
+                                                                        <div>
+                                                                            <h4 class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">{"Results / outcomes"}</h4>
+                                                                            if outcomes.is_empty() {
+                                                                                <p class="text-gray-600 italic">{"No outcomes recorded yet"}</p>
+                                                                            } else {
+                                                                                <div class="overflow-x-auto">
+                                                                                    <table class="min-w-full text-xs border border-gray-200 rounded-md">
+                                                                                        <thead class="bg-gray-100">
+                                                                                            <tr>
+                                                                                                <th class="px-2 py-1 text-left font-medium text-gray-700">{"Place"}</th>
+                                                                                                <th class="px-2 py-1 text-left font-medium text-gray-700">{"Player"}</th>
+                                                                                                <th class="px-2 py-1 text-left font-medium text-gray-700">{"Result"}</th>
+                                                                                            </tr>
+                                                                                        </thead>
+                                                                                        <tbody class="divide-y divide-gray-100 bg-white">
+                                                                                            {for outcomes.iter().enumerate().map(|(i, o)| {
+                                                                                                let player = if !o.handle.is_empty() {
+                                                                                                    o.handle.clone()
+                                                                                                } else if !o.email.is_empty() {
+                                                                                                    o.email.clone()
+                                                                                                } else {
+                                                                                                    o.player_id.clone()
+                                                                                                };
+                                                                                                html! {
+                                                                                                    <tr key={format!("o-{}-{}", c.id, i)}>
+                                                                                                        <td class="px-2 py-1">{o.place.clone()}</td>
+                                                                                                        <td class="px-2 py-1">{player}</td>
+                                                                                                        <td class="px-2 py-1">{o.result.clone()}</td>
+                                                                                                    </tr>
+                                                                                                }
+                                                                                            })}
+                                                                                        </tbody>
+                                                                                    </table>
+                                                                                </div>
+                                                                            }
+                                                                        </div>
+                                                                    </div>
+                                                                </td>
+                                                            </tr>
+                                                        }
+                                                        </>
                                                     }
                                                 })}
                                             </tbody>

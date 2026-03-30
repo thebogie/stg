@@ -157,7 +157,7 @@ impl RedisCache {
             let result: (usize, Vec<String>) = redis::cmd("SCAN")
                 .arg(cursor)
                 .arg("MATCH")
-                .arg(&format!("{}*", search_pattern))
+                .arg(format!("{}*", search_pattern))
                 .arg("COUNT")
                 .arg(scan_count)
                 .query_async(&mut conn)

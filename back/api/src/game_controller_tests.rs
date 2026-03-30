@@ -52,7 +52,7 @@ mod game_controller_tests {
 
         async fn search_dto(&self, _query: &str) -> Vec<GameDto> {
             let games = self.games.lock().await;
-            games.iter().map(|g| GameDto::from(g)).collect()
+            games.iter().map(GameDto::from).collect()
         }
 
         async fn search_db_only(&self, _query: &str) -> Vec<Game> {
@@ -62,7 +62,7 @@ mod game_controller_tests {
 
         async fn search_db_only_dto(&self, _query: &str) -> Vec<GameDto> {
             let games = self.games.lock().await;
-            games.iter().map(|g| GameDto::from(g)).collect()
+            games.iter().map(GameDto::from).collect()
         }
 
         async fn get_game_recommendations(

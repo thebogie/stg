@@ -206,7 +206,7 @@ fn json_value_as_bool(v: &serde_json::Value) -> Option<bool> {
 fn is_admin_from_row_json(row: &serde_json::Value) -> Option<bool> {
     row.get("isAdmin")
         .or_else(|| row.get("is_admin"))
-        .and_then(|v| json_value_as_bool(v))
+        .and_then(json_value_as_bool)
 }
 
 impl PlayerRepositoryImpl {
@@ -221,11 +221,17 @@ impl PlayerRepositoryImpl {
         // Integration tests: match `create` — `ensure_scope_via_query` before SELECT (see module docs).
         if self.ns.is_some() && self.db_name.is_some() {
             self.ensure_scope_via_query().await.ok()?;
-            let mut res = self.db.query(CORE).bind(("email", email_owned)).await.ok()?;
+            let mut res = self
+                .db
+                .query(CORE)
+                .bind(("email", email_owned))
+                .await
+                .ok()?;
             let rows: Vec<serde_json::Value> = res.take(0).unwrap_or_default();
-            return rows.into_iter().next().and_then(|v| {
-                json_value_as_bool(&v).or_else(|| is_admin_from_row_json(&v))
-            });
+            return rows
+                .into_iter()
+                .next()
+                .and_then(|v| json_value_as_bool(&v).or_else(|| is_admin_from_row_json(&v)));
         }
         let (q, take_idx) = scope_prefix(self.ns.as_deref(), self.db_name.as_deref(), CORE);
         if take_idx == 0 {
@@ -697,7 +703,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_search_players_by_handle() {
-        let players = vec![
+        let players = [
             create_test_player("1", "john_doe", "john@example.com"),
             create_test_player("2", "jane_smith", "jane@example.com"),
             create_test_player("3", "bob_wilson", "bob@example.com"),
@@ -714,7 +720,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_search_players_by_email() {
-        let players = vec![
+        let players = [
             create_test_player("1", "john_doe", "john@example.com"),
             create_test_player("2", "jane_smith", "jane@example.com"),
             create_test_player("3", "bob_wilson", "bob@example.com"),
@@ -730,7 +736,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_search_players_case_insensitive() {
-        let players = vec![
+        let players = [
             create_test_player("1", "John_Doe", "John@Example.com"),
             create_test_player("2", "jane_smith", "jane@example.com"),
         ];
@@ -746,7 +752,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_search_players_empty_query() {
-        let players = vec![
+        let players = [
             create_test_player("1", "john_doe", "john@example.com"),
             create_test_player("2", "jane_smith", "jane@example.com"),
         ];
@@ -761,7 +767,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_search_players_partial_match() {
-        let players = vec![
+        let players = [
             create_test_player("1", "john_doe", "john@example.com"),
             create_test_player("2", "johnny_cash", "johnny@example.com"),
             create_test_player("3", "jane_smith", "jane@example.com"),
@@ -779,7 +785,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_search_players_no_matches() {
-        let players = vec![
+        let players = [
             create_test_player("1", "john_doe", "john@example.com"),
             create_test_player("2", "jane_smith", "jane@example.com"),
         ];
@@ -794,7 +800,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_search_players_special_characters() {
-        let players = vec![
+        let players = [
             create_test_player("1", "user_123", "user123@example.com"),
             create_test_player("2", "test_user", "test@example.com"),
         ];

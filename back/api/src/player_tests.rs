@@ -20,7 +20,7 @@ mod player_tests {
         assert_eq!(player_dto.firstname, "John");
         assert_eq!(player_dto.handle, "testuser");
         assert_eq!(player_dto.email, "test@example.com");
-        assert_eq!(player_dto.is_admin, false);
+        assert!(!player_dto.is_admin);
     }
 
     #[test]
@@ -35,7 +35,7 @@ mod player_tests {
         assert_eq!(request.username, "janeuser");
         assert_eq!(request.password, "password123");
         assert_eq!(request.email, "jane@example.com");
-        assert_eq!(request.is_admin, false);
+        assert!(!request.is_admin);
     }
 
     #[test]
@@ -65,7 +65,7 @@ mod player_tests {
         assert_eq!(player.firstname, "John");
         assert_eq!(player.handle, "testuser");
         assert_eq!(player.email, "test@example.com");
-        assert_eq!(player.is_admin, false);
+        assert!(!player.is_admin);
     }
 
     #[test]

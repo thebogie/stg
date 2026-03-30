@@ -37,7 +37,7 @@ pub fn get_timezone_abbreviation(timezone_name: &str) -> String {
                 // This is a simplified approach - in production you'd want more sophisticated abbreviation detection
                 timezone_name
                     .split('/')
-                    .last()
+                    .next_back()
                     .unwrap_or(timezone_name)
                     .to_string()
             } else {

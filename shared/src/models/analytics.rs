@@ -438,6 +438,12 @@ impl PlatformStats {
     }
 }
 
+impl Default for PlatformStats {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

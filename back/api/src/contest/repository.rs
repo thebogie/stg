@@ -148,9 +148,8 @@ impl ContestRepositoryImpl {
             .bind(("record_id", player_record_id))
             .await
             .ok();
-        let prow: Vec<serde_json::Value> = pres
-            .and_then(|mut r| r.take(idx).ok())
-            .unwrap_or_default();
+        let prow: Vec<serde_json::Value> =
+            pres.and_then(|mut r| r.take(idx).ok()).unwrap_or_default();
         prow.into_iter().next().and_then(|p| {
             p.get("handle")
                 .and_then(|x| x.as_str())
@@ -191,7 +190,12 @@ impl ContestRepositoryImpl {
             .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
             .map(|dt| dt.with_timezone(&chrono::FixedOffset::east_opt(0).unwrap()));
         let moderated_by = record_id_from_field(contest_data, "moderated_by")
-            .or_else(|| contest_data.get("moderated_by").and_then(|x| x.as_str()).map(std::string::ToString::to_string))
+            .or_else(|| {
+                contest_data
+                    .get("moderated_by")
+                    .and_then(|x| x.as_str())
+                    .map(std::string::ToString::to_string)
+            })
             .filter(|s| !s.is_empty());
         let moderation_note = contest_data
             .get("moderation_note")
@@ -708,7 +712,7 @@ impl ContestRepository for ContestRepositoryImpl {
             venue_dto.id
         );
 
-        let game_dtos: Vec<GameDto> = processed_games.iter().map(|g| GameDto::from(g)).collect();
+        let game_dtos: Vec<GameDto> = processed_games.iter().map(GameDto::from).collect();
         log::info!("📋 Game DTOs created: {} games", game_dtos.len());
 
         let creator_handle = self
@@ -1788,13 +1792,14 @@ impl ContestRepositoryImpl {
 impl ContestRepositoryImpl {
     /// SurrealQL: contest has at least one played_with edge with `in` in game_ids.
     #[allow(dead_code)]
-    pub(crate) fn build_game_filter_clause(_game_ids_full: &Vec<String>) -> Option<String> {
+    pub(crate) fn build_game_filter_clause(_game_ids_full: &[String]) -> Option<String> {
         if _game_ids_full.is_empty() {
             return None;
         }
         Some("id IN (SELECT VALUE in FROM played_with WHERE out IN $game_rids)".to_string())
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn search_contests(
         &self,
         q: &str,
@@ -1803,7 +1808,7 @@ impl ContestRepositoryImpl {
         stop_from: Option<&str>,
         stop_to: Option<&str>,
         venue_id: Option<&str>,
-        game_ids: &Vec<String>,
+        game_ids: &[String],
         sort_by: &str,
         sort_dir: &str,
         page: u32,

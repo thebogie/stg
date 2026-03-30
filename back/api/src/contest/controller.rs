@@ -3,11 +3,11 @@ use crate::player::repository::PlayerRepository;
 use crate::surreal_helpers::{canonical_id_from_http_path_param, record_id_to_key};
 use actix_web::HttpMessage;
 use actix_web::{delete, get, post, web, HttpRequest, HttpResponse, Responder};
-use shared::models::contest_moderation::moderation_status;
 use chrono::{NaiveDate, NaiveTime, TimeZone, Utc};
 use serde::Deserialize;
 use serde_json::json;
 use shared::dto::contest::ContestDto;
+use shared::models::contest_moderation::moderation_status;
 use validator::Validate;
 
 /// True if `email` is listed in `ADMIN_EMAILS` (comma-separated, case-insensitive).
@@ -75,14 +75,15 @@ pub async fn create_contest_handler(
         }));
     }
 
-    // Extract creator information from authenticated user
-    let creator_id = match req.extensions().get::<String>() {
+    // Extract creator information from authenticated user (clone email before await — extensions use RefCell).
+    let email_opt = req.extensions().get::<String>().cloned();
+    let creator_id = match email_opt {
         Some(email) => {
             // Look up the player by email to get the actual player ID
-            match repo.player_usecase.repo.find_by_email(email).await {
+            match repo.player_usecase.repo.find_by_email(&email).await {
                 Some(player) => player.id,
                 None => {
-                    log::error!("Authenticated user {} not found in player database", email);
+                    log::error!("Authenticated user {} not found in player database", &email);
                     return HttpResponse::Unauthorized().json(serde_json::json!({
                         "error": "user_not_found",
                         "details": "Authenticated user not found in player database"
@@ -307,9 +308,7 @@ pub async fn search_contests_handler_impl(
             };
 
             // If we couldn't find the player, return None to signal empty results
-            let filter_id = if not_found {
-                None // Will be handled specially to return empty results
-            } else if normalized_id.is_empty() {
+            let filter_id = if not_found || normalized_id.is_empty() {
                 None
             } else {
                 Some(normalized_id)
@@ -319,17 +318,16 @@ pub async fn search_contests_handler_impl(
             (filter_id, String::new(), "all".to_string(), not_found)
         } else {
             // No specific player filter, use authenticated user's player_id for scope
-            let auth_player_id = if let Some(email) = req.extensions().get::<String>() {
-                // Look up the player by email to get the actual player ID
-                match player_repo.find_by_email(email).await {
+            let auth_email = req.extensions().get::<String>().cloned();
+            let auth_player_id = match auth_email {
+                Some(email) => match player_repo.find_by_email(&email).await {
                     Some(player) => player.id,
                     None => {
-                        log::warn!("Player not found for email: {}", email);
+                        log::warn!("Player not found for email: {}", &email);
                         String::new()
                     }
-                }
-            } else {
-                String::new()
+                },
+                None => String::new(),
             };
             // If there's no player context, force scope to 'all' to avoid 400s and allow browsing
             let effective_scope = if auth_player_id.is_empty() {
@@ -361,7 +359,7 @@ pub async fn search_contests_handler_impl(
                 .filter(|x| !x.is_empty())
                 .collect()
         })
-        .unwrap_or_else(|| vec![]);
+        .unwrap_or_default();
 
     let start_from = normalize_contest_search_date_param(query.start_from.clone(), false);
     let start_to = normalize_contest_search_date_param(query.start_to.clone(), true);
@@ -418,13 +416,15 @@ mod contest_search_date_tests {
 
     #[test]
     fn calendar_start_to_expands_to_end_of_utc_day() {
-        let out = normalize_contest_search_date_param(Some("2023-06-15".to_string()), true).unwrap();
+        let out =
+            normalize_contest_search_date_param(Some("2023-06-15".to_string()), true).unwrap();
         assert!(out.contains("2023-06-15T23:59:59"), "got {}", out);
     }
 
     #[test]
     fn calendar_start_from_expands_to_start_of_utc_day() {
-        let out = normalize_contest_search_date_param(Some("2023-06-15".to_string()), false).unwrap();
+        let out =
+            normalize_contest_search_date_param(Some("2023-06-15".to_string()), false).unwrap();
         assert!(out.contains("2023-06-15T00:00:00"), "got {}", out);
     }
 

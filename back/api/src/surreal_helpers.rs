@@ -40,9 +40,7 @@ fn json_id_part_to_string(v: &Value) -> Option<String> {
 #[must_use]
 pub fn normalize_record_id_string(s: &str) -> String {
     s.replace(':', "/")
-        .replace('`', "")
-        .replace(ID_ANGLE_OPEN, "")
-        .replace(ID_ANGLE_CLOSE, "")
+        .replace(['`', ID_ANGLE_OPEN, ID_ANGLE_CLOSE], "")
 }
 
 /// Convert a **single URL path segment** (after percent-decoding) into canonical `"table/key"`.
@@ -92,8 +90,7 @@ pub fn record_id_from_row(
         if let Some(id_part) = id_val.get("id").and_then(json_id_part_to_string) {
             let key = id_part
                 .trim_matches('`')
-                .replace(ID_ANGLE_OPEN, "")
-                .replace(ID_ANGLE_CLOSE, "");
+                .replace([ID_ANGLE_OPEN, ID_ANGLE_CLOSE], "");
             return Some(format!("{}/{}", tb, key));
         }
     }
@@ -138,10 +135,7 @@ pub fn record_id_to_canonical(rid: &surrealdb::types::RecordId) -> String {
     let key_str = match &rid.key {
         // SurrealDB may include backticks / ⟨⟩ wrappers in string keys depending on how the record id
         // is serialized. Canonical IDs in the app must never include those wrappers.
-        RecordIdKey::String(s) => s
-            .replace('`', "")
-            .replace('\u{27e8}', "") // ⟨
-            .replace('\u{27e9}', ""), // ⟩
+        RecordIdKey::String(s) => s.replace(['`', '\u{27e8}', '\u{27e9}'], ""), // ⟩
         RecordIdKey::Number(n) => n.to_string(), // surrealdb_types::Number implements Display
         RecordIdKey::Uuid(u) => u.to_string(),
         _ => return format!("{}:", table),
@@ -162,8 +156,7 @@ pub fn record_id_from_field(v: &Value, field_name: &str) -> Option<String> {
         if let Some(id_part) = id_val.get("id").and_then(json_id_part_to_string) {
             let key = id_part
                 .trim_matches('`')
-                .replace(ID_ANGLE_OPEN, "")
-                .replace(ID_ANGLE_CLOSE, "");
+                .replace([ID_ANGLE_OPEN, ID_ANGLE_CLOSE], "");
             return Some(format!("{}/{}", tb, key));
         }
     }

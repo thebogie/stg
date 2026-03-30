@@ -420,6 +420,12 @@ pub struct CacheTTL {
     pub profile_bundle: Duration,
 }
 
+impl Default for CacheTTL {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CacheTTL {
     pub fn new() -> Self {
         Self {

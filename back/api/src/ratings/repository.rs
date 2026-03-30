@@ -303,6 +303,7 @@ impl RatingsRepository {
     }
 
     /// Upsert latest rating row (global scope) with proper RecordId typing.
+    #[allow(clippy::too_many_arguments)]
     pub async fn upsert_latest_rating_global(
         &self,
         player_id: &str,
@@ -384,6 +385,7 @@ impl RatingsRepository {
     }
 
     /// Insert rating history row (global scope) with proper RecordId typing.
+    #[allow(clippy::too_many_arguments)]
     pub async fn insert_rating_history_global(
         &self,
         player_id: &str,
@@ -667,7 +669,7 @@ impl RatingsRepository {
         let info: Value = rows.into_iter().next().unwrap_or(Value::Null);
         let tables = info
             .get("tb")
-            .map(|v| v.clone())
+            .cloned()
             .unwrap_or(Value::Object(serde_json::Map::new()));
         let mut out = Vec::new();
         if let Some(obj) = tables.as_object() {
@@ -854,7 +856,7 @@ impl RatingsRepository {
             .map_err(|e| SharedError::Database(format!("Failed to take rebuild run id: {}", e)))?;
 
         let id = rows
-            .get(0)
+            .first()
             .and_then(|v| v.get("id"))
             .and_then(|v| v.as_str())
             .unwrap_or("")

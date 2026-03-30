@@ -67,17 +67,17 @@ fn infer_timezone_from_coordinates(_lat: f64, lng: f64) -> String {
     // Simplified timezone inference based on longitude
     // In production, you'd want to use a proper geocoding service
     match lng {
-        lng if lng >= -180.0 && lng < -120.0 => "America/Los_Angeles".to_string(), // Pacific
-        lng if lng >= -120.0 && lng < -90.0 => "America/Denver".to_string(),       // Mountain
-        lng if lng >= -90.0 && lng < -60.0 => "America/Chicago".to_string(),       // Central
-        lng if lng >= -60.0 && lng < -30.0 => "America/New_York".to_string(),      // Eastern
-        lng if lng >= -30.0 && lng < 0.0 => "Europe/London".to_string(),           // GMT
-        lng if lng >= 0.0 && lng < 30.0 => "Europe/Paris".to_string(),             // CET
-        lng if lng >= 30.0 && lng < 60.0 => "Europe/Berlin".to_string(),           // CET
-        lng if lng >= 60.0 && lng < 90.0 => "Asia/Kolkata".to_string(),            // IST
-        lng if lng >= 90.0 && lng < 120.0 => "Asia/Shanghai".to_string(),          // CST
-        lng if lng >= 120.0 && lng < 150.0 => "Asia/Tokyo".to_string(),            // JST
-        lng if lng >= 150.0 && lng < 180.0 => "Australia/Sydney".to_string(),      // AEST
+        lng if (-180.0..-120.0).contains(&lng) => "America/Los_Angeles".to_string(), // Pacific
+        lng if (-120.0..-90.0).contains(&lng) => "America/Denver".to_string(),       // Mountain
+        lng if (-90.0..-60.0).contains(&lng) => "America/Chicago".to_string(),       // Central
+        lng if (-60.0..-30.0).contains(&lng) => "America/New_York".to_string(),      // Eastern
+        lng if (-30.0..0.0).contains(&lng) => "Europe/London".to_string(),           // GMT
+        lng if (0.0..30.0).contains(&lng) => "Europe/Paris".to_string(),             // CET
+        lng if (30.0..60.0).contains(&lng) => "Europe/Berlin".to_string(),           // CET
+        lng if (60.0..90.0).contains(&lng) => "Asia/Kolkata".to_string(),            // IST
+        lng if (90.0..120.0).contains(&lng) => "Asia/Shanghai".to_string(),          // CST
+        lng if (120.0..150.0).contains(&lng) => "Asia/Tokyo".to_string(),            // JST
+        lng if (150.0..180.0).contains(&lng) => "Australia/Sydney".to_string(),      // AEST
         _ => "UTC".to_string(),
     }
 }

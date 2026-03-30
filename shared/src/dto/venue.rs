@@ -57,7 +57,7 @@ impl From<&Venue> for VenueDto {
             lat: venue.lat,
             lng: venue.lng,
             timezone: venue.timezone.clone(),
-            source: venue.source.clone(),
+            source: venue.source,
         }
     }
 }
@@ -102,7 +102,7 @@ impl VenueDto {
         venue.lat = self.lat;
         venue.lng = self.lng;
         venue.timezone = self.timezone.clone();
-        venue.source = self.source.clone();
+        venue.source = self.source;
     }
 
     /// Validates the DTO and converts to Venue if valid

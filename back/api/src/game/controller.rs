@@ -41,7 +41,7 @@ where
     };
     match usecase.get_all_games().await {
         Ok(games) => {
-            let game_dtos: Vec<GameDto> = games.iter().map(|g| GameDto::from(g)).collect();
+            let game_dtos: Vec<GameDto> = games.iter().map(GameDto::from).collect();
             HttpResponse::Ok().json(game_dtos)
         }
         Err(e) => HttpResponse::InternalServerError().body(e),

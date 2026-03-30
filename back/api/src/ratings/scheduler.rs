@@ -57,7 +57,7 @@ impl RatingsScheduler {
 
     /// Get the last run time
     pub fn last_run(&self) -> Option<DateTime<Utc>> {
-        self.last_run.lock().unwrap().clone()
+        *self.last_run.lock().unwrap()
     }
 
     /// Main scheduler loop
@@ -69,7 +69,7 @@ impl RatingsScheduler {
 
         loop {
             // Check if it's time to run monthly recalculation
-            if Self::should_run_monthly_recalculation(last_run.lock().unwrap().clone()) {
+            if Self::should_run_monthly_recalculation(*last_run.lock().unwrap()) {
                 info!("Starting monthly Glicko2 ratings recalculation...");
 
                 match Self::run_monthly_recalculation(&usecase).await {
@@ -198,7 +198,7 @@ impl RatingsScheduler {
     pub fn get_status(&self) -> SchedulerStatus {
         SchedulerStatus {
             is_running: self.is_running,
-            last_run: self.last_run.lock().unwrap().clone(),
+            last_run: *self.last_run.lock().unwrap(),
             next_scheduled_run: Self::calculate_next_run_time(),
         }
     }

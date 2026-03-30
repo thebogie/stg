@@ -229,7 +229,7 @@ mod tests {
 
     #[test]
     fn sort_newest_first_orders_by_year_desc() {
-        let mut rows = vec![
+        let mut rows = [
             row(1, "a", Some(2010), Some(5)),
             row(2, "b", Some(2020), Some(1)),
             row(3, "c", Some(2015), Some(1)),
@@ -242,7 +242,7 @@ mod tests {
 
     #[test]
     fn sort_newest_first_puts_missing_year_last() {
-        let mut rows = vec![row(1, "a", None, None), row(2, "b", Some(2019), Some(10))];
+        let mut rows = [row(1, "a", None, None), row(2, "b", Some(2019), Some(10))];
         rows.sort_unstable_by(sort_newest_first);
         assert_eq!(rows[0].bgg_id, 2);
         assert_eq!(rows[1].bgg_id, 1);
@@ -250,7 +250,7 @@ mod tests {
 
     #[test]
     fn sort_newest_first_tie_year_uses_rank_then_id() {
-        let mut rows = vec![
+        let mut rows = [
             row(10, "a", Some(2020), Some(5)),
             row(11, "b", Some(2020), Some(1)),
             row(12, "c", Some(2020), None),
