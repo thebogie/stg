@@ -13,20 +13,11 @@ extern "C" {
 pub struct ContestConfirmationProps {
     pub contest: ContestDto,
     pub creator_display: String,
-    pub on_confirm: Callback<()>,
-    pub on_cancel: Callback<()>,
-    pub on_edit: Callback<()>,
 }
 
 impl PartialEq for ContestConfirmationProps {
     fn eq(&self, other: &Self) -> bool {
-        // Compare the fields we care about for equality
         self.creator_display == other.creator_display
-            && self.on_confirm == other.on_confirm
-            && self.on_cancel == other.on_cancel
-            && self.on_edit == other.on_edit
-        // Note: We're intentionally not comparing contest field
-        // since ContestDto doesn't implement PartialEq
     }
 }
 
@@ -48,31 +39,6 @@ mod tests {
 pub fn contest_confirmation(props: &ContestConfirmationProps) -> Html {
     let props = props.clone();
 
-    let on_confirm = {
-        let on_confirm = props.on_confirm.clone();
-        Callback::from(move |_| {
-            gloo::console::log!("🔘 ContestConfirmation: Confirm button clicked");
-            gloo::console::log!("🔘 ContestConfirmation: About to emit on_confirm callback");
-            on_confirm.emit(());
-            gloo::console::log!("🔘 ContestConfirmation: on_confirm callback emitted");
-        })
-    };
-
-    let _on_cancel = {
-        let on_cancel = props.on_cancel.clone();
-        Callback::from(move |_: MouseEvent| {
-            on_cancel.emit(());
-        })
-    };
-
-    let on_edit = {
-        let on_edit = props.on_edit.clone();
-        Callback::from(move |_: MouseEvent| {
-            on_edit.emit(());
-        })
-    };
-
-    // Helpers to format offset label similar to the form component
     let format_utc_offset_label = |offset_seconds: i32| {
         let sign = if offset_seconds >= 0 { '+' } else { '-' };
         let abs = offset_seconds.abs();
@@ -81,7 +47,6 @@ pub fn contest_confirmation(props: &ContestConfirmationProps) -> Html {
         format!("UTC{}{:02}:{:02}", sign, hours, minutes)
     };
 
-    // Compute timezone-aware display strings (use venue timezone)
     let tz_name = {
         let raw = &props.contest.venue.timezone;
         let normalized = normalizeIanaTimezone(raw);
@@ -101,7 +66,7 @@ pub fn contest_confirmation(props: &ContestConfirmationProps) -> Html {
             .contest
             .start
             .with_timezone(&tz)
-            .format("%B %d, %Y at %I:%M %p")
+            .format("%b %d, %Y · %I:%M %p")
             .to_string()
     };
     let stop_display = {
@@ -113,7 +78,7 @@ pub fn contest_confirmation(props: &ContestConfirmationProps) -> Html {
             .contest
             .stop
             .with_timezone(&tz)
-            .format("%B %d, %Y at %I:%M %p")
+            .format("%b %d, %Y · %I:%M %p")
             .to_string()
     };
     let tz_label = {
@@ -123,101 +88,66 @@ pub fn contest_confirmation(props: &ContestConfirmationProps) -> Html {
     };
 
     html! {
-        <div class="space-y-6">
-            <h2 class="text-xl font-semibold text-gray-800">{"Confirm Contest Details"}</h2>
-            <p class="text-gray-600">{"Please review the contest details before creating."}</p>
-
+        <div class="space-y-3 text-sm">
             if !props.creator_display.is_empty() {
-                <div class="rounded-lg border border-gray-200 bg-white p-4 text-sm text-gray-700">
-                    <h3 class="text-xs font-semibold uppercase tracking-wide text-gray-500">{"Created by"}</h3>
-                    <p class="mt-1 font-medium text-gray-900">
-                        {"@"}{props.creator_display.clone()}
-                    </p>
-                    <p class="mt-2 text-xs text-gray-500">
-                        {"The contest record will include the exact time when you confirm below."}
-                    </p>
+                <div class="rounded-md border border-gray-200 bg-gray-50/80 px-3 py-2 text-gray-700">
+                    <span class="text-xs font-semibold uppercase tracking-wide text-gray-500">{"Created by "}</span>
+                    <span class="font-medium text-gray-900">{"@"}{props.creator_display.clone()}</span>
                 </div>
             }
 
-            <div class="space-y-4 bg-gray-50 p-4 rounded-material">
-                <div>
-                    <h3 class="text-sm font-medium text-gray-500">{"Timezone"}</h3>
-                    <p class="mt-1 text-gray-900">{tz_label.clone()}</p>
-                </div>
-
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                        <h3 class="text-sm font-medium text-gray-500">{"Start Time"}</h3>
-                        <p class="mt-1 text-gray-900">{start_display}</p>
+            <div class="rounded-md border border-gray-100 bg-gray-50 p-3 space-y-2.5">
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2">
+                    <div class="sm:col-span-2">
+                        <h3 class="text-xs font-semibold uppercase tracking-wide text-gray-500">{"Venue"}</h3>
+                        <p class="font-medium text-gray-900 leading-snug">{&props.contest.venue.display_name}</p>
+                        <p class="text-xs text-gray-500 leading-snug">{&props.contest.venue.formatted_address}</p>
                     </div>
 
                     <div>
-                        <h3 class="text-sm font-medium text-gray-500">{"End Time"}</h3>
-                        <p class="mt-1 text-gray-900">{stop_display}</p>
+                        <h3 class="text-xs font-semibold uppercase tracking-wide text-gray-500">{"Timezone"}</h3>
+                        <p class="text-gray-900">{tz_label.clone()}</p>
+                    </div>
+
+                    <div>
+                        <h3 class="text-xs font-semibold uppercase tracking-wide text-gray-500">{"Schedule"}</h3>
+                        <p class="text-gray-900"><span class="text-gray-500">{"Start · "}</span>{start_display}</p>
+                        <p class="text-gray-900"><span class="text-gray-500">{"End · "}</span>{stop_display}</p>
                     </div>
                 </div>
 
                 <div>
-                    <h3 class="text-sm font-medium text-gray-500">{"Venue"}</h3>
-                    <p class="mt-1 text-gray-900">{&props.contest.venue.display_name}</p>
-                    <p class="text-sm text-gray-500">{&props.contest.venue.formatted_address}</p>
+                    <h3 class="text-xs font-semibold uppercase tracking-wide text-gray-500">{"Games"}</h3>
+                    <p class="mt-0.5 text-gray-900 leading-snug">
+                        {props.contest.games.iter().map(|g| g.name.as_str()).collect::<Vec<_>>().join(", ")}
+                    </p>
                 </div>
 
                 <div>
-                    <h3 class="text-sm font-medium text-gray-500">{"Games"}</h3>
-                    <ul class="mt-1 space-y-1">
-                        {props.contest.games.iter().map(|game| {
-                            html! {
-                                <li class="text-gray-900">{&game.name}</li>
-                            }
-                        }).collect::<Html>()}
-                    </ul>
-                </div>
-
-                <div>
-                    <h3 class="text-sm font-medium text-gray-500">{"Outcomes"}</h3>
-                    <ul class="mt-1 space-y-1">
+                    <h3 class="text-xs font-semibold uppercase tracking-wide text-gray-500">{"Outcomes"}</h3>
+                    <ul class="mt-0.5 space-y-0.5 text-gray-900">
                         {props.contest.outcomes.iter().map(|outcome| {
-                            // Use email and handle if available, otherwise fallback to player_id
                             let player_display = if !outcome.email.is_empty() && !outcome.handle.is_empty() {
-                                // If we have both email and handle, use the requested format
                                 format!("{}({})", outcome.email, outcome.handle)
                             } else if outcome.player_id.contains('@') {
-                                // If player_id contains @, it's likely an email
                                 outcome.player_id.clone()
                             } else if outcome.player_id.starts_with("player/") {
-                                // If player_id starts with "player/", extract the UUID part
                                 outcome.player_id.split('/').last().unwrap_or(&outcome.player_id).to_string()
                             } else {
-                                // For any other format, just display as is
                                 outcome.player_id.clone()
                             };
 
                             html! {
-                                <li class="text-gray-900">{format!("Player: {}, Place: {}, Result: {}",
-                                    player_display, outcome.place, outcome.result)}</li>
+                                <li class="text-xs sm:text-sm leading-snug">
+                                    {format!(
+                                        "{} — place {}, {}",
+                                        player_display, outcome.place, outcome.result
+                                    )}
+                                </li>
                             }
                         }).collect::<Html>()}
                     </ul>
                 </div>
-            </div>
-
-            <div class="flex justify-end space-x-4">
-                <button
-                    onclick={on_edit}
-                    class="btn-material-secondary flex items-center"
-                >
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-1" viewBox="0 0 20 20" fill="currentColor">
-                        <path fill-rule="evenodd" d="M9.707 14.707a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 1.414L7.414 9H15a1 1 0 110 2H7.414l2.293 2.293a1 1 0 010 1.414z" clip-rule="evenodd" />
-                    </svg>
-                    {"Back to Edit"}
-                </button>
-                <button
-                    onclick={on_confirm}
-                    class="btn-material-primary"
-                >
-                    {"Confirm & Add Contest"}
-                </button>
             </div>
         </div>
     }

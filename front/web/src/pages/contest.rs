@@ -44,6 +44,11 @@ enum ContestFormAction {
     SetStop(chrono::DateTime<chrono::FixedOffset>),
     SetTimezone(String),
     SetVenue(Option<VenueDto>),
+    /// Applies venue and contest timezone together (avoids stale reducer reads after async resolve).
+    SetVenueWithTimezone {
+        venue: VenueDto,
+        timezone: String,
+    },
     SetGames(Vec<GameDto>),
     SetOutcomes(Vec<OutcomeDto>),
     Reset,
@@ -56,6 +61,10 @@ fn contest_form_reducer(state: &mut ContestFormState, action: ContestFormAction)
         ContestFormAction::SetStop(dt) => state.stop = dt,
         ContestFormAction::SetTimezone(tz) => state.timezone = tz,
         ContestFormAction::SetVenue(v) => state.venue = v,
+        ContestFormAction::SetVenueWithTimezone { venue, timezone } => {
+            state.timezone = timezone;
+            state.venue = Some(venue);
+        }
         ContestFormAction::SetGames(g) => state.games = g,
         ContestFormAction::SetOutcomes(o) => state.outcomes = o,
         ContestFormAction::Reset => {
@@ -93,6 +102,26 @@ impl yew::Reducible for ContestFormState {
     }
 }
 
+/// Timezone for flatpickr and the Time & Date chip. Prefer the venue once it has a real IANA id
+/// (Google search results use `UTC` as a placeholder until `/api/timezone/resolve` completes).
+fn contest_timezone_for_form(venue: &Option<VenueDto>, reducer_tz: &str) -> String {
+    match venue {
+        Some(v) => {
+            let tz = v.timezone.trim();
+            let is_google_placeholder = v.source == shared::models::venue::VenueSource::Google
+                && (tz.is_empty() || tz.eq_ignore_ascii_case("utc"));
+            if is_google_placeholder {
+                reducer_tz.to_string()
+            } else if !tz.is_empty() {
+                v.timezone.clone()
+            } else {
+                reducer_tz.to_string()
+            }
+        }
+        None => reducer_tz.to_string(),
+    }
+}
+
 #[function_component(Contest)]
 pub fn contest() -> Html {
     log!("ContestPage render");
@@ -103,9 +132,10 @@ pub fn contest() -> Html {
     let is_submitting = use_state(|| false);
     let error_message = use_state(|| None::<String>);
 
-    // Reducer for form state
+    // Reducer for form state — use `use_reducer` (not `use_reducer_eq`): the contest form must
+    // re-render on every dispatch so async venue timezone resolution updates the Time & Date chip.
     let reducer = {
-        use_reducer_eq(|| {
+        use_reducer(|| {
             log!("Reducer INIT");
             let now_utc = chrono::Utc::now().fixed_offset();
             let browser_timezone = match getBrowserIanaTimezone().as_str() {
@@ -190,7 +220,8 @@ pub fn contest() -> Html {
         });
     }
 
-    // Ensure timezone is always set to detected browser timezone (run only once on mount)
+    // Venue preload from last DB pick (once on mount). Do not force browser timezone here; the
+    // contest timezone must follow the selected venue after `/api/timezone/resolve`.
     {
         let reducer = reducer.clone();
         use_effect_with((), move |_| {
@@ -229,14 +260,6 @@ pub fn contest() -> Html {
                 log!("Skipping venue preload - venue is already selected");
             }
 
-            let browser_timezone = getBrowserIanaTimezone();
-            if !browser_timezone.is_empty() && browser_timezone != reducer.timezone {
-                log!(format!(
-                    "Effect: Updating timezone from '{}' to '{}'",
-                    reducer.timezone, browser_timezone
-                ));
-                reducer.dispatch(ContestFormAction::SetTimezone(browser_timezone));
-            }
             || ()
         });
     }
@@ -281,20 +304,8 @@ pub fn contest() -> Html {
                 reducer.venue
             ));
 
-            // Set venue immediately and synchronously
+            // Set venue immediately so the UI reflects the selection while timezone resolves.
             reducer.dispatch(ContestFormAction::SetVenue(Some(v.clone())));
-
-            // Verify the venue was actually set
-            let updated_venue = (*reducer).venue.clone();
-            log!(format!(
-                "Current state venue after update: {:?}",
-                updated_venue
-            ));
-
-            if updated_venue.is_none() {
-                log!("ERROR: Venue was not set in reducer state!");
-                return;
-            }
 
             // Database venues: use their stored timezone
             if v.source == shared::models::venue::VenueSource::Database {
@@ -313,11 +324,13 @@ pub fn contest() -> Html {
                 ));
 
                 let reducer_for_resolve = reducer.clone();
-                let place_id = v.place_id.clone();
-                let lat = v.lat;
-                let lng = v.lng;
+                let venue_for_tz = v.clone();
+                let place_id = venue_for_tz.place_id.clone();
+                let lat = venue_for_tz.lat;
+                let lng = venue_for_tz.lng;
 
                 wasm_bindgen_futures::spawn_local(async move {
+                    let mut venue = venue_for_tz;
                     // Try place_id first
                     let mut tz_result = if !place_id.is_empty() {
                         log!(format!("Resolving timezone by place_id: {}", place_id));
@@ -337,12 +350,14 @@ pub fn contest() -> Html {
 
                     if let Ok(tz) = tz_result {
                         log!(format!("Frontend: Resolved timezone: {}", tz));
-                        if let Some(mut updated_venue) = (*reducer_for_resolve).venue.clone() {
-                            updated_venue.timezone = tz.clone();
-                            reducer_for_resolve
-                                .dispatch(ContestFormAction::SetVenue(Some(updated_venue)));
-                        }
-                        reducer_for_resolve.dispatch(ContestFormAction::SetTimezone(tz));
+                        // Do not read `(*reducer_for_resolve).venue` after `await`: `UseReducerHandle`
+                        // derefs to a cached `Rc` from the last render, not live hook state, so a
+                        // "still the same venue?" check always sees stale data and skipped dispatch.
+                        venue.timezone = tz.clone();
+                        reducer_for_resolve.dispatch(ContestFormAction::SetVenueWithTimezone {
+                            venue,
+                            timezone: tz,
+                        });
                     } else {
                         log!("Failed to resolve timezone via place_id and coords; keeping existing timezone");
                     }
@@ -475,6 +490,9 @@ pub fn contest() -> Html {
                             let _ = LocalStorage::delete("contest_form_state");
                             let _ = SessionStorage::set(CONTEST_SUBMITTED_MODERATION_FLASH, "1");
                             navigator.push(&Route::Contests);
+                            if let Some(w) = web_sys::window() {
+                                let _ = w.scroll_to_with_x_and_y(0.0, 0.0);
+                            }
                         }
                         Err(err) => {
                             error_message.set(Some(format!("Failed to create contest: {}", err)));
@@ -516,7 +534,10 @@ pub fn contest() -> Html {
                             <ContestForm
                                 start={(*reducer).start}
                                 stop={(*reducer).stop}
-                                timezone={(*reducer).timezone.clone()}
+                                timezone={contest_timezone_for_form(
+                                    &(*reducer).venue,
+                                    &(*reducer).timezone,
+                                )}
                                 venue={(*reducer).venue.clone()}
                                 games={(*reducer).games.clone()}
                                 outcomes={(*reducer).outcomes.clone()}

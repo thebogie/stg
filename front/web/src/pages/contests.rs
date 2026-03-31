@@ -114,6 +114,9 @@ pub fn contests(props: &ContestsProps) -> Html {
                         "Submitted for review. It will appear in public listings after a moderator approves it. Community moderation is not legal advice."
                             .to_string(),
                     ));
+                    if let Some(w) = web_sys::window() {
+                        let _ = w.scroll_to_with_x_and_y(0.0, 0.0);
+                    }
                 }
             }
             || ()

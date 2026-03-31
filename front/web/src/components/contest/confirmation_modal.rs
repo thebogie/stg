@@ -17,13 +17,10 @@ pub struct ContestConfirmationModalProps {
 pub fn contest_confirmation_modal(props: &ContestConfirmationModalProps) -> Html {
     let props = props.clone();
 
-    let on_confirm = {
+    let on_confirm_click = {
         let on_confirm = props.on_confirm.clone();
-        Callback::from(move |_: ()| {
-            gloo::console::log!("ContestConfirmationModal: Confirm callback triggered");
-            gloo::console::log!("ContestConfirmationModal: Emitting on_confirm callback");
+        Callback::from(move |_: MouseEvent| {
             on_confirm.emit(());
-            gloo::console::log!("ContestConfirmationModal: on_confirm callback emitted");
         })
     };
 
@@ -34,17 +31,9 @@ pub fn contest_confirmation_modal(props: &ContestConfirmationModalProps) -> Html
         })
     };
 
-    // Create separate callbacks for the ContestConfirmation component
-    let confirmation_on_cancel = {
-        let on_cancel = props.on_cancel.clone();
-        Callback::from(move |_: ()| {
-            on_cancel.emit(());
-        })
-    };
-
-    let confirmation_on_edit = {
+    let on_edit = {
         let on_edit = props.on_edit.clone();
-        Callback::from(move |_: ()| {
+        Callback::from(move |_: MouseEvent| {
             on_edit.emit(());
         })
     };
@@ -63,25 +52,48 @@ pub fn contest_confirmation_modal(props: &ContestConfirmationModalProps) -> Html
     let contest = props.contest.unwrap();
 
     html! {
-        <div class="fixed inset-0 bg-black bg-opacity-50 backdrop-blur-sm flex items-center justify-center z-50" onclick={on_overlay_click}>
-            <div class="bg-white rounded-xl shadow-xl w-full max-w-4xl mx-4 transform transition-all max-h-[90vh] overflow-y-auto" onclick={|e: MouseEvent| e.stop_propagation()}>
-                <div class="flex justify-between items-center p-6 border-b border-gray-200">
-                    <h2 class="text-2xl font-semibold text-gray-800">{"Confirm Contest Details"}</h2>
+        <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm px-3 py-4 sm:px-4" onclick={on_overlay_click}>
+            <div
+                class="flex max-h-[min(92vh,48rem)] w-full max-w-2xl flex-col overflow-hidden rounded-xl bg-white shadow-xl"
+                onclick={|e: MouseEvent| e.stop_propagation()}
+            >
+                <div class="flex shrink-0 items-center justify-between border-b border-gray-200 px-4 py-3 sm:px-5">
+                    <h2 class="text-lg font-semibold text-gray-800 sm:text-xl">{"Review contest"}</h2>
                     <button
-                        class="text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-full p-2 transition-colors duration-200"
+                        type="button"
+                        class="rounded-full p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700"
                         onclick={on_cancel.clone()}
                     >
                         {"×"}
                     </button>
                 </div>
-                <div class="p-6">
+
+                <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-3 sm:px-5">
+                    <p class="mb-3 text-xs text-gray-500 sm:text-sm">{"Check the details below, then confirm to submit."}</p>
                     <ContestConfirmation
                         contest={contest}
                         creator_display={props.creator_display.clone()}
-                        on_confirm={on_confirm}
-                        on_cancel={confirmation_on_cancel}
-                        on_edit={confirmation_on_edit}
                     />
+                </div>
+
+                <div class="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-gray-200 bg-gray-50 px-4 py-3 sm:px-5">
+                    <button
+                        type="button"
+                        onclick={on_edit}
+                        class="btn-material-secondary inline-flex items-center px-3 py-2 text-sm"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" class="mr-1 h-4 w-4 shrink-0" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                            <path fill-rule="evenodd" d="M9.707 14.707a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 1.414L7.414 9H15a1 1 0 110 2H7.414l2.293 2.293a1 1 0 010 1.414z" clip-rule="evenodd" />
+                        </svg>
+                        {"Back to edit"}
+                    </button>
+                    <button
+                        type="button"
+                        onclick={on_confirm_click}
+                        class="btn-material-primary px-4 py-2 text-sm font-medium"
+                    >
+                        {"Confirm & add contest"}
+                    </button>
                 </div>
             </div>
         </div>
