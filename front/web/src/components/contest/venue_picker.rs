@@ -190,37 +190,30 @@ pub fn venue_picker(props: &VenuePickerProps) -> Html {
     };
 
     html! {
-        <div class="relative">
-            <div class="space-y-2">
-                <label class="block text-sm font-medium text-gray-700">
-                    {"Search Venue"}
-                </label>
-                <div class="relative">
-                    <input
-                        type="text"
-                        placeholder="Search for a venue..."
-                        value={(*search_query).clone()}
-                        oninput={on_search}
-                        onfocus={on_input_focus}
-                        onblur={on_input_blur}
-                        class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    />
-                    if *is_searching {
-                        <div class="absolute inset-y-0 right-0 flex items-center pr-3">
-                            <div class="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
-                        </div>
-                    }
-                </div>
-                <div class="flex items-center justify-between">
-                    <span class="text-xs text-gray-500">
-                        {"Total venues in DB: "}{all_venues.len()}
-                    </span>
-                </div>
+        <div class="w-full min-w-0 space-y-2">
+            <label class="block text-sm font-medium text-gray-700">
+                {"Search Venue"}
+            </label>
+            <div class="relative w-full min-w-0">
+                <input
+                    type="text"
+                    placeholder="Search for a venue..."
+                    value={(*search_query).clone()}
+                    oninput={on_search}
+                    onfocus={on_input_focus}
+                    onblur={on_input_blur}
+                    class="w-full min-h-[48px] px-3 py-2.5 text-base sm:min-h-0 sm:py-2 sm:text-sm border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+                if *is_searching {
+                    <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3">
+                        <div class="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                    </div>
+                }
             </div>
 
             if *show_suggestions {
                 <div
-                    class="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-auto mobile-scroll"
+                    class="mt-2 w-full rounded-xl border border-gray-200 bg-white shadow-sm max-h-[50vh] overflow-y-auto overscroll-contain mobile-scroll sm:max-h-72"
                     onpointerdown={
                         let is_interacting_suggestions = is_interacting_suggestions.clone();
                         Callback::from(move |_| is_interacting_suggestions.set(true))
@@ -279,15 +272,15 @@ pub fn venue_picker(props: &VenuePickerProps) -> Html {
 
                                 html! {
                                     <li
-                                        class={format!("px-3 py-2 cursor-pointer transition-colors duration-150 {} {} {}", bg_class, text_class, border_class)}
+                                        class={format!("px-3 py-3 sm:py-2 cursor-pointer transition-colors duration-150 active:bg-gray-100 {} {} {}", bg_class, text_class, border_class)}
                                         onclick={on_click}
                                     >
-                                        <div class="flex flex-col">
-                                            <div class="flex items-center justify-between">
-                                                <span class="font-medium truncate">
+                                        <div class="flex flex-col gap-2 sm:gap-1">
+                                            <div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-2">
+                                                <span class="min-w-0 font-medium text-gray-900 break-words sm:truncate">
                                                     {&venue.display_name}
                                                 </span>
-                                                <span class={format!("text-xs px-2 py-1 rounded-full {}",
+                                                <span class={format!("shrink-0 self-start text-xs px-2 py-1 rounded-full {}",
                                                     match venue.source {
                                                         VenueSource::Database => "bg-blue-100 text-blue-800",
                                                         VenueSource::Google => "bg-yellow-100 text-yellow-800",
@@ -299,7 +292,7 @@ pub fn venue_picker(props: &VenuePickerProps) -> Html {
                                                     }}
                                                 </span>
                                             </div>
-                                            <span class="text-sm text-gray-500 truncate mt-1">
+                                            <span class="text-sm text-gray-500 break-words sm:truncate mt-0 sm:mt-1">
                                                 {&venue.formatted_address}
                                             </span>
                                         </div>
@@ -310,6 +303,11 @@ pub fn venue_picker(props: &VenuePickerProps) -> Html {
                     }
                 </div>
             }
+            <div class="flex items-center justify-between">
+                <span class="text-xs text-gray-500">
+                    {"Total venues in DB: "}{all_venues.len()}
+                </span>
+            </div>
 
             if let Some(selected) = &*selected_venue {
                 <div class="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-md">

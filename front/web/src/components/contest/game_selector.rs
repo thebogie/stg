@@ -214,23 +214,25 @@ pub fn game_selector(props: &GameSelectorProps) -> Html {
     };
 
     html! {
-        <div class="space-y-4">
-            <div class="text-field-material">
-                <label>{"Search Games"}</label>
-                <input
-                    type="text"
-                    placeholder="Search for games... (select multiple games)"
-                    value={(*search_query).clone()}
-                    oninput={on_search}
-                    onfocus={on_input_focus}
-                    onblur={on_input_blur}
-                    onkeydown={on_keydown}
-                />
-            </div>
+        <div class="space-y-4 w-full min-w-0">
+            <div class="w-full min-w-0">
+                <div class="text-field-material">
+                    <label>{"Search Games"}</label>
+                    <input
+                        type="text"
+                        placeholder="Search for games... (select multiple games)"
+                        value={(*search_query).clone()}
+                        oninput={on_search}
+                        onfocus={on_input_focus}
+                        onblur={on_input_blur}
+                        onkeydown={on_keydown}
+                        class="w-full min-h-[48px] py-2.5 text-base sm:min-h-0 sm:py-2 sm:text-sm"
+                    />
+                </div>
 
-            if *show_suggestions {
+                if *show_suggestions && (*is_searching || !search_query.is_empty() || !game_suggestions.is_empty()) {
                 <div
-                    class="paper-material mt-1 max-h-60 overflow-auto mobile-scroll"
+                    class="mt-2 w-full rounded-xl border border-gray-200 bg-white shadow-sm max-h-[50vh] overflow-y-auto overscroll-contain mobile-scroll sm:max-h-72"
                     onpointerdown={
                         let is_interacting_suggestions = is_interacting_suggestions.clone();
                         Callback::from(move |_| is_interacting_suggestions.set(true))
@@ -264,24 +266,24 @@ pub fn game_selector(props: &GameSelectorProps) -> Html {
                             </div>
                         </div>
                     } else if !game_suggestions.is_empty() {
-                        <div class="p-2 border-b border-gray-200">
-                            <div class="flex items-center justify-between">
-                                <div class="flex items-center space-x-4 text-xs text-gray-600">
-                                    <div class="flex items-center space-x-1">
-                                        <span class="w-3 h-3 bg-blue-100 text-blue-800 rounded-full text-xs font-medium flex items-center justify-center">{"DB"}</span>
-                                        <span>{"Database games"}</span>
+                        <div class="border-b border-gray-200 p-3">
+                            <div class="flex flex-col gap-2 text-xs text-gray-600 sm:flex-row sm:items-center sm:justify-between">
+                                <div class="flex flex-wrap gap-x-4 gap-y-2">
+                                    <div class="flex items-center gap-1.5">
+                                        <span class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue-100 text-[10px] font-medium text-blue-800">{"DB"}</span>
+                                        <span>{"Database"}</span>
                                     </div>
-                                    <div class="flex items-center space-x-1">
-                                        <span class="w-3 h-3 bg-orange-100 text-orange-800 rounded-full text-xs font-medium flex items-center justify-center">{"BGG"}</span>
+                                    <div class="flex items-center gap-1.5">
+                                        <span class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-orange-100 text-[10px] font-medium text-orange-800">{"BGG"}</span>
                                         <span>{"BoardGameGeek"}</span>
                                     </div>
                                 </div>
-                                <div class="text-xs text-gray-500">
-                                    {"Click to select multiple games"}
-                                </div>
+                                <p class="text-xs text-gray-500 sm:text-right">
+                                    {"Tap a row to add. Search again for more."}
+                                </p>
                             </div>
                         </div>
-                        <ul class="list-material">
+                        <ul class="list-material divide-y divide-gray-100">
                             {game_suggestions.iter().map(|game| {
                                 let game = game.clone();
                                 let on_click = {
@@ -300,42 +302,40 @@ pub fn game_selector(props: &GameSelectorProps) -> Html {
 
                                 html! {
                                     <li
-                                        class="list-item-material hover:bg-gray-50 transition-colors duration-150 cursor-pointer"
+                                        class="list-item-material cursor-pointer py-3 px-3 transition-colors hover:bg-gray-50 active:bg-gray-100"
                                         onclick={on_click}
                                     >
-                                        <div class="flex items-start justify-between w-full">
-                                            <div class="flex-1 min-w-0">
-                                                <div class="flex items-center space-x-2">
-                                                    <span class="text-lg">{source_icon}</span>
-                                                    <div class="flex-1 min-w-0">
-                                                        <div class="flex items-center space-x-2">
-                                                            <span class="font-medium text-gray-900 truncate">
-                                                                {&game.name}
+                                        <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                                            <div class="flex min-w-0 flex-1 gap-2">
+                                                <span class="shrink-0 text-lg leading-none">{source_icon}</span>
+                                                <div class="min-w-0 flex-1">
+                                                    <div class="flex flex-wrap items-center gap-2">
+                                                        <span class="font-medium text-gray-900 break-words">
+                                                            {&game.name}
+                                                        </span>
+                                                        if let Some(year) = game.year_published {
+                                                            <span class="shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-600">
+                                                                {year}
                                                             </span>
-                                                            if let Some(year) = game.year_published {
-                                                                <span class="text-gray-500 text-xs bg-gray-100 px-1.5 py-0.5 rounded">
-                                                                    {year}
-                                                                </span>
-                                                            }
-                                                        </div>
-                                                        if let Some(description) = &game.description {
-                                                            <p class="text-xs text-gray-600 mt-1 line-clamp-2">
-                                                                {description}
-                                                            </p>
-                                                        }
-                                                        if let Some(bgg_id) = game.bgg_id {
-                                                            <p class="text-xs text-gray-500 mt-1">
-                                                                {"BGG ID: "}{bgg_id}
-                                                            </p>
                                                         }
                                                     </div>
+                                                    if let Some(description) = &game.description {
+                                                        <p class="mt-1 line-clamp-2 text-xs text-gray-600">
+                                                            {description}
+                                                        </p>
+                                                    }
+                                                    if let Some(bgg_id) = game.bgg_id {
+                                                        <p class="mt-1 text-xs text-gray-500">
+                                                            {"BGG ID: "}{bgg_id}
+                                                        </p>
+                                                    }
                                                 </div>
                                             </div>
-                                            <div class="flex flex-col items-end space-y-1 ml-3">
-                                                <span class={format!("text-xs px-2 py-1 rounded-full font-medium border {}", source_class)}>
+                                            <div class="flex shrink-0 flex-row items-center gap-2 sm:flex-col sm:items-end">
+                                                <span class={format!("rounded-full border px-2 py-1 text-xs font-medium {}", source_class)}>
                                                     {source_text}
                                                 </span>
-                                                <span class="text-xs text-gray-500 text-right max-w-24">
+                                                <span class="hidden text-right text-xs text-gray-500 sm:block sm:max-w-[10rem]">
                                                     {source_description}
                                                 </span>
                                             </div>
@@ -346,13 +346,14 @@ pub fn game_selector(props: &GameSelectorProps) -> Html {
                         </ul>
                     }
                 </div>
-            }
+                }
+            </div>
 
             if !props.games.is_empty() {
                 <div class="space-y-2">
-                    <div class="flex items-center justify-between">
+                    <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                         <h3 class="text-sm font-medium text-gray-700">{"Selected Games"}</h3>
-                        <div class="flex items-center space-x-2 text-xs text-gray-500">
+                        <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500">
                             <span class="flex items-center space-x-1">
                                 <span class="w-2 h-2 bg-blue-100 rounded-full"></span>
                                 <span>{"DB: "}{props.games.iter().filter(|g| g.id.starts_with("game/")).count()}</span>

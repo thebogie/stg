@@ -297,8 +297,18 @@ async fn test_search_empty_query() -> Result<()> {
         .to_request();
 
     let search_resp = test::call_service(&app, search_req).await;
-    // Should handle empty query gracefully
-    assert!(search_resp.status().is_success() || search_resp.status().is_client_error());
+    let status = search_resp.status();
+    assert!(
+        status.is_success(),
+        "Empty player search returns directory list (200), got {}",
+        status
+    );
+    let results: serde_json::Value = test::read_body_json(search_resp).await;
+    assert!(
+        results.is_array(),
+        "Empty query response must be a JSON array of players, got {}",
+        results
+    );
 
     Ok(())
 }
@@ -328,8 +338,18 @@ async fn test_search_special_characters() -> Result<()> {
         .to_request();
 
     let search_resp = test::call_service(&app, search_req).await;
-    // Should handle special characters safely
-    assert!(search_resp.status().is_success() || search_resp.status().is_client_error());
+    let status = search_resp.status();
+    assert!(
+        status.is_success(),
+        "Player search with special characters should succeed, got {}",
+        status
+    );
+    let results: serde_json::Value = test::read_body_json(search_resp).await;
+    assert!(
+        results.is_array(),
+        "Search response must be a JSON array, got {}",
+        results
+    );
 
     Ok(())
 }

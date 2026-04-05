@@ -27,6 +27,21 @@ struct PlayerOutcome {
     result: String,
 }
 
+/// Normalize result from DOM or storage: first participant cannot be "drop" (defaults to won).
+fn normalize_outcome_result(row_index: usize, result: &str) -> String {
+    let r = result.trim().to_ascii_lowercase();
+    if row_index == 0 {
+        return match r.as_str() {
+            "won" | "lost" => r,
+            "drop" | "" | _ => "won".to_string(),
+        };
+    }
+    match r.as_str() {
+        "won" | "lost" | "drop" => r,
+        "" | _ => "lost".to_string(),
+    }
+}
+
 #[function_component(OutcomeSelector)]
 pub fn outcome_selector(props: &OutcomeSelectorProps) -> Html {
     let props = props.clone();
@@ -40,6 +55,38 @@ pub fn outcome_selector(props: &OutcomeSelectorProps) -> Html {
     let show_new_player_confirm = use_state(|| false);
     let pending_new_player = use_state(|| None::<PlayerDto>);
     let search_error = use_state(|| None::<String>);
+
+    // Keep stored results consistent (esp. row 0 = never "drop") so the <select> matches state.
+    {
+        let outcomes_state = outcomes.clone();
+        let props_sync = props.clone();
+        use_effect_with((*outcomes_state).clone(), move |list: &Vec<PlayerOutcome>| {
+            let mut fixed: Vec<PlayerOutcome> = list.clone();
+            let mut changed = false;
+            for (i, o) in fixed.iter_mut().enumerate() {
+                let n = normalize_outcome_result(i, &o.result);
+                if o.result != n {
+                    o.result = n;
+                    changed = true;
+                }
+            }
+            if changed {
+                let dtos: Vec<OutcomeDto> = fixed
+                    .iter()
+                    .map(|o| OutcomeDto {
+                        player_id: o.player_id.clone(),
+                        place: o.place.clone(),
+                        result: o.result.clone(),
+                        email: o.email.clone(),
+                        handle: o.handle.clone(),
+                    })
+                    .collect();
+                outcomes_state.set(fixed);
+                props_sync.on_outcomes_change.emit(dtos);
+            }
+            || ()
+        });
+    }
 
     // Email validation pattern
     let email_pattern =
@@ -85,7 +132,7 @@ pub fn outcome_selector(props: &OutcomeSelectorProps) -> Html {
             let search_error = search_error.clone();
 
             spawn_local(async move {
-                match players::search_players(&query).await {
+                match players::search_players(&query, 10).await {
                     Ok(players) => {
                         gloo::console::log!(format!(
                             "DEBUG: search_players response for query '{}': {:?}",
@@ -123,10 +170,9 @@ pub fn outcome_selector(props: &OutcomeSelectorProps) -> Html {
         let props = props.clone();
 
         Callback::from(move |mut current_outcomes: Vec<PlayerOutcome>| {
-            // Reset place numbers based on row order
+            // Reset place numbers based on row order; first participant is always "won"
             for (index, outcome) in current_outcomes.iter_mut().enumerate() {
                 outcome.place = (index + 1).to_string();
-                // Set first row to "won", others to "lost" as default
                 outcome.result = if index == 0 {
                     "won".to_string()
                 } else {
@@ -293,9 +339,9 @@ pub fn outcome_selector(props: &OutcomeSelectorProps) -> Html {
         let outcomes = outcomes.clone();
         let reset_place_numbers = reset_place_numbers.clone();
 
-        Callback::from(move |player_id: String| {
+        Callback::from(move |email: String| {
             let mut new_outcomes = (*outcomes).clone();
-            new_outcomes.retain(|o| o.player_id != player_id);
+            new_outcomes.retain(|o| o.email != email);
             reset_place_numbers.emit(new_outcomes);
         })
     };
@@ -304,12 +350,11 @@ pub fn outcome_selector(props: &OutcomeSelectorProps) -> Html {
         let props = props.clone();
         let outcomes = outcomes.clone();
 
-        Callback::from(move |(player_id, place): (String, String)| {
+        Callback::from(move |(email, place): (String, String)| {
             let mut new_outcomes = (*outcomes).clone();
-            if let Some(outcome) = new_outcomes.iter_mut().find(|o| o.player_id == player_id) {
+            if let Some(outcome) = new_outcomes.iter_mut().find(|o| o.email == email) {
                 outcome.place = place;
                 outcomes.set(new_outcomes.clone());
-                // Convert to OutcomeDto for the parent component
                 let outcome_dtos: Vec<OutcomeDto> = new_outcomes
                     .iter()
                     .map(|o| OutcomeDto {
@@ -330,13 +375,16 @@ pub fn outcome_selector(props: &OutcomeSelectorProps) -> Html {
         let outcomes = outcomes.clone();
         Callback::from(move |e: Event| {
             let select: HtmlSelectElement = e.target_unchecked_into();
-            let value = select.value();
-            let player_id = select.get_attribute("data-player-id").unwrap_or_default();
+            let email_key = select.get_attribute("data-outcome-email").unwrap_or_default();
             let mut new_outcomes = (*outcomes).clone();
-            if let Some(outcome) = new_outcomes.iter_mut().find(|o| o.player_id == player_id) {
+            let Some(row_index) = new_outcomes.iter().position(|o| o.email == email_key) else {
+                return;
+            };
+            let raw = select.value();
+            let value = normalize_outcome_result(row_index, raw.trim());
+            if let Some(outcome) = new_outcomes.iter_mut().find(|o| o.email == email_key) {
                 outcome.result = value;
                 outcomes.set(new_outcomes.clone());
-                // Convert to OutcomeDto for the parent component
                 let outcome_dtos: Vec<OutcomeDto> = new_outcomes
                     .iter()
                     .map(|o| OutcomeDto {
@@ -368,46 +416,36 @@ pub fn outcome_selector(props: &OutcomeSelectorProps) -> Html {
     }
 
     html! {
-        <div class="space-y-4">
-            <div>
+        <div class="w-full min-w-0 space-y-4">
+            <div class="w-full min-w-0">
                 <label class="block text-sm font-medium text-gray-700 mb-2">
                     {"Player Outcomes"}
                 </label>
 
-                <div class="space-y-2">
+                <div class="w-full min-w-0 space-y-2">
                     <label class="block text-sm font-medium text-gray-700">
                         {"Add Players"}
                     </label>
-                    <div class="relative">
+                    <div class="relative w-full min-w-0">
                         <input
                             type="text"
                             placeholder="Search by handle or email..."
                             value={(*search_query).clone()}
                             oninput={on_search_change}
                             class={classes!(
-                                "w-full", "px-3", "py-2", "border", "rounded-md",
+                                "w-full", "min-h-[48px]", "px-3", "py-2.5", "sm:min-h-0", "sm:py-2", "text-base", "sm:text-sm", "border", "rounded-md",
                                 "focus:outline-none", "focus:ring-2", "focus:ring-blue-500", "focus:border-blue-500",
                                 if show_invalid_email { "border-red-500" } else { "border-gray-300" }
                             )}
                         />
                         if *is_searching {
-                            <div class="absolute right-3 top-2">
+                            <div class="pointer-events-none absolute right-3 top-3 sm:top-2.5">
                                 <div class="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600"></div>
                             </div>
                         }
                     </div>
-                    if show_invalid_email {
-                        <div class="text-xs text-red-600 mt-1">
-                            {"Please enter a valid email address or handle (at least 3 characters)."}
-                        </div>
-                    }
-                    if let Some(error_msg) = &*search_error {
-                        <div class="text-xs text-red-600 mt-1">
-                            {error_msg}
-                        </div>
-                    }
-                    if *show_suggestions && !search_results.is_empty() {
-                        <div class="absolute z-10 w-full bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-y-auto">
+                        if *show_suggestions && !search_results.is_empty() {
+                        <div class="mt-2 w-full rounded-xl border border-gray-300 bg-white shadow-sm max-h-[50vh] overflow-y-auto overscroll-contain mobile-scroll sm:max-h-72">
                             {search_results.iter().map(|result| {
                                 let player = result.player.clone();
                                 let on_click = {
@@ -418,7 +456,7 @@ pub fn outcome_selector(props: &OutcomeSelectorProps) -> Html {
                                 html! {
                                     <div
                                         class={classes!(
-                                            "px-3", "py-2", "cursor-pointer", "hover:bg-gray-100",
+                                            "px-3", "py-3", "sm:py-2", "cursor-pointer", "hover:bg-gray-100", "active:bg-gray-200",
                                             if !result.exists {
                                                 classes!("bg-yellow-50", "border-l-4", "border-yellow-400", "border-r", "border-yellow-200")
                                             } else {
@@ -427,23 +465,23 @@ pub fn outcome_selector(props: &OutcomeSelectorProps) -> Html {
                                         )}
                                         onclick={on_click}
                                     >
-                                        <div class="flex items-center justify-between">
-                                            <div class="flex-1">
+                                        <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                                            <div class="min-w-0 flex-1">
                                                 <div class={classes!(
-                                                    "font-medium",
+                                                    "font-medium", "break-words",
                                                     if !result.exists { "text-yellow-800" } else { "text-green-800" }
                                                 )}>
                                                     {&player.handle}
                                                 </div>
                                                 <div class={classes!(
-                                                    "text-sm",
+                                                    "text-sm", "break-all",
                                                     if !result.exists { "text-yellow-600" } else { "text-green-600" }
                                                 )}>
                                                     {&player.email}
                                                 </div>
                                             </div>
                                             <div class={classes!(
-                                                "text-xs", "px-2", "py-1", "rounded", "font-medium",
+                                                "shrink-0", "self-start", "text-xs", "px-2", "py-1", "rounded", "font-medium",
                                                 if !result.exists {
                                                     classes!("text-yellow-800", "bg-yellow-200")
                                                 } else {
@@ -461,6 +499,16 @@ pub fn outcome_selector(props: &OutcomeSelectorProps) -> Html {
                                 }
                             }).collect::<Html>()}
                         </div>
+                        }
+                    if show_invalid_email {
+                        <div class="text-xs text-red-600 mt-1">
+                            {"Please enter a valid email address or handle (at least 3 characters)."}
+                        </div>
+                    }
+                    if let Some(error_msg) = &*search_error {
+                        <div class="text-xs text-red-600 mt-1">
+                            {error_msg}
+                        </div>
                     }
 
                     // Only allow adding a new player if there is a valid email, no error, and no results
@@ -469,7 +517,7 @@ pub fn outcome_selector(props: &OutcomeSelectorProps) -> Html {
                             <button
                                 type="button"
                                 onclick={on_add_player}
-                                class="w-full px-3 py-2 bg-yellow-100 border border-yellow-300 rounded-md text-yellow-800 hover:bg-yellow-200 focus:outline-none focus:ring-2 focus:ring-yellow-500 font-medium"
+                                class="w-full min-h-[48px] px-3 py-2 text-left text-sm sm:text-base bg-yellow-100 border border-yellow-300 rounded-md text-yellow-800 hover:bg-yellow-200 focus:outline-none focus:ring-2 focus:ring-yellow-500 font-medium break-words"
                                 disabled={!is_valid_email}
                             >
                                 {"⚠️ Create new player with email '"} {&*search_query} {"' (handle: '"} {generate_handle_from_email(&*search_query)} {"')"}
@@ -480,82 +528,101 @@ pub fn outcome_selector(props: &OutcomeSelectorProps) -> Html {
             </div>
 
             if !outcomes.is_empty() {
-                <div class="mt-6 space-y-4">
+                <div class="mt-6 w-full min-w-0 space-y-4">
                     <h3 class="text-sm font-medium text-gray-700">{"Contest Participants"}</h3>
                     <div class="space-y-3">
-                        {outcomes.iter().map(|outcome| {
+                        {outcomes.iter().enumerate().map(|(row_index, outcome)| {
                             let player_id = outcome.player_id.clone();
+                            let row_email = outcome.email.clone();
                             let is_new_player = !is_real_player_id(&player_id);
                             let on_remove = {
                                 let on_remove_outcome = on_remove_outcome.clone();
-                                let player_id = player_id.clone();
-                                Callback::from(move |_| on_remove_outcome.emit(player_id.clone()))
+                                let row_email = row_email.clone();
+                                Callback::from(move |_| on_remove_outcome.emit(row_email.clone()))
                             };
                             let on_place_change = {
                                 let on_place_change = on_place_change.clone();
-                                let player_id = player_id.clone();
+                                let row_email = row_email.clone();
                                 Callback::from(move |e: InputEvent| {
                                     let input: HtmlInputElement = e.target_unchecked_into();
-                                    on_place_change.emit((player_id.clone(), input.value()));
+                                    on_place_change.emit((row_email.clone(), input.value()));
                                 })
                             };
                             html! {
                                 <div class={classes!(
-                                    "flex", "items-center", "space-x-4", "p-3", "rounded-md",
+                                    "flex", "flex-col", "gap-3", "sm:flex-row", "sm:items-center", "sm:gap-4",
+                                    "p-3", "rounded-md", "min-w-0",
                                     if is_new_player {
                                         classes!("bg-yellow-50", "border", "border-yellow-200")
                                     } else {
                                         classes!("bg-green-50", "border", "border-green-200")
                                     }
                                 )}>
-                                    <div class="flex-1">
-                                        <div class="flex items-center space-x-2">
-                                            <div class={classes!(
-                                                "text-sm", "font-medium",
-                                                if is_new_player { "text-yellow-800" } else { "text-green-800" }
-                                            )}>
-                                                {format!("{}({})", &outcome.handle, &outcome.email)}
+                                    <div class="flex-1 min-w-0">
+                                        <div class="flex flex-wrap items-center gap-2">
+                                            <div class="min-w-0">
+                                                <div class={classes!(
+                                                    "text-sm", "font-medium", "truncate",
+                                                    if is_new_player { "text-yellow-800" } else { "text-green-800" }
+                                                )}>
+                                                    {&outcome.handle}
+                                                </div>
+                                                <div class={classes!(
+                                                    "text-xs", "break-all", "mt-0.5",
+                                                    if is_new_player { "text-yellow-700" } else { "text-green-700" }
+                                                )}>
+                                                    {&outcome.email}
+                                                </div>
                                             </div>
                                             if is_new_player {
-                                                <span class="text-xs text-yellow-600 bg-yellow-200 px-2 py-1 rounded">
+                                                <span class="text-xs text-yellow-600 bg-yellow-200 px-2 py-1 rounded shrink-0">
                                                     {"NEW"}
                                                 </span>
                                             } else {
-                                                <span class="text-xs text-green-600 bg-green-200 px-2 py-1 rounded">
+                                                <span class="text-xs text-green-600 bg-green-200 px-2 py-1 rounded shrink-0">
                                                     {"EXISTING"}
                                                 </span>
                                             }
                                         </div>
                                     </div>
-                                    <div class="w-20">
-                                        <input
-                                            type="number"
-                                            min="1"
-                                            value={outcome.place.clone()}
-                                            oninput={on_place_change}
-                                            class="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
-                                            placeholder="Place"
-                                        />
-                                    </div>
-                                    <div class="w-32">
-                                        <select
-                                            value={outcome.result.clone()}
-                                            data-player-id={player_id.clone()}
-                                            onchange={on_result_change.clone()}
-                                            class="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                    <div class="flex flex-row gap-3 sm:gap-4 w-full sm:w-auto sm:shrink-0 items-end">
+                                        <div class="flex-1 sm:flex-none sm:w-24">
+                                            <label class="block text-xs font-medium text-gray-600 mb-1 sm:sr-only">
+                                                {"Place / rank"}
+                                            </label>
+                                            <input
+                                                type="number"
+                                                min="1"
+                                                value={outcome.place.clone()}
+                                                oninput={on_place_change}
+                                                class="w-full min-h-[44px] sm:min-h-0 px-2 py-2 sm:px-2 sm:py-1 text-base sm:text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                                placeholder="Place"
+                                            />
+                                        </div>
+                                        <div class="flex-1 sm:flex-none sm:w-36 min-w-0">
+                                            <label class="block text-xs font-medium text-gray-600 mb-1 sm:sr-only">
+                                                {"Won / lost / drop"}
+                                            </label>
+                                            <select
+                                                value={normalize_outcome_result(row_index, &outcome.result)}
+                                                data-outcome-email={outcome.email.clone()}
+                                                onchange={on_result_change.clone()}
+                                                class="w-full min-h-[44px] sm:min-h-0 px-2 py-2 sm:px-2 sm:py-1 text-base sm:text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 max-w-full"
+                                            >
+                                                {result_options.iter().map(|opt| html! {
+                                                    <option value={opt.to_string()}>{opt}</option>
+                                                }).collect::<Html>()}
+                                            </select>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onclick={on_remove}
+                                            class="shrink-0 min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0 flex items-center justify-center text-red-500 hover:text-red-700 text-xl leading-none rounded-md hover:bg-red-50 active:bg-red-100"
+                                            aria-label="Remove player"
                                         >
-                                            {result_options.iter().map(|opt| html! {
-                                                <option value={opt.to_string()} selected={*opt == outcome.result}>{opt}</option>
-                                            }).collect::<Html>()}
-                                        </select>
+                                            {"×"}
+                                        </button>
                                     </div>
-                                    <button
-                                        type="button"
-                                        onclick={on_remove}
-                                        class="text-red-500 hover:text-red-700"
-                                    >
-                                        {"×"}
-                                    </button>
                                 </div>
                             }
                         }).collect::<Html>()}

@@ -317,16 +317,20 @@ pub async fn search_players_handler_impl<R>(
 where
     R: PlayerRepository + Clone + 'static,
 {
-    let empty_string = String::new();
-    let search_query = query.get("query").unwrap_or(&empty_string);
+    let search_query = query.get("query").map(String::as_str).unwrap_or("");
+    let limit_raw = query
+        .get("limit")
+        .and_then(|s| s.parse::<u32>().ok())
+        .unwrap_or(10);
+    let limit = limit_raw.clamp(1, 100);
 
-    if search_query.is_empty() {
-        return Err(ApiError::bad_request("Query parameter is required"));
-    }
+    let players = if search_query.trim().is_empty() {
+        repo.list_players_directory(limit).await
+    } else {
+        repo.search_players(search_query.trim(), limit).await
+    };
 
-    let players = repo.search_players(search_query).await;
-    // Always return 200 OK with an empty list if no players found
-    let player_dtos: Vec<PlayerDto> = players.iter().map(PlayerDto::from).collect();
+    let player_dtos: Vec<PlayerDto> = players.iter().map(player_dto_with_admin_override).collect();
     Ok(HttpResponse::Ok().json(player_dtos))
 }
 

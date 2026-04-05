@@ -154,6 +154,20 @@ pub fn nav() -> Html {
                                         {"Profile"}
                                     </Link<Route>>
                                     <Link<Route>
+                                        to={Route::Players}
+                                        classes={classes!(
+                                            "px-3", "py-2", "rounded-md", "text-sm", "font-medium",
+                                            "transition-colors", "duration-200", "min-h-[44px]", "flex", "items-center",
+                                            if current_route == Route::Players {
+                                                classes!("bg-white/20", "text-white")
+                                            } else {
+                                                classes!("text-white/90", "hover:bg-white/10", "hover:text-white")
+                                            }
+                                        )}
+                                    >
+                                        {"Players"}
+                                    </Link<Route>>
+                                    <Link<Route>
                                         to={Route::Contests}
                                         classes={classes!(
                                             "px-3", "py-2", "rounded-md", "text-sm", "font-medium",
@@ -390,6 +404,16 @@ pub fn nav() -> Html {
                                 <span class="text-lg">{"👤"}</span>
                                 <span class="flex-1">
                                     <span class="text-white">{"Profile"}</span>
+                                </span>
+                            </button>
+                            <button
+                                type="button"
+                                onclick={go_to_route.clone().reform(|_| Route::Players)}
+                                class="w-full flex items-center gap-3 px-3 py-3 text-left text-base font-semibold text-white rounded-xl bg-white/10 hover:bg-white/15 active:bg-white/20 active:scale-[0.99] transition"
+                            >
+                                <span class="text-lg">{"👥"}</span>
+                                <span class="flex-1">
+                                    <span class="text-white">{"Players"}</span>
                                 </span>
                             </button>
                             <button

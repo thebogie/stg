@@ -517,12 +517,12 @@ pub fn contest_form(props: &ContestFormProps) -> Html {
     };
 
     html! {
-        <div class="contest-form-container">
-            <form onsubmit={on_submit} class="space-y-6 sm:space-y-8">
+        <div class="contest-form-container w-full min-w-0">
+            <form onsubmit={on_submit} class="space-y-5 sm:space-y-8">
 
                 // Venue Section (first)
-                <div class="bg-white rounded-xl shadow-mobile-soft p-4 sm:p-6 border border-gray-100">
-                    <h3 class="text-lg sm:text-xl font-semibold text-gray-900 mb-4 sm:mb-6 flex items-center">
+                <div class="bg-white rounded-xl shadow-mobile-soft p-3 sm:p-6 border border-gray-100">
+                    <h3 class="text-base sm:text-xl font-semibold text-gray-900 mb-3 sm:mb-6 flex items-center gap-2">
                         <span class="mr-2 text-xl">{"📍"}</span>
                         {"Venue"}
                     </h3>
@@ -541,11 +541,13 @@ pub fn contest_form(props: &ContestFormProps) -> Html {
                 </div>
 
                 // Time and Date Section (after venue)
-                <div class="bg-white rounded-xl shadow-mobile-soft p-4 sm:p-6 border border-gray-100">
-                    <h3 class="text-lg sm:text-xl font-semibold text-gray-900 mb-4 sm:mb-6 flex items-center">
-                        <span class="mr-2 text-xl">{"🕒"}</span>
-                        {"Time & Date"}
-                        <span class="ml-3 inline-flex items-center rounded-md border border-gray-200 bg-gray-50 px-2.5 py-1 text-xs font-medium text-gray-700">
+                <div class="bg-white rounded-xl shadow-mobile-soft p-3 sm:p-6 border border-gray-100">
+                    <h3 class="text-base sm:text-xl font-semibold text-gray-900 mb-3 sm:mb-6 flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:gap-3 sm:flex-wrap">
+                        <span class="flex items-center gap-2">
+                            <span class="text-xl">{"🕒"}</span>
+                            <span>{"Time & Date"}</span>
+                        </span>
+                        <span class="inline-flex max-w-full items-center rounded-md border border-gray-200 bg-gray-50 px-2.5 py-1.5 text-xs font-medium text-gray-700 break-all sm:break-normal">
                             {timezone_label.clone()}
                         </span>
                     </h3>
@@ -566,7 +568,7 @@ pub fn contest_form(props: &ContestFormProps) -> Html {
                                 type="text"
                                 placeholder="YYYY-MM-DD HH:MM"
                                 disabled={props.locked || props.venue.is_none()}
-                                class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors duration-200 min-h-[40px] text-sm"
+                                class="w-full px-3 py-2.5 sm:py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors duration-200 min-h-[48px] text-base sm:text-sm"
                                 required=true
                                 readonly=true
                             />
@@ -582,7 +584,7 @@ pub fn contest_form(props: &ContestFormProps) -> Html {
                                 type="text"
                                 placeholder="YYYY-MM-DD HH:MM"
                                 disabled={props.locked || props.venue.is_none()}
-                                class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors duration-200 min-h-[40px] text-sm"
+                                class="w-full px-3 py-2.5 sm:py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors duration-200 min-h-[48px] text-base sm:text-sm"
                                 required=true
                                 readonly=true
                             />
@@ -598,8 +600,8 @@ pub fn contest_form(props: &ContestFormProps) -> Html {
                 </div>
 
                 // Games Section
-                <div class="bg-white rounded-xl shadow-mobile-soft p-4 sm:p-6 border border-gray-100">
-                    <h3 class="text-lg sm:text-xl font-semibold text-gray-900 mb-4 sm:mb-6 flex items-center">
+                <div class="bg-white rounded-xl shadow-mobile-soft p-3 sm:p-6 border border-gray-100">
+                    <h3 class="text-base sm:text-xl font-semibold text-gray-900 mb-3 sm:mb-6 flex items-center gap-2">
                         <span class="mr-2 text-xl">{"🎮"}</span>
                         {"Games"}
                     </h3>
@@ -626,8 +628,8 @@ pub fn contest_form(props: &ContestFormProps) -> Html {
                 </div>
 
                 // Outcomes Section
-                <div class="bg-white rounded-xl shadow-mobile-soft p-4 sm:p-6 border border-gray-100">
-                    <h3 class="text-lg sm:text-xl font-semibold text-gray-900 mb-4 sm:mb-6 flex items-center">
+                <div class="bg-white rounded-xl shadow-mobile-soft p-3 sm:p-6 border border-gray-100">
+                    <h3 class="text-base sm:text-xl font-semibold text-gray-900 mb-3 sm:mb-6 flex items-center gap-2">
                         <span class="mr-2 text-xl">{"🏆"}</span>
                         {"Outcomes"}
                     </h3>

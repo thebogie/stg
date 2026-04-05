@@ -29,7 +29,10 @@ struct PlayerRow {
 pub trait PlayerRepository: Send + Sync {
     async fn find_by_email(&self, email: &str) -> Option<Player>;
     async fn find_by_id(&self, id: &str) -> Option<Player>;
-    async fn search_players(&self, query: &str) -> Vec<Player>;
+    /// Search players by handle, email, or first name (case-insensitive substring). At most `limit` rows (capped in the repository).
+    async fn search_players(&self, query: &str, limit: u32) -> Vec<Player>;
+    /// Players ordered by handle for directory browsing when the search box is empty.
+    async fn list_players_directory(&self, limit: u32) -> Vec<Player>;
     async fn create(&self, player: Player) -> Result<Player, String>;
     async fn update(&self, player: Player) -> Result<Player, String>;
     async fn find_by_handle(&self, handle: &str) -> Option<Player>;
@@ -469,12 +472,38 @@ impl PlayerRepository for PlayerRepositoryImpl {
         player
     }
 
-    async fn search_players(&self, query: &str) -> Vec<Player> {
+    async fn search_players(&self, query: &str, limit: u32) -> Vec<Player> {
+        let lim = limit.clamp(1, 100) as i64;
         let q_owned = query.to_string();
-        let mut res = match self.db.query(
-            "SELECT * FROM player WHERE string::contains(string::lowercase(handle), string::lowercase($q)) \
-             OR string::contains(string::lowercase(email), string::lowercase($q)) LIMIT 10",
-        ).bind(("q", q_owned)).await {
+        let mut res = match self
+            .db
+            .query(
+                "SELECT * FROM player WHERE string::contains(string::lowercase(handle), string::lowercase($q)) \
+                 OR string::contains(string::lowercase(email), string::lowercase($q)) \
+                 OR (firstname != NONE AND string::contains(string::lowercase(firstname), string::lowercase($q))) \
+                 ORDER BY handle ASC LIMIT $lim",
+            )
+            .bind(("q", q_owned))
+            .bind(("lim", lim))
+            .await
+        {
+            Ok(r) => r,
+            Err(_) => return Vec::new(),
+        };
+        let rows: Vec<serde_json::Value> = res.take(0).unwrap_or_default();
+        rows.into_iter()
+            .filter_map(|v| value_to_player(&v))
+            .collect()
+    }
+
+    async fn list_players_directory(&self, limit: u32) -> Vec<Player> {
+        let lim = limit.clamp(1, 100) as i64;
+        let mut res = match self
+            .db
+            .query("SELECT * FROM player ORDER BY handle ASC LIMIT $lim")
+            .bind(("lim", lim))
+            .await
+        {
             Ok(r) => r,
             Err(_) => return Vec::new(),
         };

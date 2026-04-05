@@ -44,6 +44,7 @@ pub mod pages {
     pub mod leaderboards;
     pub mod not_found;
     pub mod player_profile;
+    pub mod players;
     pub mod profile;
     pub mod venue_history;
 }
@@ -52,7 +53,7 @@ use pages::{
     admin::AdminPage, analytics::Analytics, analytics_test::AnalyticsTest, contest::Contest,
     contest_details::ContestDetails, contests::Contests, game_details::GameDetails,
     game_history::GameHistory, games::Games, home::Home, leaderboards::Leaderboards, login::Login,
-    not_found::NotFound, player_profile::PlayerProfilePage, profile::ProfilePage,
+    not_found::NotFound, player_profile::PlayerProfilePage, players::Players, profile::ProfilePage,
     venue_details::VenueDetails, venue_history::VenueHistory, venues::Venues,
 };
 
@@ -78,6 +79,8 @@ pub enum Route {
     Analytics,
     #[at("/leaderboards")]
     Leaderboards,
+    #[at("/players")]
+    Players,
     #[at("/player/:player_id")]
     PlayerProfile { player_id: String },
     #[at("/analytics/test")]
@@ -324,6 +327,14 @@ fn switch(routes: Route) -> Html {
         Route::Leaderboards => {
             debug!("Rendering Leaderboards component");
             html! { <Leaderboards /> }
+        }
+        Route::Players => {
+            debug!("Rendering Players directory (protected)");
+            html! {
+                <ProtectedRoute>
+                    <Players />
+                </ProtectedRoute>
+            }
         }
         Route::PlayerProfile { player_id } => {
             debug!("Rendering Player profile component (protected)");

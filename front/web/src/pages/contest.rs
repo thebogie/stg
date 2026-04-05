@@ -506,19 +506,20 @@ pub fn contest() -> Html {
 
     html! {
         <div class="min-h-screen bg-gray-50">
-            <header class="app-bar-material p-4">
-                <div class="container mx-auto flex justify-between items-center">
-                    <h1 class="text-xl font-medium">{"Create New Contest"}</h1>
+            <header class="app-bar-material px-3 py-3 sm:p-4">
+                <div class="mx-auto flex max-w-4xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <h1 class="text-lg sm:text-xl font-medium text-gray-900">{"Create New Contest"}</h1>
                     <button
                         onclick={on_back}
-                        class="btn-material-secondary"
+                        type="button"
+                        class="btn-material-secondary w-full sm:w-auto min-h-[44px] shrink-0"
                     >
                         {"Back to Home"}
                     </button>
                 </div>
             </header>
-            <main class="container mx-auto px-4 py-8">
-                <div class="card-material p-6 max-w-4xl mx-auto">
+            <main class="mx-auto w-full max-w-4xl px-3 py-4 sm:px-4 sm:py-8">
+                <div class="card-material w-full min-w-0 p-4 sm:p-6">
                     if let Some(error) = (*error_message).clone() {
                         <div class="text-error-600 text-sm bg-error-50 p-3 rounded-material mb-4">
                             {error}

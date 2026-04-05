@@ -407,7 +407,7 @@ pub fn contests(props: &ContestsProps) -> Html {
             let results_state = results_state.clone();
             wasm_bindgen_futures::spawn_local(async move {
                 if q.len() >= 2 {
-                    match search_players(&q).await {
+                    match search_players(&q, 10).await {
                         Ok(list) => {
                             gloo::console::log!("[DEBUG] Player search results:", list.len());
                             results_state.set(list)
