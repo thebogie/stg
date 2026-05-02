@@ -1,14 +1,12 @@
 # All generated objects consolidated in _build/
 _build/
 
-# Rust (kept at root for Rust conventions, but will be in _build/target via CARGO_TARGET_DIR)
+# Rust — commit Cargo.lock for this application workspace (reproducible CI and local builds).
 target/
 **/*.rs.bk
-Cargo.lock
 
-# Node
+# Node — commit lockfiles (package-lock.json, etc.) for reproducible installs.
 node_modules/
-package-lock.json
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
@@ -20,7 +18,10 @@ dist/
 # IDE / editor
 .vscode/
 .idea/
-.cursor/
+# Cursor: track shared agent rules; ignore other local IDE state under .cursor/
+.cursor/*
+!.cursor/rules/
+!.cursor/rules/**
 *.swp
 *.swo
 *~

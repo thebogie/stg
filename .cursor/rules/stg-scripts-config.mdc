@@ -1,0 +1,12 @@
+---
+description: Shell scripts, env templates, and local config for STG
+globs: scripts/**/*,config/**/*
+alwaysApply: false
+---
+
+# Scripts + config
+
+- **Env files:** Templates under `config/`; generate with **`./config/setup-env.sh dev`** or **`prod`**. Loaded by **`scripts/load-env.sh`** (default dev unless overridden).
+- **Scripts:** Bash entrypoints for start/stop, CI helpers, env loading. Keep **`set -e`** / quoting patterns consistent with existing scripts; avoid breaking **`./scripts/start-back.sh`** or **`./ci-local.sh`** callers.
+- **Secrets:** Never commit real `.env` secrets; use templates and local overrides only.
+- If you add a new top-level script, document it in **`scripts/README.md`** when behavior is non-obvious.

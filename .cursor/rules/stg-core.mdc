@@ -1,0 +1,13 @@
+---
+description: STG monorepo basics and multi-agent boundaries for all sessions
+alwaysApply: true
+---
+
+# STG — core context
+
+- **Cargo workspace root** = repo root. Backend crate package name is **`backend`**; sources live under `back/api/`.
+- **Clients:** `front/web` (Yew + Trunk + WASM), `front/tauri` (shell around the same web app). **Stack:** SurrealDB + Redis + API in `deploy/docker-compose.yml`; frontend is usually **not** in that compose.
+- **Shared code:** `shared/`. **Integration tests:** `testing/` crate.
+- **Multi-agent:** Prefer **git worktrees** + one branch per agent; see **`AGENTS.md`**. Do not let two agents edit **`Cargo.lock`** or **`shared/`** contracts blindly in parallel.
+- **Env:** `config/.env.dev` / `config/.env.prod` via `./config/setup-env.sh`; scripts use `scripts/load-env.sh`.
+- Prefer **minimal diffs**: match existing style; do not refactor unrelated modules. For layout and run commands, use **`docs/PROJECT_STRUCTURE.md`**.

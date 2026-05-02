@@ -1,0 +1,11 @@
+---
+description: Shared Rust types and DTOs between backend, frontend, and tests
+globs: shared/**/*
+alwaysApply: false
+---
+
+# Shared (`shared/`)
+
+- **Contract crate** for **`backend`**, **`front/web`**, and **`testing`**. Serde shapes should stay compatible with the API and WASM client.
+- New workspace-wide dependency versions belong in **root `Cargo.toml` `[workspace.dependencies]`**; reference with `{ workspace = true }` in members.
+- **Coordinate** with other agents: one owner per contract change to limit **`Cargo.lock`** conflicts. See **`AGENTS.md`**.

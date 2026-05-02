@@ -1,0 +1,12 @@
+---
+description: Tauri desktop/mobile shell embedding the STG Yew app
+globs: front/tauri/**/*
+alwaysApply: false
+---
+
+# Tauri (`front/tauri`)
+
+- **Role:** Native shell that loads the **same** Yew app as `front/web` (dev URL / built `frontendDist` per `src-tauri` config).
+- **Commands:** From **`front/tauri`**: `cargo tauri dev`, `cargo tauri build`. Prereqs: Rust, Trunk, Linux webkit/GTK deps per [Tauri v2 Linux setup](https://v2.tauri.app/start/install/#linux).
+- **Do not** fork the Yew UI in Tauri-only code unless necessary—prefer changes in **`front/web`** when behavior should match web and desktop.
+- Backend URL/config often comes from Tauri commands / env (e.g. **`STG_API_URL`**); keep behavior aligned with web client expectations.

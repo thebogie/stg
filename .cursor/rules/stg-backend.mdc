@@ -1,0 +1,13 @@
+---
+description: Backend API (Actix), SurrealDB, Redis, Docker stack for STG
+globs: back/api/**/*
+alwaysApply: false
+---
+
+# Backend (`back/api`)
+
+- Build/test package: **`cargo build -p backend`**, **`cargo test -p backend`**, or **`cargo nextest run -p backend`** when nextest is installed.
+- **HTTP:** Actix-web. **Data:** SurrealDB + Redis (sessions). Do not reintroduce ArangoDB; migration tooling is optional under `tools/arango-to-surreal`.
+- **Docker:** `back/api/Dockerfile.backend`; full stack via `deploy/docker-compose.yml` and `./scripts/start-back.sh`.
+- **Hybrid dev:** `./scripts/start-deps.sh` then run backend on host (e.g. `just backend-watch` / project scripts).
+- When changing **API shapes** consumed by the web app, update **`shared/`** and coordinate with frontend/tests; run **`./ci-local.sh unit`** at minimum before declaring done.

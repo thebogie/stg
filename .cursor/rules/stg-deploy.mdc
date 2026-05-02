@@ -1,0 +1,12 @@
+---
+description: Docker Compose and deployment assets for STG backend stack
+globs: deploy/**/*
+alwaysApply: false
+---
+
+# Deploy (`deploy/`)
+
+- **`docker-compose.yml`** defines SurrealDB, Redis, and the **backend** service for local/CI-style runs. Used by **`./scripts/start-back.sh`** and **`./ci-local.sh`** (with `config/.env.prod` patterns as documented).
+- Prefer **small, intentional** changes: ports and env vars should stay consistent with **`scripts/load-env.sh`** and **`config/`** templates.
+- Frontend is started **outside** this compose (see **`./scripts/start-front.sh`**). Do not assume the WASM app is a service in this file unless the project explicitly adds it.
+- After compose changes, verify stack start/stop: **`./scripts/start-back.sh`** and **`./scripts/stop-back.sh`** (or CI integration path).

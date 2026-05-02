@@ -1,0 +1,13 @@
+---
+description: Yew WASM web app, Trunk, and Node tooling under front/web
+globs: front/web/**/*
+alwaysApply: false
+---
+
+# Frontend web (`front/web`)
+
+- **Stack:** Yew → **WASM**, **`trunk`** for dev/build, Tailwind via **`npm`** in this directory. Target: **`wasm32-unknown-unknown`**.
+- **Run from repo root:** `./scripts/start-front.sh` (sets Trunk proxy/backend URL from env). Ensure backend is up (`./scripts/start-back.sh` or deps + API).
+- **Trunk config:** `Trunk.toml` — do not commit machine-specific absolute paths; scripts may rewrite `backend` / `port` for local dev.
+- **API calls:** Frontend talks to the Rust API; shared DTOs live in **`shared/`**. Prefer extending **`shared`** for new cross-boundary types instead of duplicating structs.
+- After dependency or `Trunk.toml` changes, run **`trunk build`** or the start script to confirm WASM still builds.
