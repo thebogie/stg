@@ -1,12 +1,12 @@
 # Integration Testing: Official Stack Only
 
-Integration tests run against the **same SurrealDB + Redis stack** used in dev and production. Start the stack with `./deploy/stack.sh start`, then run tests. No testcontainers.
+Integration tests run against the **same SurrealDB + Redis stack** used in dev and production. Prefer **`./ci-local.sh integration prod`** or **`./scripts/run-integration-tests.sh`** after the stack is up. No testcontainers.
 
 ## Verify the app works first (smoke test)
 
 Before debugging failing integration tests, confirm the **running backend** (real SurrealDB + Redis) can register and log in:
 
-1. Start stack: `./scripts/start-back.sh prod` (or `./deploy/stack.sh start`)
+1. Start stack: `./scripts/start-back.sh prod` (or bring up deps + backend via `./ci-local.sh smoke prod` for a shorter automated path)
 2. Apply minimal schema: `source scripts/load-env.sh prod && ./scripts/apply-surreal-schema-minimal.sh`
 3. Start the backend (e.g. from `back/api`: `source ../../scripts/load-env.sh prod && cargo run`, or use the backend container if the full stack is up)
 4. Run: `./scripts/smoke-test-player-auth.sh [BASE_URL]`  
@@ -19,7 +19,9 @@ If the smoke test passes, the source code works with the real stack; test failur
 **Recommended (host-accessible URLs):** Use the script so tests always use `127.0.0.1` (avoids "name resolution" errors if your env has Docker-internal hostnames like `surrealdb`):
 
 ```bash
-docker compose -f deploy/docker-compose.yml --env-file config/.env.prod up -d
+# From repo root (scripts set --project-directory so volume paths resolve correctly):
+./ci-local.sh integration prod
+# Or if the stack is already up, only the tests:
 ./scripts/run-integration-tests.sh -- --include-ignored --test-threads=1
 ```
 
@@ -37,10 +39,10 @@ export SURREAL_URL="http://127.0.0.1:${SURREALDB_PORT}" REDIS_URL="redis://127.0
 cargo test -p testing -- --include-ignored --test-threads=1
 ```
 
-Or in one go (if your CI script sets host URLs):
+Or in one go (from repo root):
 
 ```bash
-./deploy/ci-local.sh integration   # starts stack if needed, then runs tests
+./ci-local.sh integration prod
 ```
 
 ## In test code
@@ -58,7 +60,7 @@ async fn test_something() -> Result<()> {
 }
 ```
 
-`TestEnvironment` reads from env: `SURREAL_URL`, `REDIS_URL`, `SURREAL_NS`, `SURREAL_DB`, `SURREAL_USER`, `SURREAL_PASSWORD`. The same vars are set by `./deploy/ci-local.sh` and by your stack.
+`TestEnvironment` reads from env: `SURREAL_URL`, `REDIS_URL`, `SURREAL_NS`, `SURREAL_DB`, `SURREAL_USER`, `SURREAL_PASSWORD`. The same vars are set by **`./ci-local.sh integration`** / **`./scripts/run-integration-tests.sh`** and by your stack.
 
 ## Environment variables
 
@@ -71,7 +73,7 @@ async fn test_something() -> Result<()> {
 | `SURREAL_USER`    | `root`                     | SurrealDB user       |
 | `SURREAL_PASSWORD`| `root`                     | SurrealDB password   |
 
-Ports match `deploy/docker-compose.ci.yml` + `docker-compose.local.yml` (e.g. SurrealDB 50001, Redis 6379).
+Ports match **`deploy/docker-compose.yml`** and `config/.env.*` (e.g. SurrealDB 50001, Redis 6379).
 
 ## Why no testcontainers
 

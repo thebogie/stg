@@ -7,7 +7,9 @@ alwaysApply: true
 
 - **Cargo workspace root** = repo root. Backend crate package name is **`backend`**; sources live under `back/api/`.
 - **Clients:** `front/web` (Yew + Trunk + WASM), `front/tauri` (shell around the same web app). **Stack:** SurrealDB + Redis + API in `deploy/docker-compose.yml`; frontend is usually **not** in that compose.
+- **Local Docker state:** gitignored **`data/`** (`data/dev`, `data/prod`, `data/ci-*`); **`config/`** = env only; **`deploy/`** = compose + migrations. Primary run commands: **`scripts/README.md`**.
 - **Shared code:** `shared/`. **Integration tests:** `testing/` crate.
 - **Multi-agent:** Prefer **git worktrees** + one branch per agent; see **`AGENTS.md`**. Do not let two agents edit **`Cargo.lock`** or **`shared/`** contracts blindly in parallel.
+- **Scoring:** `OutcomeDto.score` is **per game / contest context**—different games use different scoring models; **do not compare raw scores across games** without an explicit normalization design.
 - **Env:** `config/.env.dev` / `config/.env.prod` via `./config/setup-env.sh`; scripts use `scripts/load-env.sh`.
 - Prefer **minimal diffs**: match existing style; do not refactor unrelated modules. For layout and run commands, use **`docs/PROJECT_STRUCTURE.md`**.

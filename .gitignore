@@ -42,8 +42,11 @@ config/smacktalk.surql
 # Expanded environment files (generated from templates)
 .env.*.expanded.*
 
-# Docker data
+# Docker bind mounts (SurrealDB, Redis, backend); see data/ in docs/PROJECT_STRUCTURE.md
+/data/
+# Legacy local path (pre–data/ layout); safe to delete on disk
 docker-data/
+deploy/docker-data/
 
 # Logs
 *.log

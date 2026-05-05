@@ -44,6 +44,7 @@ mod contest_tests {
             player_id: "player/test".to_string(),
             place: "1".to_string(),
             result: "won".to_string(),
+            score: "100".to_string(),
             email: "test@example.com".to_string(),
             handle: "testplayer".to_string(),
         };

@@ -25,6 +25,8 @@ struct PlayerOutcome {
     email: String,
     place: String,
     result: String,
+    /// Free-form (often numeric); may be empty.
+    score: String,
 }
 
 /// Normalize result from DOM or storage: first participant cannot be "drop" (defaults to won).
@@ -77,6 +79,7 @@ pub fn outcome_selector(props: &OutcomeSelectorProps) -> Html {
                         player_id: o.player_id.clone(),
                         place: o.place.clone(),
                         result: o.result.clone(),
+                        score: o.score.clone(),
                         email: o.email.clone(),
                         handle: o.handle.clone(),
                     })
@@ -187,6 +190,7 @@ pub fn outcome_selector(props: &OutcomeSelectorProps) -> Html {
                     player_id: o.player_id.clone(),
                     place: o.place.clone(),
                     result: o.result.clone(),
+                    score: o.score.clone(),
                     email: o.email.clone(),
                     handle: o.handle.clone(),
                 })
@@ -237,6 +241,7 @@ pub fn outcome_selector(props: &OutcomeSelectorProps) -> Html {
                 email: player.email.clone(),
                 place: "1".to_string(), // Will be reset by reset_place_numbers
                 result: "won".to_string(), // Will be reset by reset_place_numbers
+                score: String::new(),
             };
 
             let mut new_outcomes = current_outcomes;
@@ -264,6 +269,7 @@ pub fn outcome_selector(props: &OutcomeSelectorProps) -> Html {
                     email: player.email.clone(),
                     place: "1".to_string(), // Will be reset by reset_place_numbers
                     result: "won".to_string(), // Will be reset by reset_place_numbers
+                    score: String::new(),
                 };
 
                 let mut new_outcomes = current_outcomes;
@@ -361,6 +367,31 @@ pub fn outcome_selector(props: &OutcomeSelectorProps) -> Html {
                         player_id: o.player_id.clone(),
                         place: o.place.clone(),
                         result: o.result.clone(),
+                        score: o.score.clone(),
+                        email: o.email.clone(),
+                        handle: o.handle.clone(),
+                    })
+                    .collect();
+                props.on_outcomes_change.emit(outcome_dtos);
+            }
+        })
+    };
+
+    let on_score_change = {
+        let props = props.clone();
+        let outcomes = outcomes.clone();
+        Callback::from(move |(email, score): (String, String)| {
+            let mut new_outcomes = (*outcomes).clone();
+            if let Some(outcome) = new_outcomes.iter_mut().find(|o| o.email == email) {
+                outcome.score = score;
+                outcomes.set(new_outcomes.clone());
+                let outcome_dtos: Vec<OutcomeDto> = new_outcomes
+                    .iter()
+                    .map(|o| OutcomeDto {
+                        player_id: o.player_id.clone(),
+                        place: o.place.clone(),
+                        result: o.result.clone(),
+                        score: o.score.clone(),
                         email: o.email.clone(),
                         handle: o.handle.clone(),
                     })
@@ -391,6 +422,7 @@ pub fn outcome_selector(props: &OutcomeSelectorProps) -> Html {
                         player_id: o.player_id.clone(),
                         place: o.place.clone(),
                         result: o.result.clone(),
+                        score: o.score.clone(),
                         email: o.email.clone(),
                         handle: o.handle.clone(),
                     })
@@ -529,7 +561,12 @@ pub fn outcome_selector(props: &OutcomeSelectorProps) -> Html {
 
             if !outcomes.is_empty() {
                 <div class="mt-6 w-full min-w-0 space-y-4">
-                    <h3 class="text-sm font-medium text-gray-700">{"Contest Participants"}</h3>
+                    <div>
+                        <h3 class="text-sm font-medium text-gray-700">{"Contest Participants"}</h3>
+                        <p class="text-xs text-gray-500 mt-1">
+                            {"Optional score per player for this contest’s game (VP, points, etc.). Scores are not comparable across different games. Leave blank if unused."}
+                        </p>
+                    </div>
                     <div class="space-y-3">
                         {outcomes.iter().enumerate().map(|(row_index, outcome)| {
                             let player_id = outcome.player_id.clone();
@@ -546,6 +583,14 @@ pub fn outcome_selector(props: &OutcomeSelectorProps) -> Html {
                                 Callback::from(move |e: InputEvent| {
                                     let input: HtmlInputElement = e.target_unchecked_into();
                                     on_place_change.emit((row_email.clone(), input.value()));
+                                })
+                            };
+                            let on_score_change_row = {
+                                let on_score_change = on_score_change.clone();
+                                let row_email = row_email.clone();
+                                Callback::from(move |e: InputEvent| {
+                                    let input: HtmlInputElement = e.target_unchecked_into();
+                                    on_score_change.emit((row_email.clone(), input.value()));
                                 })
                             };
                             html! {
@@ -597,6 +642,19 @@ pub fn outcome_selector(props: &OutcomeSelectorProps) -> Html {
                                                 oninput={on_place_change}
                                                 class="w-full min-h-[44px] sm:min-h-0 px-2 py-2 sm:px-2 sm:py-1 text-base sm:text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
                                                 placeholder="Place"
+                                            />
+                                        </div>
+                                        <div class="flex-1 sm:flex-none sm:w-28 min-w-0">
+                                            <label class="block text-xs font-medium text-gray-600 mb-1 sm:sr-only">
+                                                {"Score (optional)"}
+                                            </label>
+                                            <input
+                                                type="text"
+                                                value={outcome.score.clone()}
+                                                oninput={on_score_change_row}
+                                                class="w-full min-h-[44px] sm:min-h-0 px-2 py-2 sm:px-2 sm:py-1 text-base sm:text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                                placeholder="Score"
+                                                inputmode="decimal"
                                             />
                                         </div>
                                         <div class="flex-1 sm:flex-none sm:w-36 min-w-0">

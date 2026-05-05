@@ -157,6 +157,7 @@ struct ParticipantInfo {
     lastname: Option<String>,
     place: i32,
     result: String,
+    score: String,
 }
 
 #[derive(Clone, PartialEq)]
@@ -351,11 +352,19 @@ pub fn contest_details(props: &ContestDetailsProps) -> Html {
                                                         firstname: None, // Backend doesn't send firstname/lastname
                                                         lastname: None,
                                                         place: o["place"]
-                                                            .as_str()
-                                                            .unwrap_or("0")
-                                                            .parse()
+                                                            .as_i64()
+                                                            .map(|n| n as i32)
+                                                            .or_else(|| {
+                                                                o["place"]
+                                                                    .as_str()
+                                                                    .and_then(|s| s.parse().ok())
+                                                            })
                                                             .unwrap_or(0),
                                                         result: o["result"]
+                                                            .as_str()
+                                                            .unwrap_or("")
+                                                            .to_string(),
+                                                        score: o["score"]
                                                             .as_str()
                                                             .unwrap_or("")
                                                             .to_string(),
@@ -720,6 +729,7 @@ pub fn contest_details(props: &ContestDetailsProps) -> Html {
                                         <tr>
                                             <th class="px-3 py-1.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{"Place"}</th>
                                             <th class="px-3 py-1.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{"Player"}</th>
+                                            <th class="px-3 py-1.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{"Score"}</th>
                                             <th class="px-3 py-1.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{"Result"}</th>
                                         </tr>
                                     </thead>
@@ -756,6 +766,13 @@ pub fn contest_details(props: &ContestDetailsProps) -> Html {
                                                                 }
                                                             </div>
                                                         </div>
+                                                    </td>
+                                                    <td class="px-3 py-2 whitespace-nowrap text-sm text-gray-800">
+                                                        {if participant.score.trim().is_empty() {
+                                                            html! { <span class="text-gray-400">{"—"}</span> }
+                                                        } else {
+                                                            html! { <span>{participant.score.trim()}</span> }
+                                                        }}
                                                     </td>
                                                     <td class="px-3 py-2 whitespace-nowrap">
                                                         <span class={classes!("inline-flex", "items-center", "px-1.5", "py-0.5", "rounded-full", "text-xs", "font-medium",

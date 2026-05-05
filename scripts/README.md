@@ -1,68 +1,79 @@
-# Scripts
+# Scripts (`scripts/`)
 
-Only four scripts; three scenarios.
+Repo layout for ops (Option A):
 
-## 1. CI (all tests locally)
+| Path | Role |
+|------|------|
+| **`config/`** | Env **templates** (`env.*.template`) and generated **`config/.env.dev` / `config/.env.prod`** (not committed). No runtime data. |
+| **`deploy/`** | **Compose files**, Caddyfile, server deploy (`deploy_stg.sh`), Surreal migrations. No runtime data. |
+| **`data/`** | **Local Docker bind mounts** only (`data/dev`, `data/prod`, `data/ci-*`). Gitignored. Never put secrets here. |
+| **`scripts/`** | **How to run** things locally and thin wrappers around `deploy/`. |
 
-```bash
-./ci-local.sh all
-# or: ./scripts/ci.sh [build|unit|integration|e2e|all]
-```
+---
 
-Uses **config/.env.prod** and **deploy/docker-compose.yml**. Builds, runs unit tests, starts the stack, runs integration tests, runs e2e smoke, then brings the stack down (for the e2e step).
+## Four commands you care about
 
-## 2. Backend (terminal 1)
+### 1) Full test gate on **production-built** images (same as “push-ready”)
 
-```bash
-./scripts/start-back.sh              # start and build if needed
-./scripts/start-back.sh --no-build   # start existing images only (no rebuild)
-./scripts/stop-back.sh               # stop the stack
-```
+Builds backend + frontend Docker images, brings up **full** stack (`deploy/docker-compose.full.yml`), runs unit + full integration + Playwright.
 
-Uses **config/.env.dev** (or .env.prod). With `--no-build`, compose only runs `up -d` (no `--build`).
-
-**Arango → Surreal import to localhost:50001** (SurrealDB must already be running, e.g. from `start-back.sh` or Surrealist):
+**E2E:** Playwright runs **inside Docker** by default (`scripts/run-playwright-e2e-docker.sh`, Microsoft Playwright image) so the host does not need Node or browser installs — only **Docker**. Override with `FULL_PROD_TEST_PLAYWRIGHT_HOST=1` to run `npm ci` / `npm exec playwright test` on the host instead.
 
 ```bash
-./scripts/arango-to-surreal-import.sh [path/to/smacktalk.zip] [--fresh]
+./scripts/test-prod-gate.sh
+# same as: ./scripts/full-prod-test.sh
 ```
 
-- Zip path defaults to `ARANGO_BACKUP_ZIP` or `~/work/_backups/smacktalk.zip`.
-- `--fresh`: wipes the target namespace/database before import so you get a clean load.
-- Output .surql: `_build/smacktalk.surql` (or `SURREAL_IMPORT_SURQL`). Uses Docker for `surreal import`; no local SurrealDB CLI required.
+### 2) **Dev** stack for VS Code / breakpoints (DB in Docker, backend on host)
 
-**Verify SurrealDB data (run checks against localhost:50001):**
+Surreal + Redis in Docker; you run the Rust API locally so lldb / CodeLLDB breakpoints work.
 
 ```bash
-./scripts/verify-surreal-local.sh
+./scripts/dev-debug.sh
+# then: just backend-watch   OR   source scripts/load-env.sh dev && cargo run -p backend
+# frontend: ./scripts/start-front.sh  or  ./scripts/start-tauri.sh
 ```
 
-Runs the same checks as `docs/verify-surreal-contest-list.surql` via **HTTP (curl)** by default so it works from WSL when SurrealDB runs in Docker Desktop (Windows). Prints PASS/FAIL per check (contest id form, edge out/in, contest list for player, counts). Requires `jq` and SurrealDB on port 50001.
+### 3) **Quick** prod-like test (shorter than the full gate)
 
-- **WSL + Docker Desktop:** If `127.0.0.1:50001` doesn’t reach SurrealDB, run:  
-  `SURREAL_VERIFY_URL=http://host.docker.internal:50001 ./scripts/verify-surreal-local.sh`
-- **Use Docker CLI instead of curl:**  
-  `SURREAL_VERIFY_USE_DOCKER=1 ./scripts/verify-surreal-local.sh`
-- Override player key: `SURREAL_VERIFY_PLAYER_KEY=...`
-
-**Run any .surql script against localhost:50001 (from WSL CLI):**
+Build + unit + same Docker stack prep as integration + **`testing` `api_tests`** + one ignored backend smoke test, then **compose down**.
 
 ```bash
-./scripts/run-surreal-script.sh docs/verify-surreal-contest-list.surql
-./scripts/run-surreal-script.sh docs/verify-surreal-import.surql
+./scripts/test-prod-like-smoke.sh          # uses config/.env.prod
+./scripts/test-prod-like-smoke.sh dev      # optional: config/.env.dev
+# same as: ./ci-local.sh smoke prod
 ```
 
-Uses HTTP (curl) so no Surreal CLI needed. Same env as verify: `SURREAL_VERIFY_URL`, `SURREAL_NS`, `SURREAL_DB`, etc. Requires `jq` for pretty output.
+### 4) **Production server**: install images built in GitHub Actions
 
-## 3. Frontend (terminal 2)
+On the host, from a tree that includes **`deploy/`** (and `config/.env.prod` next to it as laid out in `deploy/README.md`):
 
 ```bash
-./scripts/start-front.sh
+./scripts/install-from-ci.sh <tag>   # e.g. latest or the CI short sha
+# runs deploy/deploy_stg.sh — set DEPLOY_ROOT if your deploy folder is not repo-root/deploy
 ```
 
-Starts standalone frontend (Yew/Trunk; Tauri when added). Uses **config/.env.dev**. Start the backend first.
+---
 
-## Env
+## Other scripts (still supported)
 
-- **load-env.sh** — sourced by the above; loads **config/.env.dev** or **config/.env.prod**.
-- Create env files: `./config/setup-env.sh dev` and `./config/setup-env.sh prod`.
+| Script | Purpose |
+|--------|---------|
+| `./ci-local.sh …` | Wrapper for `./scripts/ci.sh` (`build`, `unit`, `smoke`, `integration`, `e2e`, `all`). |
+| `./scripts/start-back.sh` | Full backend stack in Docker (dev default). |
+| `./scripts/start-deps.sh` | Surreal + Redis only (for hybrid dev). |
+| `./scripts/stop-back.sh` | Stop compose stack. |
+| `./scripts/load-env.sh` | Sourced by other scripts; loads `config/.env.*`, normalizes `VOLUME_PATH`. |
+| `./scripts/apply-surreal-schema-minimal.sh` | Minimal Surreal schema (tests). |
+| `./scripts/apply-surreal-functions.sh` | Apply `tools/arango-to-surreal/surreal-functions.surql`. |
+| `./scripts/run-surreal-script.sh` | Run a `.surql` file against local Surreal (HTTP). |
+| `./scripts/run-integration-tests.sh` | Re-run `cargo test -p testing` with host URLs when stack is already up. |
+| `./scripts/run-playwright-e2e-docker.sh` | Run Playwright E2E in a container (see script header for `PLAYWRIGHT_*` env vars; Linux default `--network host`). |
+| `./scripts/verify-surreal-local.sh` | Data checks against localhost Surreal. |
+| `./scripts/test-surrealdb-auth.sh` | Debug which root password a running Surreal accepts. |
+| `./scripts/smoke-test-player-auth.sh` | Quick HTTP smoke vs `BASE_URL` (see `testing/INTEGRATION_TEST_GUIDE.md`). |
+| `./scripts/backend-watch.sh` | `cargo watch` for backend (also: `just backend-watch`). |
+| `./scripts/start-front.sh` / `start-tauri.sh` | Frontend dev servers. |
+| `./scripts/import-bgg-catalog.sh`, `arango-to-surreal-import.sh` | Data tooling. |
+
+Create env files once: `./config/setup-env.sh dev` and `./config/setup-env.sh prod`.

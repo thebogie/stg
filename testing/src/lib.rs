@@ -88,10 +88,18 @@ macro_rules! create_authenticated_user {
             let status = register_resp.status();
             let body_bytes = actix_web::test::read_body(register_resp).await;
             let body_text = String::from_utf8_lossy(&body_bytes);
-            panic!(
-                "User registration should succeed (status={} body={})",
-                status, body_text
-            );
+            // Some tests reuse stable fixture emails across runs. If the player already exists,
+            // proceed to login instead of failing the entire suite.
+            let already_exists = status.as_u16() == 400
+                && (body_text.contains("Player already exists")
+                    || body_text.contains("player already exists")
+                    || body_text.contains("already exists"));
+            if !already_exists {
+                panic!(
+                    "User registration should succeed (status={} body={})",
+                    status, body_text
+                );
+            }
         }
         let mut session_id = String::new();
         for _ in 0..5 {

@@ -4,7 +4,6 @@
 use actix_web::{test, web, App};
 use anyhow::Result;
 use serde_json::json;
-use testing::create_authenticated_user;
 use testing::{app_setup, TestEnvironment};
 
 #[tokio::test]
@@ -97,39 +96,8 @@ async fn test_search_venues() -> Result<()> {
     )
     .await;
 
-    // Register and login
-    let register_req = test::TestRequest::post()
-        .uri("/api/players/register")
-        .set_json(&json!({
-            "username": "search_venue_user",
-            "email": "search_venue@example.com",
-            "password": "password123"
-        }))
-        .to_request();
-    let register_resp = test::call_service(&app, register_req).await;
-    assert!(
-        register_resp.status().is_success(),
-        "Registration should succeed, got status: {}",
-        register_resp.status()
-    );
-
-    let login_req = test::TestRequest::post()
-        .uri("/api/players/login")
-        .set_json(&json!({
-            "email": "search_venue@example.com",
-            "password": "password123"
-        }))
-        .to_request();
-    let login_resp = test::call_service(&app, login_req).await;
-    assert!(
-        login_resp.status().is_success(),
-        "Login should succeed, got status: {}",
-        login_resp.status()
-    );
-    let login_body: serde_json::Value = test::read_body_json(login_resp).await;
-    let session_id = login_body["session_id"]
-        .as_str()
-        .expect("Login response should contain session_id");
+    let session_id =
+        testing::create_authenticated_user!(app, "search_venue@example.com", "search_venue_user");
 
     // Create multiple venues
     for i in 0..3 {
@@ -202,39 +170,8 @@ async fn test_search_games() -> Result<()> {
     )
     .await;
 
-    // Register and login
-    let register_req = test::TestRequest::post()
-        .uri("/api/players/register")
-        .set_json(&json!({
-            "username": "search_game_user",
-            "email": "search_game@example.com",
-            "password": "password123"
-        }))
-        .to_request();
-    let register_resp = test::call_service(&app, register_req).await;
-    assert!(
-        register_resp.status().is_success(),
-        "Registration should succeed, got status: {}",
-        register_resp.status()
-    );
-
-    let login_req = test::TestRequest::post()
-        .uri("/api/players/login")
-        .set_json(&json!({
-            "email": "search_game@example.com",
-            "password": "password123"
-        }))
-        .to_request();
-    let login_resp = test::call_service(&app, login_req).await;
-    assert!(
-        login_resp.status().is_success(),
-        "Login should succeed, got status: {}",
-        login_resp.status()
-    );
-    let login_body: serde_json::Value = test::read_body_json(login_resp).await;
-    let session_id = login_body["session_id"]
-        .as_str()
-        .expect("Login response should contain session_id");
+    let session_id =
+        testing::create_authenticated_user!(app, "search_game@example.com", "search_game_user");
 
     // Create multiple games
     for i in 0..3 {

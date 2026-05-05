@@ -147,12 +147,18 @@ async fn test_get_all_games() -> Result<()> {
     )
     .await;
 
-    // Register and login
+    // Register and login (unique user per run to avoid clashes with persisted test DBs)
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis();
+    let email = format!("all_games_{}@example.com", ts);
+    let username = format!("all_games_user_{}", ts);
     let register_req = test::TestRequest::post()
         .uri("/api/players/register")
         .set_json(&json!({
-            "username": "all_games_user",
-            "email": "all_games@example.com",
+            "username": username,
+            "email": email,
             "password": "password123"
         }))
         .to_request();
@@ -166,7 +172,7 @@ async fn test_get_all_games() -> Result<()> {
     let login_req = test::TestRequest::post()
         .uri("/api/players/login")
         .set_json(&json!({
-            "email": "all_games@example.com",
+            "email": email,
             "password": "password123"
         }))
         .to_request();

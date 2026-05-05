@@ -999,12 +999,14 @@ impl ContestRepository for ContestRepositoryImpl {
                     "venue_address": venue.formatted_address,
                     "my_placement": my_outcome.map(|o| o.place.as_str()).unwrap_or(""),
                     "my_result": my_outcome.map(|o| o.result.as_str()).unwrap_or(""),
+                    "my_score": my_outcome.map(|o| o.score.as_str()).unwrap_or(""),
                     "total_players": outcomes.len(),
                     "players": outcomes.iter().map(|o| serde_json::json!({
                         "player_id": o.player_id,
                         "player_handle": o.handle,
                         "placement": o.place,
-                        "result": o.result
+                        "result": o.result,
+                        "score": o.score
                     })).collect::<Vec<_>>()
                 });
                 results.push(contest_json);
@@ -1099,11 +1101,12 @@ impl ContestRepositoryImpl {
         outcome: &OutcomeDto,
     ) -> Result<(), SharedError> {
         log::info!(
-            "🔗 Creating RESULTED_IN edge: contest='{}' -> player='{}', place='{}', result='{}'",
+            "🔗 Creating RESULTED_IN edge: contest='{}' -> player='{}', place='{}', result='{}', score='{}'",
             contest_id,
             outcome.player_id,
             outcome.place,
-            outcome.result
+            outcome.result,
+            outcome.score
         );
         let place = outcome
             .place
@@ -1117,8 +1120,9 @@ impl ContestRepositoryImpl {
             ));
         }
         let result_str = outcome.result.clone();
+        let score_stored = outcome.score.trim().to_string();
         let sql = self.query_with_scope(
-            "INSERT INTO resulted_in (`in`, `out`, place, result) VALUES (type::record('contest', $contest_key), type::record('player', $player_key), $place, $result)",
+            "INSERT INTO resulted_in (`in`, `out`, place, result, score) VALUES (type::record('contest', $contest_key), type::record('player', $player_key), $place, $result, $score)",
         );
         self.db
             .query(&sql)
@@ -1126,6 +1130,7 @@ impl ContestRepositoryImpl {
             .bind(("player_key", player_key.clone()))
             .bind(("place", place))
             .bind(("result", result_str))
+            .bind(("score", score_stored))
             .await
             .map_err(|e| {
                 SharedError::Database(format!("Failed to create resulted_in edge: {}", e))
@@ -1384,12 +1389,18 @@ impl ContestRepositoryImpl {
                     .and_then(|x| x.as_str())
                     .unwrap_or("")
                     .to_string();
+                let score = o
+                    .get("score")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("")
+                    .to_string();
                 Some(OutcomeDto {
                     player_id,
                     handle,
                     email,
                     place,
                     result,
+                    score,
                 })
             })
             .collect();
@@ -1748,6 +1759,11 @@ impl ContestRepositoryImpl {
                 .and_then(|x| x.as_str())
                 .unwrap_or("")
                 .to_string();
+            let score = row
+                .get("score")
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .to_string();
             let player_id = format!("player/{}", pkey);
             outcomes.push(OutcomeDto {
                 player_id,
@@ -1755,6 +1771,7 @@ impl ContestRepositoryImpl {
                 email,
                 place,
                 result,
+                score,
             });
         }
 

@@ -107,17 +107,20 @@ For full setup and workflows, see **[docs/README.md](docs/README.md)** and **[do
 ├── front/tauri/      # Tauri desktop/mobile
 ├── shared/           # Shared types and DTOs
 ├── testing/          # Integration tests
-├── config/           # Env files (.env.dev, .env.prod)
+├── config/           # Env templates + generated .env.* (not committed)
+├── data/             # Local Docker bind mounts (gitignored)
 ├── deploy/           # Docker Compose (SurrealDB, Redis, backend)
-├── scripts/          # start-back, start-front, ci, etc.
+├── scripts/          # start-back, start-front, ci, prod gate, etc.
 └── docs/             # Documentation
 ```
 
 ### Running tests
 ```bash
-./ci-local.sh all                  # build, unit, integration, e2e
-./ci-local.sh unit                 # unit only
-cargo nextest run -p backend      # backend unit tests
+./scripts/test-prod-gate.sh      # full gate: prod-built images + Playwright (see scripts/README.md)
+./ci-local.sh smoke prod         # quick prod-like smoke (build + unit + short stack tests)
+./ci-local.sh all                # build, unit, integration, e2e (compose.yml)
+./ci-local.sh unit               # unit only
+cargo nextest run -p backend     # backend unit tests
 ```
 
 ### Code Quality

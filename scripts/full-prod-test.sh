@@ -6,7 +6,8 @@
 #   1) Unit:        cargo test -p backend (full backend crate against live Redis/Surreal ports below)
 #   2) Integration: cargo test -p testing --test api_tests (smoke), then
 #                   cargo test -p testing -- --include-ignored --test-threads 1 (full crate, incl. ignored)
-#   3) E2E:         npx playwright test (full Playwright suite vs stack frontend; USE_PRODUCTION_CONTAINERS=1)
+#   3) E2E:         Playwright vs stack frontend (USE_PRODUCTION_CONTAINERS=1); default is Docker (see
+#                   scripts/run-playwright-e2e-docker.sh). Host run: FULL_PROD_TEST_PLAYWRIGHT_HOST=1 (needs Node).
 #
 # BGG CSV import and docker iterate/clean skips only affect speed/data — they do not substitute for the three tiers above.
 #
@@ -35,7 +36,12 @@
 #   • cargo clean every run: FULL_PROD_TEST_SKIP_CLEAN=1 (faster rebuilds when iterating).
 #   • Playwright: PLAYWRIGHT_GLOBAL_TIMEOUT_MS (default 7200000 = 2h for the whole E2E run).
 #
-# Requires: Docker, cargo, Node/npx (Playwright), jq recommended for ITERATE / REUSE_BGG_CATALOG
+# Quick checks without running the full gate (Docker builds + tests):
+#   ./scripts/verify-gate-syntax.sh
+#   FULL_PROD_TEST_STOP_AFTER=env ./scripts/full-prod-test.sh      # exit after env + _build prep (no image builds)
+#   FULL_PROD_TEST_STOP_AFTER=images ./scripts/full-prod-test.sh   # exit after backend + frontend Docker builds
+#
+# Requires: Docker, cargo; jq recommended for ITERATE / REUSE_BGG_CATALOG. Node only if FULL_PROD_TEST_PLAYWRIGHT_HOST=1.
 #
 # For line coverage reports (optional, separate from this gate): just coverage  (see docs/testing/COVERAGE_GUIDE.md)
 #
@@ -46,6 +52,12 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$ROOT"
+
+# Use deploy/ as project dir so ./Caddyfile.frontend in docker-compose.full.yml resolves next to that file
+# (not under repo root, where the Caddyfile does not exist).
+stg_compose() {
+  docker compose --project-directory "$ROOT/deploy" "$@"
+}
 
 stamp() { echo "==> [$(date -u +%Y-%m-%dT%H:%M:%SZ)] $*"; }
 
@@ -69,10 +81,14 @@ else
   echo "==> [0/7] Stopping and cleaning project docker stack (containers + named volumes)"
 fi
 if [ -f "$COMPOSE_FILE" ] && [ -f "$ENV_FILE" ]; then
+  # docker-compose.full.yml requires BACKEND_IMAGE / FRONTEND_IMAGE even for `down`.
+  # Provide placeholders so `down -v` actually executes and wipes stale SurrealDB credentials.
+  export BACKEND_IMAGE="${BACKEND_IMAGE:-stg-backend:local}"
+  export FRONTEND_IMAGE="${FRONTEND_IMAGE:-stg-frontend:local}"
   if [ "${FULL_PROD_TEST_KEEP_VOLUMES:-0}" = "1" ]; then
-    docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" down || true
+    stg_compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" down || true
   else
-    docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" down -v || true
+    stg_compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" down -v || true
   fi
 else
   echo "Warning: compose or env file missing; skipping docker compose down."
@@ -89,16 +105,28 @@ mkdir -p "$BUILD_DIR"
 SUMMARY_JSON="$BUILD_DIR/summary.json"
 SUMMARY_TXT="$BUILD_DIR/summary.txt"
 
-# Resolve VOLUME_PATH for compose (local test run: keep data under _build)
-VOL_BASE="${VOLUME_PATH:-$ROOT/_build/docker-data}"
-VOL_BASE="$(cd "$VOL_BASE" 2>/dev/null && pwd)" || VOL_BASE="$ROOT/_build/docker-data"
-mkdir -p "$VOL_BASE/surrealdb_data" "$VOL_BASE/redis_data" "$VOL_BASE/backend_data"
-export VOLUME_PATH="$VOL_BASE"
+# VOLUME_PATH is absolute (see scripts/load-env.sh).
+mkdir -p "$VOLUME_PATH/surrealdb_data" "$VOLUME_PATH/redis_data" "$VOLUME_PATH/backend_data"
 chmod 777 "$VOLUME_PATH/surrealdb_data" 2>/dev/null || true
+
+# When not iterating/keeping volumes, also clear bind-mounted data dirs.
+# docker compose `down -v` does not remove bind-mount contents, and stale SurrealDB root users
+# cause auth failures if SURREAL_PASSWORD changes between runs.
+if [ "${FULL_PROD_TEST_KEEP_VOLUMES:-0}" != "1" ]; then
+  echo "==> Clearing bind-mounted data dirs under $VOLUME_PATH"
+  rm -rf "$VOLUME_PATH/surrealdb_data"/* "$VOLUME_PATH/redis_data"/* "$VOLUME_PATH/backend_data"/* 2>/dev/null || true
+fi
 
 echo "==> Build version: $BUILD_VERSION (commit $GIT_COMMIT, $BUILD_DATE)"
 echo "==> Results will be in $BUILD_DIR"
 echo ""
+
+case "${FULL_PROD_TEST_STOP_AFTER:-}" in
+  env)
+    echo "==> FULL_PROD_TEST_STOP_AFTER=env — exiting before Docker image builds."
+    exit 0
+    ;;
+esac
 
 # --- Phase 1: Build production backend and frontend images ---
 echo "==> [1/7] Building production backend image stg-backend:$BUILD_VERSION"
@@ -120,14 +148,22 @@ docker build -f front/web/Dockerfile.frontend.caddy \
   --build-arg "SOURCE_HASH=$GIT_COMMIT" \
   -t "stg-frontend:$BUILD_VERSION" .
 
-# --- Phase 3: Start full production stack (SurrealDB, Redis, backend, frontend) ---
-echo "==> [3/7] Starting full production stack (SurrealDB, Redis, backend, frontend)"
+case "${FULL_PROD_TEST_STOP_AFTER:-}" in
+  images|docker-images)
+    echo "==> FULL_PROD_TEST_STOP_AFTER=images — exiting before compose stack (Surreal/Redis/backend/frontend)."
+    exit 0
+    ;;
+esac
+
+# --- Phase 3: Data tier → Surreal schema/functions → app tier (backend needs NS/DB + tables) ---
+echo "==> [3/7] Starting SurrealDB + Redis, applying schema/functions, then backend + frontend"
 export BACKEND_IMAGE="stg-backend:$BUILD_VERSION"
 export FRONTEND_IMAGE="stg-frontend:$BUILD_VERSION"
 export IMAGE_TAG="$BUILD_VERSION"
-docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d
+# Start stores first so import scripts hit a live server before the backend binary connects.
+stg_compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d surrealdb redis wait-for-surrealdb
 
-# Wait for each service to be reachable on host (same as production)
+# Wait for each data service on the host (same ports compose publishes)
 echo "==> Waiting for SurrealDB on 127.0.0.1:${SURREALDB_PORT}..."
 for i in $(seq 1 30); do
   if curl -sf --connect-timeout 2 "http://127.0.0.1:${SURREALDB_PORT}/health" >/dev/null 2>&1; then
@@ -135,8 +171,8 @@ for i in $(seq 1 30); do
     break
   fi
   if [ "$i" -eq 30 ]; then
-    docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" logs surrealdb
-    docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" down
+    stg_compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" logs surrealdb
+    stg_compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" down
     echo "{\"build_version\":\"$BUILD_VERSION\",\"unit\":\"skip\",\"integration\":\"skip\",\"e2e\":\"fail\",\"overall\":\"fail\"}" > "$SUMMARY_JSON"
     echo "FAIL: SurrealDB did not become ready" > "$SUMMARY_TXT"
     exit 1
@@ -159,14 +195,28 @@ for i in $(seq 1 30); do
     break
   fi
   if [ "$i" -eq 30 ]; then
-    docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" logs redis
-    docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" down
+    stg_compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" logs redis
+    stg_compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" down
     echo "{\"build_version\":\"$BUILD_VERSION\",\"unit\":\"skip\",\"integration\":\"skip\",\"e2e\":\"fail\",\"overall\":\"fail\"}" > "$SUMMARY_JSON"
     echo "FAIL: Redis did not become ready" > "$SUMMARY_TXT"
     exit 1
   fi
   sleep 2
 done
+
+echo "==> Applying SurrealDB minimal schema + functions (before backend starts)"
+bash "$ROOT/scripts/apply-surreal-schema-minimal.sh" || true
+if ! bash "$ROOT/scripts/apply-surreal-functions.sh"; then
+  echo "FAIL: Could not apply SurrealDB functions (required for prod-style tests)." >&2
+  stg_compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" logs surrealdb || true
+  stg_compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" down || true
+  echo "{\"build_version\":\"$BUILD_VERSION\",\"unit\":\"skip\",\"integration\":\"skip\",\"e2e\":\"fail\",\"overall\":\"fail\"}" > "$SUMMARY_JSON"
+  echo "FAIL: Could not apply SurrealDB functions" > "$SUMMARY_TXT"
+  exit 1
+fi
+
+echo "==> Starting backend + frontend"
+stg_compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d backend frontend
 
 echo "==> Waiting for backend /health..."
 for i in $(seq 1 30); do
@@ -175,8 +225,8 @@ for i in $(seq 1 30); do
     break
   fi
   if [ "$i" -eq 30 ]; then
-    docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" logs backend
-    docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" down
+    stg_compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" logs backend
+    stg_compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" down
     echo "{\"build_version\":\"$BUILD_VERSION\",\"unit\":\"skip\",\"integration\":\"skip\",\"e2e\":\"fail\",\"overall\":\"fail\"}" > "$SUMMARY_JSON"
     echo "FAIL: backend did not become healthy" > "$SUMMARY_TXT"
     exit 1
@@ -191,29 +241,14 @@ for i in $(seq 1 30); do
     break
   fi
   if [ "$i" -eq 30 ]; then
-    docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" logs frontend
-    docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" down
+    stg_compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" logs frontend
+    stg_compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" down
     echo "{\"build_version\":\"$BUILD_VERSION\",\"unit\":\"skip\",\"integration\":\"skip\",\"e2e\":\"fail\",\"overall\":\"fail\"}" > "$SUMMARY_JSON"
     echo "FAIL: frontend did not become ready" > "$SUMMARY_TXT"
     exit 1
   fi
   sleep 2
 done
-
-# Apply minimal schema (player table) so integration tests work without production data
-echo "==> Applying minimal SurrealDB schema for integration tests..."
-bash "$ROOT/scripts/apply-surreal-schema-minimal.sh" || true
-
-# Apply SurrealDB application functions so function-first codepaths are exercised in prod tests
-echo "==> Applying SurrealDB functions for integration tests..."
-if ! "$ROOT/scripts/apply-surreal-functions.sh"; then
-  echo "FAIL: Could not apply SurrealDB functions (required for prod-style tests)." >&2
-  docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" logs surrealdb || true
-  docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" down || true
-  echo "{\"build_version\":\"$BUILD_VERSION\",\"unit\":\"skip\",\"integration\":\"skip\",\"e2e\":\"fail\",\"overall\":\"fail\"}" > "$SUMMARY_JSON"
-  echo "FAIL: Could not apply SurrealDB functions" > "$SUMMARY_TXT"
-  exit 1
-fi
 
 # Optional: fill bgg_catalog from boardgames_ranks.csv (gitignored). Full file is ~175k rows and is slow
 # (one UPSERT per row). Default here: import 10k games with newest yearpublished first (enough to exercise the catalog tier).
@@ -361,8 +396,30 @@ export PLAYWRIGHT_BASE_URL="http://127.0.0.1:${FRONTEND_PORT:-50003}"
 export CI=1
 set +e
 PW_GLOBAL="${PLAYWRIGHT_GLOBAL_TIMEOUT_MS:-7200000}"
-npx playwright test --global-timeout="$PW_GLOBAL" 2>&1 | tee "$BUILD_DIR/e2e.log"
-E2E_OK=$?
+export PLAYWRIGHT_GLOBAL_TIMEOUT_MS="$PW_GLOBAL"
+if [ "${FULL_PROD_TEST_PLAYWRIGHT_HOST:-0}" = "1" ]; then
+  # Host-run Playwright (requires Node + repo npm install / npm ci).
+  cd "$ROOT"
+  if [ ! -d "node_modules/@playwright/test" ]; then
+    stamp "Installing Node deps for Playwright (npm ci in repo root)…"
+    npm ci 2>&1 | tee "$BUILD_DIR/e2e.log"
+    NPM_OK=${PIPESTATUS[0]:-$?}
+    if [ "$NPM_OK" -ne 0 ]; then
+      echo "FAIL: npm ci failed." | tee -a "$BUILD_DIR/e2e.log"
+      E2E_OK=1
+    fi
+  fi
+  if [ "${E2E_OK:-0}" -eq 0 ]; then
+    npm exec -- playwright test --global-timeout="$PW_GLOBAL" 2>&1 | tee "$BUILD_DIR/e2e.log"
+    E2E_OK=${PIPESTATUS[0]:-$?}
+  fi
+else
+  # Default: Playwright in Docker (Microsoft image — browsers + Node; no host Node required).
+  stamp "Running Playwright in container (${PLAYWRIGHT_DOCKER_IMAGE:-mcr.microsoft.com/playwright:v1.49.1-noble})…"
+  export PLAYWRIGHT_E2E_LOG="$BUILD_DIR/e2e.log"
+  bash "$SCRIPT_DIR/run-playwright-e2e-docker.sh"
+  E2E_OK=$?
+fi
 set -e
 [ "$E2E_OK" -eq 0 ] && E2E_RESULT="pass" || E2E_RESULT="fail"
 mkdir -p "$BUILD_DIR/e2e"
@@ -371,7 +428,7 @@ mkdir -p "$BUILD_DIR/e2e"
 
 # --- Tear down stack ---
 echo "==> Tearing down production stack..."
-docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" down
+stg_compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" down
 
 # --- Summary ---
 OVERALL="pass"
@@ -412,7 +469,7 @@ if [ "$OVERALL" = "pass" ]; then
     echo "Validated for deploy (all required):"
     echo "  - Unit:         PASS — cargo test -p backend (see unit.log)"
     echo "  - Integration:  PASS — cargo test -p testing incl. --include-ignored (see integration*.log)"
-    echo "  - E2E:          PASS — npx playwright test (see e2e.log)"
+    echo "  - E2E:          PASS — Playwright (Docker by default; see e2e.log)"
     echo ""
     echo "Stack / data (supporting):"
     echo "  - Images:       stg-backend:$BUILD_VERSION, stg-frontend:$BUILD_VERSION"

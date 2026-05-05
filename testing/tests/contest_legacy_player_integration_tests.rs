@@ -160,6 +160,7 @@ async fn contest_create_succeeds_with_numeric_player_ids() -> Result<()> {
             player_id: player_canonical.clone(),
             place: "1".to_string(),
             result: "win".to_string(),
+            score: String::new(),
             email: String::new(),
             handle: String::new(),
         }],

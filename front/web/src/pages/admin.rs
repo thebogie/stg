@@ -758,6 +758,7 @@ pub fn admin_page(_props: &AdminPageProps) -> Html {
                                                                                             <tr>
                                                                                                 <th class="px-2 py-1 text-left font-medium text-gray-700">{"Place"}</th>
                                                                                                 <th class="px-2 py-1 text-left font-medium text-gray-700">{"Player"}</th>
+                                                                                                <th class="px-2 py-1 text-left font-medium text-gray-700">{"Score"}</th>
                                                                                                 <th class="px-2 py-1 text-left font-medium text-gray-700">{"Result"}</th>
                                                                                             </tr>
                                                                                         </thead>
@@ -774,6 +775,7 @@ pub fn admin_page(_props: &AdminPageProps) -> Html {
                                                                                                     <tr key={format!("o-{}-{}", c.id, i)}>
                                                                                                         <td class="px-2 py-1">{o.place.clone()}</td>
                                                                                                         <td class="px-2 py-1">{player}</td>
+                                                                                                        <td class="px-2 py-1">{if o.score.trim().is_empty() { "—".to_string() } else { o.score.trim().to_string() }}</td>
                                                                                                         <td class="px-2 py-1">{o.result.clone()}</td>
                                                                                                     </tr>
                                                                                                 }

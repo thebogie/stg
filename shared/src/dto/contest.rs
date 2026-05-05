@@ -6,6 +6,13 @@ use chrono::{DateTime, FixedOffset};
 use serde::{Deserialize, Serialize};
 use validator::{Validate, ValidationError};
 
+/// Max length for per-player `OutcomeDto::score` (free-form; often numeric).
+///
+/// **Business rule:** scoring is **game-specific**. Different games use different units and scales
+/// (VP, money, points, ranks, etc.), so **do not treat scores as comparable across games** unless
+/// you introduce an explicit, game-aware normalization layer.
+pub const MAX_OUTCOME_SCORE_LEN: usize = 256;
+
 /// Data Transfer Object for Contest
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct ContestDto {
@@ -60,6 +67,24 @@ impl Validate for ContestDto {
                 .entry("stop")
                 .or_insert(ValidationErrorsKind::Field(vec![err]));
         }
+        let long_score_idxs: Vec<usize> = self
+            .outcomes
+            .iter()
+            .enumerate()
+            .filter(|(_, o)| o.score.trim().chars().count() > MAX_OUTCOME_SCORE_LEN)
+            .map(|(i, _)| i)
+            .collect();
+        if !long_score_idxs.is_empty() {
+            let mut err = ValidationError::new("score_too_long");
+            err.message = Some(
+                format!(
+                    "outcomes score too long at index(es) {:?} (max {} Unicode chars)",
+                    long_score_idxs, MAX_OUTCOME_SCORE_LEN
+                )
+                .into(),
+            );
+            errors.add("outcomes", err);
+        }
         if errors.errors().is_empty() {
             Ok(())
         } else {
@@ -74,6 +99,10 @@ pub struct OutcomeDto {
     pub player_id: String,
     pub place: String,
     pub result: String,
+    /// Free-form score for **this contest’s game(s)** (often numeric within one game). May be empty.
+    /// Not comparable across different games without explicit normalization.
+    #[serde(default)]
+    pub score: String,
     #[serde(default)]
     pub email: String,
     #[serde(default)]
@@ -205,6 +234,7 @@ mod tests {
                 player_id: "player/test-player-1".to_string(),
                 place: "1".to_string(),
                 result: "won".to_string(),
+                score: String::new(),
                 email: "player1@example.com".to_string(),
                 handle: "player1".to_string(),
             }],
@@ -224,6 +254,7 @@ mod tests {
             player_id: "player/test-player".to_string(),
             place: "1".to_string(),
             result: "won".to_string(),
+            score: String::new(),
             email: "player@example.com".to_string(),
             handle: "player".to_string(),
         }
@@ -409,6 +440,20 @@ mod tests {
     }
 
     #[test]
+    fn test_contest_dto_validation_score_too_long() {
+        let mut dto = create_test_contest_dto();
+        dto.outcomes[0].score = "x".repeat(MAX_OUTCOME_SCORE_LEN + 1);
+        assert!(dto.validate().is_err());
+    }
+
+    #[test]
+    fn test_contest_dto_validation_blank_score_ok() {
+        let mut dto = create_test_contest_dto();
+        dto.outcomes[0].score = "   ".to_string();
+        assert!(dto.validate().is_ok());
+    }
+
+    #[test]
     fn test_contest_dto_with_multiple_games() {
         let mut dto = create_test_contest_dto();
         dto.games.push(GameDto {
@@ -430,6 +475,7 @@ mod tests {
             player_id: "player/test-player-2".to_string(),
             place: "2".to_string(),
             result: "lost".to_string(),
+            score: "42".to_string(),
             email: "player2@example.com".to_string(),
             handle: "player2".to_string(),
         });

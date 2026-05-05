@@ -86,6 +86,7 @@ pub struct ContestParticipant {
     pub place: i32,
     pub result: String,
     pub points: Option<i32>,
+    pub score: String,
 }
 
 /// Implementation of client analytics repository
@@ -550,6 +551,11 @@ impl ClientAnalyticsRepository for ClientAnalyticsRepositoryImpl {
                                         place: e.get("place").and_then(|v| v.as_i64()).unwrap_or(0) as i32,
                                         result: e.get("result").and_then(|v| v.as_str()).unwrap_or("").to_string(),
                                         points: e.get("points").and_then(|v| v.as_i64()).map(|p| p as i32),
+                                        score: e
+                                            .get("score")
+                                            .and_then(|v| v.as_str())
+                                            .unwrap_or("")
+                                            .to_string(),
                                     });
                                 }
                                 return Ok(out);
@@ -563,7 +569,7 @@ impl ClientAnalyticsRepository for ClientAnalyticsRepositoryImpl {
         }
         let rid = to_rid(contest_id);
         let sql =
-            "SELECT `out` AS player_id, place, result, points FROM resulted_in WHERE `in` = $rid";
+            "SELECT `out` AS player_id, place, result, points, score FROM resulted_in WHERE `in` = $rid";
         let mut res = self
             .db
             .query(sql)
@@ -634,6 +640,11 @@ impl ClientAnalyticsRepository for ClientAnalyticsRepositoryImpl {
                     .unwrap_or("")
                     .to_string(),
                 points: e.get("points").and_then(|v| v.as_i64()).map(|p| p as i32),
+                score: e
+                    .get("score")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
             });
         }
         Ok(result)

@@ -1,23 +1,36 @@
-WORKFLOW — Three scenarios only
+WORKFLOW — Primary entrypoints (see scripts/README.md)
 
-1. CI (run all tests locally against production-like Docker)
-   ./ci-local.sh [all|build|unit|integration|e2e]
-   Uses: config/.env.prod, deploy/docker-compose.yml
+1. Full prod-image gate (unit + full integration + Playwright, prod-built images)
+   ./scripts/test-prod-gate.sh
+   Uses: config/.env.prod, deploy/docker-compose.full.yml
 
-2. Backend (terminal 1 — production-like Docker)
+2. Quick prod-like smoke (build + unit + stack + short tests, then down)
+   ./scripts/test-prod-like-smoke.sh
+   or: ./ci-local.sh smoke prod
+
+3. CI (compose-driven stages: build, unit, smoke, integration, e2e, all)
+   ./ci-local.sh [all|build|unit|smoke|integration|e2e] [dev|prod]
+   Uses: config/.env.*, deploy/docker-compose.yml
+
+4. Dev + breakpoints (Surreal/Redis in Docker; backend on host)
+   ./scripts/dev-debug.sh  then  just backend-watch
+   Uses: config/.env.dev
+
+5. Backend (terminal 1 — all in Docker)
    ./scripts/start-back.sh              # start (build if needed)
    ./scripts/start-back.sh --no-build    # start existing images only, no rebuild
    ./scripts/stop-back.sh                # stop stack
    Uses: config/.env.dev (or .env.prod), deploy/docker-compose.yml
 
-3. Frontend (terminal 2 — standalone Yew or Tauri)
+6. Frontend (terminal 2 — standalone Yew or Tauri)
    ./scripts/start-front.sh       # browser: Yew/Trunk at FRONTEND_PORT
    ./scripts/start-tauri.sh       # desktop app: Tauri window (embeds same Yew)
    Uses: config/.env.dev (BACKEND_URL, FRONTEND_PORT). Tauri needs: cargo install tauri-cli
 
-4. Production (pull backend from GHCR after push to main)
-   See docs/GHCR_SETUP.md. Summary: push to main → Actions build and push image →
-   on production: docker pull ghcr.io/OWNER/REPO/backend:latest then compose up.
+7. Production (install images CI built — same tags as GHCR)
+   ./scripts/install-from-ci.sh <tag>   (from repo; wraps deploy/deploy_stg.sh)
+   Or from deploy/ on server: ./deploy_stg.sh <tag>
+   See docs/GHCR_SETUP.md and deploy/README.md
 
 Note: deploy/ has a single docker-compose.yml (SurrealDB, Redis, backend). Frontend
 runs standalone via scripts/start-front.sh or start-tauri.sh, not in this compose.

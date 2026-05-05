@@ -592,6 +592,7 @@ fn emit_production_schema(w: &mut impl Write, v3_schema: bool) -> Result<()> {
     writeln!(w, "DEFINE FIELD place ON resulted_in TYPE option<int>;")?;
     writeln!(w, "DEFINE FIELD result ON resulted_in TYPE option<string>;")?;
     writeln!(w, "DEFINE FIELD points ON resulted_in TYPE option<int>;")?;
+    writeln!(w, "DEFINE FIELD score ON resulted_in TYPE option<string>;")?;
     writeln!(w, "DEFINE INDEX resulted_in_in ON resulted_in COLUMNS `in`;")?;
     writeln!(w, "DEFINE INDEX resulted_in_out ON resulted_in COLUMNS `out`;")?;
     writeln!(w)?;

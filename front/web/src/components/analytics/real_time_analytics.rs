@@ -585,6 +585,7 @@ fn create_sample_contests() -> Vec<ClientContest> {
                     lastname: Some("User".to_string()),
                     place: 1,
                     result: "won".to_string(),
+                    score: "10".to_string(),
                 },
                 ClientParticipant {
                     player_id: "player/opponent".to_string(),
@@ -593,6 +594,7 @@ fn create_sample_contests() -> Vec<ClientContest> {
                     lastname: Some("Player".to_string()),
                     place: 2,
                     result: "lost".to_string(),
+                    score: "7".to_string(),
                 },
             ],
             my_result: ClientResult {

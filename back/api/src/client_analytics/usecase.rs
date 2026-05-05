@@ -117,6 +117,7 @@ where
                     lastname: participant.lastname.clone(),
                     place: participant.place,
                     result: participant.result.clone(),
+                    score: participant.score.clone(),
                 };
 
                 client_participants.push(participant_dto);

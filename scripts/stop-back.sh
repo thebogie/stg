@@ -16,4 +16,4 @@ COMPOSE_FILE="$ROOT/deploy/docker-compose.yml"
 ENV_FILE="$ROOT/config/.env.${RUST_ENV}"
 
 echo "==> Stopping backend stack..."
-docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" down
+docker compose --project-directory "$ROOT" -f "$COMPOSE_FILE" --env-file "$ENV_FILE" down

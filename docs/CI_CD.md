@@ -17,6 +17,7 @@ Build → Unit tests → (Start stack) → Integration tests → E2E smoke → (
 |---------------|----------------------------|--------|
 | Build         | `./ci-local.sh build`      | `cargo build -p backend` |
 | Unit tests    | `./ci-local.sh unit`       | `cargo test -p backend` (no stack) |
+| Prod-like smoke | `./ci-local.sh smoke prod` | build + unit + stack + short tests, then down |
 | Integration   | `./ci-local.sh integration`| Stack must be up; `cargo test -p testing` |
 | E2E (smoke)   | `./ci-local.sh e2e`        | Full stack up, health check, then down |
 | **All**       | `./ci-local.sh all`        | build → unit → start stack → integration → e2e |
@@ -33,7 +34,7 @@ Uses `config/.env.prod` and `deploy/docker-compose.yml`. From repo root:
 
 ### Pre-push: test exact production images
 
-Run **`./scripts/full-prod-test.sh`** before committing. It:
+Run **`./scripts/test-prod-gate.sh`** (same as `full-prod-test.sh`) before committing. It:
 
 1. Builds a **production** backend image with a single **build version** (e.g. `20250312-143022-abc1234` = date + short SHA).
 2. Starts the **same** stack as production (SurrealDB, Redis, backend) using that image.
@@ -53,13 +54,13 @@ If everything passes, you can commit. Pushing to `main` triggers GHCR to build t
 
 - **Auth (and other integration) tests do not require production data.** They create their own users via `/api/players/register` and only need SurrealDB + Redis and correct credentials.
 - **Credentials** in `config/.env.prod` (`SURREAL_USER`, `SURREAL_PASSWORD`) must match what the SurrealDB container uses (default `root`/`root` in compose).
-- **`scripts/full-prod-test.sh`** applies a minimal schema (player table only) from `docs/surreal-schema-minimal-tests.surql` after the stack is up, so integration tests run against a fresh DB even when no production data is loaded. To apply it manually: `source scripts/load-env.sh prod && ./scripts/apply-surreal-schema-minimal.sh`.
+- **`scripts/test-prod-gate.sh`** applies a minimal schema (player table only) from `docs/surreal-schema-minimal-tests.surql` after Surreal is up, so integration tests run against a fresh DB even when no production data is loaded. To apply it manually: `source scripts/load-env.sh prod && ./scripts/apply-surreal-schema-minimal.sh`.
 
 ## File reference
 
 | What            | Where |
 |-----------------|--------|
-| **Prod build + test** | `scripts/full-prod-test.sh` (build version → _build/<version>/) |
+| **Prod build + test** | `scripts/test-prod-gate.sh` / `scripts/full-prod-test.sh` (build version → _build/<version>/) |
 | CI script       | `ci-local.sh` (root), `scripts/ci.sh` |
 | Compose         | `deploy/docker-compose.yml` |
 | Env             | `config/.env.dev`, `config/.env.prod` (from `config/setup-env.sh dev|prod`) |

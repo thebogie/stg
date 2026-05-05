@@ -1,3 +1,5 @@
+OPTION IMPORT;
+
 -- SurrealDB custom functions for contest lookups (v3-compatible).
 -- Canonical location: tools/arango-to-surreal/surreal-functions.surql
 -- Apply: ./scripts/apply-surreal-functions.sh (or paste in Surrealist with NS/DB set).
@@ -20,7 +22,7 @@ DEFINE FUNCTION fn::contest_with_edges($key: string) {
 		contest: $contest,
 		venue_id: (SELECT `out` FROM played_at WHERE `in` = $cid LIMIT 1)[0].out,
 		game_ids: (SELECT VALUE `out` FROM played_with WHERE `in` = $cid),
-		outcomes: (SELECT `out` AS player_id, place, result FROM resulted_in WHERE `in` = $cid ORDER BY place ASC)
+		outcomes: (SELECT `out` AS player_id, place, result, score FROM resulted_in WHERE `in` = $cid ORDER BY place ASC)
 	};
 };
 
@@ -61,7 +63,7 @@ DEFINE FUNCTION fn::contest_participants($key: string) {
 	IF $row == NONE THEN
 		RETURN [];
 	END;
-	RETURN (SELECT `out` AS player_id, place, result, points FROM resulted_in WHERE `in` = $row.id ORDER BY place ASC);
+	RETURN (SELECT `out` AS player_id, place, result, points, score FROM resulted_in WHERE `in` = $row.id ORDER BY place ASC);
 };
 
 -- player_contests_with_edges(player_key, start_date, end_date) — contests with venue_id, game_id, outcomes. Pass "" for start_date/end_date for no filter.
@@ -73,7 +75,7 @@ DEFINE FUNCTION fn::player_contests_with_edges($player_key: string, $start_date:
 	RETURN (SELECT id AS contest_id, name, start, stop,
 		(SELECT VALUE `out` FROM played_at WHERE `in` = id LIMIT 1)[0] AS venue_id,
 		(SELECT VALUE `out` FROM played_with WHERE `in` = id LIMIT 1)[0] AS game_id,
-		(SELECT `out` AS player_id, place, result FROM resulted_in WHERE `in` = id ORDER BY place ASC) AS outcomes
+		(SELECT `out` AS player_id, place, result, score FROM resulted_in WHERE `in` = id ORDER BY place ASC) AS outcomes
 		FROM contest WHERE id INSIDE $cids
 		AND ($start_date == "" OR start >= $start_date)
 		AND ($end_date == "" OR start <= $end_date)
@@ -165,6 +167,6 @@ DEFINE FUNCTION fn::player_game_performance_detail_data($player_key: string) {
 		contest_starts: (SELECT id, start FROM contest WHERE id INSIDE $cids),
 		played_with: (SELECT `in` AS contest_id, `out` AS game_id FROM played_with WHERE `in` INSIDE $cids),
 		played_at: (SELECT `in` AS contest_id, `out` AS venue_id FROM played_at WHERE `in` INSIDE $cids),
-		participants: (SELECT `in` AS contest_id, `out` AS player_id, place FROM resulted_in WHERE `in` INSIDE $cids)
+		participants: (SELECT `in` AS contest_id, `out` AS player_id, place, score FROM resulted_in WHERE `in` INSIDE $cids)
 	};
 };

@@ -43,6 +43,9 @@ pub struct ClientParticipant {
     pub lastname: Option<String>,
     pub place: i32,
     pub result: String, // "won", "lost", "tied"
+    /// Free-form score from the contest (often numeric).
+    #[serde(default)]
+    pub score: String,
 }
 
 /// Current user's result in this contest
@@ -732,6 +735,7 @@ mod tests {
                 lastname: Some("User".to_string()),
                 place: 1,
                 result: "won".to_string(),
+                score: String::new(),
             }],
             my_result: ClientResult {
                 place: 1,

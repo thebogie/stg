@@ -20,6 +20,27 @@ use shared::models::venue::VenueSource;
 use testing::create_authenticated_user;
 use testing::{app_setup, TestEnvironment};
 
+struct AdminEmailsGuard {
+    previous: Option<String>,
+}
+
+impl AdminEmailsGuard {
+    fn set_to(email: &str) -> Self {
+        let previous = std::env::var("ADMIN_EMAILS").ok();
+        std::env::set_var("ADMIN_EMAILS", email);
+        Self { previous }
+    }
+}
+
+impl Drop for AdminEmailsGuard {
+    fn drop(&mut self) {
+        match &self.previous {
+            Some(v) => std::env::set_var("ADMIN_EMAILS", v),
+            None => std::env::remove_var("ADMIN_EMAILS"),
+        }
+    }
+}
+
 fn create_test_venue_dto() -> VenueDto {
     VenueDto {
         id: String::new(),
@@ -415,12 +436,27 @@ async fn test_search_contests() -> Result<()> {
                     .app_data(app_data.player_repo.clone())
                     .service(backend::contest::controller::create_contest_handler)
                     .service(backend::contest::controller::search_contests_handler)
-                    .service(backend::contest::controller::get_contest_handler),
+                    .service(backend::contest::controller::get_contest_handler)
+                    .service(
+                        web::scope("")
+                            .wrap(backend::auth::AdminAuthMiddleware {
+                                redis: app_data.redis_arc.clone(),
+                                player_repo: app_data.player_repo_arc.clone(),
+                            })
+                            .app_data(app_data.contest_repo.clone())
+                            .service(backend::contest::controller::approve_contest_handler),
+                    ),
             ),
     )
     .await;
 
-    let session_id = create_authenticated_user!(app, "contest_search@example.com", "contestsearch");
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let email = format!("contest_search_{}@example.com", ts);
+    let _admin_emails = AdminEmailsGuard::set_to(email.as_str());
+    let session_id = create_authenticated_user!(app, email.as_str(), "contestsearch");
 
     // First create a venue and game that we'll reuse
     let venue_data = json!({
@@ -459,7 +495,8 @@ async fn test_search_contests() -> Result<()> {
     assert!(create_game_resp.status().is_success());
     let created_game: shared::dto::game::GameDto = test::read_body_json(create_game_resp).await;
 
-    // Create a couple of contests with venue and games
+    // Create a couple of contests with venue and games (they start pending; approve so search includes them)
+    let mut created_contest_ids: Vec<String> = Vec::new();
     for i in 1..=2 {
         let start: DateTime<FixedOffset> = Utc::now().into();
         let stop: DateTime<FixedOffset> = start + chrono::Duration::hours(2);
@@ -495,6 +532,22 @@ async fn test_search_contests() -> Result<()> {
 
         let create_resp = test::call_service(&app, create_req).await;
         assert!(create_resp.status().is_success());
+        let created: ContestDto = test::read_body_json(create_resp).await;
+        created_contest_ids.push(created.id);
+    }
+
+    for cid in &created_contest_ids {
+        let key = cid.split_once('/').map(|(_, k)| k).unwrap_or(cid.as_str());
+        let approve_req = test::TestRequest::post()
+            .uri(&format!("/api/contests/{}/approve", key))
+            .insert_header(("Authorization", format!("Bearer {}", session_id)))
+            .to_request();
+        let approve_resp = test::call_service(&app, approve_req).await;
+        assert!(
+            approve_resp.status().is_success() || approve_resp.status().as_u16() == 204,
+            "Approve should succeed, got: {}",
+            approve_resp.status()
+        );
     }
 
     // Search contests - use scope=all to see all contests (not just user's)

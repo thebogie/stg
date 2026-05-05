@@ -6,6 +6,6 @@ alwaysApply: false
 
 # Testing crate (`testing/`)
 
-- Integration tests expect **SurrealDB + Redis + API** as documented. Start stack with **`./scripts/start-back.sh`** before **`cargo test -p testing`** or use **`./ci-local.sh integration`** / **`./ci-local.sh all`**.
+- Integration tests expect **SurrealDB + Redis + API** as documented. Use **`./ci-local.sh integration prod`** (starts stack), or **`./scripts/start-back.sh`** then **`./scripts/run-integration-tests.sh`**. Quick path: **`./ci-local.sh smoke prod`**.
 - Prefer env/ports from **`config/`** and **`scripts/load-env.sh`** so tests match CI.
 - When assertions involve API contracts, align types with **`shared/`** and **`back/api`** rather than duplicating ad-hoc structs.

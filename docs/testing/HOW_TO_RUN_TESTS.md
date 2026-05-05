@@ -8,11 +8,17 @@
 
 Runs, in order: build → unit tests → start stack (SurrealDB, Redis, backend) → integration tests → E2E smoke → tear down. Uses `config/.env.prod` and `deploy/docker-compose.yml`. This is the same flow used for pre-push and can be mirrored in CI.
 
+**Other entrypoints** (see `scripts/README.md`):
+
+- **Quick prod-like smoke** (build + unit + stack + short tests, then down): `./ci-local.sh smoke prod`
+- **Full gate on prod-built images** (unit + full integration + Playwright): `./scripts/test-prod-gate.sh`
+
 Individual phases:
 
 ```bash
 ./ci-local.sh build         # cargo build -p backend
 ./ci-local.sh unit          # cargo test -p backend (no Docker)
+./ci-local.sh smoke prod    # shorter prod-like check (starts stack, then down)
 ./ci-local.sh integration   # cargo test -p testing (stack must be up)
 ./ci-local.sh e2e           # stack up, health check, then down
 ```

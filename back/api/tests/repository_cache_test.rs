@@ -8,10 +8,16 @@ use std::sync::Arc;
 use std::time::Duration;
 
 /// Helper to create a test Redis client
-fn create_test_redis_client() -> redis::Client {
+fn create_test_redis_client() -> Option<redis::Client> {
     let redis_url =
         std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379/".to_string());
-    redis::Client::open(redis_url).expect("Failed to create Redis client")
+    match redis::Client::open(redis_url) {
+        Ok(c) => Some(c),
+        Err(e) => {
+            eprintln!("Skipping Redis cache tests: cannot create Redis client: {}", e);
+            None
+        }
+    }
 }
 
 #[tokio::test]
@@ -39,7 +45,13 @@ async fn test_cache_key_consistency() {
 
 #[tokio::test]
 async fn test_cache_invalidation_patterns() {
-    let redis_client = create_test_redis_client();
+    let Some(redis_client) = create_test_redis_client() else {
+        return;
+    };
+    if redis_client.get_async_connection().await.is_err() {
+        eprintln!("Skipping test_cache_invalidation_patterns: Redis not reachable");
+        return;
+    }
     let cache = Arc::new(RedisCache::new(
         redis_client,
         "test:cache:invalidation".to_string(),

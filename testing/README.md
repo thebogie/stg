@@ -14,25 +14,34 @@ testing/
 
 ## Running integration tests
 
-1. **Start the official stack** (deps only):
+From the **repo root**:
+
+1. **Bring up the stack and run integration** (recommended):
+
    ```bash
-   ./deploy/stack.sh start
+   ./ci-local.sh integration prod
    ```
-2. **Run tests** (they use `SURREAL_URL`, `REDIS_URL` from env, same as stack):
+
+2. **Or** start deps + backend yourself, then run tests:
+
    ```bash
-   cargo test -p testing
+   ./scripts/start-back.sh prod
+   ./scripts/run-integration-tests.sh -- --include-ignored --test-threads=1
    ```
-   Or use the combined CI script (starts stack if needed, then runs build/unit/integration/e2e):
+
+3. **Quick prod-like smoke** (shorter than full integration crate):
+
    ```bash
-   ./deploy/ci-local.sh integration
-   # or
-   ./ci-local.sh all
+   ./ci-local.sh smoke prod
    ```
+
+See **`docs/testing/HOW_TO_RUN_TESTS.md`** and **`testing/INTEGRATION_TEST_GUIDE.md`**.
 
 ## What gets tested
 
 - **Unit** (`cargo test -p backend`): No stack required.
-- **Integration** (`cargo test -p testing`): Uses the stack from `./deploy/stack.sh start` (SurrealDB + Redis).
-- **E2E** (`./deploy/ci-local.sh e2e`): Full stack (backend + frontend) in Docker, then smoke checks.
+- **Integration** (`cargo test -p testing`): Uses the Docker stack from `deploy/docker-compose.yml`.
+- **Smoke** (`./ci-local.sh smoke prod`): Build + unit + stack + `api_tests` + one ignored backend smoke test, then stack down.
+- **E2E** (`./ci-local.sh e2e`): Full stack in Docker, health check, then down (see `scripts/ci.sh`).
 
 Same compose and images for local dev, CI, and production.

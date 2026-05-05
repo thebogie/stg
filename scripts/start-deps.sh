@@ -19,13 +19,12 @@ export COMPOSE_PROJECT_NAME=stg
 COMPOSE_FILE="$ROOT/deploy/docker-compose.yml"
 ENV_FILE="$ROOT/config/.env.${RUST_ENV}"
 
-VOL_DEFAULT="$ROOT/docker-data"
-[ "${RUST_ENV:-dev}" = "dev" ] || [ "${RUST_ENV:-dev}" = "development" ] && VOL_DEFAULT="$ROOT/_build/docker-data"
-VOL_BASE="${VOLUME_PATH:-$VOL_DEFAULT}"
-VOL_BASE="$(cd "$VOL_BASE" 2>/dev/null && pwd)" || VOL_BASE="$VOL_DEFAULT"
-mkdir -p "$VOL_BASE/surrealdb_data" "$VOL_BASE/redis_data"
-export VOLUME_PATH="$VOL_BASE"
+mkdir -p "$VOLUME_PATH/surrealdb_data" "$VOLUME_PATH/redis_data"
 chmod 777 "$VOLUME_PATH/surrealdb_data" 2>/dev/null || true
+
+stg_compose() {
+  docker compose --project-directory "$ROOT" "$@"
+}
 
 # Dev only: optional wipe + import (same logic as start-back.sh)
 WIPED=""
@@ -42,12 +41,12 @@ fi
 
 # Start only SurrealDB and Redis (no backend, no full stack down/up)
 echo "==> Starting SurrealDB and Redis only..."
-docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d surrealdb redis
+stg_compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d surrealdb redis
 
 # If we wiped the volume, restart SurrealDB so it sees the empty data dir (otherwise it keeps old in-memory schema)
 if [ -n "$WIPED" ]; then
   echo "==> Restarting SurrealDB to pick up empty volume..."
-  docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" restart surrealdb
+  stg_compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" restart surrealdb
 fi
 
 # Optional import (dev only)

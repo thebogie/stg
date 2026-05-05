@@ -16,7 +16,7 @@ docker compose -f deploy/docker-compose.production.yml --env-file config/.env.pr
 ```
 
 - **Port**: `50001` by default (same as ArangoDB; override with `SURREALDB_PORT`).
-- **Data**: Persisted in a volume (`docker-data/surrealdb_data` for deps, or `VOLUME_PATH/surrealdb_data` in production).
+- **Data**: Persisted under **`VOLUME_PATH/surrealdb_data`** (defaults: `data/dev` / `data/prod` under the repo; see `scripts/load-env.sh`).
 - **Auth (deps)**: user `root`, password `root`. For production set `SURREAL_USER` and `SURREAL_PASSWORD` in your env file.
 
 ## UI: Surrealist

@@ -80,5 +80,6 @@ DEFINE FIELD IF NOT EXISTS `out` ON resulted_in TYPE record<player>;
 DEFINE FIELD IF NOT EXISTS place ON resulted_in TYPE option<int>;
 DEFINE FIELD IF NOT EXISTS result ON resulted_in TYPE option<string>;
 DEFINE FIELD IF NOT EXISTS points ON resulted_in TYPE option<int>;
+DEFINE FIELD IF NOT EXISTS score ON resulted_in TYPE option<string>;
 DEFINE INDEX IF NOT EXISTS resulted_in_in ON TABLE resulted_in COLUMNS `in`;
 DEFINE INDEX IF NOT EXISTS resulted_in_out ON TABLE resulted_in COLUMNS `out`;

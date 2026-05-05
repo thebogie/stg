@@ -24,9 +24,13 @@ Merge through normal PRs. Tear down when done: `git worktree remove ../stg-agent
 | Tauri shell | `front/tauri/` | Embeds the same Yew app; `cargo tauri` from `front/tauri`. |
 | Shared types | `shared/` | Used by backend, frontend, and tests—coordinate contract changes. |
 | Integration tests | `testing/` | Needs stack up for integration runs (see `docs/testing/HOW_TO_RUN_TESTS.md`). |
-| Env & scripts | `config/`, `scripts/` | Env via `./config/setup-env.sh dev|prod`; scripts load `scripts/load-env.sh`. |
+| Env & scripts | `config/`, `scripts/`, `data/` | Env: `./config/setup-env.sh dev|prod`. Local Docker state: gitignored **`data/`** (see `scripts/load-env.sh` for `VOLUME_PATH`). |
 
 Avoid assigning two agents to the same hotspot in one iteration (see below).
+
+## Domain / business rules
+
+- **Contest outcome `score` is game-specific.** Each title can define scoring differently (VP, currency, win points, etc.). **Do not assume scores are comparable across games** in analytics, leaderboards, or ratings unless you add an explicit, documented normalization (e.g. per-game scaling or categories).
 
 ## Hot merge points (serialize or single owner)
 
@@ -36,10 +40,14 @@ Avoid assigning two agents to the same hotspot in one iteration (see below).
 
 ## Quick commands
 
-- Full local CI: `./ci-local.sh all`
-- Backend stack: `./scripts/start-back.sh` · stop: `./scripts/stop-back.sh`
+- Full **prod-image** gate (same as push-ready): `./scripts/test-prod-gate.sh`
+- Quick **prod-like** smoke: `./scripts/test-prod-like-smoke.sh` or `./ci-local.sh smoke prod`
+- Full local CI (compose stages): `./ci-local.sh all`
+- **Dev + breakpoints:** `./scripts/dev-debug.sh` then `just backend-watch`
+- Backend stack (all in Docker): `./scripts/start-back.sh` · stop: `./scripts/stop-back.sh`
 - Frontend: `./scripts/start-front.sh` · Tauri: `./scripts/start-tauri.sh`
 - Deps only (backend on host): `./scripts/start-deps.sh` then e.g. `just backend-watch`
+- **Server:** install GHCR images: `./scripts/install-from-ci.sh <tag>` (see `deploy/README.md`)
 
 ## Cursor rules
 

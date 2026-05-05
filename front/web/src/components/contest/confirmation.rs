@@ -140,8 +140,15 @@ pub fn contest_confirmation(props: &ContestConfirmationProps) -> Html {
                             html! {
                                 <li class="text-xs sm:text-sm leading-snug">
                                     {format!(
-                                        "{} — place {}, {}",
-                                        player_display, outcome.place, outcome.result
+                                        "{} — place {}, {}{}",
+                                        player_display,
+                                        outcome.place,
+                                        outcome.result,
+                                        if outcome.score.trim().is_empty() {
+                                            String::new()
+                                        } else {
+                                            format!(", score {}", outcome.score.trim())
+                                        }
                                     )}
                                 </li>
                             }

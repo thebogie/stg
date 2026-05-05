@@ -1,4 +1,12 @@
-//! Integration tests for venue update endpoint. Require BACKEND_BASE_URL and tokens to exercise auth paths.
+//! Integration tests for venue update endpoint.
+//!
+//! These tests require a running backend server. Set `BACKEND_URL` (and optional bearer tokens)
+//! to run them, e.g.:
+//!
+//! `BACKEND_URL=http://localhost:50002 cargo test -p backend --test venue_update_integration_test -- --ignored`
+//!
+//! They are marked `#[ignore]` by default so normal `cargo test` doesn't fail when the stack
+//! isn't running.
 
 use serde::{Deserialize, Serialize};
 use std::env;
@@ -26,6 +34,7 @@ fn user_token() -> Option<String> {
 }
 
 #[tokio::test]
+#[ignore]
 async fn venue_update_requires_auth() {
     if base_url().is_none() {
         return;
@@ -59,6 +68,7 @@ async fn venue_update_requires_auth() {
 }
 
 #[tokio::test]
+#[ignore]
 async fn venue_update_forbidden_for_non_admin() {
     if base_url().is_none() {
         return;
@@ -91,6 +101,7 @@ async fn venue_update_forbidden_for_non_admin() {
 }
 
 #[tokio::test]
+#[ignore]
 async fn venue_update_admin_happy_path_shape() {
     if base_url().is_none() {
         return;

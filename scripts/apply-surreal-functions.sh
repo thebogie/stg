@@ -8,7 +8,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$SCRIPT_DIR/.."
 cd "$ROOT"
 
-source "$SCRIPT_DIR/load-env.sh" dev
+# Respect the caller's environment (full-prod-test / ci.sh already source the right env).
+# Only fall back to dev defaults if the key Surreal vars are not set.
+if [ -z "${SURREALDB_PORT+set}" ] || [ -z "${SURREAL_PASSWORD+set}" ] || [ -z "${SURREAL_USER+set}" ]; then
+  source "$SCRIPT_DIR/load-env.sh" "${ENV:-dev}"
+fi
 SURREAL_NS="${SURREAL_NS:-stg_rd}"
 SURREAL_DB="${SURREAL_DB:-stg_rd}"
 SURREAL_USER="${SURREAL_USER:-root}"

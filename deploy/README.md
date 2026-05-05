@@ -8,7 +8,7 @@ This directory is **self-contained** for production: copy the whole `deploy/` fo
 
 ### One-time setup
 
-1. Copy `deploy/` to the server (e.g. `/opt/stg/deploy`). Do **not** copy any `docker-data` folder—that’s for local dev only; production data lives at `VOLUME_PATH` on the server.
+1. Copy `deploy/` to the server (e.g. `/opt/stg/deploy`). Do **not** copy local **`data/`** from a dev machine; production data lives at **`VOLUME_PATH`** on the server (absolute path).
 2. Create env: `cp config/env.prod.template config/.env.prod` and edit `config/.env.prod`: set **`VOLUME_PATH`** to an absolute path **outside** the deploy folder (e.g. `/opt/stg/data`), plus passwords, etc. Compose will create `surrealdb_data`, `redis_data`, `backend_data` under that path.
 3. (Optional) Install hourly SurrealDB backup cron: from `deploy/` run `sudo ./setup_cron_backup_for_surreal.sh`.
 
@@ -49,7 +49,9 @@ See **WEB_AND_TAURI.md** for CI/CD overview and Tauri setup; **env.tauri.prod.te
 - **docker-compose.full.yml** — Same plus web frontend. For full-stack runs (e.g. `scripts/full-prod-test.sh`) set `BACKEND_IMAGE` and `FRONTEND_IMAGE` to your built images.
 - Frontend runs standalone via `scripts/start-front.sh` if you prefer.
 
-Run full stack locally (builds images, then compose up): `./scripts/full-prod-test.sh` (see script for env file path). Local/dev data dirs use `VOLUME_PATH` defaulting to **`_build/docker-data`** (prod and CI can override). Project name: **stg**.
+Run full stack locally (builds images, then compose up): `./scripts/test-prod-gate.sh` (same as `full-prod-test.sh`). Local bind mounts live under repo-root **`data/`** via `VOLUME_PATH` (defaults from `scripts/load-env.sh` / `config/env.*.template`; CI uses `data/ci-<env>`). Project name: **stg**.
+
+On the server, prefer **`./scripts/install-from-ci.sh <tag>`** from a full repo clone, or run **`./deploy_stg.sh <tag>`** from this directory—both pull the same GHCR images CI built.
 
 ---
 

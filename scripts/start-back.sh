@@ -23,20 +23,16 @@ export COMPOSE_PROJECT_NAME=stg
 COMPOSE_FILE="$ROOT/deploy/docker-compose.yml"
 ENV_FILE="$ROOT/config/.env.${RUST_ENV}"
 
-VOL_DEFAULT="$ROOT/docker-data"
-[ "$RUST_ENV" = "dev" ] || [ "$RUST_ENV" = "development" ] && VOL_DEFAULT="$ROOT/_build/docker-data"
-VOL_BASE="${VOLUME_PATH:-$VOL_DEFAULT}"
-VOL_BASE="$(cd "$VOL_BASE" 2>/dev/null && pwd)" || VOL_BASE="$VOL_DEFAULT"
-if ! mkdir -p "$VOL_BASE/surrealdb_data" "$VOL_BASE/redis_data" "$VOL_BASE/backend_data" 2>/dev/null; then
-  echo "Warning: Cannot create dirs under $VOL_BASE (permission denied?). Using $VOL_DEFAULT"
-  VOL_BASE="$VOL_DEFAULT"
-  mkdir -p "$VOL_BASE/surrealdb_data" "$VOL_BASE/redis_data" "$VOL_BASE/backend_data"
-fi
-export VOLUME_PATH="$VOL_BASE"
+# VOLUME_PATH is absolute after load-env.sh (defaults: data/dev, data/prod).
+mkdir -p "$VOLUME_PATH/surrealdb_data" "$VOLUME_PATH/redis_data" "$VOLUME_PATH/backend_data"
 chmod 777 "$VOLUME_PATH/surrealdb_data" 2>/dev/null || true
 
+stg_compose() {
+  docker compose --project-directory "$ROOT" "$@"
+}
+
 # Tear down and remove network so next up gets a fresh stg (backend can resolve surrealdb/redis)
-docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" down 2>/dev/null || true
+stg_compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" down 2>/dev/null || true
 docker network rm stg 2>/dev/null || true
 
 # Dev only: if we have .surql or backup zip, wipe SurrealDB so import gets a clean snapshot
@@ -53,10 +49,10 @@ fi
 
 if [ -n "$NO_BUILD" ]; then
   echo "==> Starting backend stack (no build)..."
-  docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d
+  stg_compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d
 else
   echo "==> Starting backend stack (SurrealDB, Redis, backend)..."
-  docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d --build
+  stg_compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d --build
 fi
 
 # Optional: import Arango→Surreal data (dev only; never in production)

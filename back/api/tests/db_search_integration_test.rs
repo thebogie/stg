@@ -1,4 +1,11 @@
-//! Integration tests for db-only search endpoints. Require BACKEND_BASE_URL.
+//! Integration tests for db-only search endpoints.
+//!
+//! These tests still require a running backend server. Set `BACKEND_URL` to run them, e.g.:
+//!
+//! `BACKEND_URL=http://localhost:50002 cargo test -p backend --test db_search_integration_test -- --ignored`
+//!
+//! They are marked `#[ignore]` by default so `./scripts/ci.sh unit` (and normal `cargo test`)
+//! doesn't fail when the stack isn't running.
 
 use std::env;
 
@@ -36,6 +43,7 @@ fn skip() -> bool {
 }
 
 #[tokio::test]
+#[ignore]
 async fn games_db_search_returns_success() {
     if skip() {
         return;
@@ -60,6 +68,7 @@ async fn games_db_search_returns_success() {
 }
 
 #[tokio::test]
+#[ignore]
 async fn venues_db_search_returns_success() {
     if skip() {
         return;
@@ -84,6 +93,7 @@ async fn venues_db_search_returns_success() {
 }
 
 #[tokio::test]
+#[ignore]
 async fn players_db_search_returns_success() {
     if skip() {
         return;

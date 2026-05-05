@@ -65,6 +65,8 @@ pub struct ClientParticipantDto {
     pub lastname: Option<String>,
     pub place: i32,
     pub result: String, // "won", "lost", "tied"
+    #[serde(default)]
+    pub score: String,
 }
 
 /// User's result in a contest

@@ -19,7 +19,7 @@ Create env files from templates:
 
 Edit `config/.env.dev` (and `.env.prod` if you use it). Key variables:
 
-- `VOLUME_PATH` – Where Docker stores data (default: `./docker-data`)
+- `VOLUME_PATH` – Where Docker bind-mounts store data (default: `data/dev` or `data/prod` under the repo; see `scripts/load-env.sh`)
 - `BACKEND_PORT` – API port (default: `50002`)
 - `FRONTEND_PORT` – Frontend port (default: `50003`)
 - `SURREALDB_PORT` – SurrealDB port (default: `50001`)
@@ -105,7 +105,7 @@ See [testing/HOW_TO_RUN_TESTS.md](../testing/HOW_TO_RUN_TESTS.md).
 - **Port in use:** Change ports in `config/.env.dev` or stop the process using the port.
 - **Backend can’t reach SurrealDB:** Ensure the backend stack is up (`./scripts/start-back.sh`) or deps only (`./scripts/start-deps.sh`). Backend in Docker uses service hostname `surrealdb`; local backend uses `localhost` and the port from env.
 - **Frontend can’t reach backend:** Ensure backend is running and `BACKEND_URL` / proxy in Trunk points to it (e.g. `http://localhost:50002`).
-- **Clean slate:** `./scripts/stop-back.sh`, then remove `docker-data` if you want to wipe DB/Redis data.
+- **Clean slate:** `./scripts/stop-back.sh`, then remove the relevant tree under **`data/`** (e.g. `data/dev/surrealdb_data`) if you want to wipe DB/Redis data.
 
 ## Next steps
 

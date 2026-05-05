@@ -32,7 +32,8 @@ services:
       - "0.0.0.0:8000"  # Force listening on all interfaces inside the container
       - "rocksdb:/data/surrealdb"
     volumes:
-      - ${VOLUME_PATH:-./docker-data}/surrealdb_data:/data
+      # VOLUME_PATH must be set (scripts + config/.env.*). Relative paths resolve from repo root (--project-directory).
+      - ${VOLUME_PATH}/surrealdb_data:/data
     networks:
       stg:
         aliases:
@@ -45,7 +46,7 @@ services:
       - "${REDIS_PORT:-6379}:6379"
     command: redis-server --appendonly yes
     volumes:
-      - ${VOLUME_PATH:-./docker-data}/redis_data:/data
+      - ${VOLUME_PATH}/redis_data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -66,12 +67,16 @@ services:
         BUILD_DATE: "${BUILD_DATE:-unknown}"
     # Use BACKEND_IMAGE when running pre-built prod image (e.g. stg-backend:20250312-abc1234 or ghcr.io/owner/stg/backend:latest)
     image: ${BACKEND_IMAGE:-stg-backend:local}
+    restart: always
     ports:
       - "${BACKEND_PORT:-50002}:${BACKEND_PORT:-50002}"
     # SURREAL_URL and REDIS_URL are set by docker-entrypoint.sh from gateway IP (avoids DNS issues)
     # IMAGE_TAG is shown in /api/version and footer (build version)
     environment:
       - IMAGE_TAG=${IMAGE_TAG:-}
+      # Prefer in-network service DNS inside Docker (more reliable than host-gateway IP on Linux).
+      - SURREAL_URL=ws://surrealdb:8000
+      - REDIS_URL=redis://redis:6379/
       - SURREALDB_PORT=${SURREALDB_PORT:-50001}
       - REDIS_PORT=${REDIS_PORT:-6379}
       - SURREAL_NS=${SURREAL_NS:-stg_rd}
@@ -94,13 +99,17 @@ services:
       redis:
         condition: service_healthy
     volumes:
-      - ${VOLUME_PATH:-./docker-data}/backend_data:/app/data
+      - ${VOLUME_PATH}/backend_data:/app/data
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O-", "--tries=1", "http://localhost:${BACKEND_PORT:-50002}/health"]
+      test:
+        [
+          "CMD-SHELL",
+          "wget -q -O- --tries=1 http://127.0.0.1:$${SERVER_PORT:-50002}/health || exit 1",
+        ]
       interval: 10s
       timeout: 5s
-      retries: 5
-      start_period: 30s
+      retries: 8
+      start_period: 60s
     networks:
       - stg
 

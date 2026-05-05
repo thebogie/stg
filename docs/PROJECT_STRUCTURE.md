@@ -28,17 +28,27 @@ SurrealDB and Redis run as containers only (see `deploy/docker-compose.yml`). No
 | | Create: `./config/setup-env.sh dev` → `config/.env.dev`; `./config/setup-env.sh prod` → `config/.env.prod`. |
 | | Scripts use `config/.env.dev` or `config/.env.prod` (see `scripts/load-env.sh`). |
 
+## Local Docker data (`data/`)
+
+| Path | Description |
+|------|-------------|
+| **data/** | Gitignored bind-mount roots for SurrealDB, Redis, and backend file cache. Defaults: `data/dev`, `data/prod`; CI uses `data/ci-<env>`. Set **`VOLUME_PATH`** in `.env.*` (templates use `data/dev` or `data/prod`; production servers should use an **absolute** path outside the repo). |
+
+Do not store secrets under `data/`. Do not put compose files or `.env` files here—use **`deploy/`** and **`config/`**.
+
 ## Shared and tooling
 
 - **shared** – Types and code shared by front/web, back/api, and tests.
 - **testing** – Integration test crate (SurrealDB + Redis; same stack as production).
-- **scripts/** – Dev and CI scripts (start-back, start-front, start-deps, ci, load-env, etc.). See `scripts/README.md`.
+- **scripts/** – How to run local stacks and tests. Canonical overview: **`scripts/README.md`** (four primary workflows).
 - **tools/arango-to-surreal** – One-off Arango → Surreal conversion (optional; for migration only).
 
 ## Build and run (quick reference)
 
-- **CI (all tests):** `./ci-local.sh all` or `./ci-local.sh [build|unit|integration|e2e]`. Uses `config/.env.prod` and `deploy/docker-compose.yml`.
-- **Backend (terminal 1):** `./scripts/start-back.sh` (builds and starts SurrealDB + Redis + backend). Stop: `./scripts/stop-back.sh`.
-- **Frontend (terminal 2):** `./scripts/start-front.sh` (Yew/Trunk) or `./scripts/start-tauri.sh` (Tauri). Uses `config/.env.dev`.
-- **Hybrid dev (backend on host):** `./scripts/start-deps.sh` then `just backend-watch` (terminal 2) and `./scripts/start-front.sh` or `./scripts/start-tauri.sh` (terminal 3). See `docs/QUICK_ITERATION.md`.
-- **Production:** Build and push backend image via GitHub Actions; production pulls from GHCR. See `docs/GHCR_SETUP.md`.
+- **Full prod-image gate (unit + full integration + Playwright):** `./scripts/test-prod-gate.sh` (wraps `full-prod-test.sh`). Playwright E2E defaults to **Docker** (`./scripts/run-playwright-e2e-docker.sh`); host run needs `FULL_PROD_TEST_PLAYWRIGHT_HOST=1`.
+- **Quick prod-like smoke:** `./scripts/test-prod-like-smoke.sh` or `./ci-local.sh smoke prod`.
+- **CI driver (stages):** `./ci-local.sh [build|unit|smoke|integration|e2e|all] [dev|prod]`. Uses `deploy/docker-compose.yml` and `config/.env.*`.
+- **Dev + breakpoints:** `./scripts/dev-debug.sh` then `just backend-watch` (see `docs/QUICK_ITERATION.md`).
+- **Backend in Docker:** `./scripts/start-back.sh` · stop: `./scripts/stop-back.sh`.
+- **Frontend:** `./scripts/start-front.sh` or `./scripts/start-tauri.sh` (uses `config/.env.dev`).
+- **Production install from GHCR:** `./scripts/install-from-ci.sh <tag>` on the server (wraps `deploy/deploy_stg.sh`). See `docs/GHCR_SETUP.md` and `deploy/README.md`.

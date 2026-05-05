@@ -1,3 +1,5 @@
+OPTION IMPORT;
+
 -- Remove application functions so DEFINE in surreal-functions.surql is idempotent.
 -- Run this before importing surreal-functions.surql (e.g. in apply-surreal-functions.sh).
 -- Safe to run even when functions do not exist (script may ignore import errors).

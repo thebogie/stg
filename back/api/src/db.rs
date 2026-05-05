@@ -24,37 +24,70 @@ pub async fn connect_surreal(database: &DatabaseConfig) -> anyhow::Result<Db> {
         .replace("https://", "wss://");
     log::info!("Connecting to SurrealDB at {}", ws_url);
 
-    let db: Db = match url::Url::parse(&ws_url).ok().and_then(|u| {
-        let host = u.host_str()?;
-        let ip: std::net::IpAddr = host.parse().ok()?;
-        let port = u.port().unwrap_or(50001);
-        Some(std::net::SocketAddr::new(ip, port))
-    }) {
-        Some(addr) => Surreal::new::<Ws>(addr)
+    // Production stack startup is occasionally racy (SurrealDB health is up but WS auth isn't ready
+    // yet). Retry connect+signin+USE for a short window to make container orchestration robust.
+    let mut last_err: Option<anyhow::Error> = None;
+    for attempt in 1..=30u32 {
+        let connected: anyhow::Result<Db> = async {
+            let db: Db = if let Some(u) = url::Url::parse(&ws_url).ok() {
+                let host = u.host_str().unwrap_or_default();
+                let port = u.port().unwrap_or(50001);
+                if let Ok(ip) = host.parse::<std::net::IpAddr>() {
+                    let addr = std::net::SocketAddr::new(ip, port);
+                    Surreal::new::<Ws>(addr)
+                        .await
+                        .with_context(|| format!("connect SurrealDB at {}", addr))?
+                } else {
+                    // Some environments have flaky hostname handling in the WS client.
+                    // Resolve the hostname ourselves and connect via SocketAddr.
+                    let mut addrs = tokio::net::lookup_host((host, port))
+                        .await
+                        .with_context(|| format!("resolve SurrealDB host {}", host))?;
+                    let addr = addrs
+                        .next()
+                        .with_context(|| format!("no addresses for SurrealDB host {}", host))?;
+                    Surreal::new::<Ws>(addr)
+                        .await
+                        .with_context(|| format!("connect SurrealDB at {}", addr))?
+                }
+            } else {
+                Surreal::new::<Ws>(ws_url.as_str())
+                    .await
+                    .context("connect SurrealDB")?
+            };
+
+            db.signin(surrealdb::opt::auth::Root {
+                username: database.root_username.clone(),
+                password: database.root_password.clone(),
+            })
             .await
-            .with_context(|| format!("connect SurrealDB at {}", addr))?,
-        None => Surreal::new::<Ws>(ws_url.as_str())
-            .await
-            .context("connect SurrealDB")?,
-    };
+            .context("SurrealDB root signin")?;
 
-    db.signin(surrealdb::opt::auth::Root {
-        username: database.root_username.clone(),
-        password: database.root_password.clone(),
-    })
-    .await
-    .context("SurrealDB root signin")?;
+            db.use_ns(&database.ns)
+                .use_db(&database.name)
+                .await
+                .context("SurrealDB USE NS/DB")?;
 
-    db.use_ns(&database.ns)
-        .use_db(&database.name)
-        .await
-        .context("SurrealDB USE NS/DB")?;
+            ensure_contest_moderation_schema(&db)
+                .await
+                .context("contest moderation schema bootstrap")?;
 
-    ensure_contest_moderation_schema(&db)
-        .await
-        .context("contest moderation schema bootstrap")?;
+            Ok(db)
+        }
+        .await;
 
-    Ok(db)
+        match connected {
+            Ok(db) => return Ok(db),
+            Err(e) => {
+                last_err = Some(e);
+                if attempt < 30 {
+                    tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+                }
+            }
+        }
+    }
+
+    Err(last_err.unwrap_or_else(|| anyhow::anyhow!("connect SurrealDB: unknown error")))
 }
 
 /// Ensures `contest` exists and has moderation columns for SCHEMAFULL writes (`CREATE` sets `moderation_status`).

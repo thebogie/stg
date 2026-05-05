@@ -36,7 +36,7 @@
 | **target**     | Cargo build. Gitignore. |
 | **node_modules** | npm. Gitignore. |
 | **test-results** | Playwright. Gitignore. |
-| **docker-data** | Local Docker volumes. Gitignore. |
+| **data/** | Local Docker bind mounts (`data/dev`, `data/prod`, `data/ci-*`). Gitignored. |
 
 ---
 
