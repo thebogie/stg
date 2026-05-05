@@ -31,10 +31,18 @@ WIPED=""
 if [ "$RUST_ENV" = "dev" ] || [ "$RUST_ENV" = "development" ]; then
   SURQL_PATH="${SURREAL_IMPORT_SURQL:-$ROOT/_build/smacktalk.surql}"
   BACKUP_ZIP="${ARANGO_BACKUP_ZIP:-$HOME/work/_backups/smacktalk.zip}"
+  SEED_DIR_EARLY="${SURREAL_SEED_DIR:-}"
+  SEED_FORCE="${SURREAL_SEED_FORCE:-0}"
+  if [ "$SEED_FORCE" = "1" ] && [ -n "$SEED_DIR_EARLY" ] && [ -d "$SEED_DIR_EARLY" ]; then
+    echo "==> Dev: SURREAL_SEED_FORCE=1 — wiping SurrealDB volume for reseed..."
+    docker run --rm -v "$VOLUME_PATH/surrealdb_data:/data" busybox:1.36 sh -c "rm -rf /data/*"
+    chmod 777 "$VOLUME_PATH/surrealdb_data" 2>/dev/null || true
+    WIPED=1
+  fi
   if [ -f "$BACKUP_ZIP" ]; then
     echo "==> Dev: resetting SurrealDB for clean import..."
-    docker run --rm -v "$VOL_BASE/surrealdb_data:/data" busybox:1.36 sh -c "rm -rf /data/*"
-    chmod 777 "$VOL_BASE/surrealdb_data" 2>/dev/null || true
+    docker run --rm -v "$VOLUME_PATH/surrealdb_data:/data" busybox:1.36 sh -c "rm -rf /data/*"
+    chmod 777 "$VOLUME_PATH/surrealdb_data" 2>/dev/null || true
     WIPED=1
   fi
 fi
@@ -53,6 +61,7 @@ fi
 if [ "$RUST_ENV" = "dev" ] || [ "$RUST_ENV" = "development" ]; then
   SURQL_PATH="${SURREAL_IMPORT_SURQL:-$ROOT/_build/smacktalk.surql}"
   BACKUP_ZIP="${ARANGO_BACKUP_ZIP:-$HOME/work/_backups/smacktalk.zip}"
+  SEED_DIR="${SURREAL_SEED_DIR:-}"
   SURREAL_NS="${SURREAL_NS:-stg_rd}"
   SURREAL_DB="${SURREAL_DB:-stg_rd}"
   SURREAL_USER="${SURREAL_USER:-root}"
@@ -90,6 +99,77 @@ if [ "$RUST_ENV" = "dev" ] || [ "$RUST_ENV" = "development" ]; then
     return 1
   }
 
+  try_seed_import() {
+    # Seed format: directory with *.surql or *.surql.gz exports (e.g. stg_rd.surql.gz, system.surql.gz)
+    if [ -z "$SEED_DIR" ]; then
+      return 0
+    fi
+    if [ ! -d "$SEED_DIR" ]; then
+      debug_log "pre-fix" "Hseed" "scripts/start-deps.sh:seed" "seed dir missing" "$(printf '{"seed_dir":"%s"}' "$SEED_DIR")"
+      return 0
+    fi
+    # Only seed when Surreal volume dir looks empty OR we are explicitly forcing a reseed.
+    # Note: after (re)starting SurrealDB, it creates a rocksdb directory immediately, so the volume
+    # won't be "empty" even though it contains no user data yet.
+    if [ "${SURREAL_SEED_FORCE:-0}" != "1" ] && [ -n "$(ls -A "$VOLUME_PATH/surrealdb_data" 2>/dev/null)" ]; then
+      debug_log "pre-fix" "Hseed" "scripts/start-deps.sh:seed" "volume not empty; skip seed" "$(printf '{"volume_path":"%s"}' "$VOLUME_PATH/surrealdb_data")"
+      return 0
+    fi
+
+    debug_log "pre-fix" "Hseed" "scripts/start-deps.sh:seed" "attempting seed import" "$(printf '{"seed_dir":"%s","endpoint":"%s","ns":"%s","db":"%s"}' "$SEED_DIR" "$SURREAL_ENDPOINT" "$SURREAL_NS" "$SURREAL_DB")"
+
+    # Import any seed files found. Surreal CLI supports reading compressed files in many builds; if it doesn't,
+    # the import will fail and we'll log it (then user can provide an uncompressed .surql).
+    local any=0
+    for f in "$SEED_DIR"/*.surql "$SEED_DIR"/*.surql.gz; do
+      [ -f "$f" ] || continue
+      any=1
+      local seed_dir_abs seed_file tmp_dir tmp_file to_import_dir to_import_file
+      seed_dir_abs="$(cd "$(dirname "$f")" && pwd)"
+      seed_file="$(basename "$f")"
+
+      # Surreal's import expects plain-text .surql. Our seed is usually gzipped (.surql.gz),
+      # so decompress to a temp file first.
+      to_import_dir="$seed_dir_abs"
+      to_import_file="$seed_file"
+      if [[ "$seed_file" == *.gz ]]; then
+        tmp_dir="$ROOT/_build/surreal-seed"
+        mkdir -p "$tmp_dir"
+        tmp_file="${tmp_dir}/${seed_file%.gz}"
+        echo "==> Decompressing seed $seed_file -> $(basename "$tmp_file") ..."
+        if command -v gzip >/dev/null 2>&1; then
+          gzip -dc "$f" > "$tmp_file"
+        else
+          python3 - "$f" "$tmp_file" <<'PY'
+import gzip, sys
+src, dst = sys.argv[1], sys.argv[2]
+with gzip.open(src, 'rb') as fin, open(dst, 'wb') as fout:
+    fout.write(fin.read())
+PY
+        fi
+        to_import_dir="$tmp_dir"
+        to_import_file="$(basename "$tmp_file")"
+      fi
+
+      echo "==> Seeding SurrealDB from $to_import_file ..."
+      if docker run --rm --network host \
+        -v "$to_import_dir:/import:ro" \
+        surrealdb/surrealdb:v3 \
+        import \
+        --endpoint "$SURREAL_ENDPOINT" \
+        --username "$SURREAL_USER" --password "$SURREAL_PASSWORD" \
+        --namespace "$SURREAL_NS" --database "$SURREAL_DB" \
+        "/import/$to_import_file"; then
+        debug_log "pre-fix" "Hseed" "scripts/start-deps.sh:seed" "seed import ok" "$(printf '{"file":"%s"}' "$to_import_file")"
+      else
+        debug_log "pre-fix" "Hseed" "scripts/start-deps.sh:seed" "seed import failed" "$(printf '{"file":"%s"}' "$to_import_file")"
+      fi
+    done
+    if [ "$any" = "0" ]; then
+      debug_log "pre-fix" "Hseed" "scripts/start-deps.sh:seed" "no seed files found" "$(printf '{"seed_dir":"%s"}' "$SEED_DIR")"
+    fi
+  }
+
   if [ -f "$BACKUP_ZIP" ]; then
     rm -f "$SURQL_PATH"
     echo "==> Converting $BACKUP_ZIP to .surql (fresh) and importing ..."
@@ -100,6 +180,10 @@ if [ "$RUST_ENV" = "dev" ] || [ "$RUST_ENV" = "development" ]; then
       echo "Warning: Conversion failed; skipping import." >&2
     fi
   fi
+
+  # Seed import (optional): if SURREAL_SEED_DIR is set and the Surreal volume is empty, import seed dumps.
+  # This runs after the optional Arango→Surreal conversion/import block above.
+  ( wait_surrealdb && try_seed_import ) || true
 
   # Apply optional SurrealDB functions (contest_row, contest_with_edges, etc.); use host network so we hit 127.0.0.1
   if [ -f "$ROOT/tools/arango-to-surreal/surreal-functions.surql" ]; then

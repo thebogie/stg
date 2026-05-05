@@ -4,7 +4,7 @@
 #        or set RUST_ENV=dev|prod and source scripts/load-env.sh
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT="$SCRIPT_DIR/.."
+ROOT="$(cd "$SCRIPT_DIR/.." && pwd -P)"
 ENV="${1:-${RUST_ENV:-dev}}"
 case "$ENV" in
   dev|development)  ENV_FILE="$ROOT/config/.env.dev"  ;;

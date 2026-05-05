@@ -39,4 +39,6 @@ if ! curl -sf --connect-timeout 2 "http://127.0.0.1:${BACKEND_PORT}/health" >/de
 fi
 
 echo "==> Frontend at http://localhost:${FRONTEND_PORT} (backend: http://localhost:${BACKEND_PORT})"
-exec trunk serve --no-default-features --features frontend
+# Trunk.toml sets [serve].open=true, but that tries to launch the browser via `gio open` which
+# fails on minimal/headless Linux setups. Override to keep dev startup reliable.
+exec trunk serve --no-default-features --features frontend --open false

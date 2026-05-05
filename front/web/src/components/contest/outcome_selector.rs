@@ -137,10 +137,6 @@ pub fn outcome_selector(props: &OutcomeSelectorProps) -> Html {
             spawn_local(async move {
                 match players::search_players(&query, 10).await {
                     Ok(players) => {
-                        gloo::console::log!(format!(
-                            "DEBUG: search_players response for query '{}': {:?}",
-                            query, players
-                        ));
                         let lc_query = query.to_lowercase();
                         let results: Vec<PlayerSearchResult> = players
                             .into_iter()
@@ -151,10 +147,6 @@ pub fn outcome_selector(props: &OutcomeSelectorProps) -> Html {
                                 PlayerSearchResult { player, exists }
                             })
                             .collect();
-                        gloo::console::log!(format!(
-                            "DEBUG: computed search_results for query '{}': {:?}",
-                            query, results
-                        ));
                         search_results.set(results);
                         search_error.set(None);
                     }
@@ -182,6 +174,7 @@ pub fn outcome_selector(props: &OutcomeSelectorProps) -> Html {
                     "lost".to_string()
                 };
             }
+
             outcomes.set(current_outcomes.clone());
             // Convert to OutcomeDto for the parent component
             let outcome_dtos: Vec<OutcomeDto> = current_outcomes
@@ -572,6 +565,8 @@ pub fn outcome_selector(props: &OutcomeSelectorProps) -> Html {
                             let player_id = outcome.player_id.clone();
                             let row_email = outcome.email.clone();
                             let is_new_player = !is_real_player_id(&player_id);
+                            // Ensure the displayed default is deterministic for each row.
+                            let current_result = normalize_outcome_result(row_index, &outcome.result);
                             let on_remove = {
                                 let on_remove_outcome = on_remove_outcome.clone();
                                 let row_email = row_email.clone();
@@ -594,7 +589,9 @@ pub fn outcome_selector(props: &OutcomeSelectorProps) -> Html {
                                 })
                             };
                             html! {
-                                <div class={classes!(
+                                <div
+                                key={row_email.clone()}
+                                class={classes!(
                                     "flex", "flex-col", "gap-3", "sm:flex-row", "sm:items-center", "sm:gap-4",
                                     "p-3", "rounded-md", "min-w-0",
                                     if is_new_player {
@@ -662,13 +659,20 @@ pub fn outcome_selector(props: &OutcomeSelectorProps) -> Html {
                                                 {"Won / lost / drop"}
                                             </label>
                                             <select
-                                                value={normalize_outcome_result(row_index, &outcome.result)}
+                                                key={format!("{}:{}", row_email, outcome.result)}
+                                                value={current_result.clone()}
                                                 data-outcome-email={outcome.email.clone()}
                                                 onchange={on_result_change.clone()}
                                                 class="w-full min-h-[44px] sm:min-h-0 px-2 py-2 sm:px-2 sm:py-1 text-base sm:text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 max-w-full"
                                             >
                                                 {result_options.iter().map(|opt| html! {
-                                                    <option value={opt.to_string()}>{opt}</option>
+                                                    <option
+                                                        key={opt.to_string()}
+                                                        value={opt.to_string()}
+                                                        selected={current_result == *opt}
+                                                    >
+                                                        {opt}
+                                                    </option>
                                                 }).collect::<Html>()}
                                             </select>
                                         </div>
