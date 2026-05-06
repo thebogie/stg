@@ -23,7 +23,9 @@ mkdir -p "$VOLUME_PATH/surrealdb_data" "$VOLUME_PATH/redis_data"
 chmod 777 "$VOLUME_PATH/surrealdb_data" 2>/dev/null || true
 
 stg_compose() {
-  docker compose --project-directory "$ROOT" "$@"
+  # docker-compose.yml lives under deploy/. Use that as project dir so build contexts like `..`
+  # resolve to repo root (deploy/..), not to a parent of the repo root.
+  docker compose --project-directory "$ROOT/deploy" "$@"
 }
 
 # Dev only: optional wipe + import (same logic as start-back.sh)
@@ -47,9 +49,9 @@ if [ "$RUST_ENV" = "dev" ] || [ "$RUST_ENV" = "development" ]; then
   fi
 fi
 
-# Start only SurrealDB and Redis (no backend, no full stack down/up)
-echo "==> Starting SurrealDB and Redis only..."
-stg_compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d surrealdb redis
+# Start only SurrealDB + Redis + Ollama (no backend, no full stack down/up)
+echo "==> Starting SurrealDB, Redis, and Ollama only..."
+stg_compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d surrealdb redis ollama
 
 # If we wiped the volume, restart SurrealDB so it sees the empty data dir (otherwise it keeps old in-memory schema)
 if [ -n "$WIPED" ]; then
@@ -105,18 +107,14 @@ if [ "$RUST_ENV" = "dev" ] || [ "$RUST_ENV" = "development" ]; then
       return 0
     fi
     if [ ! -d "$SEED_DIR" ]; then
-      debug_log "pre-fix" "Hseed" "scripts/start-deps.sh:seed" "seed dir missing" "$(printf '{"seed_dir":"%s"}' "$SEED_DIR")"
       return 0
     fi
     # Only seed when Surreal volume dir looks empty OR we are explicitly forcing a reseed.
     # Note: after (re)starting SurrealDB, it creates a rocksdb directory immediately, so the volume
     # won't be "empty" even though it contains no user data yet.
     if [ "${SURREAL_SEED_FORCE:-0}" != "1" ] && [ -n "$(ls -A "$VOLUME_PATH/surrealdb_data" 2>/dev/null)" ]; then
-      debug_log "pre-fix" "Hseed" "scripts/start-deps.sh:seed" "volume not empty; skip seed" "$(printf '{"volume_path":"%s"}' "$VOLUME_PATH/surrealdb_data")"
       return 0
     fi
-
-    debug_log "pre-fix" "Hseed" "scripts/start-deps.sh:seed" "attempting seed import" "$(printf '{"seed_dir":"%s","endpoint":"%s","ns":"%s","db":"%s"}' "$SEED_DIR" "$SURREAL_ENDPOINT" "$SURREAL_NS" "$SURREAL_DB")"
 
     # Import any seed files found. Surreal CLI supports reading compressed files in many builds; if it doesn't,
     # the import will fail and we'll log it (then user can provide an uncompressed .surql).
@@ -160,13 +158,13 @@ PY
         --username "$SURREAL_USER" --password "$SURREAL_PASSWORD" \
         --namespace "$SURREAL_NS" --database "$SURREAL_DB" \
         "/import/$to_import_file"; then
-        debug_log "pre-fix" "Hseed" "scripts/start-deps.sh:seed" "seed import ok" "$(printf '{"file":"%s"}' "$to_import_file")"
+        echo "==> Seed import ok: $to_import_file"
       else
-        debug_log "pre-fix" "Hseed" "scripts/start-deps.sh:seed" "seed import failed" "$(printf '{"file":"%s"}' "$to_import_file")"
+        echo "==> Warning: seed import failed for $to_import_file" >&2
       fi
     done
     if [ "$any" = "0" ]; then
-      debug_log "pre-fix" "Hseed" "scripts/start-deps.sh:seed" "no seed files found" "$(printf '{"seed_dir":"%s"}' "$SEED_DIR")"
+      echo "==> Warning: no seed files found in $SEED_DIR" >&2
     fi
   }
 

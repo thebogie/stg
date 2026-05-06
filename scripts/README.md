@@ -34,6 +34,25 @@ Surreal + Redis in Docker; you run the Rust API locally so lldb / CodeLLDB break
 # frontend: ./scripts/start-front.sh  or  ./scripts/start-tauri.sh
 ```
 
+---
+
+## AI (local, self-hosted)
+
+The backend exposes:
+
+- `POST /api/ai/ask`
+- `POST /api/ai/smacktalk`
+
+For local dev stacks started via `./scripts/start-back.sh` or `./scripts/full-prod-test.sh`, the Compose stack now includes an `ollama` service and the backend defaults to `LLM_BASE_URL=http://ollama:11434`.
+
+To override:
+
+```bash
+# dev (host backend) example
+export LLM_BASE_URL="http://127.0.0.1:11434"
+export LLM_MODEL="llama3.2:3b"
+```
+
 ### 3) **Quick** prod-like test (shorter than the full gate)
 
 Build + unit + same Docker stack prep as integration + **`testing` `api_tests`** + one ignored backend smoke test, then **compose down**.

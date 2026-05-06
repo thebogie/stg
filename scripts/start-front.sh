@@ -21,11 +21,11 @@ cd "$FRONTEND_DIR"
 command -v trunk >/dev/null 2>&1 || cargo install trunk
 [ ! -f public/styles.css ] && [ -f node_modules/.bin/tailwindcss ] && ./node_modules/.bin/tailwindcss -i ./src/styles/main.css -o ./public/styles.css --minify 2>/dev/null || true
 
-# Point Trunk proxy at backend root (frontend sends /api/api/... in dev so backend receives /api/...)
+# Point Trunk proxy at backend (Trunk rewrites /api/* -> backend /api/*)
 TRUNK_TOML="$FRONTEND_DIR/Trunk.toml"
 BACKEND_URL="http://localhost:${BACKEND_PORT}"
 if [ -f "$TRUNK_TOML" ] && grep -q 'backend = "' "$TRUNK_TOML" 2>/dev/null; then
-  sed -i.bak "s|backend = \".*\"|backend = \"$BACKEND_URL\"|" "$TRUNK_TOML" 2>/dev/null || true
+  sed -i.bak "s|backend = \".*\"|backend = \"$BACKEND_URL/api\"|" "$TRUNK_TOML" 2>/dev/null || true
   sed -i.bak "s|^port = .*|port = ${FRONTEND_PORT}|" "$TRUNK_TOML" 2>/dev/null || true
 fi
 

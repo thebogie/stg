@@ -1,4 +1,5 @@
 use crate::api::contests::{contest_key_from_any, search_contests, ContestSearchResponse};
+use crate::api::ai::ai_ask;
 use crate::api::games::{get_all_games, search_games};
 use crate::api::players::search_players;
 use crate::api::venues::get_all_venues;
@@ -103,6 +104,54 @@ pub fn contests(props: &ContestsProps) -> Html {
     let undo_timeout = use_mut_ref(|| None::<Timeout>);
     let apply_timeout = use_mut_ref(|| None::<Timeout>);
     let submit_moderation_flash = use_state(|| None::<String>);
+
+    // --- AI: Ask STG (MVP) ---
+    let ask_text = use_state(String::new);
+    let ask_loading = use_state(|| false);
+    let ask_error = use_state(|| None::<String>);
+    let ask_answer = use_state(|| None::<String>);
+    let ask_warnings = use_state(|| Vec::<String>::new());
+
+    let on_ask_input = {
+        let ask_text = ask_text.clone();
+        Callback::from(move |e: InputEvent| {
+            let input: web_sys::HtmlTextAreaElement = e.target_unchecked_into();
+            ask_text.set(input.value());
+        })
+    };
+
+    let on_ask_submit = {
+        let ask_text = ask_text.clone();
+        let ask_loading = ask_loading.clone();
+        let ask_error = ask_error.clone();
+        let ask_answer = ask_answer.clone();
+        let ask_warnings = ask_warnings.clone();
+        Callback::from(move |_| {
+            let q = (*ask_text).trim().to_string();
+            if q.is_empty() {
+                ask_error.set(Some("Type a question first.".to_string()));
+                return;
+            }
+            ask_loading.set(true);
+            ask_error.set(None);
+            ask_answer.set(None);
+            ask_warnings.set(vec![]);
+            let ask_answer = ask_answer.clone();
+            let ask_warnings = ask_warnings.clone();
+            let ask_error = ask_error.clone();
+            let ask_loading = ask_loading.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                match ai_ask(q).await {
+                    Ok(resp) => {
+                        ask_answer.set(Some(resp.answer));
+                        ask_warnings.set(resp.warnings);
+                    }
+                    Err(e) => ask_error.set(Some(e)),
+                }
+                ask_loading.set(false);
+            });
+        })
+    };
 
     {
         let submit_moderation_flash = submit_moderation_flash.clone();
@@ -810,6 +859,48 @@ pub fn contests(props: &ContestsProps) -> Html {
                         {msg}
                     </div>
                 }
+                // AI: Ask STG (MVP)
+                <div class="bg-white rounded-lg shadow-sm p-4 mb-6 border border-gray-100">
+                    <div class="flex items-center justify-between gap-3 mb-3">
+                        <h2 class="text-sm font-semibold text-gray-800">{"Ask STG"}</h2>
+                        <div class="text-xs text-gray-500">{"Public data only"}</div>
+                    </div>
+                    <textarea
+                        value={(*ask_text).clone()}
+                        oninput={on_ask_input}
+                        placeholder="Ask about contests, players, venues… (e.g. “Top 5 win rates in Catan last 90 days”)"
+                        class="w-full min-h-[88px] px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                        maxlength="500"
+                    />
+                    <div class="mt-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                        <div class="text-xs text-gray-500">
+                            {format!("{}/500", (*ask_text).chars().count())}
+                        </div>
+                        <button
+                            type="button"
+                            onclick={on_ask_submit}
+                            disabled={*ask_loading}
+                            class="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            if *ask_loading {{"Thinking…"}} else {{"Ask"}}
+                        </button>
+                    </div>
+                    if let Some(err) = (*ask_error).clone() {
+                        <div class="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+                            {err}
+                        </div>
+                    }
+                    if !ask_warnings.is_empty() {
+                        <div class="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                            {for ask_warnings.iter().map(|w| html!{<div>{w}</div>})}
+                        </div>
+                    }
+                    if let Some(ans) = (*ask_answer).clone() {
+                        <div class="mt-3 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-900 whitespace-pre-wrap">
+                            {ans}
+                        </div>
+                    }
+                </div>
                 // Search Bar
                 <div class="bg-white rounded-lg shadow-sm p-4 mb-6">
                     <div class="flex flex-col md:flex-row gap-4">

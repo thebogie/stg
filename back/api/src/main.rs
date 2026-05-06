@@ -283,6 +283,11 @@ async fn main() -> std::io::Result<()> {
             .service(backend::health::version_info_root)
             .service(backend::health::metrics_endpoint)
             .service(
+                web::scope("/api/ai")
+                    .service(backend::ai::controller::ask_handler)
+                    .service(backend::ai::controller::smacktalk_handler),
+            )
+            .service(
                 web::scope("/api/players")
                     .service(backend::player::controller::register_handler_prod)
                     .service(backend::player::controller::login_handler_prod)

@@ -55,6 +55,18 @@ services:
     networks:
       - stg
 
+  ollama:
+    container_name: stg-ollama
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    # Expose to host so a host-run backend (dev-debug flow) can talk to it.
+    ports:
+      - "${OLLAMA_PORT:-11434}:11434"
+    volumes:
+      - ${VOLUME_PATH}/ollama:/root/.ollama
+    networks:
+      - stg
+
   backend:
     container_name: stg-backend
     build:
@@ -74,6 +86,7 @@ services:
     # IMAGE_TAG is shown in /api/version and footer (build version)
     environment:
       - IMAGE_TAG=${IMAGE_TAG:-}
+      - LLM_BASE_URL=${LLM_BASE_URL:-http://ollama:11434}
       # Prefer in-network service DNS inside Docker (more reliable than host-gateway IP on Linux).
       - SURREAL_URL=ws://surrealdb:8000
       - REDIS_URL=redis://redis:6379/

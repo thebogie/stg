@@ -102,7 +102,6 @@ if [ "$RUST_ENV" = "dev" ] || [ "$RUST_ENV" = "development" ]; then
     echo "==> Dev: SURREAL_SEED_FORCE=1 — wiping SurrealDB volume for reseed..."
     docker run --rm -v "$VOLUME_PATH/surrealdb_data:/data" busybox:1.36 sh -c "rm -rf /data/*"
     chmod 777 "$VOLUME_PATH/surrealdb_data" 2>/dev/null || true
-    debug_log "pre-fix" "Hseed" "scripts/start-back.sh:seed_force" "wiped surreal volume for reseed" "$(printf '{"seed_dir":"%s","volume_path":"%s"}' "$SEED_DIR_EARLY" "$VOLUME_PATH/surrealdb_data")"
   fi
   if [ -f "$BACKUP_ZIP" ]; then
     echo "==> Dev: resetting SurrealDB for clean import..."

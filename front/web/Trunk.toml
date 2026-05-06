@@ -36,9 +36,9 @@ watch = ["src", "../../shared/src"]
 [clean]
 cargo = true
 
-# Optional: proxy /api/* when frontend uses relative URLs (e.g. if JS fails to detect dev).
-# In dev the frontend calls the backend directly (api_base_url = http://127.0.0.1:50002) so paths stay /api/...
 [[proxy]]
+# Proxy API calls in dev when frontend uses relative URLs.
+# Map `/api/*` -> backend `/api/*` (Trunk strips the prefix, so backend includes `/api`).
 rewrite = "/api/"
-backend = "http://localhost:50002" 
+backend = "http://localhost:50002/api"
 

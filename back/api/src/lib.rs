@@ -11,6 +11,7 @@
 
 pub mod admin;
 pub mod auth;
+pub mod ai;
 pub mod bgg_catalog;
 pub mod cache;
 pub mod config;

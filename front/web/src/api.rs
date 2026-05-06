@@ -1,5 +1,6 @@
 // Re-export all API modules
 pub mod auth;
+pub mod ai;
 pub mod cache;
 pub mod contests;
 pub mod games;

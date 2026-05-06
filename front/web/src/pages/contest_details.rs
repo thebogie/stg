@@ -1,4 +1,5 @@
 use crate::api::contests::{contest_key_from_any, delete_contest};
+use crate::api::ai::{ai_smacktalk, AiSmacktalkRequest};
 use crate::api::utils::authenticated_get;
 use crate::auth::AuthContext;
 use crate::components::common::toast::{Toast, ToastContext, ToastType};
@@ -180,6 +181,65 @@ pub fn contest_details(props: &ContestDetailsProps) -> Html {
 
     // Use contest_id from props instead of URL
     let contest_id = props.contest_id.clone();
+
+    // --- AI: Smacktalk generator (MVP) ---
+    let smack_open = use_state(|| false);
+    let smack_loading = use_state(|| false);
+    let smack_error = use_state(|| None::<String>);
+    let smack_lines = use_state(|| Vec::<String>::new());
+    let smack_featured = use_state(|| None::<String>);
+    let smack_options_open = use_state(|| false);
+    let smack_target = use_state(|| "everyone".to_string());
+    let smack_style = use_state(|| "set_3".to_string());
+    let smack_intensity = use_state(|| "med".to_string());
+
+    let on_open_smack = {
+        let smack_open = smack_open.clone();
+        Callback::from(move |_| smack_open.set(true))
+    };
+    let on_close_smack = {
+        let smack_open = smack_open.clone();
+        Callback::from(move |_| smack_open.set(false))
+    };
+
+    let on_smack_generate = {
+        let contest_id = contest_id.clone();
+        let smack_loading = smack_loading.clone();
+        let smack_error = smack_error.clone();
+        let smack_lines = smack_lines.clone();
+        let smack_featured = smack_featured.clone();
+        let smack_target = smack_target.clone();
+        let smack_style = smack_style.clone();
+        let smack_intensity = smack_intensity.clone();
+        Callback::from(move |_| {
+            smack_loading.set(true);
+            smack_error.set(None);
+            smack_lines.set(vec![]);
+            smack_featured.set(None);
+            let req = AiSmacktalkRequest {
+                contest_id: contest_id.clone(),
+                target: Some((*smack_target).clone()),
+                style: Some((*smack_style).clone()),
+                intensity: Some((*smack_intensity).clone()),
+            };
+            let smack_lines = smack_lines.clone();
+            let smack_featured = smack_featured.clone();
+            let smack_error = smack_error.clone();
+            let smack_loading = smack_loading.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                match ai_smacktalk(req).await {
+                    Ok(resp) => {
+                        if let Some(first) = resp.lines.first().cloned() {
+                            smack_featured.set(Some(first));
+                        }
+                        smack_lines.set(resp.lines);
+                    }
+                    Err(e) => smack_error.set(Some(e)),
+                }
+                smack_loading.set(false);
+            });
+        })
+    };
 
     let contest_details = use_state(|| None::<ContestData>);
     let loading = use_state(|| true);
@@ -711,6 +771,159 @@ pub fn contest_details(props: &ContestDetailsProps) -> Html {
                                     }).collect::<Html>()}
                                 </div>
                             </div>
+                        </div>
+
+                        // AI: Smacktalk generator (MVP)
+                        <div class="bg-white rounded-md shadow-sm border border-gray-100 p-3 mb-4">
+                            <div class="flex items-center justify-between gap-3">
+                                <div class="min-w-0">
+                                    <h3 class="text-base font-semibold text-gray-900">{"Smacktalk generator"}</h3>
+                                </div>
+                                <button
+                                    type="button"
+                                    onclick={on_open_smack}
+                                    class="px-3 py-2 rounded-md bg-gray-900 text-white text-sm hover:bg-black"
+                                >
+                                    {"Generate"}
+                                </button>
+                            </div>
+
+                            if *smack_open {
+                                <div class="mt-3 border-t border-gray-200 pt-3 space-y-3">
+                                    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                                        <div class="flex items-center gap-2">
+                                            <button
+                                                type="button"
+                                                onclick={on_smack_generate.clone()}
+                                                disabled={*smack_loading}
+                                                class="px-3 py-2 rounded-md bg-blue-600 text-white text-sm hover:bg-blue-700 disabled:opacity-50"
+                                            >
+                                                if *smack_loading {
+                                                    {"Generating…"}
+                                                } else if smack_featured.is_some() {
+                                                    {"Regenerate"}
+                                                } else {
+                                                    {"Generate"}
+                                                }
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onclick={{
+                                                    let smack_options_open = smack_options_open.clone();
+                                                    Callback::from(move |_| smack_options_open.set(!*smack_options_open))
+                                                }}
+                                                class="px-3 py-2 rounded-md border border-gray-300 text-sm hover:bg-gray-50"
+                                            >
+                                                if *smack_options_open {{"Hide options"}} else {{"Options"}}
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onclick={on_close_smack}
+                                                class="px-3 py-2 rounded-md border border-gray-300 text-sm hover:bg-gray-50"
+                                            >
+                                                {"Close"}
+                                            </button>
+                                        </div>
+                                        <div class="text-xs text-gray-500">
+                                            {"One line, ready to copy."}
+                                        </div>
+                                    </div>
+
+                                    if *smack_options_open {
+                                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                            <div>
+                                                <label class="block text-xs font-medium text-gray-600 mb-1">{"Target"}</label>
+                                                <select
+                                                    value={(*smack_target).clone()}
+                                                    onchange={{
+                                                        let smack_target = smack_target.clone();
+                                                        Callback::from(move |e: Event| {
+                                                            let s: web_sys::HtmlSelectElement = e.target_unchecked_into();
+                                                            smack_target.set(s.value());
+                                                        })
+                                                    }}
+                                                    class="w-full px-2 py-2 text-sm border border-gray-300 rounded-md"
+                                                >
+                                                    <option value="everyone">{"Everyone"}</option>
+                                                    <option value="winner">{"Winner"}</option>
+                                                    <option value="runner_up">{"Runner-up"}</option>
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label class="block text-xs font-medium text-gray-600 mb-1">{"Style"}</label>
+                                                <select
+                                                    value={(*smack_style).clone()}
+                                                    onchange={{
+                                                        let smack_style = smack_style.clone();
+                                                        Callback::from(move |e: Event| {
+                                                            let s: web_sys::HtmlSelectElement = e.target_unchecked_into();
+                                                            smack_style.set(s.value());
+                                                        })
+                                                    }}
+                                                    class="w-full px-2 py-2 text-sm border border-gray-300 rounded-md"
+                                                >
+                                                    <option value="short">{"Short"}</option>
+                                                    <option value="medium">{"Medium"}</option>
+                                                    <option value="set_3">{"Set of 3"}</option>
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label class="block text-xs font-medium text-gray-600 mb-1">{"Intensity"}</label>
+                                                <select
+                                                    value={(*smack_intensity).clone()}
+                                                    onchange={{
+                                                        let smack_intensity = smack_intensity.clone();
+                                                        Callback::from(move |e: Event| {
+                                                            let s: web_sys::HtmlSelectElement = e.target_unchecked_into();
+                                                            smack_intensity.set(s.value());
+                                                        })
+                                                    }}
+                                                    class="w-full px-2 py-2 text-sm border border-gray-300 rounded-md"
+                                                >
+                                                    <option value="low">{"Low"}</option>
+                                                    <option value="med">{"Med"}</option>
+                                                    <option value="high">{"High"}</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                    }
+
+                                    if let Some(err) = (*smack_error).clone() {
+                                        <div class="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+                                            {err}
+                                        </div>
+                                    }
+
+                                    if let Some(featured) = (*smack_featured).clone() {
+                                        <div class="rounded-md border border-gray-200 bg-gray-50 px-3 py-3">
+                                            <div class="flex items-start justify-between gap-3">
+                                                <div class="text-sm font-medium text-gray-900 whitespace-pre-wrap flex-1">
+                                                    {featured.clone()}
+                                                </div>
+                                                <button
+                                                    type="button"
+                                                    onclick={{
+                                                        let add_toast = toast_context.add_toast.clone();
+                                                        Callback::from(move |_| {
+                                                            if let Some(w) = web_sys::window() {
+                                                                let clipboard = w.navigator().clipboard();
+                                                                let _ = clipboard.write_text(&featured);
+                                                                add_toast.emit(Toast::new(
+                                                                    "Copied to clipboard".to_string(),
+                                                                    ToastType::Success,
+                                                                ));
+                                                            }
+                                                        })
+                                                    }}
+                                                    class="shrink-0 text-xs px-2 py-1 rounded border border-gray-300 hover:bg-white"
+                                                >
+                                                    {"Copy"}
+                                                </button>
+                                            </div>
+                                        </div>
+                                    }
+                                </div>
+                            }
                         </div>
 
                         // Participants Table with enhanced styling

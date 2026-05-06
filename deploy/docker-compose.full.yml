@@ -62,6 +62,17 @@ services:
     networks:
       - stg
 
+  ollama:
+    container_name: stg-ollama
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    # Keep this internal-only by default. If you need to debug from host, temporarily add:
+    # ports: ["11434:11434"]
+    volumes:
+      - ${VOLUME_PATH}/ollama:/root/.ollama
+    networks:
+      - stg
+
   backend:
     container_name: stg-backend
     image: ${BACKEND_IMAGE:?Set BACKEND_IMAGE (e.g. ghcr.io/owner/repo/backend:latest)}
@@ -70,6 +81,7 @@ services:
       - "${BACKEND_PORT:-50002}:${BACKEND_PORT:-50002}"
     environment:
       - IMAGE_TAG=${IMAGE_TAG:-}
+      - LLM_BASE_URL=${LLM_BASE_URL:-http://ollama:11434}
       # Prefer in-network service DNS inside Docker (more reliable than host-gateway IP on Linux).
       - SURREAL_URL=ws://surrealdb:8000
       - REDIS_URL=redis://redis:6379/
