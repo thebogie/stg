@@ -1217,6 +1217,7 @@ FROM (
       AND (
         (moderation_status = 'approved' OR moderation_status = NONE)
         OR creator_id = type::record('player', $viewer_key)
+        OR id INSIDE (SELECT VALUE `in` FROM resulted_in WHERE `out` = type::record('player', $viewer_key))
       )
   )
 ) GROUP BY game_id
@@ -1312,6 +1313,7 @@ WHERE start >= time::now() - duration::days($since_days)
   AND (
     (moderation_status = 'approved' OR moderation_status = NONE)
     OR creator_id = type::record('player', $viewer_key)
+    OR id INSIDE (SELECT VALUE `in` FROM resulted_in WHERE `out` = type::record('player', $viewer_key))
   )
 "#,
             )
@@ -1413,6 +1415,7 @@ WHERE start >= time::now() - duration::days($since_days)
   AND (
     (moderation_status = 'approved' OR moderation_status = NONE)
     OR creator_id = $viewer
+    OR id INSIDE (SELECT VALUE `in` FROM resulted_in WHERE `out` = $viewer)
   )
 "#,
             )
@@ -1492,6 +1495,7 @@ WHERE start >= time::now() - duration::days($since_days)
                 r#"SELECT VALUE id FROM contest WHERE id INSIDE $contests AND (
                     (moderation_status = 'approved' OR moderation_status = NONE)
                     OR creator_id = type::record('player', $viewer_key)
+                    OR id INSIDE (SELECT VALUE `in` FROM resulted_in WHERE `out` = type::record('player', $viewer_key))
                 )"#,
             )
             .bind(("contests", contest_ids))
@@ -1600,6 +1604,7 @@ WHERE start >= time::now() - duration::days($since_days)
                 r#"SELECT VALUE id FROM contest WHERE id INSIDE $contests AND (
                     (moderation_status = 'approved' OR moderation_status = NONE)
                     OR creator_id = type::record('player', $viewer_key)
+                    OR id INSIDE (SELECT VALUE `in` FROM resulted_in WHERE `out` = type::record('player', $viewer_key))
                 )"#,
             )
             .bind(("contests", contest_ids))
