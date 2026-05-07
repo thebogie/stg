@@ -1,5 +1,5 @@
 use crate::api::contests::{contest_key_from_any, search_contests, ContestSearchResponse};
-use crate::api::ai::ai_ask;
+use crate::api::ai::{ai_ask, ai_ask_my_view};
 use crate::api::games::{get_all_games, search_games};
 use crate::api::players::search_players;
 use crate::api::venues::get_all_venues;
@@ -111,6 +111,7 @@ pub fn contests(props: &ContestsProps) -> Html {
     let ask_error = use_state(|| None::<String>);
     let ask_answer = use_state(|| None::<String>);
     let ask_warnings = use_state(|| Vec::<String>::new());
+    let ask_my_view = use_state(|| false);
 
     let on_ask_input = {
         let ask_text = ask_text.clone();
@@ -126,10 +127,16 @@ pub fn contests(props: &ContestsProps) -> Html {
         let ask_error = ask_error.clone();
         let ask_answer = ask_answer.clone();
         let ask_warnings = ask_warnings.clone();
+        let ask_my_view = ask_my_view.clone();
+        let auth_state = auth.state.clone();
         Callback::from(move |_| {
             let q = (*ask_text).trim().to_string();
             if q.is_empty() {
                 ask_error.set(Some("Type a question first.".to_string()));
+                return;
+            }
+            if *ask_my_view && auth_state.player.is_none() {
+                ask_error.set(Some("Log in to use Ask STG (My view).".to_string()));
                 return;
             }
             ask_loading.set(true);
@@ -140,8 +147,14 @@ pub fn contests(props: &ContestsProps) -> Html {
             let ask_warnings = ask_warnings.clone();
             let ask_error = ask_error.clone();
             let ask_loading = ask_loading.clone();
+            let my_view = *ask_my_view;
             wasm_bindgen_futures::spawn_local(async move {
-                match ai_ask(q).await {
+                let res = if my_view {
+                    ai_ask_my_view(q).await
+                } else {
+                    ai_ask(q).await
+                };
+                match res {
                     Ok(resp) => {
                         ask_answer.set(Some(resp.answer));
                         ask_warnings.set(resp.warnings);
@@ -863,7 +876,31 @@ pub fn contests(props: &ContestsProps) -> Html {
                 <div class="bg-white rounded-lg shadow-sm p-4 mb-6 border border-gray-100">
                     <div class="flex items-center justify-between gap-3 mb-3">
                         <h2 class="text-sm font-semibold text-gray-800">{"Ask STG"}</h2>
-                        <div class="text-xs text-gray-500">{"Public data only"}</div>
+                        <div class="flex items-center gap-2">
+                            <label class="inline-flex items-center gap-2 text-xs text-gray-600">
+                                <input
+                                    type="checkbox"
+                                    checked={*ask_my_view}
+                                    onchange={{
+                                        let ask_my_view = ask_my_view.clone();
+                                        Callback::from(move |e: Event| {
+                                            let input: web_sys::HtmlInputElement = e.target_unchecked_into();
+                                            ask_my_view.set(input.checked());
+                                        })
+                                    }}
+                                />
+                                {"My view"}
+                            </label>
+                            if *ask_my_view {
+                                <span class="text-[10px] px-2 py-1 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
+                                    {"Uses your account permissions"}
+                                </span>
+                            } else {
+                                <span class="text-[10px] px-2 py-1 rounded-full bg-gray-50 text-gray-600 border border-gray-200">
+                                    {"Public"}
+                                </span>
+                            }
+                        </div>
                     </div>
                     <textarea
                         value={(*ask_text).clone()}

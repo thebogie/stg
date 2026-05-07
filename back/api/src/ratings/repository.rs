@@ -240,6 +240,30 @@ impl RatingsRepository {
         Ok(out)
     }
 
+    /// Count players with a higher latest rating in a scope (global only for now).
+    pub async fn count_higher_latest_ratings(
+        &self,
+        scope_type: &str,
+        rating: f64,
+    ) -> Result<i64> {
+        let scope_type = scope_type.to_string();
+        let mut res = self
+            .db
+            .query("SELECT count() AS c FROM rating_latest WHERE scope_type = $scope_type AND rating > $rating")
+            .bind(("scope_type", scope_type))
+            .bind(("rating", rating))
+            .await
+            .map_err(|e| SharedError::Database(format!("Failed to count higher ratings: {}", e)))?;
+        let rows: Vec<Value> = res
+            .take(0)
+            .map_err(|e| SharedError::Database(format!("Failed to take higher rating count: {}", e)))?;
+        Ok(rows
+            .into_iter()
+            .next()
+            .and_then(|v| v.get("c").and_then(|x| x.as_i64()))
+            .unwrap_or(0))
+    }
+
     pub async fn upsert_latest_rating(&self, doc: Value) -> Result<()> {
         let player_id = doc
             .get("player_id")

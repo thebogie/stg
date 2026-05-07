@@ -17,7 +17,7 @@ use crate::config::DatabaseConfig;
 use crate::db::Db;
 use crate::surreal_helpers::{
     normalize_record_id_string, record_id_from_field, record_id_from_row, record_id_to_key,
-    select_one_by_record_id, thing_to_record_id,
+    record_id_to_canonical, select_one_by_record_id, thing_to_record_id,
 };
 use chrono::{Datelike, Timelike};
 use shared::dto::analytics::{
@@ -1192,6 +1192,392 @@ impl AnalyticsRepository {
             })
             .collect();
         Ok(games)
+    }
+
+    /// Top games by play count within a recent window, filtered to contests visible to the viewer:
+    /// approved (or legacy NONE) OR created by viewer.
+    pub async fn get_top_games_since_days_for_viewer(
+        &self,
+        viewer_key: &str,
+        since_days: i64,
+        limit: i32,
+    ) -> Result<Vec<(String, i32)>> {
+        let viewer_key = viewer_key.to_string();
+        let mut res = self
+            .db
+            .query(
+                r#"
+SELECT string::concat(pw.out) AS game_id, count() AS plays
+FROM (
+  SELECT pw.out AS out
+  FROM played_with AS pw
+  WHERE pw.in IN (
+    SELECT VALUE id FROM contest
+    WHERE start >= time::now() - duration::days($since_days)
+      AND (
+        (moderation_status = 'approved' OR moderation_status = NONE)
+        OR creator_id = type::record('player', $viewer_key)
+      )
+  )
+) GROUP BY game_id
+ORDER BY plays DESC
+LIMIT $limit
+"#,
+            )
+            .bind(("since_days", since_days))
+            .bind(("viewer_key", viewer_key))
+            .bind(("limit", limit))
+            .await
+            .map_err(|e| SharedError::Database(e.to_string()))?;
+        #[derive(serde::Deserialize, serde::Serialize, surrealdb::types::SurrealValue)]
+        struct Row {
+            game_id: String,
+            plays: i64,
+        }
+        let rows: Vec<Row> = res
+            .take(0)
+            .map_err(|e| SharedError::Database(format!("top games since: {}", e)))?;
+        let ids: Vec<surrealdb::types::RecordId> = rows
+            .iter()
+            .filter_map(|r| {
+                let key = record_id_to_key(&r.game_id, "game");
+                if key.is_empty() {
+                    None
+                } else {
+                    Some(surrealdb::types::RecordId::new("game", key.as_str()))
+                }
+            })
+            .collect();
+        let mut res2 = self
+            .db
+            .query("SELECT string::concat(id) AS id, name FROM game WHERE id INSIDE $ids")
+            .bind(("ids", ids))
+            .await
+            .map_err(|e| SharedError::Database(e.to_string()))?;
+        #[derive(serde::Deserialize, serde::Serialize, surrealdb::types::SurrealValue)]
+        struct GameRow {
+            id: String,
+            name: String,
+        }
+        let games: Vec<GameRow> = res2.take(0).unwrap_or_default();
+        let mut name_by_id: HashMap<String, String> = HashMap::new();
+        for g in games {
+            name_by_id.insert(g.id, g.name);
+        }
+        let mut out = Vec::new();
+        for r in rows {
+            let name = name_by_id.get(&r.game_id).cloned().unwrap_or(r.game_id);
+            out.push((name, r.plays as i32));
+        }
+        Ok(out)
+    }
+
+    /// Head-to-head: how many contests the opponent beat the viewer in, within a time window,
+    /// considering only contests visible to the viewer (approved OR viewer-created).
+    pub async fn count_opponent_beats_me_since_days_for_viewer(
+        &self,
+        viewer_key: &str,
+        opponent_handle_lc: &str,
+        since_days: i64,
+    ) -> Result<i64> {
+        let viewer_key = viewer_key.to_string();
+        let opponent_handle_lc = opponent_handle_lc.to_string();
+
+        // Resolve opponent player record id by handle.
+        let mut res = self
+            .db
+            .query("SELECT string::concat(id) AS id FROM player WHERE string::lowercase(handle) = $h LIMIT 1")
+            .bind(("h", opponent_handle_lc))
+            .await
+            .map_err(|e| SharedError::Database(e.to_string()))?;
+        let rows: Vec<serde_json::Value> = res.take(0).unwrap_or_default();
+        let Some(opp_id) = rows.get(0).and_then(|v| v.get("id")).and_then(|v| v.as_str()) else {
+            return Err(SharedError::NotFound("opponent_not_found".to_string()));
+        };
+        let opp_key = record_id_to_key(opp_id, "player");
+        if opp_key.is_empty() {
+            return Err(SharedError::Validation("Invalid opponent id".to_string()));
+        }
+        let viewer_rid = surrealdb::types::RecordId::new("player", viewer_key.as_str());
+        let opp_rid = surrealdb::types::RecordId::new("player", opp_key.as_str());
+
+        // Contests in window, visible to viewer.
+        let mut res2 = self
+            .db
+            .query(
+                r#"
+SELECT VALUE id
+FROM contest
+WHERE start >= time::now() - duration::days($since_days)
+  AND (
+    (moderation_status = 'approved' OR moderation_status = NONE)
+    OR creator_id = type::record('player', $viewer_key)
+  )
+"#,
+            )
+            .bind(("since_days", since_days))
+            .bind(("viewer_key", viewer_key))
+            .await
+            .map_err(|e| SharedError::Database(e.to_string()))?;
+        let contest_ids: Vec<surrealdb::types::RecordId> = res2.take(0).unwrap_or_default();
+        if contest_ids.is_empty() {
+            return Ok(0);
+        }
+
+        // Result rows for viewer + opponent within those contests.
+        #[derive(serde::Deserialize, serde::Serialize, surrealdb::types::SurrealValue)]
+        struct Row {
+            contest_id: Option<surrealdb::types::RecordId>,
+            player_id: Option<surrealdb::types::RecordId>,
+            place: Option<i64>,
+        }
+        let mut res3 = self
+            .db
+            .query(
+                "SELECT `in` AS contest_id, `out` AS player_id, place FROM resulted_in WHERE `in` INSIDE $contests AND (`out` = $me OR `out` = $opp)",
+            )
+            .bind(("contests", contest_ids))
+            .bind(("me", viewer_rid))
+            .bind(("opp", opp_rid))
+            .await
+            .map_err(|e| SharedError::Database(e.to_string()))?;
+        let rows: Vec<Row> = res3.take(0).unwrap_or_default();
+
+        let mut by_contest: HashMap<String, (i64, i64)> = HashMap::new();
+        for r in rows {
+            let cid = thing_to_record_id(&r.contest_id);
+            if cid.is_empty() {
+                continue;
+            }
+            let pid = thing_to_record_id(&r.player_id);
+            let place = r.place.unwrap_or(0);
+            let entry = by_contest.entry(cid).or_insert((0, 0));
+            if pid.ends_with(&format!("/{}", opp_key)) || pid.ends_with(&format!(":{}", opp_key)) {
+                entry.1 = place;
+            } else {
+                entry.0 = place;
+            }
+        }
+        let mut beats = 0i64;
+        for (_cid, (me_place, opp_place)) in by_contest {
+            if me_place > 0 && opp_place > 0 && opp_place < me_place {
+                beats += 1;
+            }
+        }
+        Ok(beats)
+    }
+
+    /// Find cities a given game was played in (unique list, capped).
+    pub async fn get_cities_for_game_for_viewer(
+        &self,
+        viewer_key: &str,
+        game_name_query: &str,
+        limit: usize,
+    ) -> Result<(String, Vec<String>)> {
+        // Resolve game by fuzzy name.
+        let mut res = self
+            .db
+            .query("SELECT string::concat(id) AS id, name FROM game WHERE string::lowercase(name) CONTAINS string::lowercase($q) LIMIT 1")
+            .bind(("q", game_name_query.to_string()))
+            .await
+            .map_err(|e| SharedError::Database(e.to_string()))?;
+        #[derive(serde::Deserialize, serde::Serialize, surrealdb::types::SurrealValue)]
+        struct GameRow { id: String, name: String }
+        let games: Vec<GameRow> = res.take(0).unwrap_or_default();
+        let Some(g) = games.into_iter().next() else {
+            return Err(SharedError::NotFound("game_not_found".to_string()));
+        };
+        let game_key = record_id_to_key(&g.id, "game");
+        if game_key.is_empty() {
+            return Err(SharedError::Validation("Invalid game id".to_string()));
+        }
+        let game_rid = surrealdb::types::RecordId::new("game", game_key.as_str());
+
+        // Contests that played this game.
+        let mut res2 = self
+            .db
+            .query("SELECT `in` AS contest_id FROM played_with WHERE `out` = $rid")
+            .bind(("rid", game_rid))
+            .await
+            .map_err(|e| SharedError::Database(e.to_string()))?;
+        #[derive(serde::Deserialize, serde::Serialize, surrealdb::types::SurrealValue)]
+        struct ContestRow { contest_id: Option<surrealdb::types::RecordId> }
+        let contest_rows: Vec<ContestRow> = res2.take(0).unwrap_or_default();
+        let contest_ids: Vec<surrealdb::types::RecordId> =
+            contest_rows.into_iter().filter_map(|r| r.contest_id).collect();
+        if contest_ids.is_empty() {
+            return Ok((g.name, vec![]));
+        }
+
+        // Filter to contests visible to viewer.
+        let viewer_key = viewer_key.to_string();
+        let mut res3 = self
+            .db
+            .query(
+                r#"SELECT VALUE id FROM contest WHERE id INSIDE $contests AND (
+                    (moderation_status = 'approved' OR moderation_status = NONE)
+                    OR creator_id = type::record('player', $viewer_key)
+                )"#,
+            )
+            .bind(("contests", contest_ids))
+            .bind(("viewer_key", viewer_key))
+            .await
+            .map_err(|e| SharedError::Database(e.to_string()))?;
+        let allowed: Vec<surrealdb::types::RecordId> = res3.take(0).unwrap_or_default();
+        if allowed.is_empty() {
+            return Ok((g.name, vec![]));
+        }
+
+        // Venue ids
+        let mut res4 = self
+            .db
+            .query("SELECT `out` AS venue_id FROM played_at WHERE `in` INSIDE $contests")
+            .bind(("contests", allowed))
+            .await
+            .map_err(|e| SharedError::Database(e.to_string()))?;
+        #[derive(serde::Deserialize, serde::Serialize, surrealdb::types::SurrealValue)]
+        struct VenueRow { venue_id: Option<surrealdb::types::RecordId> }
+        let venue_rows: Vec<VenueRow> = res4.take(0).unwrap_or_default();
+        let venue_ids: Vec<surrealdb::types::RecordId> =
+            venue_rows.into_iter().filter_map(|r| r.venue_id).collect();
+        if venue_ids.is_empty() {
+            return Ok((g.name, vec![]));
+        }
+
+        // Venue addresses -> cities
+        let mut res5 = self
+            .db
+            .query("SELECT formattedAddress AS formatted_address FROM venue WHERE id INSIDE $ids")
+            .bind(("ids", venue_ids))
+            .await
+            .map_err(|e| SharedError::Database(e.to_string()))?;
+        let venues: Vec<serde_json::Value> = res5.take(0).unwrap_or_default();
+        let mut cities: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for v in venues {
+            if let Some(addr) = v.get("formatted_address").and_then(|x| x.as_str()) {
+                let parts: Vec<&str> = addr.split(',').map(|s| s.trim()).collect();
+                if let Some(city) = parts.get(1).map(|s| s.to_string()) {
+                    if !city.is_empty() {
+                        cities.insert(city);
+                    }
+                }
+            }
+        }
+        let mut list: Vec<String> = cities.into_iter().collect();
+        list.sort();
+        list.truncate(limit);
+        Ok((g.name, list))
+    }
+
+    /// Most popular game in a city (by plays), based on venue formattedAddress city.
+    pub async fn get_most_popular_game_in_city_for_viewer(
+        &self,
+        viewer_key: &str,
+        city: &str,
+    ) -> Result<Option<(String, i32)>> {
+        let city_lc = city.to_lowercase();
+
+        // Load venues and filter in Rust (formattedAddress parsing is messy in SurrealQL).
+        let mut res = self
+            .db
+            .query("SELECT string::concat(id) AS id, formattedAddress AS formatted_address FROM venue")
+            .await
+            .map_err(|e| SharedError::Database(e.to_string()))?;
+        let venues: Vec<serde_json::Value> = res.take(0).unwrap_or_default();
+        let mut venue_ids: Vec<surrealdb::types::RecordId> = Vec::new();
+        for v in venues {
+            let id = v.get("id").and_then(|x| x.as_str()).unwrap_or("");
+            let addr = v.get("formatted_address").and_then(|x| x.as_str()).unwrap_or("");
+            let parts: Vec<&str> = addr.split(',').map(|s| s.trim()).collect();
+            let c = parts.get(1).map(|s| s.to_string()).unwrap_or_default();
+            if !c.is_empty() && c.to_lowercase() == city_lc {
+                let key = record_id_to_key(id, "venue");
+                if !key.is_empty() {
+                    venue_ids.push(surrealdb::types::RecordId::new("venue", key.as_str()));
+                }
+            }
+        }
+        if venue_ids.is_empty() {
+            return Ok(None);
+        }
+
+        // Contest ids in those venues.
+        let mut res2 = self
+            .db
+            .query("SELECT `in` AS contest_id FROM played_at WHERE `out` INSIDE $venues")
+            .bind(("venues", venue_ids))
+            .await
+            .map_err(|e| SharedError::Database(e.to_string()))?;
+        #[derive(serde::Deserialize, serde::Serialize, surrealdb::types::SurrealValue)]
+        struct ContestRow { contest_id: Option<surrealdb::types::RecordId> }
+        let crows: Vec<ContestRow> = res2.take(0).unwrap_or_default();
+        let contest_ids: Vec<surrealdb::types::RecordId> =
+            crows.into_iter().filter_map(|r| r.contest_id).collect();
+        if contest_ids.is_empty() {
+            return Ok(None);
+        }
+
+        // Filter contests visible to viewer.
+        let viewer_key = viewer_key.to_string();
+        let mut res3 = self
+            .db
+            .query(
+                r#"SELECT VALUE id FROM contest WHERE id INSIDE $contests AND (
+                    (moderation_status = 'approved' OR moderation_status = NONE)
+                    OR creator_id = type::record('player', $viewer_key)
+                )"#,
+            )
+            .bind(("contests", contest_ids))
+            .bind(("viewer_key", viewer_key))
+            .await
+            .map_err(|e| SharedError::Database(e.to_string()))?;
+        let allowed: Vec<surrealdb::types::RecordId> = res3.take(0).unwrap_or_default();
+        if allowed.is_empty() {
+            return Ok(None);
+        }
+
+        // Games played in those contests.
+        let mut res4 = self
+            .db
+            .query("SELECT `out` AS game_id FROM played_with WHERE `in` INSIDE $contests")
+            .bind(("contests", allowed))
+            .await
+            .map_err(|e| SharedError::Database(e.to_string()))?;
+        #[derive(serde::Deserialize, serde::Serialize, surrealdb::types::SurrealValue)]
+        struct Row { game_id: Option<surrealdb::types::RecordId> }
+        let rows: Vec<Row> = res4.take(0).unwrap_or_default();
+        let mut counts: HashMap<String, i64> = HashMap::new();
+        let mut gids: Vec<surrealdb::types::RecordId> = Vec::new();
+        for r in rows {
+            if let Some(gid) = r.game_id {
+                let id = record_id_to_canonical(&gid).replace("game:", "game/");
+                *counts.entry(id.clone()).or_insert(0) += 1;
+                gids.push(gid);
+            }
+        }
+        if counts.is_empty() {
+            return Ok(None);
+        }
+
+        let mut res5 = self
+            .db
+            .query("SELECT string::concat(id) AS id, name FROM game WHERE id INSIDE $ids")
+            .bind(("ids", gids))
+            .await
+            .map_err(|e| SharedError::Database(e.to_string()))?;
+        #[derive(serde::Deserialize, serde::Serialize, surrealdb::types::SurrealValue)]
+        struct GameRow { id: String, name: String }
+        let games: Vec<GameRow> = res5.take(0).unwrap_or_default();
+        let mut name_by_id: HashMap<String, String> = HashMap::new();
+        for g in games {
+            name_by_id.insert(g.id, g.name);
+        }
+
+        let mut top: Vec<(String, i64)> = counts.into_iter().collect();
+        top.sort_by(|a, b| b.1.cmp(&a.1));
+        let (top_id, plays) = top[0].clone();
+        let name = name_by_id.get(&top_id).cloned().unwrap_or(top_id);
+        Ok(Some((name, plays as i32)))
     }
 
     /// Get top venues by contest count. SurrealQL has no INNER JOIN; count from played_at then look up names from venue.

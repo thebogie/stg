@@ -699,6 +699,7 @@ dependencies = [
  "rand 0.8.6",
  "random_word",
  "redis",
+ "regex",
  "reqwest 0.11.27",
  "roxmltree",
  "rstest 0.18.2",

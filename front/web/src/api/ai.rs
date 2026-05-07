@@ -26,6 +26,18 @@ pub async fn ai_ask(question: String) -> Result<AiAskResponse, String> {
     resp.json::<AiAskResponse>().await.map_err(|e| e.to_string())
 }
 
+pub async fn ai_ask_my_view(question: String) -> Result<AiAskResponse, String> {
+    let url = api_url("/api/ai/me/ask-my-view");
+    let req = authenticated_post(&url)
+        .json(&AiAskRequest { question })
+        .map_err(|e| e.to_string())?;
+    let resp = req.send().await.map_err(|e| e.to_string())?;
+    if !resp.ok() {
+        return Err(format!("HTTP {}", resp.status()));
+    }
+    resp.json::<AiAskResponse>().await.map_err(|e| e.to_string())
+}
+
 #[derive(Debug, Serialize)]
 pub struct AiSmacktalkRequest {
     pub contest_id: String,

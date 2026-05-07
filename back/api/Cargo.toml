@@ -75,6 +75,7 @@ dotenv = "0.15"
 derive_more = "0.99"
 async-trait = "0.1"
 approx = "0.5"
+regex = "1"
 
 # Internal dependencies
 shared = { path = "../../shared", features = ["surrealdb"] }

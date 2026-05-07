@@ -91,6 +91,7 @@ async fn main() -> std::io::Result<()> {
         }
     };
     let redis_data = web::Data::new(redis_client.clone());
+    let database_config_data = web::Data::new(config.database.clone());
     let session_store = web::Data::new(RedisSessionStore {
         client: redis_client.clone(),
     });
@@ -264,6 +265,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(metrics_data.clone())
             .app_data(json_config)
             .app_data(redis_data.clone())
+            .app_data(database_config_data.clone())
             .app_data(db_data.clone())
             .app_data(scheduler_data.clone())
             .app_data(player_repo.clone())
@@ -285,7 +287,14 @@ async fn main() -> std::io::Result<()> {
             .service(
                 web::scope("/api/ai")
                     .service(backend::ai::controller::ask_handler)
-                    .service(backend::ai::controller::smacktalk_handler),
+                    .service(backend::ai::controller::smacktalk_handler)
+                    .service(
+                        web::scope("/me")
+                            .wrap(backend::auth::AuthMiddleware {
+                                redis: std::sync::Arc::new(redis_data.get_ref().clone()),
+                            })
+                            .service(backend::ai::controller::ask_my_view_handler),
+                    ),
             )
             .service(
                 web::scope("/api/players")
