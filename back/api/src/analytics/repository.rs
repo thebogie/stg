@@ -1367,6 +1367,81 @@ WHERE start >= time::now() - duration::days($since_days)
         Ok(beats)
     }
 
+    /// How many contests a player won (place=1) within a time window, considering only contests
+    /// visible to the viewer (approved OR viewer-created).
+    pub async fn count_player_wins_since_days_for_viewer(
+        &self,
+        viewer_key: &str,
+        player_handle_lc: &str,
+        since_days: i64,
+    ) -> Result<i64> {
+        let viewer_key = viewer_key.to_string();
+        let player_handle_lc = player_handle_lc.to_string();
+
+        // Resolve player record id by handle.
+        let mut res = self
+            .db
+            .query(
+                "SELECT string::concat(id) AS id FROM player WHERE string::lowercase(handle) = $h LIMIT 1",
+            )
+            .bind(("h", player_handle_lc))
+            .await
+            .map_err(|e| SharedError::Database(e.to_string()))?;
+        let rows: Vec<serde_json::Value> = res.take(0).unwrap_or_default();
+        let Some(pid) = rows
+            .get(0)
+            .and_then(|v| v.get("id"))
+            .and_then(|v| v.as_str())
+        else {
+            return Err(SharedError::NotFound("player_not_found".to_string()));
+        };
+        let p_key = record_id_to_key(pid, "player");
+        if p_key.is_empty() {
+            return Err(SharedError::Validation("Invalid player id".to_string()));
+        }
+        let viewer_rid = surrealdb::types::RecordId::new("player", viewer_key.as_str());
+        let p_rid = surrealdb::types::RecordId::new("player", p_key.as_str());
+
+        // Contests in window, visible to viewer.
+        let mut res2 = self
+            .db
+            .query(
+                r#"
+SELECT VALUE id
+FROM contest
+WHERE start >= time::now() - duration::days($since_days)
+  AND (
+    (moderation_status = 'approved' OR moderation_status = NONE)
+    OR creator_id = $viewer
+  )
+"#,
+            )
+            .bind(("since_days", since_days))
+            .bind(("viewer", viewer_rid))
+            .await
+            .map_err(|e| SharedError::Database(e.to_string()))?;
+        let contest_ids: Vec<surrealdb::types::RecordId> = res2.take(0).unwrap_or_default();
+        if contest_ids.is_empty() {
+            return Ok(0);
+        }
+
+        // Count wins (place=1) for this player inside those contests.
+        let mut res3 = self
+            .db
+            .query("SELECT count() AS c FROM resulted_in WHERE `in` INSIDE $contests AND `out` = $p AND place = 1 GROUP ALL")
+            .bind(("contests", contest_ids))
+            .bind(("p", p_rid))
+            .await
+            .map_err(|e| SharedError::Database(e.to_string()))?;
+        let rows3: Vec<serde_json::Value> = res3.take(0).unwrap_or_default();
+        let c = rows3
+            .get(0)
+            .and_then(|v| v.get("c"))
+            .map(scalar_i64)
+            .unwrap_or(0);
+        Ok(c)
+    }
+
     /// Find cities a given game was played in (unique list, capped).
     pub async fn get_cities_for_game_for_viewer(
         &self,

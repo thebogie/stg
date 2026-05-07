@@ -9,7 +9,7 @@ use crate::config::DatabaseConfig;
 use crate::db::Db;
 use crate::player::repository::PlayerRepository;
 use crate::ratings::repository::RatingsRepository;
-use once_cell::sync::Lazy;
+use serde_json::Value;
 
 #[derive(Debug, Deserialize)]
 pub struct AiAskRequest {
@@ -70,6 +70,10 @@ enum MyViewTool {
         opponent_handle_lc: String,
         months: i64,
     },
+    PlayerWinsLastMonths {
+        player_handle_lc: String,
+        months: i64,
+    },
     PopularGamesLastMonths {
         months: i64,
     },
@@ -85,82 +89,161 @@ enum MyViewTool {
     },
 }
 
-fn parse_months_lower(q_lc: &str) -> i64 {
-    static RE_LAST_N_MONTHS: Lazy<regex::Regex> =
-        Lazy::new(|| regex::Regex::new(r"last\s+(\d+)\s+month").expect("regex"));
-
-    if let Some(c) = RE_LAST_N_MONTHS.captures(q_lc) {
-        if let Some(n) = c.get(1).and_then(|m| m.as_str().parse::<i64>().ok()) {
-            return n.max(1);
-        }
+fn json_object_from_text(s: &str) -> Option<String> {
+    let start = s.find('{')?;
+    let end = s.rfind('}')?;
+    if end <= start {
+        return None;
     }
-    if q_lc.contains("last month") {
-        return 1;
-    }
-    3
+    Some(s[start..=end].to_string())
 }
 
-fn parse_my_view_tool(question: &str) -> Option<MyViewTool> {
-    let q = question.trim();
-    let q_lc = q.to_lowercase();
-
-    static RE_BEAT_ME: Lazy<regex::Regex> = Lazy::new(|| {
-        regex::Regex::new(r"how many games did\s+@?([a-z0-9_]+)\s+beat\s+me").expect("regex")
-    });
-    static RE_BETTER_THAN: Lazy<regex::Regex> = Lazy::new(|| {
-        regex::Regex::new(r"am i better (?:than|then)\s+@?([a-z0-9_]+)").expect("regex")
-    });
-    static RE_GAME_CITIES: Lazy<regex::Regex> = Lazy::new(|| {
-        regex::Regex::new(r"what city has game\s+(.+?)\s+been played").expect("regex")
-    });
-    static RE_POPULAR_GAME_CITY: Lazy<regex::Regex> = Lazy::new(|| {
-        regex::Regex::new(r"most popular game in city\s+(.+)$").expect("regex")
-    });
-
-    if let Some(c) = RE_BEAT_ME.captures(&q_lc) {
-        let opponent_handle_lc = c.get(1).map(|m| m.as_str()).unwrap_or("").to_string();
-        if !opponent_handle_lc.is_empty() {
-            let months = parse_months_lower(&q_lc);
-            return Some(MyViewTool::HeadToHeadBeatMe {
-                opponent_handle_lc,
-                months,
-            });
-        }
+fn normalize_handle_lc(s: &str) -> Option<String> {
+    let h = s.trim().trim_start_matches('@').to_lowercase();
+    if h.is_empty() || h.len() > 32 {
+        return None;
     }
-
-    if q_lc.contains("most popular games") && q_lc.contains("month") {
-        let months = parse_months_lower(&q_lc);
-        return Some(MyViewTool::PopularGamesLastMonths { months });
-    }
-
-    if let Some(c) = RE_BETTER_THAN.captures(&q_lc) {
-        let opponent_handle = c.get(1).map(|m| m.as_str()).unwrap_or("").to_string();
-        if !opponent_handle.is_empty() {
-            return Some(MyViewTool::CompareBetterThan { opponent_handle });
-        }
-    }
-
-    if q_lc.contains("better glicko")
-        || (q_lc.contains("better") && q_lc.contains("rating") && q_lc.contains("than me"))
+    if !h
+        .chars()
+        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-')
     {
-        return Some(MyViewTool::CountHigherRatedThanMe);
+        return None;
+    }
+    Some(h)
+}
+
+fn clamp_months(m: i64) -> i64 {
+    m.clamp(1, 24)
+}
+
+async fn route_my_view_tool_llm(question: &str) -> Result<MyViewTool, String> {
+    #[derive(Debug, Deserialize)]
+    struct RouterOut {
+        tool: String,
+        #[serde(default)]
+        args: Value,
     }
 
-    if let Some(c) = RE_GAME_CITIES.captures(q) {
-        let game_query = c.get(1).map(|m| m.as_str().trim()).unwrap_or("").to_string();
-        if !game_query.is_empty() {
-            return Some(MyViewTool::GameCities { game_query });
+    let prompt = format!(
+        "You are STG's \"My view\" tool router.\n\
+You MUST select exactly ONE tool from the allowlist below and output ONLY valid JSON.\n\
+No markdown. No explanations. No extra keys.\n\
+\n\
+Allowed tools:\n\
+- head_to_head_beat_me {{ opponent_handle: string, months: integer }}\n\
+- player_wins {{ player_handle: string, months: integer }}\n\
+- popular_games_last_months {{ months: integer }}\n\
+- compare_better_than {{ opponent_handle: string }}\n\
+- count_higher_rated_than_me {{}}\n\
+- game_cities {{ game_query: string }}\n\
+- most_popular_game_in_city {{ city: string }}\n\
+\n\
+Rules:\n\
+- If the user says \"last month\" => months=1.\n\
+- If they say \"last N months\" => months=N.\n\
+- If months is missing but a timeframe is implied, choose months=3.\n\
+- Handles must be returned WITHOUT the leading @.\n\
+- If you cannot confidently map the question to a tool, output:\n\
+  {{\"tool\":\"unsupported\",\"args\":{{\"hint\":\"<one short suggestion>\"}}}}\n\
+\n\
+Question: {q}\n",
+        q = question.trim()
+    );
+
+    let client = AiClient::from_env();
+    let raw = client.generate(&prompt).await.map_err(|e| e.to_string())?;
+    let Some(obj) = json_object_from_text(&raw) else {
+        return Err("router_invalid_json".to_string());
+    };
+    let out: RouterOut = serde_json::from_str(&obj).map_err(|_| "router_invalid_json".to_string())?;
+
+    let tool = out.tool.trim().to_lowercase();
+    match tool.as_str() {
+        "head_to_head_beat_me" => {
+            let opp = out
+                .args
+                .get("opponent_handle")
+                .and_then(|v| v.as_str())
+                .and_then(normalize_handle_lc)
+                .ok_or_else(|| "router_invalid_args".to_string())?;
+            let months = out
+                .args
+                .get("months")
+                .and_then(|v| v.as_i64())
+                .unwrap_or(3);
+            Ok(MyViewTool::HeadToHeadBeatMe {
+                opponent_handle_lc: opp,
+                months: clamp_months(months),
+            })
         }
-    }
-
-    if let Some(c) = RE_POPULAR_GAME_CITY.captures(q) {
-        let city = c.get(1).map(|m| m.as_str().trim()).unwrap_or("").to_string();
-        if !city.is_empty() {
-            return Some(MyViewTool::MostPopularGameInCity { city });
+        "player_wins" => {
+            let h = out
+                .args
+                .get("player_handle")
+                .and_then(|v| v.as_str())
+                .and_then(normalize_handle_lc)
+                .ok_or_else(|| "router_invalid_args".to_string())?;
+            let months = out
+                .args
+                .get("months")
+                .and_then(|v| v.as_i64())
+                .unwrap_or(3);
+            Ok(MyViewTool::PlayerWinsLastMonths {
+                player_handle_lc: h,
+                months: clamp_months(months),
+            })
         }
+        "popular_games_last_months" => {
+            let months = out
+                .args
+                .get("months")
+                .and_then(|v| v.as_i64())
+                .unwrap_or(3);
+            Ok(MyViewTool::PopularGamesLastMonths {
+                months: clamp_months(months),
+            })
+        }
+        "compare_better_than" => {
+            let opp = out
+                .args
+                .get("opponent_handle")
+                .and_then(|v| v.as_str())
+                .and_then(normalize_handle_lc)
+                .ok_or_else(|| "router_invalid_args".to_string())?;
+            Ok(MyViewTool::CompareBetterThan {
+                opponent_handle: opp,
+            })
+        }
+        "count_higher_rated_than_me" => Ok(MyViewTool::CountHigherRatedThanMe),
+        "game_cities" => {
+            let game_query = out
+                .args
+                .get("game_query")
+                .and_then(|v| v.as_str())
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty() && s.len() <= 80)
+                .ok_or_else(|| "router_invalid_args".to_string())?;
+            Ok(MyViewTool::GameCities { game_query })
+        }
+        "most_popular_game_in_city" => {
+            let city = out
+                .args
+                .get("city")
+                .and_then(|v| v.as_str())
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty() && s.len() <= 80)
+                .ok_or_else(|| "router_invalid_args".to_string())?;
+            Ok(MyViewTool::MostPopularGameInCity { city })
+        }
+        "unsupported" => Err(
+            out.args
+                .get("hint")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Try asking about wins, head-to-head, popular games, or ratings.")
+                .to_string(),
+        ),
+        _ => Err("router_unknown_tool".to_string()),
     }
-
-    None
 }
 
 #[post("/ask")]
@@ -231,14 +314,19 @@ pub async fn ask_my_view_handler(
     let viewer_key = viewer.id.trim_start_matches("player/").to_string();
     let analytics_repo = AnalyticsRepository::new(db.get_ref().clone(), db_cfg.get_ref().clone());
 
-    let Some(tool) = parse_my_view_tool(q_raw) else {
-        return HttpResponse::BadRequest().json(serde_json::json!({
-            "error":"unsupported_question",
-            "hint":"Try: “How many games did @nick beat me in the last month?” or “Most popular games played in the last 3 months”"
-        }));
-    };
-
     let warnings = vec!["My view: uses your account permissions. Handles only.".to_string()];
+    let tool = match route_my_view_tool_llm(q_raw).await {
+        Ok(t) => t,
+        Err(hint) => {
+            return HttpResponse::Ok().json(AiAskResponse {
+                answer: format!(
+                    "I can help, but I need a quick clarification.\n\n{}",
+                    hint.trim()
+                ),
+                warnings,
+            });
+        }
+    };
 
     match tool {
         MyViewTool::HeadToHeadBeatMe {
@@ -268,6 +356,33 @@ pub async fn ask_my_view_handler(
                 answer: format!(
                     "@{} beat you in {} contest(s) in the last {} month(s).",
                     opponent_handle_lc, beats, months
+                ),
+                warnings,
+            })
+        }
+        MyViewTool::PlayerWinsLastMonths {
+            player_handle_lc,
+            months,
+        } => {
+            let since_days: i64 = months * 30;
+            let wins = match analytics_repo
+                .count_player_wins_since_days_for_viewer(&viewer_key, &player_handle_lc, since_days)
+                .await
+            {
+                Ok(n) => n,
+                Err(shared::SharedError::NotFound(_)) => {
+                    return HttpResponse::NotFound()
+                        .json(serde_json::json!({"error":"player_not_found"}))
+                }
+                Err(e) => {
+                    return HttpResponse::InternalServerError()
+                        .json(serde_json::json!({"error":"analytics_failed","details":e.to_string()}))
+                }
+            };
+            HttpResponse::Ok().json(AiAskResponse {
+                answer: format!(
+                    "@{} won {} contest(s) in the last {} month(s).",
+                    player_handle_lc, wins, months
                 ),
                 warnings,
             })

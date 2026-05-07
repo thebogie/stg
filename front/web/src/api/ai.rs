@@ -7,6 +7,39 @@ pub struct AiAskRequest {
     pub question: String,
 }
 
+#[derive(Debug, Deserialize, Default)]
+struct ApiErrorBody {
+    #[serde(default)]
+    error: Option<String>,
+    #[serde(default)]
+    details: Option<String>,
+    #[serde(default)]
+    hint: Option<String>,
+}
+
+async fn http_error(resp: gloo_net::http::Response) -> String {
+    let status = resp.status();
+    let txt = resp.text().await.unwrap_or_default();
+    if let Ok(body) = serde_json::from_str::<ApiErrorBody>(&txt) {
+        let mut parts = vec![format!("HTTP {}", status)];
+        if let Some(e) = body.error {
+            parts.push(e);
+        }
+        if let Some(h) = body.hint {
+            parts.push(h);
+        }
+        if let Some(d) = body.details {
+            parts.push(d);
+        }
+        return parts.join(": ");
+    }
+    if txt.trim().is_empty() {
+        format!("HTTP {}", status)
+    } else {
+        format!("HTTP {}: {}", status, txt)
+    }
+}
+
 #[derive(Debug, Deserialize)]
 pub struct AiAskResponse {
     pub answer: String,
@@ -21,7 +54,7 @@ pub async fn ai_ask(question: String) -> Result<AiAskResponse, String> {
         .map_err(|e| e.to_string())?;
     let resp = req.send().await.map_err(|e| e.to_string())?;
     if !resp.ok() {
-        return Err(format!("HTTP {}", resp.status()));
+        return Err(http_error(resp).await);
     }
     resp.json::<AiAskResponse>().await.map_err(|e| e.to_string())
 }
@@ -33,7 +66,7 @@ pub async fn ai_ask_my_view(question: String) -> Result<AiAskResponse, String> {
         .map_err(|e| e.to_string())?;
     let resp = req.send().await.map_err(|e| e.to_string())?;
     if !resp.ok() {
-        return Err(format!("HTTP {}", resp.status()));
+        return Err(http_error(resp).await);
     }
     resp.json::<AiAskResponse>().await.map_err(|e| e.to_string())
 }
@@ -61,7 +94,7 @@ pub async fn ai_smacktalk(req: AiSmacktalkRequest) -> Result<AiSmacktalkResponse
     let http_req = authenticated_post(&url).json(&req).map_err(|e| e.to_string())?;
     let resp = http_req.send().await.map_err(|e| e.to_string())?;
     if !resp.ok() {
-        return Err(format!("HTTP {}", resp.status()));
+        return Err(http_error(resp).await);
     }
     resp.json::<AiSmacktalkResponse>()
         .await
