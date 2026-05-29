@@ -1712,7 +1712,7 @@ impl ContestRepositoryImpl {
         }
 
         // Outcomes: resulted_in has in=contest, out=player
-        let resulted_in_sql = self.query_with_scope("SELECT `out` AS player_id, place, result FROM resulted_in WHERE `in` = $record_id ORDER BY place ASC");
+        let resulted_in_sql = self.query_with_scope("SELECT `out` AS player_id, place, result, score FROM resulted_in WHERE `in` = $record_id ORDER BY place ASC");
         let out_res = db
             .query(&resulted_in_sql)
             .bind(("record_id", contest_record_id))

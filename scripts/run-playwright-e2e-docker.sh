@@ -1,29 +1,31 @@
 #!/usr/bin/env bash
-# Run Playwright E2E inside Microsoft's Playwright Docker image (Node + browsers).
-# No host Node/npm/playwright install required. Targets the stack on the host (default: --network host).
+# Run Playwright E2E using the pre-baked stg-playwright-e2e image (no runtime browser download).
 #
-# After npm install we run `npm exec playwright install` so browser binaries match the repo's @playwright/test
-# (the image alone can skew vs package-lock and cause "Executable doesn't exist at .../chromium_headless_shell-...").
+# Build the image once (needs network): ./scripts/build-playwright-e2e-image.sh
+#
+# Targets the stack on the host (default: --network host).
 #
 # Env (optional):
-#   PLAYWRIGHT_DOCKER_IMAGE   (default: mcr.microsoft.com/playwright:v1.49.1-noble)
-#   PLAYWRIGHT_BASE_URL       (default: http://127.0.0.1:${FRONTEND_PORT:-50003})
+#   PLAYWRIGHT_DOCKER_IMAGE       (default: stg-playwright-e2e:latest)
+#   PLAYWRIGHT_BASE_URL           (default: http://127.0.0.1:${FRONTEND_PORT:-50003})
 #   PLAYWRIGHT_GLOBAL_TIMEOUT_MS
-#   PLAYWRIGHT_E2E_LOG        if set, tee stdout/stderr to this file
-#   PLAYWRIGHT_DOCKER_NETWORK  "host" (default on Linux) or "bridge" — if bridge, set
-#                              PLAYWRIGHT_BASE_URL=http://host.docker.internal:PORT (Docker Desktop)
+#   PLAYWRIGHT_E2E_LOG            if set, tee stdout/stderr to this file
+#   PLAYWRIGHT_DOCKER_NETWORK     "host" (default on Linux) or "bridge"
+#   FULL_PROD_TEST_BUILD_PLAYWRIGHT_IMAGE=1  build image if missing before run
 #
 # Usage (from repo root):
 #   source scripts/load-env.sh prod
 #   export USE_PRODUCTION_CONTAINERS=1
 #   ./scripts/run-playwright-e2e-docker.sh
+#   ./scripts/run-playwright-e2e-docker.sh testing/e2e/auth.spec.ts --retries=0
+#   ./scripts/run-playwright-e2e-docker.sh -g "should allow user to login" --project=chromium
 
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$ROOT"
 
-IMAGE="${PLAYWRIGHT_DOCKER_IMAGE:-mcr.microsoft.com/playwright:v1.49.1-noble}"
+IMAGE="${PLAYWRIGHT_DOCKER_IMAGE:-stg-playwright-e2e:latest}"
 NETWORK="${PLAYWRIGHT_DOCKER_NETWORK:-host}"
 PW_GLOBAL="${PLAYWRIGHT_GLOBAL_TIMEOUT_MS:-7200000}"
 BASE_URL="${PLAYWRIGHT_BASE_URL:-http://127.0.0.1:${FRONTEND_PORT:-50003}}"
@@ -33,6 +35,22 @@ if ! command -v docker >/dev/null 2>&1; then
   exit 1
 fi
 
+if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
+  if [ "${FULL_PROD_TEST_BUILD_PLAYWRIGHT_IMAGE:-0}" = "1" ]; then
+    echo "==> Playwright E2E image $IMAGE not found; building…"
+    bash "$SCRIPT_DIR/build-playwright-e2e-image.sh"
+    IMAGE="${PLAYWRIGHT_DOCKER_IMAGE:-stg-playwright-e2e:latest}"
+  else
+    echo "Playwright E2E image not found: $IMAGE" >&2
+    echo "Build once (requires network to npm + Playwright CDN):" >&2
+    echo "  ./scripts/build-playwright-e2e-image.sh" >&2
+    echo "Or: FULL_PROD_TEST_BUILD_PLAYWRIGHT_IMAGE=1 $0" >&2
+    exit 1
+  fi
+fi
+
+mkdir -p "$ROOT/_build/test-results" "$ROOT/_build/playwright-report"
+
 run_docker() {
   local -a args=(docker run --rm)
   if [ "$NETWORK" = "host" ]; then
@@ -41,20 +59,28 @@ run_docker() {
     args+=(--add-host=host.docker.internal:host-gateway)
   fi
   args+=(
-    -v "$ROOT:/work"
-    -w /work
+    -v "$ROOT/testing/e2e:/work/testing/e2e:ro"
+    -v "$ROOT/playwright.config.ts:/work/playwright.config.ts:ro"
+    -v "$ROOT/_build:/work/_build"
     -e USE_PRODUCTION_CONTAINERS="${USE_PRODUCTION_CONTAINERS:-1}"
     -e PLAYWRIGHT_BASE_URL="$BASE_URL"
     -e CI=1
+    -e PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+    -e E2E_USER_EMAIL="${E2E_USER_EMAIL:-}"
+    -e E2E_USER_PASSWORD="${E2E_USER_PASSWORD:-}"
+    -e E2E_ADMIN_EMAIL="${E2E_ADMIN_EMAIL:-}"
+    -e E2E_ADMIN_PASSWORD="${E2E_ADMIN_PASSWORD:-}"
+    -e E2E_BACKEND_URL="${E2E_BACKEND_URL:-http://127.0.0.1:${BACKEND_PORT:-50002}}"
     "$IMAGE"
-    bash -lc "set -euo pipefail; npm install; npm exec playwright install; mkdir -p _build/test-results _build/playwright-report; exec npm exec playwright test --global-timeout=$PW_GLOBAL"
+    bash -lc 'set -euo pipefail; mkdir -p _build/test-results _build/playwright-report; exec npm exec -- playwright test --global-timeout='"$PW_GLOBAL"' "$@"' \
+      _ "$@"
   )
   "${args[@]}"
 }
 
 if [ -n "${PLAYWRIGHT_E2E_LOG:-}" ]; then
   mkdir -p "$(dirname "$PLAYWRIGHT_E2E_LOG")"
-  run_docker 2>&1 | tee "$PLAYWRIGHT_E2E_LOG"
+  run_docker "$@" 2>&1 | tee "$PLAYWRIGHT_E2E_LOG"
 else
-  run_docker
+  run_docker "$@"
 fi

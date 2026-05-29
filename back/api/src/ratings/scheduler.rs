@@ -132,7 +132,7 @@ impl RatingsScheduler {
         info!("Recalculating ratings for period: {}", period);
 
         // Run the recalculation
-        let result = usecase.recompute_month(Some(period)).await;
+        let result = usecase.recompute_month_with_history(Some(period)).await;
 
         let duration = start_time.elapsed();
         let status = if result.is_ok() { "success" } else { "error" };
@@ -167,7 +167,7 @@ impl RatingsScheduler {
         );
 
         let start_time = Instant::now();
-        let result = self.usecase.recompute_month(period).await;
+        let result = self.usecase.recompute_month_with_history(period).await;
 
         let duration = start_time.elapsed();
         let status = if result.is_ok() { "success" } else { "error" };

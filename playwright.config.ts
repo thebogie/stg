@@ -17,8 +17,15 @@ if (USE_PRODUCTION_CONTAINERS) {
   console.log('[Playwright Config] Using E2E containers via webServer');
 }
 
+const e2eAuthStorage = '_build/.auth/user.json';
+
 export default defineConfig({
   testDir: './testing/e2e',
+  globalSetup: process.env.E2E_USER_EMAIL ? './testing/e2e/global-setup.ts' : undefined,
+  timeout: process.env.CI ? 60_000 : 45_000,
+  expect: {
+    timeout: 10_000,
+  },
   /* Run tests in files in parallel */
   fullyParallel: true,
   /* Fail the build on CI if you accidentally left test.only in the source code. */
@@ -43,6 +50,9 @@ export default defineConfig({
     /* When USE_PRODUCTION_CONTAINERS=1, use PLAYWRIGHT_BASE_URL (set by run-tests-setup-prod.sh) */
     /* Otherwise, use FRONTEND_URL or default to E2E port 50023 */
     baseURL: process.env.PLAYWRIGHT_BASE_URL || process.env.FRONTEND_URL || 'http://localhost:50023',
+    /* Prod WASM stacks can be slow on first navigation inside Docker. */
+    navigationTimeout: process.env.CI ? 90_000 : 45_000,
+    actionTimeout: process.env.CI ? 30_000 : 15_000,
     /* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
     trace: 'on-first-retry',
     /* Take screenshot on failure */
@@ -55,34 +65,58 @@ export default defineConfig({
    * Then uncomment the browser projects below.
    */
   projects: [
-    {
-      name: 'chromium',
-      use: { ...devices['Desktop Chrome'] },
-    },
+    // CI default: run only Desktop Chrome for speed/stability.
+    ...(process.env.CI
+      ? [
+          {
+            name: 'chromium',
+            testIgnore: ['**/analytics.spec.ts', '**/crud.spec.ts'],
+            use: { ...devices['Desktop Chrome'] },
+          },
+          ...(process.env.E2E_USER_EMAIL
+            ? [
+                {
+                  name: 'chromium-authenticated',
+                  testMatch: ['**/analytics.spec.ts', '**/crud.spec.ts'],
+                  timeout: 90_000,
+                  use: {
+                    ...devices['Desktop Chrome'],
+                    storageState: e2eAuthStorage,
+                  },
+                },
+              ]
+            : []),
+        ]
+      : [
+          {
+            name: 'chromium',
+            use: { ...devices['Desktop Chrome'] },
+          },
 
-    // Uncomment after running: npx playwright install firefox
-    // {
-    //   name: 'firefox',
-    //   use: { ...devices['Desktop Firefox'] },
-    // },
+          // Uncomment after running: npx playwright install firefox
+          // {
+          //   name: 'firefox',
+          //   use: { ...devices['Desktop Firefox'] },
+          // },
 
-    // Uncomment after running: npx playwright install webkit
-    // {
-    //   name: 'webkit',
-    //   use: { ...devices['Desktop Safari'] },
-    // },
+          // Uncomment after running: npx playwright install webkit
+          // {
+          //   name: 'webkit',
+          //   use: { ...devices['Desktop Safari'] },
+          // },
 
-    /* Test against mobile viewports. */
-    // Mobile Chrome uses Chromium engine, so it works without additional install
-    {
-      name: 'Mobile Chrome',
-      use: { ...devices['Pixel 5'] },
-    },
-    // Uncomment after running: npx playwright install webkit
-    // {
-    //   name: 'Mobile Safari',
-    //   use: { ...devices['iPhone 12'] },
-    // },
+          /* Test against mobile viewports. */
+          // Mobile Chrome uses Chromium engine, so it works without additional install
+          {
+            name: 'Mobile Chrome',
+            use: { ...devices['Pixel 5'] },
+          },
+          // Uncomment after running: npx playwright install webkit
+          // {
+          //   name: 'Mobile Safari',
+          //   use: { ...devices['iPhone 12'] },
+          // },
+        ]),
   ],
 
   /* Run Docker containers before starting the tests */

@@ -2,6 +2,7 @@ use chrono_tz::Tz;
 use log::{error, warn};
 use reqwest::Client;
 use serde::Deserialize;
+use std::time::Duration;
 
 /// Convert UTC offset (in minutes) to the best matching IANA timezone
 /// This uses a more intelligent approach than hardcoding mappings
@@ -98,10 +99,17 @@ pub struct GoogleTimezoneService {
 impl GoogleTimezoneService {
     /// Create a new Google Timezone service
     pub fn new(api_url: String, api_key: String) -> Self {
+        // Important: always use a request timeout so tests and runtime calls can't hang
+        // indefinitely on network stalls / blocked outbound traffic.
+        let client = Client::builder()
+            .connect_timeout(Duration::from_secs(5))
+            .timeout(Duration::from_secs(10))
+            .build()
+            .unwrap_or_else(|_| Client::new());
         Self {
             api_url,
             api_key,
-            client: Client::new(),
+            client,
         }
     }
 

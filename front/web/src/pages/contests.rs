@@ -1,5 +1,5 @@
 use crate::api::contests::{contest_key_from_any, search_contests, ContestSearchResponse};
-use crate::api::ai::{ai_ask, ai_ask_my_view};
+use crate::api::ai::{ai_ask, ai_ask_my_view, AiClarify};
 use crate::api::games::{get_all_games, search_games};
 use crate::api::players::search_players;
 use crate::api::venues::get_all_venues;
@@ -111,6 +111,7 @@ pub fn contests(props: &ContestsProps) -> Html {
     let ask_error = use_state(|| None::<String>);
     let ask_answer = use_state(|| None::<String>);
     let ask_warnings = use_state(|| Vec::<String>::new());
+    let ask_clarify = use_state(|| None::<AiClarify>);
     let ask_my_view = use_state(|| false);
 
     let on_ask_input = {
@@ -127,6 +128,7 @@ pub fn contests(props: &ContestsProps) -> Html {
         let ask_error = ask_error.clone();
         let ask_answer = ask_answer.clone();
         let ask_warnings = ask_warnings.clone();
+        let ask_clarify = ask_clarify.clone();
         let ask_my_view = ask_my_view.clone();
         let auth_state = auth.state.clone();
         Callback::from(move |_| {
@@ -143,8 +145,10 @@ pub fn contests(props: &ContestsProps) -> Html {
             ask_error.set(None);
             ask_answer.set(None);
             ask_warnings.set(vec![]);
+            ask_clarify.set(None);
             let ask_answer = ask_answer.clone();
             let ask_warnings = ask_warnings.clone();
+            let ask_clarify = ask_clarify.clone();
             let ask_error = ask_error.clone();
             let ask_loading = ask_loading.clone();
             let my_view = *ask_my_view;
@@ -158,6 +162,52 @@ pub fn contests(props: &ContestsProps) -> Html {
                     Ok(resp) => {
                         ask_answer.set(Some(resp.answer));
                         ask_warnings.set(resp.warnings);
+                        ask_clarify.set(resp.clarify);
+                    }
+                    Err(e) => ask_error.set(Some(e)),
+                }
+                ask_loading.set(false);
+            });
+        })
+    };
+
+    let on_ask_clarify_choice = {
+        let ask_text = ask_text.clone();
+        let ask_loading = ask_loading.clone();
+        let ask_error = ask_error.clone();
+        let ask_answer = ask_answer.clone();
+        let ask_warnings = ask_warnings.clone();
+        let ask_clarify = ask_clarify.clone();
+        let ask_my_view = ask_my_view.clone();
+        let auth_state = auth.state.clone();
+        Callback::from(move |question: String| {
+            ask_text.set(question.clone());
+            if *ask_my_view && auth_state.player.is_none() {
+                ask_error.set(Some("Log in to use Ask STG (My view).".to_string()));
+                return;
+            }
+            ask_loading.set(true);
+            ask_error.set(None);
+            ask_answer.set(None);
+            ask_warnings.set(vec![]);
+            ask_clarify.set(None);
+            let ask_answer = ask_answer.clone();
+            let ask_warnings = ask_warnings.clone();
+            let ask_clarify = ask_clarify.clone();
+            let ask_error = ask_error.clone();
+            let ask_loading = ask_loading.clone();
+            let my_view = *ask_my_view;
+            wasm_bindgen_futures::spawn_local(async move {
+                let res = if my_view {
+                    ai_ask_my_view(question).await
+                } else {
+                    ai_ask(question).await
+                };
+                match res {
+                    Ok(resp) => {
+                        ask_answer.set(Some(resp.answer));
+                        ask_warnings.set(resp.warnings);
+                        ask_clarify.set(resp.clarify);
                     }
                     Err(e) => ask_error.set(Some(e)),
                 }
@@ -936,6 +986,25 @@ pub fn contests(props: &ContestsProps) -> Html {
                         <div class="mt-3 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-900 whitespace-pre-wrap">
                             {ans}
                         </div>
+                    }
+                    if let Some(c) = (*ask_clarify).clone() {
+                        if !c.choices.is_empty() {
+                            <div class="mt-3 flex flex-wrap gap-2">
+                                {for c.choices.iter().map(|ch| {
+                                    let on_pick = on_ask_clarify_choice.clone();
+                                    let q = ch.question.clone();
+                                    html!{
+                                        <button
+                                            type="button"
+                                            onclick={Callback::from(move |_| on_pick.emit(q.clone()))}
+                                            class="px-3 py-2 rounded-lg border border-blue-200 bg-blue-50 text-blue-800 text-xs font-medium hover:bg-blue-100"
+                                        >
+                                            {ch.label.clone()}
+                                        </button>
+                                    }
+                                })}
+                            </div>
+                        }
                     }
                 </div>
                 // Search Bar

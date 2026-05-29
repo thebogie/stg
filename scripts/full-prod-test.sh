@@ -6,8 +6,9 @@
 #   1) Unit:        cargo test -p backend (full backend crate against live Redis/Surreal ports below)
 #   2) Integration: cargo test -p testing --test api_tests (smoke), then
 #                   cargo test -p testing -- --include-ignored --test-threads 1 (full crate, incl. ignored)
-#   3) E2E:         Playwright vs stack frontend (USE_PRODUCTION_CONTAINERS=1); default is Docker (see
-#                   scripts/run-playwright-e2e-docker.sh). Host run: FULL_PROD_TEST_PLAYWRIGHT_HOST=1 (needs Node).
+#   3) E2E:         Playwright vs stack frontend (USE_PRODUCTION_CONTAINERS=1); default is pre-baked Docker
+#                   image (see scripts/build-playwright-e2e-image.sh + run-playwright-e2e-docker.sh).
+#                   Host run: FULL_PROD_TEST_PLAYWRIGHT_HOST=1 (needs Node).
 #
 # BGG CSV import and docker iterate/clean skips only affect speed/data — they do not substitute for the three tiers above.
 #
@@ -99,6 +100,23 @@ GIT_COMMIT="$(git rev-parse --short HEAD)"
 BUILD_DATE="$(date -u +"%Y-%m-%d %H:%M:%S UTC")"
 BUILD_VERSION="$(date -u +%Y%m%d-%H%M%S)-${GIT_COMMIT}"
 export GIT_COMMIT BUILD_DATE BUILD_VERSION
+
+# --- E2E test users (created per BUILD_VERSION) ---
+# These are used by Playwright to make login/admin flows deterministic against prod-copied data.
+E2E_USER_EMAIL="${E2E_USER_EMAIL:-e2e-user+${BUILD_VERSION}@example.test}"
+E2E_USER_PASSWORD="${E2E_USER_PASSWORD:-e2e-user-${BUILD_VERSION}-password123}"
+E2E_ADMIN_EMAIL="${E2E_ADMIN_EMAIL:-e2e-admin+${BUILD_VERSION}@example.test}"
+E2E_ADMIN_PASSWORD="${E2E_ADMIN_PASSWORD:-e2e-admin-${BUILD_VERSION}-password123}"
+export E2E_USER_EMAIL E2E_USER_PASSWORD E2E_ADMIN_EMAIL E2E_ADMIN_PASSWORD
+
+# Grant admin by env override (backend maps ADMIN_EMAILS -> isAdmin without DB mutation)
+export ADMIN_EMAILS="${ADMIN_EMAILS:-}"
+if [ -z "${ADMIN_EMAILS}" ]; then
+  ADMIN_EMAILS="${E2E_ADMIN_EMAIL}"
+else
+  ADMIN_EMAILS="${ADMIN_EMAILS},${E2E_ADMIN_EMAIL}"
+fi
+export ADMIN_EMAILS
 
 BUILD_DIR="_build/${BUILD_VERSION}"
 mkdir -p "$BUILD_DIR"
@@ -397,6 +415,15 @@ export CI=1
 set +e
 PW_GLOBAL="${PLAYWRIGHT_GLOBAL_TIMEOUT_MS:-7200000}"
 export PLAYWRIGHT_GLOBAL_TIMEOUT_MS="$PW_GLOBAL"
+
+# Preflight: if frontend is down here, Playwright will just burn time on navigation timeouts.
+if ! curl -sf --connect-timeout 2 --max-time 5 "$PLAYWRIGHT_BASE_URL" >/dev/null 2>&1; then
+  echo "FAIL: Frontend not reachable at $PLAYWRIGHT_BASE_URL right before E2E." | tee "$BUILD_DIR/e2e.log"
+  stg_compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" ps | tee -a "$BUILD_DIR/e2e.log" >/dev/null 2>&1 || true
+  stg_compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" logs frontend backend | tee -a "$BUILD_DIR/e2e.log" >/dev/null 2>&1 || true
+  E2E_OK=1
+fi
+
 if [ "${FULL_PROD_TEST_PLAYWRIGHT_HOST:-0}" = "1" ]; then
   # Host-run Playwright (requires Node + repo npm install / npm ci).
   cd "$ROOT"
@@ -414,11 +441,52 @@ if [ "${FULL_PROD_TEST_PLAYWRIGHT_HOST:-0}" = "1" ]; then
     E2E_OK=${PIPESTATUS[0]:-$?}
   fi
 else
-  # Default: Playwright in Docker (Microsoft image — browsers + Node; no host Node required).
-  stamp "Running Playwright in container (${PLAYWRIGHT_DOCKER_IMAGE:-mcr.microsoft.com/playwright:v1.49.1-noble})…"
-  export PLAYWRIGHT_E2E_LOG="$BUILD_DIR/e2e.log"
-  bash "$SCRIPT_DIR/run-playwright-e2e-docker.sh"
-  E2E_OK=$?
+  # Default: pre-baked Playwright image (build once: ./scripts/build-playwright-e2e-image.sh).
+  export PLAYWRIGHT_DOCKER_IMAGE="${PLAYWRIGHT_DOCKER_IMAGE:-stg-playwright-e2e:latest}"
+  # Provision per-run E2E users (idempotent: treat "already exists" as OK for iterate runs).
+  ensure_e2e_user() {
+    local email="$1"
+    local password="$2"
+    local username="$3"
+    local url="http://127.0.0.1:${BACKEND_PORT}/api/players/register"
+    local body
+    body="$(cat <<EOF
+{"username":"${username}","email":"${email}","password":"${password}"}
+EOF
+)"
+    # Capture HTTP status; accept 201 Created or 400 AlreadyExists (backend uses bad_request).
+    local code
+    code="$(curl -sS -o /dev/null -w '%{http_code}' \
+      -H 'Content-Type: application/json' \
+      --data-binary "$body" \
+      "$url" || echo "000")"
+    if [ "$code" = "201" ] || [ "$code" = "400" ]; then
+      return 0
+    fi
+    echo "FAIL: could not provision E2E user ${email} (HTTP ${code})" >&2
+    return 1
+  }
+
+  export E2E_BACKEND_URL="http://127.0.0.1:${BACKEND_PORT}"
+  stamp "Provisioning E2E users (per-run) via backend /api/players/register"
+  ensure_e2e_user "$E2E_USER_EMAIL" "$E2E_USER_PASSWORD" "e2e_user_${BUILD_VERSION//[^a-zA-Z0-9_]/_}" || E2E_OK=1
+  ensure_e2e_user "$E2E_ADMIN_EMAIL" "$E2E_ADMIN_PASSWORD" "e2e_admin_${BUILD_VERSION//[^a-zA-Z0-9_]/_}" || E2E_OK=1
+
+  if ! docker image inspect "$PLAYWRIGHT_DOCKER_IMAGE" >/dev/null 2>&1; then
+    if [ "${FULL_PROD_TEST_BUILD_PLAYWRIGHT_IMAGE:-1}" = "1" ]; then
+      stamp "Pre-baked Playwright image missing; building ${PLAYWRIGHT_DOCKER_IMAGE} (CDN access required once)…"
+      bash "$SCRIPT_DIR/build-playwright-e2e-image.sh"
+    else
+      echo "FAIL: Playwright image ${PLAYWRIGHT_DOCKER_IMAGE} not found. Run ./scripts/build-playwright-e2e-image.sh" >&2
+      E2E_OK=1
+    fi
+  fi
+  if [ "${E2E_OK:-0}" -eq 0 ]; then
+    stamp "Running Playwright in container (${PLAYWRIGHT_DOCKER_IMAGE})…"
+    export PLAYWRIGHT_E2E_LOG="$BUILD_DIR/e2e.log"
+    bash "$SCRIPT_DIR/run-playwright-e2e-docker.sh"
+    E2E_OK=$?
+  fi
 fi
 set -e
 [ "$E2E_OK" -eq 0 ] && E2E_RESULT="pass" || E2E_RESULT="fail"

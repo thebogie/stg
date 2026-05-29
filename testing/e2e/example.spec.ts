@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { gotoApp } from './helpers';
 
 /**
  * E2E tests for Yew frontend (functionality only).
@@ -10,12 +11,7 @@ import { test, expect } from '@playwright/test';
 
 test.describe('Frontend E2E Tests', () => {
   test('should load the homepage', async ({ page }) => {
-    await page.goto('/');
-    
-    // Wait for WASM to load and page to be interactive
-    await page.waitForLoadState('networkidle');
-    // Give WASM a moment to initialize
-    await page.waitForTimeout(1000);
+    await gotoApp(page, '/');
     
     // Verify page loaded (check for any content, not just navigation)
     const body = page.locator('body');
@@ -28,9 +24,7 @@ test.describe('Frontend E2E Tests', () => {
   });
 
   test('should display navigation', async ({ page }) => {
-    await page.goto('/');
-    await page.waitForLoadState('networkidle');
-    await page.waitForTimeout(1000);
+    await gotoApp(page, '/');
     
     // Check for navigation elements - try multiple possible selectors
     const nav = page.locator('nav').first();
@@ -48,9 +42,7 @@ test.describe('Frontend E2E Tests', () => {
   });
 
   test('should handle basic page interactions', async ({ page }) => {
-    await page.goto('/');
-    await page.waitForLoadState('networkidle');
-    await page.waitForTimeout(1000);
+    await gotoApp(page, '/');
     
     // Check that page is responsive (can interact with it)
     const body = page.locator('body');
@@ -65,7 +57,6 @@ test.describe('Frontend E2E Tests', () => {
       if (href && !href.startsWith('#')) {
         // Only click if it's a real navigation link
         await firstLink.click();
-        await page.waitForLoadState('networkidle');
         // Verify we navigated or page changed
         expect(page.url()).toBeTruthy();
       }

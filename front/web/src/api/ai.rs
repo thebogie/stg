@@ -45,6 +45,21 @@ pub struct AiAskResponse {
     pub answer: String,
     #[serde(default)]
     pub warnings: Vec<String>,
+    #[serde(default)]
+    pub clarify: Option<AiClarify>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct AiClarify {
+    pub question: String,
+    #[serde(default)]
+    pub choices: Vec<AiClarifyChoice>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct AiClarifyChoice {
+    pub label: String,
+    pub question: String,
 }
 
 pub async fn ai_ask(question: String) -> Result<AiAskResponse, String> {

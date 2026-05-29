@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { gotoApp } from './helpers';
 
 /**
  * E2E tests for error handling and edge cases
@@ -6,9 +7,7 @@ import { test, expect } from '@playwright/test';
 
 test.describe('Error Handling', () => {
   test('should handle 404 pages gracefully', async ({ page }) => {
-    await page.goto('/nonexistent-page-12345');
-    await page.waitForLoadState('networkidle');
-    await page.waitForTimeout(1000);
+    await gotoApp(page, '/nonexistent-page-12345');
     
     const body = page.locator('body');
     await expect(body).toBeVisible();
@@ -21,9 +20,7 @@ test.describe('Error Handling', () => {
 
   test('should handle network errors gracefully', async ({ page, context }) => {
     // First, load the page while online
-    await page.goto('/');
-    await page.waitForLoadState('networkidle');
-    await page.waitForTimeout(1000);
+    await gotoApp(page, '/');
     
     // Now simulate offline mode
     await context.setOffline(true);
@@ -50,18 +47,14 @@ test.describe('Error Handling', () => {
       setTimeout(() => route.continue(), 100);
     });
     
-    await page.goto('/');
-    await page.waitForLoadState('networkidle');
-    await page.waitForTimeout(2000);
+    await gotoApp(page, '/');
     
     const body = page.locator('body');
     await expect(body).toBeVisible();
   });
 
   test('should handle invalid form submissions', async ({ page }) => {
-    await page.goto('/login');
-    await page.waitForLoadState('networkidle');
-    await page.waitForTimeout(1000);
+    await gotoApp(page, '/login');
     
     // Try to submit empty form
     const submitButton = page.locator('button[type="submit"]').first();
@@ -78,9 +71,7 @@ test.describe('Error Handling', () => {
 
 test.describe('Edge Cases', () => {
   test('should handle very long input strings', async ({ page }) => {
-    await page.goto('/login');
-    await page.waitForLoadState('networkidle');
-    await page.waitForTimeout(1000);
+    await gotoApp(page, '/login');
     
     const emailInput = page.locator('input[type="email"]').first();
     if (await emailInput.count() > 0) {
@@ -95,27 +86,22 @@ test.describe('Edge Cases', () => {
 
   test('should handle special characters in URLs', async ({ page }) => {
     // Test URL with special characters
-    await page.goto('/venues?search=test%26game');
-    await page.waitForLoadState('networkidle');
-    await page.waitForTimeout(1000);
+    await gotoApp(page, '/venues?search=test%26game');
     
     const body = page.locator('body');
     await expect(body).toBeVisible();
   });
 
   test('should handle rapid navigation', async ({ page }) => {
-    // Rapidly navigate between pages
-    const routes = ['/', '/venues', '/games', '/contests', '/'];
-    
-    for (const route of routes) {
-      await page.goto(route);
-      await page.waitForTimeout(100); // Very short wait
-    }
-    
-    // Should still be functional
-    await page.waitForLoadState('networkidle');
-    const body = page.locator('body');
-    await expect(body).toBeVisible();
+    // SPA link hops only — avoid chaining full WASM reloads on /venues, /games, etc.
+    await gotoApp(page, '/');
+    await page.getByRole('link', { name: /leaderboards/i }).first().click();
+    await expect(page).toHaveURL(/\/leaderboards/);
+    await page.getByRole('link', { name: 'STG' }).first().click();
+    await expect(page).not.toHaveURL(/\/leaderboards/);
+    await page.getByRole('button', { name: /login/i }).first().click();
+    await expect(page).toHaveURL(/\/login/);
+    await expect(page.locator('body')).toBeVisible();
   });
 });
 

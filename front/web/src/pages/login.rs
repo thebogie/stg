@@ -1,6 +1,6 @@
 use log::debug;
 use web_sys::HtmlInputElement;
-use yew::events::SubmitEvent;
+use yew::events::{InputEvent, SubmitEvent};
 use yew::prelude::*;
 use yew_router::prelude::*;
 
@@ -53,17 +53,17 @@ pub fn login() -> Html {
         })
     };
 
-    let onemailchange = {
+    let onemailinput = {
         let email = email.clone();
-        Callback::from(move |e: Event| {
+        Callback::from(move |e: InputEvent| {
             let input: HtmlInputElement = e.target_unchecked_into();
             email.set(input.value());
         })
     };
 
-    let onpasswordchange = {
+    let onpasswordinput = {
         let password = password.clone();
-        Callback::from(move |e: Event| {
+        Callback::from(move |e: InputEvent| {
             let input: HtmlInputElement = e.target_unchecked_into();
             password.set(input.value());
         })
@@ -115,7 +115,7 @@ pub fn login() -> Html {
                                 required=true
                                 class="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-t-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
                                 placeholder="Email address"
-                                onchange={onemailchange}
+                                oninput={onemailinput}
                             />
                         </div>
                         <div>
@@ -127,7 +127,7 @@ pub fn login() -> Html {
                                 required=true
                                 class="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-b-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
                                 placeholder="Password"
-                                onchange={onpasswordchange}
+                                oninput={onpasswordinput}
                             />
                         </div>
                     </div>

@@ -1,36 +1,14 @@
 import { test, expect } from '@playwright/test';
+import { gotoApp } from './helpers';
 
 /**
  * E2E tests for analytics and dashboard functionality
+ * (authenticated via global-setup storageState — chromium-authenticated project)
  */
 
 test.describe('Analytics', () => {
-  test.beforeEach(async ({ page }) => {
-    // Login before each test
-    await page.goto('/login');
-    await page.waitForLoadState('networkidle');
-    await page.waitForTimeout(1000);
-    
-    const emailInput = page.locator('input[name="email"], input[type="email"]').first();
-    const passwordInput = page.locator('input[name="password"], input[type="password"]').first();
-    
-    if (await emailInput.count() > 0 && await passwordInput.count() > 0) {
-      await emailInput.fill('test@example.com');
-      await passwordInput.fill('password123');
-      
-      const submitButton = page.locator('button[type="submit"]').first();
-      if (await submitButton.count() > 0) {
-        await submitButton.click();
-        await page.waitForLoadState('networkidle');
-        await page.waitForTimeout(2000);
-      }
-    }
-  });
-
   test('should load analytics page', async ({ page }) => {
-    await page.goto('/analytics');
-    await page.waitForLoadState('networkidle');
-    await page.waitForTimeout(2000);
+    await gotoApp(page, '/analytics');
     
     const body = page.locator('body');
     await expect(body).toBeVisible();
@@ -41,9 +19,7 @@ test.describe('Analytics', () => {
   });
 
   test('should display analytics dashboard', async ({ page }) => {
-    await page.goto('/analytics');
-    await page.waitForLoadState('networkidle');
-    await page.waitForTimeout(2000);
+    await gotoApp(page, '/analytics');
     
     // Look for charts, graphs, or analytics widgets
     const charts = page.locator('canvas, svg, [class*="chart"], [class*="graph"], [class*="analytics"]');
@@ -55,9 +31,7 @@ test.describe('Analytics', () => {
   });
 
   test('should handle analytics data loading', async ({ page }) => {
-    await page.goto('/analytics');
-    await page.waitForLoadState('networkidle');
-    await page.waitForTimeout(3000); // Give time for data to load
+    await gotoApp(page, '/analytics');
     
     const body = page.locator('body');
     await expect(body).toBeVisible();
@@ -75,8 +49,7 @@ test.describe('Analytics Performance', () => {
   test('should load analytics page quickly', async ({ page }) => {
     const startTime = Date.now();
     
-    await page.goto('/analytics');
-    await page.waitForLoadState('networkidle');
+    await gotoApp(page, '/analytics');
     
     const loadTime = Date.now() - startTime;
     
@@ -88,18 +61,12 @@ test.describe('Analytics Performance', () => {
   });
 
   test('should handle multiple analytics requests', async ({ page }) => {
-    await page.goto('/analytics');
-    await page.waitForLoadState('networkidle');
-    await page.waitForTimeout(1000);
+    await gotoApp(page, '/analytics');
     
     // Navigate away and back
-    await page.goto('/');
-    await page.waitForLoadState('networkidle');
-    await page.waitForTimeout(500);
+    await gotoApp(page, '/');
     
-    await page.goto('/analytics');
-    await page.waitForLoadState('networkidle');
-    await page.waitForTimeout(1000);
+    await gotoApp(page, '/analytics');
     
     const body = page.locator('body');
     await expect(body).toBeVisible();

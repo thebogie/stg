@@ -8,6 +8,7 @@ cd "$ROOT"
 FILES=(
   scripts/full-prod-test.sh
   scripts/test-prod-gate.sh
+  scripts/build-playwright-e2e-image.sh
   scripts/run-playwright-e2e-docker.sh
   scripts/load-env.sh
   scripts/apply-surreal-schema-minimal.sh

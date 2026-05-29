@@ -209,7 +209,7 @@ impl RatingsController {
         query: RecomputeQuery,
     ) -> shared::Result<HttpResponse> {
         let period = query.period.clone();
-        self.usecase.recompute_month(period).await?;
+        self.usecase.recompute_month_with_history(period).await?;
         Ok(HttpResponse::Accepted().json(serde_json::json!({"status":"started"})))
     }
 }

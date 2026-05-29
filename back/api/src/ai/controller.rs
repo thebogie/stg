@@ -31,6 +31,20 @@ pub struct AiAskResponse {
     pub answer: String,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub warnings: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub clarify: Option<AiClarify>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct AiClarify {
+    pub question: String,
+    pub choices: Vec<AiClarifyChoice>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct AiClarifyChoice {
+    pub label: String,
+    pub question: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -116,12 +130,19 @@ fn clamp_months(m: i64) -> i64 {
     m.clamp(1, 24)
 }
 
-async fn route_my_view_tool_llm(question: &str) -> Result<MyViewTool, String> {
+enum MyViewRouteDecision {
+    Tool(MyViewTool),
+    Clarify(AiClarify),
+}
+
+async fn route_my_view_tool_llm(question: &str) -> Result<MyViewRouteDecision, String> {
     #[derive(Debug, Deserialize)]
     struct RouterOut {
         tool: String,
         #[serde(default)]
         args: Value,
+        #[serde(default)]
+        confidence: Option<f64>,
     }
 
     let prompt = format!(
@@ -138,13 +159,15 @@ Allowed tools:\n\
 - game_cities {{ game_query: string }}\n\
 - most_popular_game_in_city {{ city: string }}\n\
 \n\
+You must also include a numeric confidence between 0 and 1.\n\
+If you are unsure between two or more tools, respond with tool=\"clarify\" and provide args.question (one sentence) and args.options (2-4 short strings).\n\
+\n\
 Rules:\n\
 - If the user says \"last month\" => months=1.\n\
 - If they say \"last N months\" => months=N.\n\
 - If months is missing but a timeframe is implied, choose months=3.\n\
 - Handles must be returned WITHOUT the leading @.\n\
-- If you cannot confidently map the question to a tool, output:\n\
-  {{\"tool\":\"unsupported\",\"args\":{{\"hint\":\"<one short suggestion>\"}}}}\n\
+- If you cannot confidently map the question to a tool, output tool=\"clarify\".\n\
 \n\
 Question: {q}\n",
         q = question.trim()
@@ -157,7 +180,108 @@ Question: {q}\n",
     };
     let out: RouterOut = serde_json::from_str(&obj).map_err(|_| "router_invalid_json".to_string())?;
 
+    // Semantic consistency check: if the user explicitly asked "beat/beaten me",
+    // never execute a "total wins" tool. Instead, force a clarify with two choices.
+    // This keeps the LLM flexible for phrasing while preventing confident misroutes.
+    let q_lc = question.trim().to_lowercase();
+    let asked_beat_me = q_lc.contains("beat me") || q_lc.contains("beaten me");
+
     let tool = out.tool.trim().to_lowercase();
+    let confidence = out.confidence.unwrap_or(0.0);
+
+    if asked_beat_me && tool == "player_wins" {
+        // Attempt to extract the opponent handle from the question.
+        static RE_OPP: once_cell::sync::Lazy<regex::Regex> = once_cell::sync::Lazy::new(|| {
+            regex::Regex::new(r"@?([a-z0-9_-]+)\s+(?:beat|beaten)\s+me").expect("regex")
+        });
+        let opp = RE_OPP
+            .captures(&q_lc)
+            .and_then(|c| c.get(1).map(|m| m.as_str()))
+            .unwrap_or("them");
+
+        // Try to keep the user's requested months, if we can.
+        static RE_LAST_N_MONTHS: once_cell::sync::Lazy<regex::Regex> =
+            once_cell::sync::Lazy::new(|| regex::Regex::new(r"last\s+(\d+)\s+month").expect("regex"));
+        let months = if let Some(c) = RE_LAST_N_MONTHS.captures(&q_lc) {
+            c.get(1)
+                .and_then(|m| m.as_str().parse::<i64>().ok())
+                .unwrap_or(3)
+        } else if q_lc.contains("last month") {
+            1
+        } else {
+            3
+        };
+
+        return Ok(MyViewRouteDecision::Clarify(AiClarify {
+            question: format!(
+                "Quick clarification: do you mean head‑to‑head ({} beat you) or {}’s total wins?",
+                format!("@{}", opp),
+                format!("@{}", opp)
+            ),
+            choices: vec![
+                AiClarifyChoice {
+                    label: "Head‑to‑head vs me".to_string(),
+                    question: format!(
+                        "How many times has @{} beaten me in the last {} months?",
+                        opp, months
+                    ),
+                },
+                AiClarifyChoice {
+                    label: format!("@{} total wins", opp),
+                    question: format!(
+                        "How many contests did @{} win in the last {} months?",
+                        opp, months
+                    ),
+                },
+            ],
+        }));
+    }
+
+    // Force clarify when low confidence, regardless of tool.
+    if confidence < 0.65 {
+        let q = out
+            .args
+            .get("question")
+            .and_then(|v| v.as_str())
+            .unwrap_or("Quick clarification: what exactly do you mean?")
+            .trim()
+            .to_string();
+        let mut choices = Vec::new();
+        if let Some(arr) = out.args.get("choices").and_then(|v| v.as_array()) {
+            for c in arr.iter().take(4) {
+                let label = c.get("label").and_then(|v| v.as_str()).unwrap_or("").trim();
+                let question = c
+                    .get("question")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .trim();
+                if !label.is_empty() && !question.is_empty() && question.len() <= 500 {
+                    choices.push(AiClarifyChoice {
+                        label: label.to_string(),
+                        question: question.to_string(),
+                    });
+                }
+            }
+        }
+        // Fallback to "options" strings if present.
+        if choices.is_empty() {
+            if let Some(arr) = out.args.get("options").and_then(|v| v.as_array()) {
+                for (i, o) in arr.iter().take(4).enumerate() {
+                    if let Some(s) = o.as_str().map(|s| s.trim()).filter(|s| !s.is_empty()) {
+                        choices.push(AiClarifyChoice {
+                            label: format!("Option {}", i + 1),
+                            question: s.to_string(),
+                        });
+                    }
+                }
+            }
+        }
+        return Ok(MyViewRouteDecision::Clarify(AiClarify {
+            question: q,
+            choices,
+        }));
+    }
+
     match tool.as_str() {
         "head_to_head_beat_me" => {
             let opp = out
@@ -171,10 +295,10 @@ Question: {q}\n",
                 .get("months")
                 .and_then(|v| v.as_i64())
                 .unwrap_or(3);
-            Ok(MyViewTool::HeadToHeadBeatMe {
+            Ok(MyViewRouteDecision::Tool(MyViewTool::HeadToHeadBeatMe {
                 opponent_handle_lc: opp,
                 months: clamp_months(months),
-            })
+            }))
         }
         "player_wins" => {
             let h = out
@@ -188,10 +312,10 @@ Question: {q}\n",
                 .get("months")
                 .and_then(|v| v.as_i64())
                 .unwrap_or(3);
-            Ok(MyViewTool::PlayerWinsLastMonths {
+            Ok(MyViewRouteDecision::Tool(MyViewTool::PlayerWinsLastMonths {
                 player_handle_lc: h,
                 months: clamp_months(months),
-            })
+            }))
         }
         "popular_games_last_months" => {
             let months = out
@@ -199,9 +323,9 @@ Question: {q}\n",
                 .get("months")
                 .and_then(|v| v.as_i64())
                 .unwrap_or(3);
-            Ok(MyViewTool::PopularGamesLastMonths {
+            Ok(MyViewRouteDecision::Tool(MyViewTool::PopularGamesLastMonths {
                 months: clamp_months(months),
-            })
+            }))
         }
         "compare_better_than" => {
             let opp = out
@@ -210,11 +334,11 @@ Question: {q}\n",
                 .and_then(|v| v.as_str())
                 .and_then(normalize_handle_lc)
                 .ok_or_else(|| "router_invalid_args".to_string())?;
-            Ok(MyViewTool::CompareBetterThan {
+            Ok(MyViewRouteDecision::Tool(MyViewTool::CompareBetterThan {
                 opponent_handle: opp,
-            })
+            }))
         }
-        "count_higher_rated_than_me" => Ok(MyViewTool::CountHigherRatedThanMe),
+        "count_higher_rated_than_me" => Ok(MyViewRouteDecision::Tool(MyViewTool::CountHigherRatedThanMe)),
         "game_cities" => {
             let game_query = out
                 .args
@@ -223,7 +347,7 @@ Question: {q}\n",
                 .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty() && s.len() <= 80)
                 .ok_or_else(|| "router_invalid_args".to_string())?;
-            Ok(MyViewTool::GameCities { game_query })
+            Ok(MyViewRouteDecision::Tool(MyViewTool::GameCities { game_query }))
         }
         "most_popular_game_in_city" => {
             let city = out
@@ -233,15 +357,38 @@ Question: {q}\n",
                 .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty() && s.len() <= 80)
                 .ok_or_else(|| "router_invalid_args".to_string())?;
-            Ok(MyViewTool::MostPopularGameInCity { city })
+            Ok(MyViewRouteDecision::Tool(MyViewTool::MostPopularGameInCity { city }))
         }
-        "unsupported" => Err(
-            out.args
-                .get("hint")
+        "clarify" => {
+            let q = out
+                .args
+                .get("question")
                 .and_then(|v| v.as_str())
-                .unwrap_or("Try asking about wins, head-to-head, popular games, or ratings.")
-                .to_string(),
-        ),
+                .unwrap_or("Quick clarification: what exactly do you mean?")
+                .trim()
+                .to_string();
+            let mut choices = Vec::new();
+            if let Some(arr) = out.args.get("choices").and_then(|v| v.as_array()) {
+                for c in arr.iter().take(4) {
+                    let label = c.get("label").and_then(|v| v.as_str()).unwrap_or("").trim();
+                    let question = c
+                        .get("question")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .trim();
+                    if !label.is_empty() && !question.is_empty() && question.len() <= 500 {
+                        choices.push(AiClarifyChoice {
+                            label: label.to_string(),
+                            question: question.to_string(),
+                        });
+                    }
+                }
+            }
+            Ok(MyViewRouteDecision::Clarify(AiClarify {
+                question: q,
+                choices,
+            }))
+        }
         _ => Err("router_unknown_tool".to_string()),
     }
 }
@@ -272,6 +419,7 @@ Question: {q}\n"
         Ok(answer) => HttpResponse::Ok().json(AiAskResponse {
             answer,
             warnings: vec!["Public data only (approved contests).".to_string()],
+            clarify: None,
         }),
         Err(e) => HttpResponse::BadGateway().json(serde_json::json!({
             "error":"llm_unavailable",
@@ -311,24 +459,41 @@ pub async fn ask_my_view_handler(
         return HttpResponse::Unauthorized().json(serde_json::json!({"error":"user_not_found"}));
     };
     let _viewer_handle = viewer.handle.clone();
-    let viewer_key = viewer.id.trim_start_matches("player/").to_string();
+    let viewer_key = viewer
+        .id
+        .trim_start_matches("player/")
+        .trim_start_matches("player:")
+        .to_string();
     let analytics_repo = AnalyticsRepository::new(db.get_ref().clone(), db_cfg.get_ref().clone());
 
     let warnings = vec!["My view: uses your account permissions. Handles only.".to_string()];
-    let tool = match route_my_view_tool_llm(q_raw).await {
-        Ok(t) => t,
-        Err(hint) => {
+    let decision = match route_my_view_tool_llm(q_raw).await {
+        Ok(d) => d,
+        Err(e) => {
             return HttpResponse::Ok().json(AiAskResponse {
                 answer: format!(
                     "I can help, but I need a quick clarification.\n\n{}",
-                    hint.trim()
+                    e.trim()
                 ),
                 warnings,
+                clarify: None,
             });
         }
     };
 
-    match tool {
+    match decision {
+        MyViewRouteDecision::Clarify(clarify) => {
+            return HttpResponse::Ok().json(AiAskResponse {
+                answer: clarify.question.clone(),
+                warnings,
+                clarify: Some(clarify),
+            });
+        }
+        MyViewRouteDecision::Tool(tool) => {
+            let mut warnings = warnings;
+            warnings.push(format!("routed_tool={:?}", tool));
+
+            match tool {
         MyViewTool::HeadToHeadBeatMe {
             opponent_handle_lc,
             months,
@@ -358,6 +523,7 @@ pub async fn ask_my_view_handler(
                     opponent_handle_lc, beats, months
                 ),
                 warnings,
+                clarify: None,
             })
         }
         MyViewTool::PlayerWinsLastMonths {
@@ -385,6 +551,7 @@ pub async fn ask_my_view_handler(
                     player_handle_lc, wins, months
                 ),
                 warnings,
+                clarify: None,
             })
         }
         MyViewTool::PopularGamesLastMonths { months } => {
@@ -396,6 +563,7 @@ pub async fn ask_my_view_handler(
                 Ok(rows) if rows.is_empty() => HttpResponse::Ok().json(AiAskResponse {
                     answer: format!("No games found in the last {} month(s).", months),
                     warnings,
+                    clarify: None,
                 }),
                 Ok(rows) => {
                     let summary = rows
@@ -409,6 +577,7 @@ pub async fn ask_my_view_handler(
                             months, summary
                         ),
                         warnings,
+                        clarify: None,
                     })
                 }
                 Err(e) => HttpResponse::InternalServerError()
@@ -456,6 +625,7 @@ pub async fn ask_my_view_handler(
                     verdict, my_rating, opponent_handle, their_rating
                 ),
                 warnings,
+                clarify: None,
             })
         }
         MyViewTool::CountHigherRatedThanMe => {
@@ -483,6 +653,7 @@ pub async fn ask_my_view_handler(
                     better, my_rating
                 ),
                 warnings,
+                clarify: None,
             })
         }
         MyViewTool::GameCities { game_query } => {
@@ -507,11 +678,13 @@ pub async fn ask_my_view_handler(
                         resolved_name
                     ),
                     warnings,
+                    clarify: None,
                 });
             }
             HttpResponse::Ok().json(AiAskResponse {
                 answer: format!("{} has been played in: {}.", resolved_name, list.join(", ")),
                 warnings,
+                clarify: None,
             })
         }
         MyViewTool::MostPopularGameInCity { city } => {
@@ -534,7 +707,10 @@ pub async fn ask_my_view_handler(
                     city, top_name, top_count
                 ),
                 warnings,
+                clarify: None,
             })
+        }
+            }
         }
     }
 }

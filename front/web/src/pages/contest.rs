@@ -471,11 +471,21 @@ pub fn contest() -> Html {
     let on_confirmation_confirm = {
         let navigator = navigator.clone();
         let contest_data = contest_data.clone();
+        let reducer = reducer.clone();
         let is_submitting = is_submitting.clone();
         let error_message = error_message.clone();
         let dispatch = reducer.dispatcher();
         Callback::from(move |_| {
-            if let Some(contest) = (*contest_data).clone() {
+            if let Some(mut contest) = (*contest_data).clone() {
+                // Use latest form state (scores/outcomes may change after opening review).
+                let state = (*reducer).clone();
+                contest.start = state.start;
+                contest.stop = state.stop;
+                contest.games = state.games.clone();
+                contest.outcomes = state.outcomes.clone();
+                if let Some(venue) = state.venue.clone() {
+                    contest.venue = venue;
+                }
                 is_submitting.set(true);
                 error_message.set(None);
                 let navigator = navigator.clone();
@@ -549,7 +559,7 @@ pub fn contest() -> Html {
                                 on_games_change={on_games_change.clone()}
                                 on_outcomes_change={on_outcomes_change.clone()}
                                 on_submit={on_contest_submit.clone()}
-                                locked={false}
+                                locked={*show_confirmation}
                             />
                             <ContestConfirmationModal
                                 contest={(*contest_data).clone()}
