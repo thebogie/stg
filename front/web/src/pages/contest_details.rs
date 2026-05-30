@@ -20,6 +20,29 @@ fn format_date(date_str: &str, timezone_name: &str) -> String {
     }
 }
 
+/// Legacy imports use `points`; API normally sends coalesced `score`.
+fn outcome_score_from_json(o: &Value) -> String {
+    if let Some(s) = o.get("score").and_then(|v| v.as_str()) {
+        let t = s.trim();
+        if !t.is_empty() {
+            return t.to_string();
+        }
+    }
+    if let Some(n) = o.get("score").and_then(|v| v.as_i64()) {
+        return n.to_string();
+    }
+    if let Some(n) = o.get("score").and_then(|v| v.as_f64()) {
+        return n.to_string();
+    }
+    if let Some(n) = o.get("points").and_then(|v| v.as_i64()) {
+        return n.to_string();
+    }
+    if let Some(n) = o.get("points").and_then(|v| v.as_f64()) {
+        return n.to_string();
+    }
+    String::new()
+}
+
 /// Reads `creator_id` from API JSON (string or Surreal record object).
 fn contest_json_creator_id(contest: &Value) -> String {
     match contest.get("creator_id") {
@@ -424,10 +447,7 @@ pub fn contest_details(props: &ContestDetailsProps) -> Html {
                                                             .as_str()
                                                             .unwrap_or("")
                                                             .to_string(),
-                                                        score: o["score"]
-                                                            .as_str()
-                                                            .unwrap_or("")
-                                                            .to_string(),
+                                                        score: outcome_score_from_json(o),
                                                     })
                                                     .collect()
                                             })

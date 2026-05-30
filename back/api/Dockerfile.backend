@@ -33,11 +33,14 @@ ENV BUILD_DATE=${BUILD_DATE:-unknown}
 RUN cargo build --release --package backend && \
     strip /app/target/release/backend && \
     strip /app/target/release/import_bgg_catalog && \
+    strip /app/target/release/backfill_contest_names && \
     test -f /app/target/release/backend && \
     test -x /app/target/release/backend && \
     test -f /app/target/release/import_bgg_catalog && \
     test -x /app/target/release/import_bgg_catalog && \
-    ls -lh /app/target/release/backend /app/target/release/import_bgg_catalog && \
+    test -f /app/target/release/backfill_contest_names && \
+    test -x /app/target/release/backfill_contest_names && \
+    ls -lh /app/target/release/backend /app/target/release/import_bgg_catalog /app/target/release/backfill_contest_names && \
     echo "✅ Binaries built and stripped successfully"
 
 # Production stage - minimal runtime image
@@ -60,8 +63,9 @@ RUN useradd -m -u 1000 appuser && \
 # Copy stripped binaries and entrypoint from builder context
 COPY --from=builder /app/target/release/backend /usr/local/bin/backend
 COPY --from=builder /app/target/release/import_bgg_catalog /usr/local/bin/import_bgg_catalog
+COPY --from=builder /app/target/release/backfill_contest_names /usr/local/bin/backfill_contest_names
 COPY back/api/docker-entrypoint.sh /docker-entrypoint.sh
-RUN chmod +x /usr/local/bin/backend /usr/local/bin/import_bgg_catalog /docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/backend /usr/local/bin/import_bgg_catalog /usr/local/bin/backfill_contest_names /docker-entrypoint.sh
 
 # Build arguments for environment variables
 ARG RUST_ENV

@@ -12,7 +12,7 @@ use crate::venue::repository::VenueRepositoryImpl;
 use crate::venue::usecase::{VenueUseCase, VenueUseCaseImpl};
 use argon2::{Argon2, PasswordHasher};
 use async_trait::async_trait;
-use shared::dto::contest::{ContestDto, OutcomeDto};
+use shared::dto::contest::{outcome_score_from_json, ContestDto, OutcomeDto};
 use shared::dto::game::GameDto;
 use shared::dto::venue::VenueDto;
 use shared::models::contest::Contest;
@@ -271,37 +271,16 @@ impl ContestRepository for ContestRepositoryImpl {
             );
         }
 
-        // Generate a random name for the contest if one wasn't provided
-        if contest_dto.name.is_empty() {
-            log::info!("📝 Contest name is empty, attempting to generate random name...");
-            log::info!("📝 About to call generate_contest_name()...");
-
-            contest_dto.name = match std::panic::catch_unwind(|| {
-                log::info!("📝 Inside generate_contest_name() function");
-                let result = generate_contest_name();
-                log::info!("📝 generate_contest_name() returned: '{}'", result);
-                result
-            }) {
-                Ok(name) if !name.is_empty() => {
-                    log::info!("✅ Successfully generated contest name: '{}'", name);
-                    name
-                }
-                Ok(empty_name) => {
-                    log::warn!(
-                        "⚠️ generate_contest_name() returned empty string: '{}'",
-                        empty_name
-                    );
-                    let fallback_name = format!("Contest {}", chrono::Utc::now().timestamp());
-                    log::info!("📝 Using fallback name: '{}'", fallback_name);
-                    fallback_name
-                }
-                Err(panic_info) => {
-                    log::error!("💥 generate_contest_name() panicked: {:?}", panic_info);
-                    let fallback_name = format!("Contest {}", chrono::Utc::now().timestamp());
-                    log::info!("📝 Using fallback name after panic: '{}'", fallback_name);
-                    fallback_name
-                }
-            };
+        // Default title: primary game + local date (venue timezone).
+        if contest_dto.name.trim().is_empty() {
+            let game_names: Vec<&str> = contest_dto
+                .games
+                .iter()
+                .map(|g| g.name.as_str())
+                .collect();
+            let tz = contest_dto.venue.timezone.as_str();
+            contest_dto.name = generate_contest_name(&game_names, contest_dto.start, tz);
+            log::info!("📝 Generated contest name: '{}'", contest_dto.name);
         } else {
             log::info!("📝 Using provided contest name: '{}'", contest_dto.name);
         }
@@ -1389,11 +1368,7 @@ impl ContestRepositoryImpl {
                     .and_then(|x| x.as_str())
                     .unwrap_or("")
                     .to_string();
-                let score = o
-                    .get("score")
-                    .and_then(|x| x.as_str())
-                    .unwrap_or("")
-                    .to_string();
+                let score = outcome_score_from_json(o);
                 Some(OutcomeDto {
                     player_id,
                     handle,
@@ -1712,7 +1687,7 @@ impl ContestRepositoryImpl {
         }
 
         // Outcomes: resulted_in has in=contest, out=player
-        let resulted_in_sql = self.query_with_scope("SELECT `out` AS player_id, place, result, score FROM resulted_in WHERE `in` = $record_id ORDER BY place ASC");
+        let resulted_in_sql = self.query_with_scope("SELECT `out` AS player_id, place, result, points, score FROM resulted_in WHERE `in` = $record_id ORDER BY place ASC");
         let out_res = db
             .query(&resulted_in_sql)
             .bind(("record_id", contest_record_id))
@@ -1759,11 +1734,7 @@ impl ContestRepositoryImpl {
                 .and_then(|x| x.as_str())
                 .unwrap_or("")
                 .to_string();
-            let score = row
-                .get("score")
-                .and_then(|x| x.as_str())
-                .unwrap_or("")
-                .to_string();
+            let score = outcome_score_from_json(&row);
             let player_id = format!("player/{}", pkey);
             outcomes.push(OutcomeDto {
                 player_id,

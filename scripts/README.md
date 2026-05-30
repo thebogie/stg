@@ -101,5 +101,6 @@ On the host, from a tree that includes **`deploy/`** (and `config/.env.prod` nex
 | `./scripts/backend-watch.sh` | `cargo watch` for backend (also: `just backend-watch`). |
 | `./scripts/start-front.sh` / `start-tauri.sh` | Frontend dev servers. |
 | `./scripts/import-bgg-catalog.sh`, `arango-to-surreal-import.sh` | Data tooling. |
+| `./scripts/backfill-contest-names.sh` | Dry-run or `--apply` retro rename of contest titles (`{Game} — {Weekday Mon D}`). |
 
 Create env files once: `./config/setup-env.sh dev` and `./config/setup-env.sh prod`.

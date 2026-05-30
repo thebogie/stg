@@ -22,7 +22,11 @@ DEFINE FUNCTION fn::contest_with_edges($key: string) {
 		contest: $contest,
 		venue_id: (SELECT `out` FROM played_at WHERE `in` = $cid LIMIT 1)[0].out,
 		game_ids: (SELECT VALUE `out` FROM played_with WHERE `in` = $cid),
-		outcomes: (SELECT `out` AS player_id, place, result, score FROM resulted_in WHERE `in` = $cid ORDER BY place ASC)
+		outcomes: (SELECT `out` AS player_id, place, result,
+			IF score != NONE AND string::trim(<string>score) != "" THEN <string>score
+			ELSE IF points != NONE THEN <string>points
+			ELSE "" END AS score
+			FROM resulted_in WHERE `in` = $cid ORDER BY place ASC)
 	};
 };
 
@@ -75,7 +79,11 @@ DEFINE FUNCTION fn::player_contests_with_edges($player_key: string, $start_date:
 	RETURN (SELECT id AS contest_id, name, start, stop,
 		(SELECT VALUE `out` FROM played_at WHERE `in` = id LIMIT 1)[0] AS venue_id,
 		(SELECT VALUE `out` FROM played_with WHERE `in` = id LIMIT 1)[0] AS game_id,
-		(SELECT `out` AS player_id, place, result, score FROM resulted_in WHERE `in` = id ORDER BY place ASC) AS outcomes
+		(SELECT `out` AS player_id, place, result,
+			IF score != NONE AND string::trim(<string>score) != "" THEN <string>score
+			ELSE IF points != NONE THEN <string>points
+			ELSE "" END AS score
+			FROM resulted_in WHERE `in` = id ORDER BY place ASC) AS outcomes
 		FROM contest WHERE id INSIDE $cids
 		AND ($start_date == "" OR start >= $start_date)
 		AND ($end_date == "" OR start <= $end_date)

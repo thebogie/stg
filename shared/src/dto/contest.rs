@@ -109,6 +109,38 @@ pub struct OutcomeDto {
     pub handle: String,
 }
 
+/// Resolve display score from a resulted_in row or outcome JSON.
+/// Legacy Arango imports store numeric scores in `points`; newer rows use string `score`.
+pub fn outcome_score_from_json(v: &serde_json::Value) -> String {
+    if let Some(s) = v.get("score").and_then(|x| x.as_str()) {
+        let t = s.trim();
+        if !t.is_empty() {
+            return t.to_string();
+        }
+    }
+    if let Some(s) = json_number_as_score_string(v.get("score")) {
+        return s;
+    }
+    if let Some(s) = json_number_as_score_string(v.get("points")) {
+        return s;
+    }
+    String::new()
+}
+
+fn json_number_as_score_string(v: Option<&serde_json::Value>) -> Option<String> {
+    let v = v?;
+    if let Some(n) = v.as_i64() {
+        return Some(n.to_string());
+    }
+    if let Some(n) = v.as_f64() {
+        if n.fract() == 0.0 {
+            return Some(format!("{}", n as i64));
+        }
+        return Some(n.to_string());
+    }
+    None
+}
+
 impl From<&Contest> for ContestDto {
     fn from(contest: &Contest) -> Self {
         Self {
@@ -444,6 +476,24 @@ mod tests {
         let mut dto = create_test_contest_dto();
         dto.outcomes[0].score = "x".repeat(MAX_OUTCOME_SCORE_LEN + 1);
         assert!(dto.validate().is_err());
+    }
+
+    #[test]
+    fn test_outcome_score_from_json_prefers_score_string() {
+        let v = serde_json::json!({"score": "  87  ", "points": 42});
+        assert_eq!(outcome_score_from_json(&v), "87");
+    }
+
+    #[test]
+    fn test_outcome_score_from_json_falls_back_to_points() {
+        let v = serde_json::json!({"points": 123});
+        assert_eq!(outcome_score_from_json(&v), "123");
+    }
+
+    #[test]
+    fn test_outcome_score_from_json_numeric_score() {
+        let v = serde_json::json!({"score": 55});
+        assert_eq!(outcome_score_from_json(&v), "55");
     }
 
     #[test]

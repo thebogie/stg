@@ -1,3 +1,4 @@
+use shared::contest_name::default_contest_name;
 use shared::dto::contest::ContestDto;
 use yew::prelude::*;
 
@@ -87,6 +88,25 @@ pub fn contest_confirmation(props: &ContestConfirmationProps) -> Html {
         format!("{} ({})", tz_name, format_utc_offset_label(tz_seconds))
     };
 
+    let title_display = {
+        let name = props.contest.name.trim();
+        if name.is_empty() {
+            let game_names: Vec<&str> = props
+                .contest
+                .games
+                .iter()
+                .map(|g| g.name.as_str())
+                .collect();
+            default_contest_name(
+                &game_names,
+                props.contest.start,
+                props.contest.venue.timezone.as_str(),
+            )
+        } else {
+            name.to_string()
+        }
+    };
+
     html! {
         <div class="space-y-3 text-sm">
             if !props.creator_display.is_empty() {
@@ -95,6 +115,11 @@ pub fn contest_confirmation(props: &ContestConfirmationProps) -> Html {
                     <span class="font-medium text-gray-900">{"@"}{props.creator_display.clone()}</span>
                 </div>
             }
+
+            <div class="rounded-md border border-indigo-100 bg-indigo-50/60 px-3 py-2">
+                <h3 class="text-xs font-semibold uppercase tracking-wide text-indigo-600">{"Title"}</h3>
+                <p class="font-medium text-gray-900 leading-snug">{title_display}</p>
+            </div>
 
             <div class="rounded-md border border-gray-100 bg-gray-50 p-3 space-y-2.5">
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2">

@@ -685,7 +685,6 @@ dependencies = [
  "derive_more 0.99.20",
  "dotenv",
  "fake",
- "fastrand",
  "futures",
  "futures-util",
  "insta",
@@ -697,7 +696,6 @@ dependencies = [
  "prometheus",
  "proptest",
  "rand 0.8.6",
- "random_word",
  "redis",
  "regex",
  "reqwest 0.11.27",
@@ -6276,16 +6274,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "513962919efc330f829edb2535844d1b912b0fbe2ca165d613e4e8788bb05a5a"
 dependencies = [
  "rand_core 0.9.5",
-]
-
-[[package]]
-name = "random_word"
-version = "0.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1d0f7171155590e912ab907550240a5764c665388ab0a1e46d783a493e816ff3"
-dependencies = [
- "once_cell",
- "rand 0.8.6",
 ]
 
 [[package]]

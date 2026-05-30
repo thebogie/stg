@@ -28,6 +28,7 @@ pub mod dto {
 pub mod error;
 pub mod timezone;
 pub mod timezone_cache;
+pub mod contest_name;
 
 // Re-export commonly used items
 pub use error::{Result, SharedError};

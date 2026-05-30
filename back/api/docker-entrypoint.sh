@@ -14,4 +14,8 @@ if [ "$#" -ge 1 ] && [ "$1" = "import_bgg_catalog" ]; then
   shift
   exec /usr/local/bin/import_bgg_catalog "$@"
 fi
+if [ "$#" -ge 1 ] && [ "$1" = "backfill_contest_names" ]; then
+  shift
+  exec /usr/local/bin/backfill_contest_names "$@"
+fi
 exec /usr/local/bin/backend "$@"
