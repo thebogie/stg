@@ -102,5 +102,6 @@ On the host, from a tree that includes **`deploy/`** (and `config/.env.prod` nex
 | `./scripts/start-front.sh` / `start-tauri.sh` | Frontend dev servers. |
 | `./scripts/import-bgg-catalog.sh`, `arango-to-surreal-import.sh` | Data tooling. |
 | `./scripts/backfill-contest-names.sh` | Dry-run or `--apply` retro rename of contest titles (`{Game} — {Weekday Mon D}`). |
+| `./scripts/verify-contest-scores.sh` | Check prod-copy Surreal + backend path returns scores (use after `SURREAL_SEED_FORCE=1 ./scripts/start-deps.sh`). |
 
 Create env files once: `./config/setup-env.sh dev` and `./config/setup-env.sh prod`.

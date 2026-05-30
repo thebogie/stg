@@ -1396,7 +1396,7 @@ impl ContestRepositoryImpl {
             "✅ Contest details loaded via fn::contest_with_edges for: {}",
             id_str
         );
-        Some(ContestDto {
+        let mut dto = ContestDto {
             id: id_str,
             name,
             start,
@@ -1411,7 +1411,99 @@ impl ContestRepositoryImpl {
             moderated_at,
             moderated_by,
             moderation_note,
-        })
+        };
+        self.fill_outcome_scores_if_missing(db, key, &mut dto.outcomes)
+            .await;
+        Some(dto)
+    }
+
+    /// Legacy `fn::contest_with_edges` omitted `score`/`points`; reload from edges when needed.
+    async fn fill_outcome_scores_if_missing(
+        &self,
+        db: &crate::db::Db,
+        contest_key: &str,
+        outcomes: &mut Vec<OutcomeDto>,
+    ) {
+        if outcomes
+            .iter()
+            .any(|o| !o.score.trim().is_empty())
+        {
+            return;
+        }
+        let Some(reloaded) = self.load_outcomes_for_contest(db, contest_key).await else {
+            return;
+        };
+        if reloaded.iter().any(|o| !o.score.trim().is_empty()) {
+            log::info!(
+                "Reloaded contest outcomes with scores (legacy fn::contest_with_edges)"
+            );
+            *outcomes = reloaded;
+        }
+    }
+
+    async fn load_outcomes_for_contest(
+        &self,
+        db: &crate::db::Db,
+        contest_key: &str,
+    ) -> Option<Vec<OutcomeDto>> {
+        let idx = self.scope_result_index();
+        let contest_record_id =
+            surrealdb::types::RecordId::new("contest", contest_key);
+        let resulted_in_sql = self.query_with_scope(
+            "SELECT `out` AS player_id, place, result, points, score FROM resulted_in WHERE `in` = $record_id ORDER BY place ASC",
+        );
+        let mut out_res = db
+            .query(&resulted_in_sql)
+            .bind(("record_id", contest_record_id))
+            .await
+            .ok()?;
+        let outcome_rows: Vec<serde_json::Value> = out_res.take(idx).ok()?;
+
+        let mut outcomes = Vec::new();
+        for row in outcome_rows {
+            let player_rid = record_id_from_field(&row, "player_id")?;
+            let pkey = record_id_to_key(&player_rid, "player");
+            let player_record_id = surrealdb::types::RecordId::new("player", pkey.as_str());
+            let player_sel_sql =
+                self.query_with_scope("SELECT * FROM player WHERE id = $record_id");
+            let pres = db
+                .query(&player_sel_sql)
+                .bind(("record_id", player_record_id))
+                .await
+                .ok();
+            let prow: Vec<serde_json::Value> =
+                pres.and_then(|mut r| r.take(idx).ok()).unwrap_or_default();
+            let player = prow.into_iter().next();
+            let handle = player
+                .as_ref()
+                .and_then(|p| p.get("handle").and_then(|x| x.as_str()).map(String::from))
+                .unwrap_or_else(|| pkey.clone());
+            let email = player
+                .as_ref()
+                .and_then(|p| p.get("email").and_then(|x| x.as_str()).map(String::from))
+                .unwrap_or_default();
+            let place = row
+                .get("place")
+                .and_then(|x| x.as_i64())
+                .map(|p| p.to_string())
+                .or_else(|| row.get("place").and_then(|x| x.as_str()).map(String::from))
+                .unwrap_or_default();
+            let result = row
+                .get("result")
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .to_string();
+            let score = outcome_score_from_json(&row);
+            outcomes.push(OutcomeDto {
+                player_id: format!("player/{}", pkey),
+                handle,
+                email,
+                place,
+                result,
+                score,
+            });
+        }
+        Some(outcomes)
     }
 
     async fn find_details_by_id_impl(&self, id: &str, db: &crate::db::Db) -> Option<ContestDto> {
@@ -1687,64 +1779,10 @@ impl ContestRepositoryImpl {
         }
 
         // Outcomes: resulted_in has in=contest, out=player
-        let resulted_in_sql = self.query_with_scope("SELECT `out` AS player_id, place, result, points, score FROM resulted_in WHERE `in` = $record_id ORDER BY place ASC");
-        let out_res = db
-            .query(&resulted_in_sql)
-            .bind(("record_id", contest_record_id))
+        let outcomes = self
+            .load_outcomes_for_contest(db, &key)
             .await
-            .ok();
-        let outcome_rows: Vec<serde_json::Value> = out_res
-            .and_then(|mut r| r.take(idx).ok())
             .unwrap_or_default();
-
-        let mut outcomes = Vec::new();
-        for row in outcome_rows {
-            let player_rid = match row.get("player_id").and_then(|x| x.as_str()) {
-                Some(r) => r.to_string(),
-                None => continue,
-            };
-            let pkey = record_id_to_key(&player_rid, "player");
-            let player_record_id = surrealdb::types::RecordId::new("player", pkey.as_str());
-            let player_sel_sql =
-                self.query_with_scope("SELECT * FROM player WHERE id = $record_id");
-            let pres = db
-                .query(&player_sel_sql)
-                .bind(("record_id", player_record_id))
-                .await
-                .ok();
-            let prow: Vec<serde_json::Value> =
-                pres.and_then(|mut r| r.take(idx).ok()).unwrap_or_default();
-            let player = prow.into_iter().next();
-            let handle = player
-                .as_ref()
-                .and_then(|p| p.get("handle").and_then(|x| x.as_str()).map(String::from))
-                .unwrap_or_else(|| pkey.clone());
-            let email = player
-                .as_ref()
-                .and_then(|p| p.get("email").and_then(|x| x.as_str()).map(String::from))
-                .unwrap_or_default();
-            let place = row
-                .get("place")
-                .and_then(|x| x.as_i64())
-                .map(|p| p.to_string())
-                .or_else(|| row.get("place").and_then(|x| x.as_str()).map(String::from))
-                .unwrap_or_default();
-            let result = row
-                .get("result")
-                .and_then(|x| x.as_str())
-                .unwrap_or("")
-                .to_string();
-            let score = outcome_score_from_json(&row);
-            let player_id = format!("player/{}", pkey);
-            outcomes.push(OutcomeDto {
-                player_id,
-                handle,
-                email,
-                place,
-                result,
-                score,
-            });
-        }
 
         let creator_id = Self::creator_id_from_contest_value(&contest_data);
         let creator_handle = self.fetch_creator_handle(db, &creator_id).await;

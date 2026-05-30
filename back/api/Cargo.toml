@@ -18,6 +18,10 @@ path = "src/bin/import_bgg_catalog.rs"
 name = "backfill_contest_names"
 path = "src/bin/backfill_contest_names.rs"
 
+[[bin]]
+name = "verify_contest_scores"
+path = "src/bin/verify_contest_scores.rs"
+
 [dependencies]
 # Web framework
 actix-web = "4.4"
