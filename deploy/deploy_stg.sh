@@ -171,6 +171,27 @@ run_db_migrations() {
   DEPLOY_ROOT="$DEPLOY_ROOT" ENV_FILE="$ENV_FILE" "$DEPLOY_ROOT/run_surreal_migrations.sh"
 }
 
+# Backend runs as uid 1000; host bind mount must be writable (contest thumbnails under contest-images/).
+ensure_backend_data_writable() {
+  if [ "$(id -u)" -ne 0 ]; then
+    return 0
+  fi
+  if [ ! -f "$ENV_FILE" ]; then
+    return 0
+  fi
+  # shellcheck disable=SC1090
+  set -a
+  # shellcheck source=/dev/null
+  . "$ENV_FILE" 2>/dev/null || true
+  set +a
+  if [ -z "${VOLUME_PATH:-}" ]; then
+    return 0
+  fi
+  mkdir -p "${VOLUME_PATH}/backend_data/contest-images"
+  chown -R 1000:1000 "${VOLUME_PATH}/backend_data"
+  echo "==> ${VOLUME_PATH}/backend_data owned by uid 1000 (contest thumbnails)"
+}
+
 # --- Main ---
 install_unit_if_missing
 stop_service
@@ -178,5 +199,6 @@ pull_images
 compose_down
 start_deps_only
 run_db_migrations
+ensure_backend_data_writable
 start_service
 echo "✅ Deploy finished: backend $BACKEND_IMAGE_FULL, frontend $FRONTEND_IMAGE_FULL"

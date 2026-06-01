@@ -124,8 +124,9 @@ SUMMARY_JSON="$BUILD_DIR/summary.json"
 SUMMARY_TXT="$BUILD_DIR/summary.txt"
 
 # VOLUME_PATH is absolute (see scripts/load-env.sh).
-mkdir -p "$VOLUME_PATH/surrealdb_data" "$VOLUME_PATH/redis_data" "$VOLUME_PATH/backend_data"
+mkdir -p "$VOLUME_PATH/surrealdb_data" "$VOLUME_PATH/redis_data" "$VOLUME_PATH/backend_data/contest-images"
 chmod 777 "$VOLUME_PATH/surrealdb_data" 2>/dev/null || true
+chown -R 1000:1000 "$VOLUME_PATH/backend_data" 2>/dev/null || chmod -R a+rwx "$VOLUME_PATH/backend_data" 2>/dev/null || true
 
 # When not iterating/keeping volumes, also clear bind-mounted data dirs.
 # docker compose `down -v` does not remove bind-mount contents, and stale SurrealDB root users

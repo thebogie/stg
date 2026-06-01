@@ -1299,8 +1299,15 @@ pub fn contests(props: &ContestsProps) -> Html {
                                                         navigator.push(&Route::ContestDetails { contest_id: contest_key.clone() });
                                                     })}
                                                 >
-                                                <td class="px-3 py-4 whitespace-nowrap">
-                                                    <ContestThumbnail image_url={thumb_url} />
+                                                <td
+                                                    class="px-3 py-4 whitespace-nowrap"
+                                                    onclick={Callback::from(|e: web_sys::MouseEvent| e.stop_propagation())}
+                                                >
+                                                    <ContestThumbnail
+                                                        image_url={thumb_url}
+                                                        preview_on_hover={true}
+                                                        expand_on_click={true}
+                                                    />
                                                 </td>
                                                 <td class="px-6 py-4 whitespace-nowrap">
                                                     <div class="text-sm font-medium text-gray-900">{&contest.name}</div>

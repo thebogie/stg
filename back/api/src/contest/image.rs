@@ -24,7 +24,12 @@ pub fn image_dir() -> PathBuf {
 }
 
 pub fn ensure_image_dir() -> std::io::Result<()> {
-    std::fs::create_dir_all(image_dir())
+    std::fs::create_dir_all(image_dir()).map_err(|e| {
+        std::io::Error::new(
+            e.kind(),
+            format!("{}: {}", image_dir().display(), e),
+        )
+    })
 }
 
 pub fn image_path_for_key(contest_key: &str) -> PathBuf {
@@ -72,15 +77,19 @@ pub fn process_image_upload(data: &[u8]) -> Result<Vec<u8>, String> {
 
 pub fn write_image_atomic(contest_key: &str, upload: &[u8]) -> Result<(), String> {
     let webp = process_image_upload(upload)?;
-    ensure_image_dir().map_err(|e| e.to_string())?;
+    ensure_image_dir().map_err(|e| format!("contest image directory: {e}"))?;
     let path = image_path_for_key(contest_key);
     let tmp = path.with_extension(format!("{STORED_EXT}.tmp"));
     {
-        let mut f = std::fs::File::create(&tmp).map_err(|e| e.to_string())?;
-        f.write_all(&webp).map_err(|e| e.to_string())?;
-        f.sync_all().map_err(|e| e.to_string())?;
+        let mut f = std::fs::File::create(&tmp)
+            .map_err(|e| format!("create {}: {e}", tmp.display()))?;
+        f.write_all(&webp)
+            .map_err(|e| format!("write {}: {e}", tmp.display()))?;
+        f.sync_all()
+            .map_err(|e| format!("sync {}: {e}", tmp.display()))?;
     }
-    std::fs::rename(&tmp, &path).map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp, &path)
+        .map_err(|e| format!("rename {} -> {}: {e}", tmp.display(), path.display()))?;
     // Drop legacy PNG from earlier versions.
     let legacy = legacy_png_path(contest_key);
     if legacy.is_file() {

@@ -129,8 +129,10 @@ pub fn contest_thumbnail_editor(props: &ContestThumbnailEditorProps) -> Html {
             } else {
                 <ContestThumbnail
                     image_url={props.image_url.clone()}
-                    class="w-20 h-20 rounded-lg object-cover border-2 border-white/30 shrink-0"
+                    class="w-20 h-20 rounded-lg border-2 border-white/30 shrink-0"
                     placeholder_class="w-20 h-20 rounded-lg bg-white/20 shrink-0 flex items-center justify-center text-2xl"
+                    preview_on_hover={true}
+                    expand_on_click={true}
                 />
             }
             if props.can_edit {
