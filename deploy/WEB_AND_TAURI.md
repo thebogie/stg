@@ -87,15 +87,24 @@ So: **one production site** (backend + web frontend), **one API**, and Tauri (de
 
 ## CI/CD (production pipeline)
 
-The **Production CI/CD** workflow (`.github/workflows/build-and-push.yml`) runs on push to `main` and:
+### Production CI (every push to `main`)
+
+Workflow: **`.github/workflows/build-and-push.yml`** — backend + web only (no Tauri; keeps deploy fast).
 
 | Job | Output | How to use in production |
 |-----|--------|---------------------------|
 | **build-backend** | Image pushed to GHCR | On the server: `./deploy_stg.sh <tag>` (pulls image and restarts stack). Tag = `latest` or the short SHA from the run. |
-| **build-frontend** | Artifact `frontend-dist` | Download from the run, extract to your web server docroot (or use the deploy-frontend-pages job). |
-| **build-tauri** | Artifact `tauri-app` | `.deb` under `_build/target/release/bundle/deb/` (AppImage disabled in CI; use `./scripts/build-tauri.sh prod deb,appimage` locally if needed). |
-| **build-tauri-android** | Artifact `tauri-android-apk` | Universal APK when `front/tauri/src-tauri/gen/android/gradlew` is committed; prod API baked via `STG_API_URL`. |
-| **deploy-frontend-pages** | (optional) | Run manually: Actions → Production CI/CD → Run workflow, check **Deploy web frontend to GitHub Pages**. Requires GitHub Pages enabled in repo settings (Settings → Pages → Source: GitHub Actions). |
+| **build-frontend** / **build-frontend-image** | Artifact `frontend-dist` + GHCR frontend image | `deploy_stg.sh` pulls frontend image; or download artifact for static hosting. |
+| **deploy-frontend-pages** | (optional) | Run manually on Production CI/CD: check **Deploy web frontend to GitHub Pages**. |
+
+### Tauri CI (on demand, ~20+ min)
+
+Workflow: **`.github/workflows/build-tauri.yml`** — **Actions → Build Tauri apps → Run workflow**. Choose branch, desktop and/or Android. Not run on push.
+
+| Job | Output |
+|-----|--------|
+| **build-tauri-desktop** | Artifact `tauri-app` (`.deb` under `_build/target/release/bundle/deb/`) |
+| **build-tauri-android** | Artifact `tauri-android-apk` (if `gen/android/gradlew` is in the repo) |
 
 ### Deploying backend on the server
 

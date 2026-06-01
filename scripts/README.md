@@ -69,7 +69,13 @@ Build + unit + same Docker stack prep as integration + **`testing` `api_tests`**
 # same as: ./ci-local.sh smoke prod
 ```
 
-### 4) **Production server**: install images built in GitHub Actions
+### 4) **Tauri** desktop / Android (optional, not on every push)
+
+GitHub: **Actions → Build Tauri apps → Run workflow** (~20+ min). Or locally: `./scripts/build-tauri.sh`, `./scripts/build-tauri-android.sh`.
+
+Every push to `main` only runs **Production CI/CD** (backend + web images).
+
+### 5) **Production server**: install images built in GitHub Actions
 
 On the host, from a tree that includes **`deploy/`** (and `config/.env.prod` next to it as laid out in `deploy/README.md`):
 

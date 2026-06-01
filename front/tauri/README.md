@@ -95,4 +95,4 @@ Install [Tauri mobile deps](https://v2.tauri.app/start/mobile/), then from `fron
 
 **Phone not on same machine as PC:** build APK with `./scripts/build-tauri-android.sh`, copy to Google Drive, install on device.
 
-**CI:** Production workflow builds `.deb` always; Android APK when `gen/android/gradlew` is in the repo (artifact `tauri-android-apk`).
+**CI:** **Build Tauri apps** workflow (manual only) — not part of every push. Actions → **Build Tauri apps** → Run workflow.
