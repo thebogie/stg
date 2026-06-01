@@ -495,6 +495,7 @@ pub fn contest() -> Html {
                     moderation_note: None,
                     has_image: false,
                     image_url: None,
+                    image_detail_url: None,
                 };
 
                 log!(format!(

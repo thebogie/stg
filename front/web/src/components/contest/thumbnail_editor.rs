@@ -11,8 +11,10 @@ use yew::prelude::*;
 pub struct ContestThumbnailEditorProps {
     pub contest_id: String,
     pub image_url: Option<String>,
+    #[prop_or_default]
+    pub image_detail_url: Option<String>,
     pub can_edit: bool,
-    pub on_image_url_change: Callback<Option<String>>,
+    pub on_image_url_change: Callback<(Option<String>, Option<String>)>,
 }
 
 #[function_component(ContestThumbnailEditor)]
@@ -61,7 +63,7 @@ pub fn contest_thumbnail_editor(props: &ContestThumbnailEditorProps) -> Html {
 
                         match upload_contest_image(&contest_id, bytes, &mime).await {
                             Ok(dto) => {
-                                on_image_url_change.emit(dto.image_url);
+                                on_image_url_change.emit((dto.image_url, dto.image_detail_url));
                                 if let Some(prev) = (*preview_url).clone() {
                                     let _ = Url::revoke_object_url(&prev);
                                 }
@@ -107,7 +109,7 @@ pub fn contest_thumbnail_editor(props: &ContestThumbnailEditorProps) -> Html {
                 preview_url.set(None);
 
                 match delete_contest_image(&contest_id).await {
-                    Ok(()) => on_image_url_change.emit(None),
+                    Ok(()) => on_image_url_change.emit((None, None)),
                     Err(e) => error.set(Some(e)),
                 }
                 uploading.set(false);
@@ -129,6 +131,7 @@ pub fn contest_thumbnail_editor(props: &ContestThumbnailEditorProps) -> Html {
             } else {
                 <ContestThumbnail
                     image_url={props.image_url.clone()}
+                    image_detail_url={props.image_detail_url.clone()}
                     class="w-20 h-20 rounded-lg border-2 border-white/30 shrink-0"
                     placeholder_class="w-20 h-20 rounded-lg bg-white/20 shrink-0 flex items-center justify-center text-2xl"
                     preview_on_hover={true}

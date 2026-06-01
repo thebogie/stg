@@ -1,7 +1,7 @@
 //! Authenticated contest thumbnail (GET requires Bearer token; served as WebP).
 //!
-//! Defaults to `object-contain` so group photos are not center-cropped. Optional hover
-//! preview (desktop) and click lightbox for a larger view (same file; server stores ~160px edge).
+//! List UI uses the thumb URL (~160px). Hover preview and lightbox fetch the detail URL (~512px)
+//! when available (lazy). Defaults to `object-contain` for group photos.
 
 use crate::api::api_url;
 use crate::api::utils::authenticated_get;
@@ -33,9 +33,7 @@ async fn fetch_image_object_url(image_path: &str) -> Result<String, String> {
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum ThumbnailFit {
-    /// Show entire image; may letterbox (best for group shots).
     Contain,
-    /// Fill the box; may crop edges.
     Cover,
 }
 
@@ -51,16 +49,17 @@ impl ThumbnailFit {
 #[derive(Properties, PartialEq)]
 pub struct ContestThumbnailProps {
     pub image_url: Option<String>,
+    /// Larger variant for hover/lightbox; falls back to `image_url` if unset.
+    #[prop_or_default]
+    pub image_detail_url: Option<String>,
     #[prop_or("w-10 h-10 rounded shrink-0 bg-gray-100".into())]
     pub class: AttrValue,
     #[prop_or("w-10 h-10 rounded bg-gray-200 shrink-0 flex items-center justify-center text-gray-400".into())]
     pub placeholder_class: AttrValue,
     #[prop_or(ThumbnailFit::Contain)]
     pub fit: ThumbnailFit,
-    /// Larger image on hover (hidden on small screens).
     #[prop_or(true)]
     pub preview_on_hover: bool,
-    /// Full-screen view on click (recommended for mobile).
     #[prop_or(true)]
     pub expand_on_click: bool,
     #[prop_or("Contest photo".into())]
@@ -69,53 +68,83 @@ pub struct ContestThumbnailProps {
 
 #[function_component(ContestThumbnail)]
 pub fn contest_thumbnail(props: &ContestThumbnailProps) -> Html {
-    let blob_url = use_state(|| None::<String>);
+    let thumb_blob = use_state(|| None::<String>);
+    let detail_blob = use_state(|| None::<String>);
     let image_url = props.image_url.clone();
+    let image_detail_url = props
+        .image_detail_url
+        .clone()
+        .or_else(|| props.image_url.clone());
     let hover_preview = use_state(|| false);
     let lightbox_open = use_state(|| false);
 
     {
-        let blob_url = blob_url.clone();
+        let thumb_blob = thumb_blob.clone();
         let image_url = image_url.clone();
         use_effect_with(image_url, move |url_opt| {
-            let blob_url = blob_url.clone();
+            let thumb_blob = thumb_blob.clone();
             let cancelled = std::rc::Rc::new(std::cell::Cell::new(false));
 
             if url_opt.is_none() {
-                if let Some(prev) = (*blob_url).clone() {
+                if let Some(prev) = (*thumb_blob).clone() {
                     let _ = Url::revoke_object_url(&prev);
                 }
-                blob_url.set(None);
+                thumb_blob.set(None);
                 return Box::new(|| {}) as Box<dyn FnOnce()>;
             }
 
             let url = url_opt.clone().unwrap();
             let cancelled_fetch = cancelled.clone();
-            let blob_url_fetch = blob_url.clone();
+            let thumb_blob_fetch = thumb_blob.clone();
             wasm_bindgen_futures::spawn_local(async move {
                 match fetch_image_object_url(&url).await {
                     Ok(object_url) if !cancelled_fetch.get() => {
-                        blob_url_fetch.set(Some(object_url));
+                        thumb_blob_fetch.set(Some(object_url));
                     }
                     _ if !cancelled_fetch.get() => {
-                        blob_url_fetch.set(None);
+                        thumb_blob_fetch.set(None);
                     }
                     _ => {}
                 }
             });
 
             let cancelled_cleanup = cancelled.clone();
-            let blob_url_cleanup = blob_url.clone();
+            let thumb_blob_cleanup = thumb_blob.clone();
             Box::new(move || {
                 cancelled_cleanup.set(true);
-                if let Some(prev) = (*blob_url_cleanup).clone() {
+                if let Some(prev) = (*thumb_blob_cleanup).clone() {
                     let _ = Url::revoke_object_url(&prev);
                 }
             })
         });
     }
 
-    // Close lightbox on Escape
+    let load_detail = {
+        let detail_blob = detail_blob.clone();
+        let image_detail_url = image_detail_url.clone();
+        let thumb_blob = thumb_blob.clone();
+        Callback::from(move |_| {
+            if (*detail_blob).is_some() {
+                return;
+            }
+            let Some(detail_path) = image_detail_url.clone() else {
+                return;
+            };
+            let detail_blob = detail_blob.clone();
+            let thumb_blob = thumb_blob.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                match fetch_image_object_url(&detail_path).await {
+                    Ok(url) => detail_blob.set(Some(url)),
+                    Err(_) => {
+                        if let Some(fallback) = (*thumb_blob).clone() {
+                            detail_blob.set(Some(fallback));
+                        }
+                    }
+                }
+            });
+        })
+    };
+
     {
         let lightbox_open = lightbox_open.clone();
         use_effect_with(*lightbox_open, move |open| {
@@ -140,13 +169,19 @@ pub fn contest_thumbnail(props: &ContestThumbnailProps) -> Html {
         img_class.push_str(" cursor-zoom-in");
     }
 
+    let large_src = (*detail_blob)
+        .clone()
+        .or_else(|| (*thumb_blob).clone());
+
     let on_thumb_click = {
         let expand = props.expand_on_click;
         let lightbox_open = lightbox_open.clone();
-        let blob_url = blob_url.clone();
+        let thumb_blob = thumb_blob.clone();
+        let load_detail = load_detail.clone();
         Callback::from(move |e: MouseEvent| {
-            if expand && (*blob_url).is_some() {
+            if expand && (*thumb_blob).is_some() {
                 e.stop_propagation();
+                load_detail.emit(());
                 lightbox_open.set(true);
             }
         })
@@ -155,9 +190,11 @@ pub fn contest_thumbnail(props: &ContestThumbnailProps) -> Html {
     let on_enter = {
         let preview_on_hover = props.preview_on_hover;
         let hover_preview = hover_preview.clone();
-        let blob_url = blob_url.clone();
+        let thumb_blob = thumb_blob.clone();
+        let load_detail = load_detail.clone();
         Callback::from(move |_: MouseEvent| {
-            if preview_on_hover && (*blob_url).is_some() {
+            if preview_on_hover && (*thumb_blob).is_some() {
+                load_detail.emit(());
                 hover_preview.set(true);
             }
         })
@@ -178,9 +215,8 @@ pub fn contest_thumbnail(props: &ContestThumbnailProps) -> Html {
         })
     };
 
-    let thumb_body = if let Some(src) = (*blob_url).clone() {
-        let preview_src = src.clone();
-        let expand_hint = props.expand_on_click;
+    let thumb_body = if let Some(src) = (*thumb_blob).clone() {
+        let preview_src = large_src.clone().unwrap_or(src.clone());
         html! {
             <div
                 class="relative inline-block"
@@ -201,11 +237,11 @@ pub fn contest_thumbnail(props: &ContestThumbnailProps) -> Html {
                         <img
                             src={preview_src}
                             alt=""
-                            class="max-w-[min(20rem,70vw)] max-h-80 object-contain rounded-lg shadow-xl border border-gray-200 bg-white p-1"
+                            class="max-w-[min(28rem,85vw)] max-h-[min(32rem,85vh)] object-contain rounded-lg shadow-xl border border-gray-200 bg-white p-1"
                         />
                     </div>
                 }
-                if expand_hint {
+                if props.expand_on_click {
                     <span class="sr-only">{"Click for larger view"}</span>
                 }
             </div>
@@ -228,7 +264,7 @@ pub fn contest_thumbnail(props: &ContestThumbnailProps) -> Html {
         <>
             {thumb_body}
             if *lightbox_open {
-                if let Some(src) = (*blob_url).clone() {
+                if let Some(src) = large_src {
                     <div
                         class="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-4"
                         onclick={close_lightbox.clone()}

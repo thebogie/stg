@@ -2,6 +2,7 @@
 
 use crate::contest::image::{
     delete_image_file, enrich_contest_dto, image_file_exists, read_image_file, write_image_atomic,
+    ImageVariant,
 };
 use crate::contest::repository::ContestRepositoryImpl;
 use crate::db::Db;
@@ -139,7 +140,18 @@ pub async fn upload_contest_image_handler(
     HttpResponse::Ok().json(dto)
 }
 
-/// Serve contest thumbnail (WebP, or legacy PNG).
+/// Serve contest detail image (~512px edge WebP) for lightbox/hover; falls back to thumb if missing.
+#[get("/{contest_id}/image/detail")]
+pub async fn get_contest_image_detail_handler(
+    path: web::Path<String>,
+    req: HttpRequest,
+    repo: web::Data<ContestRepositoryImpl>,
+    db: web::Data<Db>,
+) -> impl Responder {
+    serve_contest_image(path, req, repo, db, ImageVariant::Detail).await
+}
+
+/// Serve contest list thumbnail (WebP, or legacy PNG).
 #[get("/{contest_id}/image")]
 pub async fn get_contest_image_handler(
     path: web::Path<String>,
@@ -147,6 +159,16 @@ pub async fn get_contest_image_handler(
     repo: web::Data<ContestRepositoryImpl>,
     db: web::Data<Db>,
 ) -> impl Responder {
+    serve_contest_image(path, req, repo, db, ImageVariant::Thumb).await
+}
+
+async fn serve_contest_image(
+    path: web::Path<String>,
+    req: HttpRequest,
+    repo: web::Data<ContestRepositoryImpl>,
+    db: web::Data<Db>,
+    variant: ImageVariant,
+) -> HttpResponse {
     let param = path.into_inner();
     let contest_key = record_id_to_key(&canonical_id_from_http_path_param("contest", &param), "contest");
     if contest_key.is_empty() {
@@ -171,7 +193,7 @@ pub async fn get_contest_image_handler(
         return HttpResponse::NotFound().json(json!({ "error": "No image for this contest" }));
     }
 
-    let (bytes, mime) = match read_image_file(&contest_key) {
+    let (bytes, mime) = match read_image_file(&contest_key, variant) {
         Some(v) => v,
         None => {
             return HttpResponse::NotFound().json(json!({ "error": "No image for this contest" }))

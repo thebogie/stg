@@ -5,7 +5,8 @@
 use actix_web::{test, web, App};
 use anyhow::Result;
 use backend::contest::image::{
-    image_file_exists, image_path_for_key, sample_png_bytes, CONTEST_IMAGE_UPLOAD_MAX_BYTES,
+    detail_path_for_key, image_file_exists, image_path_for_key, sample_png_bytes,
+    CONTEST_IMAGE_DETAIL_MAX_EDGE, CONTEST_IMAGE_THUMB_MAX_EDGE, CONTEST_IMAGE_UPLOAD_MAX_BYTES,
 };
 use chrono::{DateTime, FixedOffset, Utc};
 use serde_json::json;
@@ -83,6 +84,7 @@ macro_rules! contests_api_scope {
             )
             .app_data($app_data.player_repo.clone())
             .service(backend::contest::controller::create_contest_handler)
+            .service(backend::contest::image_handlers::get_contest_image_detail_handler)
             .service(backend::contest::image_handlers::get_contest_image_handler)
             .service(backend::contest::image_handlers::upload_contest_image_handler)
             .service(backend::contest::image_handlers::delete_contest_image_handler)
@@ -236,9 +238,14 @@ async fn contest_image_upload_get_delete_roundtrip() -> Result<()> {
     let updated: ContestDto = test::read_body_json(put_resp).await;
     assert!(updated.has_image);
     assert!(updated.image_url.as_ref().is_some_and(|u| u.contains("/image")));
+    assert!(updated
+        .image_detail_url
+        .as_ref()
+        .is_some_and(|u| u.contains("/image/detail")));
 
     assert!(image_file_exists(contest_key));
     assert!(image_path_for_key(contest_key).is_file());
+    assert!(detail_path_for_key(contest_key).is_file());
 
     let get_img = test::TestRequest::get()
         .uri(&format!("/api/contests/{}/image", contest_key))
@@ -253,8 +260,26 @@ async fn contest_image_upload_get_delete_roundtrip() -> Result<()> {
             .and_then(|v| v.to_str().ok()),
         Some("image/webp")
     );
-    let body = test::read_body(get_img_resp).await;
-    assert!(is_webp(&body));
+    let thumb_body = test::read_body(get_img_resp).await;
+    assert!(is_webp(&thumb_body));
+
+    let get_detail = test::TestRequest::get()
+        .uri(&format!("/api/contests/{}/image/detail", contest_key))
+        .insert_header(("Authorization", format!("Bearer {}", session_id)))
+        .to_request();
+    let get_detail_resp = test::call_service(&app, get_detail).await;
+    assert!(get_detail_resp.status().is_success());
+    let detail_body = test::read_body(get_detail_resp).await;
+    assert!(is_webp(&detail_body));
+    assert!(detail_body.len() > thumb_body.len());
+    let thumb_decoded = image::load_from_memory(&thumb_body)?;
+    let detail_decoded = image::load_from_memory(&detail_body)?;
+    assert!(thumb_decoded.width().max(thumb_decoded.height()) <= CONTEST_IMAGE_THUMB_MAX_EDGE);
+    assert!(detail_decoded.width().max(detail_decoded.height()) <= CONTEST_IMAGE_DETAIL_MAX_EDGE);
+    assert!(
+        detail_decoded.width().max(detail_decoded.height())
+            >= thumb_decoded.width().max(thumb_decoded.height())
+    );
 
     let get_req = test::TestRequest::get()
         .uri(&format!("/api/contests/{}", contest_key))
@@ -265,6 +290,7 @@ async fn contest_image_upload_get_delete_roundtrip() -> Result<()> {
     let fetched: ContestDto = test::read_body_json(get_resp).await;
     assert!(fetched.has_image);
     assert!(fetched.image_url.is_some());
+    assert!(fetched.image_detail_url.is_some());
 
     let del_img = test::TestRequest::delete()
         .uri(&format!("/api/contests/{}/image", contest_key))

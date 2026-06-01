@@ -112,6 +112,7 @@ struct ContestData {
     moderation_status: String,
     moderation_note: Option<String>,
     image_url: Option<String>,
+    image_detail_url: Option<String>,
 }
 
 fn viewer_is_contest_creator(contest: &ContestData, auth: &AuthContext) -> bool {
@@ -518,6 +519,10 @@ pub fn contest_details(props: &ContestDetailsProps) -> Html {
                                     image_url: contest_data["image_url"]
                                         .as_str()
                                         .map(|s| s.to_string()),
+                                    image_detail_url: contest_data["image_detail_url"]
+                                        .as_str()
+                                        .or_else(|| contest_data["imageDetailUrl"].as_str())
+                                        .map(|s| s.to_string()),
                                 };
 
                                 // Debug: Log the final parsed venue data
@@ -680,13 +685,15 @@ pub fn contest_details(props: &ContestDetailsProps) -> Html {
                                         <ContestThumbnailEditor
                                             contest_id={contest.id.clone()}
                                             image_url={contest.image_url.clone()}
+                                            image_detail_url={contest.image_detail_url.clone()}
                                             can_edit={viewer_can_edit_contest_image(contest, &auth)}
                                             on_image_url_change={{
                                                 let contest_details = contest_details.clone();
-                                                Callback::from(move |url: Option<String>| {
+                                                Callback::from(move |(url, detail_url): (Option<String>, Option<String>)| {
                                                     if let Some(c) = (*contest_details).clone() {
                                                         let mut updated = c;
                                                         updated.image_url = url;
+                                                        updated.image_detail_url = detail_url;
                                                         contest_details.set(Some(updated));
                                                     }
                                                 })

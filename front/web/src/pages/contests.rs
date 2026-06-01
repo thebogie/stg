@@ -1292,6 +1292,7 @@ pub fn contests(props: &ContestsProps) -> Html {
                                             let contest_key = contest_key_from_any(&contest.id);
                                             let navigator = navigator.clone();
                                             let thumb_url = contest.image_url.clone();
+                                            let detail_url = contest.image_detail_url.clone();
                                             html! {
                                                 <tr
                                                     class="hover:bg-gray-50 cursor-pointer"
@@ -1305,6 +1306,7 @@ pub fn contests(props: &ContestsProps) -> Html {
                                                 >
                                                     <ContestThumbnail
                                                         image_url={thumb_url}
+                                                        image_detail_url={detail_url}
                                                         preview_on_hover={true}
                                                         expand_on_click={true}
                                                     />

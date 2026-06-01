@@ -50,6 +50,9 @@ pub struct ContestDto {
     /// Relative API path e.g. `/api/contests/{key}/image` (read-only on create).
     #[serde(default)]
     pub image_url: Option<String>,
+    /// Larger variant for lightbox/hover (`GET` …/image/detail); read-only on create.
+    #[serde(default)]
+    pub image_detail_url: Option<String>,
 }
 
 impl Validate for ContestDto {
@@ -135,11 +138,22 @@ pub fn outcome_score_from_json(v: &serde_json::Value) -> String {
 
 /// Relative API path for a contest thumbnail (`GET` with session cookie / bearer).
 pub fn contest_image_api_path(contest_key: &str) -> String {
-    let key = contest_key
+    let key = normalize_contest_key_for_image_path(contest_key);
+    format!("/api/contests/{}/image", key)
+}
+
+/// Relative API path for the detail/lightbox image (~512px edge).
+pub fn contest_image_detail_api_path(contest_key: &str) -> String {
+    let key = normalize_contest_key_for_image_path(contest_key);
+    format!("/api/contests/{}/image/detail", key)
+}
+
+fn normalize_contest_key_for_image_path(contest_key: &str) -> String {
+    contest_key
         .trim()
         .trim_start_matches("contest/")
-        .trim_start_matches("contest:");
-    format!("/api/contests/{}/image", key)
+        .trim_start_matches("contest:")
+        .to_string()
 }
 
 fn json_number_as_score_string(v: Option<&serde_json::Value>) -> Option<String> {
@@ -202,6 +216,7 @@ impl From<&Contest> for ContestDto {
             moderation_note: contest.moderation_note.clone(),
             has_image: contest.has_image,
             image_url: None,
+            image_detail_url: None,
         }
     }
 }
@@ -298,6 +313,7 @@ mod tests {
             moderation_note: None,
             has_image: false,
             image_url: None,
+            image_detail_url: None,
         }
     }
 
@@ -354,10 +370,15 @@ mod tests {
         let mut dto = create_test_contest_dto();
         dto.has_image = true;
         dto.image_url = Some("/api/contests/abc/image".to_string());
+        dto.image_detail_url = Some("/api/contests/abc/image/detail".to_string());
         let json = serde_json::to_string(&dto).unwrap();
         let back: ContestDto = serde_json::from_str(&json).unwrap();
         assert!(back.has_image);
         assert_eq!(back.image_url.as_deref(), Some("/api/contests/abc/image"));
+        assert_eq!(
+            back.image_detail_url.as_deref(),
+            Some("/api/contests/abc/image/detail")
+        );
     }
 
     #[test]
@@ -369,6 +390,10 @@ mod tests {
         assert_eq!(
             super::contest_image_api_path("abc-123"),
             "/api/contests/abc-123/image"
+        );
+        assert_eq!(
+            super::contest_image_detail_api_path("abc-123"),
+            "/api/contests/abc-123/image/detail"
         );
     }
 

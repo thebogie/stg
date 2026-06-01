@@ -724,6 +724,7 @@ impl ContestRepository for ContestRepositoryImpl {
             moderation_note: created_contest.moderation_note.clone(),
             has_image: false,
             image_url: None,
+            image_detail_url: None,
         };
 
         crate::contest::image::enrich_contest_dto(&mut created_dto);
@@ -1420,6 +1421,7 @@ impl ContestRepositoryImpl {
             moderation_note,
             has_image: crate::contest::image::parse_has_image_from_json(&contest_data),
             image_url: None,
+            image_detail_url: None,
         };
         self.fill_outcome_scores_if_missing(db, key, &mut dto.outcomes)
             .await;
@@ -1822,6 +1824,7 @@ impl ContestRepositoryImpl {
             moderation_note,
             has_image: crate::contest::image::parse_has_image_from_json(&contest_data),
             image_url: None,
+            image_detail_url: None,
         };
         crate::contest::image::enrich_contest_dto(&mut contest_dto);
         log::info!("✅ Successfully created ContestDto for contest: {}", id);

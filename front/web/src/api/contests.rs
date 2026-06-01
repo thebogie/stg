@@ -38,6 +38,8 @@ pub struct ContestSearchItem {
     pub has_image: bool,
     #[serde(default)]
     pub image_url: Option<String>,
+    #[serde(default)]
+    pub image_detail_url: Option<String>,
 }
 
 /// Max raw upload before server resize (must match backend `CONTEST_IMAGE_UPLOAD_MAX_BYTES`).

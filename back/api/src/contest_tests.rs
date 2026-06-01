@@ -34,6 +34,7 @@ mod contest_tests {
             moderation_note: None,
             has_image: false,
             image_url: None,
+            image_detail_url: None,
         };
 
         assert_eq!(contest_dto.name, "Test Contest");
@@ -141,6 +142,7 @@ mod contest_integration_like_tests {
             moderation_note: None,
             has_image: false,
             image_url: None,
+            image_detail_url: None,
         };
         assert!(contest_dto.stop > contest_dto.start);
         assert_eq!(contest_dto.venue.timezone, "Europe/Paris");
