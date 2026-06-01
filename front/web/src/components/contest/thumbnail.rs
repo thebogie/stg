@@ -6,8 +6,10 @@
 use crate::api::api_url;
 use crate::api::utils::authenticated_get;
 use gloo::events::EventListener;
+use gloo::utils::document;
 use wasm_bindgen::JsCast;
 use web_sys::{MouseEvent, Url};
+use yew::html::create_portal;
 use yew::prelude::*;
 
 async fn fetch_image_object_url(image_path: &str) -> Result<String, String> {
@@ -260,33 +262,43 @@ pub fn contest_thumbnail(props: &ContestThumbnailProps) -> Html {
         }
     };
 
+    let lightbox = if *lightbox_open {
+        large_src.map(|src| {
+            html! {
+                <div
+                    class="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 p-4"
+                    onclick={close_lightbox.clone()}
+                    role="dialog"
+                    aria-modal="true"
+                    aria-label="Contest photo"
+                >
+                    <button
+                        type="button"
+                        class="absolute top-4 right-4 text-white/90 hover:text-white text-3xl leading-none px-2"
+                        onclick={close_lightbox.clone()}
+                        aria-label="Close"
+                    >
+                        {"×"}
+                    </button>
+                    <img
+                        src={src}
+                        alt={props.alt.clone()}
+                        class="max-w-full max-h-[85vh] object-contain rounded-lg shadow-2xl"
+                        onclick={Callback::from(|e: MouseEvent| e.stop_propagation())}
+                    />
+                </div>
+            }
+        })
+    } else {
+        None
+    };
+
     html! {
         <>
             {thumb_body}
-            if *lightbox_open {
-                if let Some(src) = large_src {
-                    <div
-                        class="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-4"
-                        onclick={close_lightbox.clone()}
-                        role="dialog"
-                        aria-modal="true"
-                        aria-label="Contest photo"
-                    >
-                        <button
-                            type="button"
-                            class="absolute top-4 right-4 text-white/90 hover:text-white text-3xl leading-none px-2"
-                            onclick={close_lightbox.clone()}
-                            aria-label="Close"
-                        >
-                            {"×"}
-                        </button>
-                        <img
-                            src={src}
-                            alt={props.alt.clone()}
-                            class="max-w-full max-h-[85vh] object-contain rounded-lg shadow-2xl"
-                            onclick={Callback::from(|e: MouseEvent| e.stop_propagation())}
-                        />
-                    </div>
+            if let Some(lightbox) = lightbox {
+                if let Some(body) = document().body() {
+                    {create_portal(lightbox, body.into())}
                 }
             }
         </>
