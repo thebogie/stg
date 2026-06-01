@@ -7,6 +7,8 @@ pub struct ContestConfirmationModalProps {
     pub contest: Option<ContestDto>,
     /// Logged-in player handle (or empty) shown as contest creator before submit.
     pub creator_display: String,
+    #[prop_or_default]
+    pub image_preview_url: Option<String>,
     pub is_open: bool,
     pub on_confirm: Callback<()>,
     pub on_cancel: Callback<()>,
@@ -73,6 +75,7 @@ pub fn contest_confirmation_modal(props: &ContestConfirmationModalProps) -> Html
                     <ContestConfirmation
                         contest={contest}
                         creator_display={props.creator_display.clone()}
+                        image_preview_url={props.image_preview_url.clone()}
                     />
                 </div>
 

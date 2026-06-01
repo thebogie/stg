@@ -51,4 +51,5 @@ pretty_assertions = { workspace = true }
 test-log = { workspace = true }
 # Serialize integration tests so only one opens Surreal WS / hits the stack mutex at a time (avoids freezes).
 serial_test = "3"
+tempfile = "3"
 

@@ -51,6 +51,10 @@ pub struct Contest {
 
     #[serde(default)]
     pub moderation_note: Option<String>,
+
+    /// True when a thumbnail exists on the backend image store (WebP on disk).
+    #[serde(default)]
+    pub has_image: bool,
 }
 
 fn default_moderation_status_approved() -> String {
@@ -81,6 +85,7 @@ impl Contest {
             moderated_at: None,
             moderated_by: String::new(),
             moderation_note: None,
+            has_image: false,
         };
         contest.validate_fields()?;
         Ok(contest)
@@ -120,6 +125,7 @@ mod tests {
             moderated_at: None,
             moderated_by: String::new(),
             moderation_note: None,
+            has_image: false,
         }
     }
 
@@ -201,6 +207,7 @@ mod tests {
             moderated_at: None,
             moderated_by: String::new(),
             moderation_note: None,
+            has_image: false,
         };
         assert!(contest.validate().is_ok());
     }

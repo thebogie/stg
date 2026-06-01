@@ -50,8 +50,17 @@ export function e2eAdminCreds(): E2ECreds | null {
   return { email, password };
 }
 
-function appBaseUrl() {
+export function appBaseUrl() {
   return process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:50003';
+}
+
+/** Direct backend for APIRequestContext calls (prod gate sets E2E_BACKEND_URL). */
+export function e2eApiBase() {
+  return process.env.E2E_BACKEND_URL || appBaseUrl();
+}
+
+export function bearerAuth(session_id: string) {
+  return { Authorization: `Bearer ${session_id}` };
 }
 
 /** POST /api/players/login (Caddy proxy first, then direct backend). */
@@ -100,8 +109,14 @@ export async function verifySession(
  * Authenticate like the SPA after login: API session + gloo_storage keys before first paint.
  */
 export async function applyApiSession(page: Page, creds: E2ECreds): Promise<LoginSession> {
+  // NOTE: In some Playwright versions (incl. our pre-baked Docker image), `json:` does not set
+  // the expected `Content-Type: application/json` for Actix `web::Json`, leading to
+  // "Invalid JSON: Content type error". Use explicit headers + JSON string body.
   const session = await postLogin(creds, (url) =>
-    page.request.post(url, { data: { email: creds.email, password: creds.password } }),
+    page.request.post(url, {
+      headers: { 'Content-Type': 'application/json' },
+      data: JSON.stringify({ email: creds.email, password: creds.password }),
+    }),
   );
   await verifySession(page.request, session.session_id);
 

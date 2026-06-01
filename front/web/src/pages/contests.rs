@@ -1,4 +1,5 @@
 use crate::api::contests::{contest_key_from_any, search_contests, ContestSearchResponse};
+use crate::components::contest::thumbnail::ContestThumbnail;
 use crate::api::ai::{ai_ask, ai_ask_my_view, AiClarify};
 use crate::api::games::{get_all_games, search_games};
 use crate::api::players::search_players;
@@ -1236,6 +1237,7 @@ pub fn contests(props: &ContestsProps) -> Html {
                                 <table class="min-w-full divide-y divide-gray-200">
                                     <thead class="bg-gray-50">
                                         <tr>
+                                            <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-14">{" "}</th>
                                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                                                 <button
                                                     onclick={on_sort_change.reform({
@@ -1289,6 +1291,7 @@ pub fn contests(props: &ContestsProps) -> Html {
                                         {for results.items.iter().map(|contest| {
                                             let contest_key = contest_key_from_any(&contest.id);
                                             let navigator = navigator.clone();
+                                            let thumb_url = contest.image_url.clone();
                                             html! {
                                                 <tr
                                                     class="hover:bg-gray-50 cursor-pointer"
@@ -1296,6 +1299,9 @@ pub fn contests(props: &ContestsProps) -> Html {
                                                         navigator.push(&Route::ContestDetails { contest_id: contest_key.clone() });
                                                     })}
                                                 >
+                                                <td class="px-3 py-4 whitespace-nowrap">
+                                                    <ContestThumbnail image_url={thumb_url} />
+                                                </td>
                                                 <td class="px-6 py-4 whitespace-nowrap">
                                                     <div class="text-sm font-medium text-gray-900">{&contest.name}</div>
                                                 </td>

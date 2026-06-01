@@ -1,4 +1,5 @@
 use crate::api::contests::{contest_key_from_any, delete_contest};
+use crate::components::contest::thumbnail::ContestThumbnail;
 use crate::api::ai::{ai_smacktalk, AiSmacktalkRequest};
 use crate::api::utils::authenticated_get;
 use crate::auth::AuthContext;
@@ -110,6 +111,7 @@ struct ContestData {
     /// `pending` | `approved` | `rejected` (empty treated like legacy approved).
     moderation_status: String,
     moderation_note: Option<String>,
+    image_url: Option<String>,
 }
 
 fn viewer_is_contest_creator(contest: &ContestData, auth: &AuthContext) -> bool {
@@ -508,6 +510,9 @@ pub fn contest_details(props: &ContestDetailsProps) -> Html {
                                         .as_str()
                                         .filter(|s| !s.is_empty())
                                         .map(|s| s.to_string()),
+                                    image_url: contest_data["image_url"]
+                                        .as_str()
+                                        .map(|s| s.to_string()),
                                 };
 
                                 // Debug: Log the final parsed venue data
@@ -665,8 +670,14 @@ pub fn contest_details(props: &ContestDetailsProps) -> Html {
                         <div class="relative overflow-hidden rounded-lg bg-gradient-to-br from-blue-500 via-purple-500 to-indigo-600 p-4 text-white shadow-lg">
                             <div class="absolute inset-0 bg-black opacity-5"></div>
                             <div class="relative z-10">
-                                <div class="flex justify-between items-start mb-3">
-                                    <div class="flex-1">
+                                <div class="flex justify-between items-start mb-3 gap-4">
+                                    <div class="flex flex-1 items-start gap-4 min-w-0">
+                                        <ContestThumbnail
+                                            image_url={contest.image_url.clone()}
+                                            class="w-20 h-20 rounded-lg object-cover border-2 border-white/30 shrink-0"
+                                            placeholder_class="w-20 h-20 rounded-lg bg-white/20 shrink-0 flex items-center justify-center text-2xl"
+                                        />
+                                        <div class="flex-1 min-w-0">
                                         <h2 class="text-2xl font-bold mb-2 drop-shadow-lg">{&contest.name}</h2>
                                         <div class="flex items-center space-x-4 text-blue-100 text-sm">
                                             <div class="flex items-center space-x-1">
@@ -687,6 +698,7 @@ pub fn contest_details(props: &ContestDetailsProps) -> Html {
                                                 {contest.creator_summary_line()}
                                             </p>
                                         }
+                                        </div>
                                     </div>
                                     if let Some(stats) = &contest.stats {
                                         <div class="text-right bg-white bg-opacity-20 rounded-md p-2 backdrop-blur-sm">

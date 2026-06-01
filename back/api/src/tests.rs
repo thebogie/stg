@@ -155,6 +155,7 @@ mod tests {
             moderated_at: None,
             moderated_by: String::new(),
             moderation_note: None,
+            has_image: false,
         };
 
         assert_eq!(contest.name, "Test Contest");

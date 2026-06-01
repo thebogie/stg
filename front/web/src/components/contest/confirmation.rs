@@ -14,6 +14,8 @@ extern "C" {
 pub struct ContestConfirmationProps {
     pub contest: ContestDto,
     pub creator_display: String,
+    #[prop_or_default]
+    pub image_preview_url: Option<String>,
 }
 
 impl PartialEq for ContestConfirmationProps {
@@ -118,7 +120,12 @@ pub fn contest_confirmation(props: &ContestConfirmationProps) -> Html {
 
             <div class="rounded-md border border-indigo-100 bg-indigo-50/60 px-3 py-2">
                 <h3 class="text-xs font-semibold uppercase tracking-wide text-indigo-600">{"Title"}</h3>
-                <p class="font-medium text-gray-900 leading-snug">{title_display}</p>
+                <div class="flex items-start gap-3 mt-1">
+                    if let Some(preview) = props.image_preview_url.clone() {
+                        <img src={preview} alt="Thumbnail preview" class="w-14 h-14 rounded object-cover border border-indigo-200 shrink-0" />
+                    }
+                    <p class="font-medium text-gray-900 leading-snug">{title_display}</p>
+                </div>
             </div>
 
             <div class="rounded-md border border-gray-100 bg-gray-50 p-3 space-y-2.5">

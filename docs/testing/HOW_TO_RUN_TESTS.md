@@ -47,6 +47,8 @@ Then either run integration as part of full CI (`./ci-local.sh integration`) or 
 cargo test -p testing
 ```
 
+Contest thumbnail coverage: `cargo test -p backend --lib contest::image` (unit) and `cargo test -p testing contest_image` (integration; stack required).
+
 (If your Justfile has `just test-integration` calling a script that exists, you can use that; otherwise use `./ci-local.sh integration` after starting the stack.)
 
 ## Frontend E2E (Playwright)
@@ -56,6 +58,8 @@ Playwright E2E tests are run by `./ci-local.sh e2e` as a smoke step. To run the 
 ```bash
 npx playwright test
 ```
+
+Contest image API E2E: `npx playwright test testing/e2e/contest_image.spec.ts` (needs `E2E_USER_EMAIL` / `E2E_USER_PASSWORD` from global setup).
 
 You may need to start the stack first (`./scripts/start-back.sh`, `./scripts/start-front.sh`) or use Playwright config that starts services. Check `playwright.config.ts` and the Justfile for any `test-frontend-e2e` / image-build steps; some of those scripts may not exist in this repo—use `./ci-local.sh all` for a single command that runs everything that is wired up.
 

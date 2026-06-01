@@ -34,7 +34,14 @@ pub struct ContestSearchItem {
     pub venue: Option<serde_json::Value>,
     pub games: Vec<serde_json::Value>,
     pub outcomes: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub has_image: bool,
+    #[serde(default)]
+    pub image_url: Option<String>,
 }
+
+/// Max raw upload before server resize (must match backend `CONTEST_IMAGE_UPLOAD_MAX_BYTES`).
+pub const MAX_CONTEST_IMAGE_UPLOAD_BYTES: usize = 8 * 1024 * 1024;
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct ContestSearchResponse {
@@ -78,6 +85,7 @@ use crate::api::utils::{
 };
 use log::debug;
 use shared::{ContestDto, ErrorResponse};
+use wasm_bindgen::JsCast;
 
 pub async fn submit_contest(contest: ContestDto) -> Result<ContestDto, String> {
     debug!("Submitting contest with ID: {}", contest.id);
@@ -312,4 +320,119 @@ pub async fn reject_contest(id: &str, reason: Option<&str>) -> Result<(), String
         return Err(error.error);
     }
     Ok(())
+}
+
+fn image_mime_allowed(mime: &str) -> bool {
+    matches!(
+        mime,
+        "image/jpeg" | "image/png" | "image/webp" | "image/jpg"
+    )
+}
+
+/// Read a user-selected image (JPEG/PNG/WebP) for upload.
+pub async fn read_contest_image_file(file: web_sys::File) -> Result<(Vec<u8>, String), String> {
+    let mime = file.type_();
+    if !mime.is_empty() && !image_mime_allowed(&mime) {
+        return Err("Use JPEG, PNG, or WebP".to_string());
+    }
+    let size = file.size();
+    if size <= 0.0 {
+        return Err("Empty file".to_string());
+    }
+    if size as usize > MAX_CONTEST_IMAGE_UPLOAD_BYTES {
+        return Err(format!(
+            "Image must be at most {} MB",
+            MAX_CONTEST_IMAGE_UPLOAD_BYTES / (1024 * 1024)
+        ));
+    }
+
+    let reader = web_sys::FileReader::new().map_err(|_| "FileReader unavailable")?;
+    let promise = js_sys::Promise::new(&mut |resolve, reject| {
+        let reject_fail = reject.clone();
+        let reject_read = reject.clone();
+        let success = wasm_bindgen::closure::Closure::once(move |event: web_sys::ProgressEvent| {
+            let target = event.target().unwrap();
+            let reader: web_sys::FileReader = target.dyn_into().unwrap();
+            match reader.result() {
+                Ok(v) => {
+                    let _ = resolve.call1(&wasm_bindgen::JsValue::NULL, &v);
+                }
+                Err(_) => {
+                    let _ = reject.call1(
+                        &wasm_bindgen::JsValue::NULL,
+                        &wasm_bindgen::JsValue::from_str("read failed"),
+                    );
+                }
+            }
+        });
+        let failure = wasm_bindgen::closure::Closure::once(move |_: web_sys::ProgressEvent| {
+            let _ = reject_fail.call1(
+                &wasm_bindgen::JsValue::NULL,
+                &wasm_bindgen::JsValue::from_str("read failed"),
+            );
+        });
+        reader.set_onloadend(Some(success.as_ref().unchecked_ref()));
+        reader.set_onerror(Some(failure.as_ref().unchecked_ref()));
+        success.forget();
+        failure.forget();
+        if reader.read_as_array_buffer(&file).is_err() {
+            let _ = reject_read.call1(
+                &wasm_bindgen::JsValue::NULL,
+                &wasm_bindgen::JsValue::from_str("read failed"),
+            );
+        }
+    });
+
+    let value = wasm_bindgen_futures::JsFuture::from(promise)
+        .await
+        .map_err(|_| "Failed to read file".to_string())?;
+    let buf = js_sys::Uint8Array::new(&value);
+    let bytes = buf.to_vec();
+    let content_type = if image_mime_allowed(&mime) {
+        mime
+    } else {
+        "application/octet-stream".to_string()
+    };
+    Ok((bytes, content_type))
+}
+
+/// Upload or replace contest thumbnail (server stores resized WebP).
+pub async fn upload_contest_image(
+    contest_id: &str,
+    image_bytes: Vec<u8>,
+    content_type: &str,
+) -> Result<ContestDto, String> {
+    if image_bytes.len() > MAX_CONTEST_IMAGE_UPLOAD_BYTES {
+        return Err(format!(
+            "Image must be at most {} MB",
+            MAX_CONTEST_IMAGE_UPLOAD_BYTES / (1024 * 1024)
+        ));
+    }
+    let key = contest_key_from_any(contest_id);
+    let url = format!("{}/{}/image", api_url("/api/contests"), key);
+    let body = js_sys::Uint8Array::from(image_bytes.as_slice());
+    let response = authenticated_put(&url)
+        .header("Content-Type", content_type)
+        .body(body)
+        .map_err(|e| format!("Failed to build upload request: {}", e))?
+        .send()
+        .await
+        .map_err(|e| format!("Failed to upload image: {}", e))?;
+
+    if !response.ok() {
+        let body = response
+            .text()
+            .await
+            .unwrap_or_else(|_| "Unknown error".to_string());
+        let error = serde_json::from_str::<ErrorResponse>(&body)
+            .ok()
+            .map(|err| err.error)
+            .unwrap_or(body);
+        return Err(error);
+    }
+
+    response
+        .json::<ContestDto>()
+        .await
+        .map_err(|e| format!("Failed to parse upload response: {}", e))
 }

@@ -70,14 +70,18 @@ export default defineConfig({
       ? [
           {
             name: 'chromium',
-            testIgnore: ['**/analytics.spec.ts', '**/crud.spec.ts'],
+            testIgnore: ['**/analytics.spec.ts', '**/crud.spec.ts', '**/contest_image.spec.ts'],
             use: { ...devices['Desktop Chrome'] },
           },
           ...(process.env.E2E_USER_EMAIL
             ? [
                 {
                   name: 'chromium-authenticated',
-                  testMatch: ['**/analytics.spec.ts', '**/crud.spec.ts'],
+                  testMatch: [
+                    '**/analytics.spec.ts',
+                    '**/crud.spec.ts',
+                    '**/contest_image.spec.ts',
+                  ],
                   timeout: 90_000,
                   use: {
                     ...devices['Desktop Chrome'],

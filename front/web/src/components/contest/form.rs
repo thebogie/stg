@@ -34,6 +34,10 @@ pub struct ContestFormProps {
     pub on_games_change: Callback<Vec<GameDto>>,
     pub on_outcomes_change: Callback<Vec<OutcomeDto>>,
     pub on_submit: Callback<()>,
+    /// Optional image (bytes + MIME) for upload after contest create.
+    pub on_image_pick: Callback<Option<Result<(Vec<u8>, String), String>>>,
+    pub image_preview_url: Option<String>,
+    pub image_error: Option<String>,
     pub locked: bool,
 }
 
@@ -653,6 +657,66 @@ pub fn contest_form(props: &ContestFormProps) -> Html {
                             )}
                         </p>
                     }
+                </div>
+
+                // Optional thumbnail
+                <div class="bg-white rounded-xl shadow-mobile-soft p-3 sm:p-6 border border-gray-100">
+                    <h3 class="text-base sm:text-xl font-semibold text-gray-900 mb-2 flex items-center gap-2">
+                        <span class="mr-2 text-xl">{"🖼"}</span>
+                        {"Thumbnail (optional)"}
+                    </h3>
+                    <p class="text-sm text-gray-600 mb-3">
+                        {"JPEG, PNG, or WebP (max 8 MB). We resize and optimize for the contest page."}
+                    </p>
+                    if let Some(err) = props.image_error.clone() {
+                        <p class="text-sm text-red-600 mb-2">{err}</p>
+                    }
+                    <div class="flex flex-wrap items-center gap-4">
+                        if let Some(preview) = props.image_preview_url.clone() {
+                            <img src={preview} alt="Thumbnail preview" class="w-16 h-16 rounded object-cover border border-gray-200" />
+                        }
+                        <label class="inline-flex items-center px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50">
+                            {"Choose image"}
+                            <input
+                                type="file"
+                                accept="image/jpeg,image/png,image/webp"
+                                class="hidden"
+                                disabled={props.locked}
+                                onchange={{
+                                    let on_image_pick = props.on_image_pick.clone();
+                                    Callback::from(move |e: Event| {
+                                        let input: web_sys::HtmlInputElement = e.target_unchecked_into();
+                                        let Some(file_list) = input.files() else { return };
+                                        if file_list.length() == 0 {
+                                            on_image_pick.emit(None);
+                                            return;
+                                        }
+                                        let file = file_list.get(0).unwrap();
+                                        let on_image_pick = on_image_pick.clone();
+                                        wasm_bindgen_futures::spawn_local(async move {
+                                            match crate::api::contests::read_contest_image_file(file).await {
+                                                Ok(pair) => on_image_pick.emit(Some(Ok(pair))),
+                                                Err(e) => on_image_pick.emit(Some(Err(e))),
+                                            }
+                                        });
+                                    })
+                                }}
+                            />
+                        </label>
+                        if props.image_preview_url.is_some() {
+                            <button
+                                type="button"
+                                class="text-sm text-gray-600 hover:text-gray-900 underline"
+                                disabled={props.locked}
+                                onclick={{
+                                    let on_image_pick = props.on_image_pick.clone();
+                                    Callback::from(move |_| on_image_pick.emit(None))
+                                }}
+                            >
+                                {"Remove"}
+                            </button>
+                        }
+                    </div>
                 </div>
 
                 // Submit Button

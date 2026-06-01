@@ -2,7 +2,7 @@ use shared::dto::contest::ContestDto;
 use yew::prelude::*;
 use yew_router::prelude::*;
 
-use crate::api::contests::submit_contest;
+use crate::api::contests::{submit_contest, upload_contest_image};
 use crate::api::timezone::{resolve_timezone, resolve_timezone_by_place_id};
 use crate::auth::AuthContext;
 use crate::components::contest::confirmation_modal::ContestConfirmationModal;
@@ -130,6 +130,9 @@ pub fn contest() -> Html {
     let show_confirmation = use_state(|| false);
     let contest_data = use_state(|| None::<ContestDto>);
     let is_submitting = use_state(|| false);
+    let pending_image = use_state(|| None::<(Vec<u8>, String)>);
+    let image_preview_url = use_state(|| None::<String>);
+    let image_error = use_state(|| None::<String>);
     let error_message = use_state(|| None::<String>);
 
     // Reducer for form state — use `use_reducer` (not `use_reducer_eq`): the contest form must
@@ -390,6 +393,51 @@ pub fn contest() -> Html {
         })
     };
 
+    let on_image_pick = {
+        let pending_image = pending_image.clone();
+        let image_preview_url = image_preview_url.clone();
+        let image_error = image_error.clone();
+        Callback::from(move |pick: Option<Result<(Vec<u8>, String), String>>| {
+            if let Some(prev) = (*image_preview_url).clone() {
+                let _ = web_sys::Url::revoke_object_url(&prev);
+            }
+            match pick {
+                None => {
+                    pending_image.set(None);
+                    image_preview_url.set(None);
+                    image_error.set(None);
+                }
+                Some(Ok((bytes, mime))) => {
+                    image_error.set(None);
+                    pending_image.set(Some((bytes.clone(), mime.clone())));
+                    let parts = js_sys::Array::new();
+                    parts.push(&js_sys::Uint8Array::from(bytes.as_slice()).into());
+                    let type_ = mime;
+                    let bag = web_sys::BlobPropertyBag::new();
+                    bag.set_type(&type_);
+                    if let Ok(blob) =
+                        web_sys::Blob::new_with_u8_array_sequence_and_options(&parts, &bag)
+                    {
+                        if let Ok(url) = web_sys::Url::create_object_url_with_blob(&blob) {
+                            image_preview_url.set(Some(url));
+                        }
+                    } else if let Ok(blob) =
+                        web_sys::Blob::new_with_u8_array_sequence(&parts)
+                    {
+                        if let Ok(url) = web_sys::Url::create_object_url_with_blob(&blob) {
+                            image_preview_url.set(Some(url));
+                        }
+                    }
+                }
+                Some(Err(e)) => {
+                    pending_image.set(None);
+                    image_preview_url.set(None);
+                    image_error.set(Some(e));
+                }
+            }
+        })
+    };
+
     let on_contest_submit = {
         let show_confirmation = show_confirmation.clone();
         let contest_data = contest_data.clone();
@@ -445,6 +493,8 @@ pub fn contest() -> Html {
                     moderated_at: None,
                     moderated_by: None,
                     moderation_note: None,
+                    has_image: false,
+                    image_url: None,
                 };
 
                 log!(format!(
@@ -475,6 +525,9 @@ pub fn contest() -> Html {
         let is_submitting = is_submitting.clone();
         let error_message = error_message.clone();
         let dispatch = reducer.dispatcher();
+        let pending_image = pending_image.clone();
+        let image_preview_url = image_preview_url.clone();
+        let image_error = image_error.clone();
         Callback::from(move |_| {
             if let Some(mut contest) = (*contest_data).clone() {
                 // Use latest form state (scores/outcomes may change after opening review).
@@ -492,9 +545,31 @@ pub fn contest() -> Html {
                 let is_submitting = is_submitting.clone();
                 let error_message = error_message.clone();
                 let dispatch = dispatch.clone();
+                let pending_image = pending_image.clone();
+                let image_preview_url = image_preview_url.clone();
+                let image_error = image_error.clone();
                 wasm_bindgen_futures::spawn_local(async move {
+                    let image_upload = (*pending_image).clone();
                     match submit_contest(contest).await {
-                        Ok(_saved_contest) => {
+                        Ok(saved) => {
+                            if let Some((bytes, mime)) = image_upload {
+                                if let Err(e) =
+                                    upload_contest_image(&saved.id, bytes, &mime).await
+                                {
+                                    error_message.set(Some(format!(
+                                        "Contest created, but thumbnail upload failed: {}",
+                                        e
+                                    )));
+                                    is_submitting.set(false);
+                                    return;
+                                }
+                            }
+                            if let Some(prev) = (*image_preview_url).clone() {
+                                let _ = web_sys::Url::revoke_object_url(&prev);
+                            }
+                            pending_image.set(None);
+                            image_preview_url.set(None);
+                            image_error.set(None);
                             is_submitting.set(false);
                             dispatch.dispatch(ContestFormAction::Reset);
                             let _ = LocalStorage::delete("contest_form_state");
@@ -559,10 +634,14 @@ pub fn contest() -> Html {
                                 on_games_change={on_games_change.clone()}
                                 on_outcomes_change={on_outcomes_change.clone()}
                                 on_submit={on_contest_submit.clone()}
+                                on_image_pick={on_image_pick.clone()}
+                                image_preview_url={(*image_preview_url).clone()}
+                                image_error={(*image_error).clone()}
                                 locked={*show_confirmation}
                             />
                             <ContestConfirmationModal
                                 contest={(*contest_data).clone()}
+                                image_preview_url={(*image_preview_url).clone()}
                                 creator_display={auth
                                     .state
                                     .player

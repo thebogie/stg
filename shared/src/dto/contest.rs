@@ -44,6 +44,12 @@ pub struct ContestDto {
     pub moderated_by: Option<String>,
     #[serde(default)]
     pub moderation_note: Option<String>,
+    /// Set by backend when `has_image` is true (ignored on client create).
+    #[serde(default)]
+    pub has_image: bool,
+    /// Relative API path e.g. `/api/contests/{key}/image` (read-only on create).
+    #[serde(default)]
+    pub image_url: Option<String>,
 }
 
 impl Validate for ContestDto {
@@ -127,6 +133,15 @@ pub fn outcome_score_from_json(v: &serde_json::Value) -> String {
     String::new()
 }
 
+/// Relative API path for a contest thumbnail (`GET` with session cookie / bearer).
+pub fn contest_image_api_path(contest_key: &str) -> String {
+    let key = contest_key
+        .trim()
+        .trim_start_matches("contest/")
+        .trim_start_matches("contest:");
+    format!("/api/contests/{}/image", key)
+}
+
 fn json_number_as_score_string(v: Option<&serde_json::Value>) -> Option<String> {
     let v = v?;
     if let Some(n) = v.as_i64() {
@@ -185,6 +200,8 @@ impl From<&Contest> for ContestDto {
                 Some(contest.moderated_by.clone())
             },
             moderation_note: contest.moderation_note.clone(),
+            has_image: contest.has_image,
+            image_url: None,
         }
     }
 }
@@ -210,6 +227,7 @@ impl From<ContestDto> for Contest {
             moderated_at: dto.moderated_at.map(|t| t.into()),
             moderated_by: dto.moderated_by.unwrap_or_default(),
             moderation_note: dto.moderation_note,
+            has_image: dto.has_image,
         }
     }
 }
@@ -278,6 +296,8 @@ mod tests {
             moderated_at: None,
             moderated_by: None,
             moderation_note: None,
+            has_image: false,
+            image_url: None,
         }
     }
 
@@ -327,6 +347,29 @@ mod tests {
         let mut dto = create_test_contest_dto();
         dto.venue.display_name = "".to_string();
         assert!(dto.validate().is_err());
+    }
+
+    #[test]
+    fn test_contest_dto_serializes_has_image_and_image_url() {
+        let mut dto = create_test_contest_dto();
+        dto.has_image = true;
+        dto.image_url = Some("/api/contests/abc/image".to_string());
+        let json = serde_json::to_string(&dto).unwrap();
+        let back: ContestDto = serde_json::from_str(&json).unwrap();
+        assert!(back.has_image);
+        assert_eq!(back.image_url.as_deref(), Some("/api/contests/abc/image"));
+    }
+
+    #[test]
+    fn test_contest_image_api_path_normalizes_id() {
+        assert_eq!(
+            super::contest_image_api_path("contest/abc-123"),
+            "/api/contests/abc-123/image"
+        );
+        assert_eq!(
+            super::contest_image_api_path("abc-123"),
+            "/api/contests/abc-123/image"
+        );
     }
 
     #[test]
@@ -384,6 +427,7 @@ mod tests {
             moderated_at: None,
             moderated_by: String::new(),
             moderation_note: None,
+            has_image: false,
         };
 
         let dto = ContestDto::from(&contest);
@@ -425,6 +469,7 @@ mod tests {
             moderated_at: None,
             moderated_by: String::new(),
             moderation_note: None,
+            has_image: false,
         };
 
         dto.update_contest(&mut contest);
@@ -604,6 +649,7 @@ mod tests {
             moderated_at: None,
             moderated_by: String::new(),
             moderation_note: None,
+            has_image: false,
         };
 
         let dto = ContestDto::from(&contest);
@@ -651,6 +697,7 @@ mod tests {
             moderated_at: None,
             moderated_by: String::new(),
             moderation_note: None,
+            has_image: false,
         };
 
         dto.update_contest(&mut contest);

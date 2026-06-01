@@ -10,6 +10,7 @@ This directory is **self-contained** for production: copy the whole `deploy/` fo
 
 1. Copy `deploy/` to the server (e.g. `/opt/stg/deploy`). Do **not** copy local **`data/`** from a dev machine; production data lives at **`VOLUME_PATH`** on the server (absolute path).
 2. Create env: `cp config/env.prod.template config/.env.prod` and edit `config/.env.prod`: set **`VOLUME_PATH`** to an absolute path **outside** the deploy folder (e.g. `/opt/stg/data`), plus passwords, etc. Compose will create `surrealdb_data`, `redis_data`, `backend_data` under that path.
+   - Optional contest thumbnails (WebP, resized server-side) live under **`${VOLUME_PATH}/backend_data/contest-images/`** (survives image updates; include in backups if you care about thumbnails).
 3. (Optional) Install hourly SurrealDB backup cron: from `deploy/` run `sudo ./setup_cron_backup_for_surreal.sh`.
 
 ### Deploy / update

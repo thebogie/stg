@@ -108,6 +108,10 @@ async fn main() -> std::io::Result<()> {
         }
     };
 
+    if let Err(e) = backend::contest::image::ensure_image_dir() {
+        log::warn!("Could not create contest image directory: {}", e);
+    }
+
     // Initialize Redis cache for repositories
     use backend::cache::{CacheTTL, RedisCache};
     use std::sync::Arc;
@@ -179,13 +183,16 @@ async fn main() -> std::io::Result<()> {
         ),
     );
 
-    // Initialize contest repository (with NS/DB scope so CREATE/INSERT run in the app's namespace/database)
+    // Initialize contest repository (with NS/DB scope so CREATE/INSERT run in the app's namespace/database).
+    // Share the scoped player repo so create_contest can resolve the creator by session email (embedded
+    // PlayerRepositoryImpl::new() would query the wrong NS/DB and return user_not_found).
     let contest_repo = web::Data::new(
-        backend::contest::repository::ContestRepositoryImpl::new_with_scope(
+        backend::contest::repository::ContestRepositoryImpl::new_with_google_config_and_player_repo(
             db.clone(),
             google_config,
-            config.database.ns.clone(),
-            config.database.name.clone(),
+            Some(player_repo_impl.clone()),
+            Some(config.database.ns.clone()),
+            Some(config.database.name.clone()),
         ),
     );
 
@@ -396,10 +403,16 @@ async fn main() -> std::io::Result<()> {
                         redis: std::sync::Arc::new(redis_data.get_ref().clone()),
                     })
                     .app_data(actix_web::web::JsonConfig::default().limit(128 * 1024))
+                    .app_data(web::PayloadConfig::default().limit(
+                        backend::contest::image::CONTEST_IMAGE_UPLOAD_MAX_BYTES,
+                    ))
                     .app_data(player_repo.clone())
                     .service(backend::contest::controller::create_contest_handler)
                     .service(backend::contest::controller::get_player_game_contests_handler)
                     .service(backend::contest::controller::search_contests_handler)
+                    .service(backend::contest::image_handlers::get_contest_image_handler)
+                    .service(backend::contest::image_handlers::upload_contest_image_handler)
+                    .service(backend::contest::image_handlers::delete_contest_image_handler)
                     .service(backend::contest::controller::get_contest_handler)
                     .service(
                         web::scope("")
@@ -420,10 +433,16 @@ async fn main() -> std::io::Result<()> {
                         redis: std::sync::Arc::new(redis_data.get_ref().clone()),
                     })
                     .app_data(actix_web::web::JsonConfig::default().limit(128 * 1024))
+                    .app_data(web::PayloadConfig::default().limit(
+                        backend::contest::image::CONTEST_IMAGE_UPLOAD_MAX_BYTES,
+                    ))
                     .app_data(player_repo.clone())
                     .service(backend::contest::controller::create_contest_handler)
                     .service(backend::contest::controller::get_player_game_contests_handler)
                     .service(backend::contest::controller::search_contests_handler)
+                    .service(backend::contest::image_handlers::get_contest_image_handler)
+                    .service(backend::contest::image_handlers::upload_contest_image_handler)
+                    .service(backend::contest::image_handlers::delete_contest_image_handler)
                     .service(backend::contest::controller::get_contest_handler)
                     .service(
                         web::scope("")

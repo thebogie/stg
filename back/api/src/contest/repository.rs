@@ -302,6 +302,7 @@ impl ContestRepository for ContestRepositoryImpl {
             moderated_at: None,
             moderated_by: String::new(),
             moderation_note: None,
+            has_image: false,
         };
 
         log::info!("📄 Contest model created: id='{}', name='{}', start='{}', stop='{}', creator='{}', created_at='{}'", 
@@ -363,6 +364,7 @@ impl ContestRepository for ContestRepositoryImpl {
             moderated_at: contest.moderated_at,
             moderated_by: contest.moderated_by,
             moderation_note: contest.moderation_note,
+            has_image: false,
         };
 
         log::info!(
@@ -701,7 +703,7 @@ impl ContestRepository for ContestRepositoryImpl {
             .ok()
             .map(|p| p.handle);
 
-        let created_dto = ContestDto {
+        let mut created_dto = ContestDto {
             id: created_contest.id.clone(),
             name: created_contest.name.clone(),
             start: created_contest.start.into(),
@@ -720,9 +722,11 @@ impl ContestRepository for ContestRepositoryImpl {
                 Some(created_contest.moderated_by.clone())
             },
             moderation_note: created_contest.moderation_note.clone(),
+            has_image: false,
+            image_url: None,
         };
 
-        log::info!("✅ Contest creation process completed successfully!");
+        crate::contest::image::enrich_contest_dto(&mut created_dto);
         log::info!("✅ Final contest DTO: id='{}', name='{}', {} games, {} outcomes, creator='{}', created_at='{}'",
             created_dto.id, created_dto.name, created_dto.games.len(), created_dto.outcomes.len(),
             created_dto.creator_id, created_dto.created_at.unwrap_or_else(|| chrono::Utc::now().fixed_offset()));
@@ -787,6 +791,7 @@ impl ContestRepository for ContestRepositoryImpl {
                         moderated_at: moderated_at.map(|t| t.into()),
                         moderated_by: moderated_by.unwrap_or_default(),
                         moderation_note,
+                        has_image: crate::contest::image::parse_has_image_from_json(&v),
                     };
                     log::info!("✅ Found contest via fn::contest_row: {}", contest.name);
                     return Some(contest);
@@ -847,6 +852,7 @@ impl ContestRepository for ContestRepositoryImpl {
             moderated_at: moderated_at.map(|t| t.into()),
             moderated_by: moderated_by.unwrap_or_default(),
             moderation_note,
+            has_image: crate::contest::image::parse_has_image_from_json(&v),
         };
         log::info!("✅ Found contest: {}", contest.name);
         Some(contest)
@@ -868,6 +874,7 @@ impl ContestRepository for ContestRepositoryImpl {
         if key.is_empty() {
             return Err("Contest not found".to_string());
         }
+        crate::contest::image::delete_image_file(&key);
         let contest_rid = surrealdb::types::RecordId::new("contest", key.as_str());
 
         for table in ["played_at", "played_with", "resulted_in"] {
@@ -1411,9 +1418,12 @@ impl ContestRepositoryImpl {
             moderated_at,
             moderated_by,
             moderation_note,
+            has_image: crate::contest::image::parse_has_image_from_json(&contest_data),
+            image_url: None,
         };
         self.fill_outcome_scores_if_missing(db, key, &mut dto.outcomes)
             .await;
+        crate::contest::image::enrich_contest_dto(&mut dto);
         Some(dto)
     }
 
@@ -1515,7 +1525,8 @@ impl ContestRepositoryImpl {
             return None;
         }
         // Optional: use SurrealDB function for one round-trip (contest + edges). Apply application functions to enable.
-        if let Some(dto) = self.find_details_via_function(db, id, &key).await {
+        if let Some(mut dto) = self.find_details_via_function(db, id, &key).await {
+            crate::contest::image::enrich_contest_dto(&mut dto);
             return Some(dto);
         }
         // Prefer fn::contest_row when applied, then string key, then numeric key (legacy import).
@@ -1790,7 +1801,7 @@ impl ContestRepositoryImpl {
         let (moderation_status, moderated_at, moderated_by, moderation_note) =
             Self::moderation_fields_from_contest_value(&contest_data);
 
-        let contest_dto = ContestDto {
+        let mut contest_dto = ContestDto {
             id: id.to_string(),
             name,
             start,
@@ -1809,13 +1820,32 @@ impl ContestRepositoryImpl {
             moderated_at,
             moderated_by,
             moderation_note,
+            has_image: crate::contest::image::parse_has_image_from_json(&contest_data),
+            image_url: None,
         };
+        crate::contest::image::enrich_contest_dto(&mut contest_dto);
         log::info!("✅ Successfully created ContestDto for contest: {}", id);
         Some(contest_dto)
     }
 }
 
 impl ContestRepositoryImpl {
+    pub async fn set_contest_has_image(
+        &self,
+        contest_key: &str,
+        has_image: bool,
+        db: &crate::db::Db,
+    ) -> Result<(), String> {
+        let rid = surrealdb::types::RecordId::new("contest", contest_key);
+        let sql = self.query_with_scope("UPDATE $rid SET has_image = $has_image");
+        db.query(&sql)
+            .bind(("rid", rid))
+            .bind(("has_image", has_image))
+            .await
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
     /// SurrealQL: contest has at least one played_with edge with `in` in game_ids.
     #[allow(dead_code)]
     pub(crate) fn build_game_filter_clause(_game_ids_full: &[String]) -> Option<String> {
@@ -2286,7 +2316,9 @@ impl ContestRepositoryImpl {
                         "stop": dto.stop,
                         "venue": dto.venue,
                         "games": dto.games,
-                        "outcomes": dto.outcomes
+                        "outcomes": dto.outcomes,
+                        "has_image": dto.has_image,
+                        "image_url": dto.image_url
                     }));
                 }
             }

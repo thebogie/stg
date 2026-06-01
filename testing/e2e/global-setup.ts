@@ -26,17 +26,22 @@ export default async function globalSetup(config: FullConfig) {
   for (const url of urls) {
     if (seen.has(url)) continue;
     seen.add(url);
-    const loginRes = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password }),
-    });
-    if (loginRes.ok) {
-      body = (await loginRes.json()) as typeof body;
-      break;
+    try {
+      const loginRes = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+      if (loginRes.ok) {
+        body = (await loginRes.json()) as typeof body;
+        break;
+      }
+      lastStatus = loginRes.status;
+      lastText = await loginRes.text().catch(() => '');
+    } catch (e) {
+      lastStatus = 0;
+      lastText = String(e);
     }
-    lastStatus = loginRes.status;
-    lastText = await loginRes.text().catch(() => '');
   }
 
   if (!body) {

@@ -84,6 +84,8 @@ derive_more = "0.99"
 async-trait = "0.1"
 approx = "0.5"
 regex = "1"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
+webp = "0.3"
 
 # Internal dependencies
 shared = { path = "../../shared", features = ["surrealdb"] }
@@ -94,6 +96,8 @@ utoipa = { version = "4.2", features = ["actix_extras", "chrono"] }
 utoipa-swagger-ui = { version = "6.0", features = ["actix-web"] }
 
 [dev-dependencies]
+tempfile = "3"
+serial_test = "3"
 tokio-test = { workspace = true }
 mockall = { workspace = true }
 test-log = "0.2"

@@ -32,6 +32,8 @@ mod contest_tests {
             moderated_at: None,
             moderated_by: None,
             moderation_note: None,
+            has_image: false,
+            image_url: None,
         };
 
         assert_eq!(contest_dto.name, "Test Contest");
@@ -69,6 +71,7 @@ mod contest_tests {
             moderated_at: None,
             moderated_by: String::new(),
             moderation_note: None,
+            has_image: false,
         };
 
         assert_eq!(contest.name, "Test Contest");
@@ -90,6 +93,7 @@ mod contest_tests {
             moderated_at: None,
             moderated_by: String::new(),
             moderation_note: None,
+            has_image: false,
         };
 
         let json = serde_json::to_string(&contest).unwrap();
@@ -135,6 +139,8 @@ mod contest_integration_like_tests {
             moderated_at: None,
             moderated_by: None,
             moderation_note: None,
+            has_image: false,
+            image_url: None,
         };
         assert!(contest_dto.stop > contest_dto.start);
         assert_eq!(contest_dto.venue.timezone, "Europe/Paris");

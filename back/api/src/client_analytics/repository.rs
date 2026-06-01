@@ -357,6 +357,7 @@ impl ClientAnalyticsRepository for ClientAnalyticsRepositoryImpl {
                                 moderated_at: None,
                                 moderated_by: String::new(),
                                 moderation_note: None,
+                                has_image: false,
                             });
                         }
                     }

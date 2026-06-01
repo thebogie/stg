@@ -9,6 +9,7 @@ pub mod contest {
     pub mod form;
     pub mod game_selector;
     pub mod outcome_selector;
+    pub mod thumbnail;
     pub mod venue_picker;
 }
 pub mod chart_renderer;

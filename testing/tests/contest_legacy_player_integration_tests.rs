@@ -171,6 +171,8 @@ async fn contest_create_succeeds_with_numeric_player_ids() -> Result<()> {
         moderated_at: None,
         moderated_by: None,
         moderation_note: None,
+        has_image: false,
+        image_url: None,
     };
 
     contest_dto.validate()?;

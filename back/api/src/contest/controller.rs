@@ -80,7 +80,12 @@ pub async fn create_contest_handler(
     let creator_id = match email_opt {
         Some(email) => {
             // Look up the player by email to get the actual player ID
-            match repo.player_usecase.repo.find_by_email(&email).await {
+            match repo
+                .player_usecase
+                .repo
+                .find_by_email_for_auth(email.as_str())
+                .await
+            {
                 Some(player) => player.id,
                 None => {
                     log::error!("Authenticated user {} not found in player database", &email);
