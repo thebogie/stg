@@ -34,7 +34,7 @@ pub fn footer() -> Html {
                             <span class="text-2xl sm:text-3xl font-bold tracking-tight mr-2">{"STG"}</span>
                         </div>
                         <p class="text-blue-100 text-sm sm:text-base leading-relaxed max-w-md mx-auto md:mx-0">
-                            {"Professional tournament management made simple. Create, organize, and manage contests with ease."}
+                            {"Professional tournament management made simple. Record contests and manage your history with ease."}
                         </p>
                     </div>
 

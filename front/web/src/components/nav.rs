@@ -48,12 +48,20 @@ pub fn nav() -> Html {
         })
     };
 
-    // Navigate to create contest
-    let do_create_contest = {
+    let do_record_contest = {
         let navigator = navigator.clone();
         let is_palette_open = is_palette_open.clone();
         Callback::from(move |_: ()| {
             navigator.push(&Route::Contest);
+            is_palette_open.set(false);
+        })
+    };
+
+    let do_start_contest = {
+        let navigator = navigator.clone();
+        let is_palette_open = is_palette_open.clone();
+        Callback::from(move |_: ()| {
+            navigator.push(&Route::TrackerStart);
             is_palette_open.set(false);
         })
     };
@@ -258,7 +266,23 @@ pub fn nav() -> Html {
                                         }
                                     </span>
                                     <button
-                                        onclick={do_create_contest.clone().reform(|_| ())}
+                                        onclick={do_start_contest.clone().reform(|_| ())}
+                                        class={classes!(
+                                            "inline-flex", "items-center", "justify-center", "px-3", "py-2",
+                                            "rounded-md", "text-sm", "font-medium", "text-white",
+                                            "bg-gradient-to-r", "from-emerald-500", "to-teal-600",
+                                            "shadow-md", "hover:shadow-lg", "hover:brightness-105",
+                                            "transition-all", "duration-200", "active:scale-95",
+                                            "min-h-[36px]"
+                                        )}
+                                        aria-label="Start contest"
+                                        title="Start contest (live tracker)"
+                                    >
+                                        <span class={classes!("mr-1")}>{"▶"}</span>
+                                        <span>{"Start"}</span>
+                                    </button>
+                                    <button
+                                        onclick={do_record_contest.clone().reform(|_| ())}
                                         class={classes!(
                                             "inline-flex", "items-center", "justify-center", "px-3", "py-2",
                                             "rounded-md", "text-sm", "font-medium", "text-white",
@@ -267,11 +291,11 @@ pub fn nav() -> Html {
                                             "transition-all", "duration-200", "active:scale-95",
                                             "min-h-[36px]"
                                         )}
-                                        aria-label="Create contest"
-                                        title="Create contest"
+                                        aria-label="Record contest"
+                                        title="Record contest after play"
                                     >
-                                        <span class={classes!("mr-2")}>{"➕"}</span>
-                                        <span>{"Create"}</span>
+                                        <span class={classes!("mr-1")}>{"➕"}</span>
+                                        <span>{"Record"}</span>
                                     </button>
                                     <button
                                         onclick={do_logout.clone().reform(|_| ())}
@@ -469,13 +493,20 @@ pub fn nav() -> Html {
                                 </button>
                             }
 
-                            <div class="px-2 pt-3 pb-2 border-t border-white/10">
+                            <div class="px-2 pt-3 pb-2 border-t border-white/10 space-y-2">
                                 <button
-                                    onclick={do_create_contest.clone().reform(|_| ())}
+                                    onclick={do_start_contest.clone().reform(|_| ())}
+                                    class="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-emerald-500/90 to-teal-600/90 shadow-lg hover:shadow-xl hover:brightness-110 transition-all active:scale-[0.99]"
+                                >
+                                    <span>{"▶"}</span>
+                                    {"Start contest"}
+                                </button>
+                                <button
+                                    onclick={do_record_contest.clone().reform(|_| ())}
                                     class="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-blue-500/90 to-indigo-600/90 shadow-lg hover:shadow-xl hover:brightness-110 transition-all active:scale-[0.99]"
                                 >
                                     <span>{"➕"}</span>
-                                    {"Create contest"}
+                                    {"Record contest"}
                                 </button>
                                 <button
                                     onclick={{

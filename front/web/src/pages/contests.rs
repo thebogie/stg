@@ -911,7 +911,7 @@ pub fn contests(props: &ContestsProps) -> Html {
                             class="inline-flex items-center justify-center px-6 py-3 text-base font-semibold btn-material-primary shadow-md"
                         >
                             <span class="mr-2">{"➕"}</span>
-                            {"Create Contest"}
+                            {"Record Contest"}
                         </button>
                     }
                 </div>
@@ -1218,7 +1218,7 @@ pub fn contests(props: &ContestsProps) -> Html {
                             <div class="text-6xl mb-4">{"🏆"}</div>
                             <h2 class="text-2xl font-bold text-gray-900 mb-4">{"No Contests Found"}</h2>
                             <p class="text-gray-600 mb-6">
-                                {"No contests match your search criteria. Try adjusting your filters or create a new contest."}
+                                {"No contests match your search criteria. Try adjusting your filters or record a new contest."}
                             </p>
                             if auth.state.player.is_some() {
                                 <button
@@ -1226,7 +1226,7 @@ pub fn contests(props: &ContestsProps) -> Html {
                                     class="inline-flex items-center justify-center px-6 py-3 text-lg font-semibold text-white bg-gradient-to-r from-blue-600 to-indigo-600 rounded-xl shadow-lg hover:shadow-xl transform hover:-translate-y-1 transition-all duration-200"
                                 >
                                     <span class="mr-2 text-xl">{"🚀"}</span>
-                                    {"Create Contest"}
+                                    {"Record Contest"}
                                 </button>
                             }
                         </div>
@@ -1464,7 +1464,7 @@ pub fn contests(props: &ContestsProps) -> Html {
                 }
             </main>
 
-            // Floating Create Contest CTA (mobile)
+            // Floating Record Contest CTA (mobile)
             if auth.state.player.is_some() {
                 <div class="fixed bottom-6 right-6 z-50 md:hidden">
                     <button

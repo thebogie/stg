@@ -581,7 +581,7 @@ pub fn contest() -> Html {
                             }
                         }
                         Err(err) => {
-                            error_message.set(Some(format!("Failed to create contest: {}", err)));
+                            error_message.set(Some(format!("Failed to record contest: {}", err)));
                             is_submitting.set(false);
                         }
                     }
@@ -594,7 +594,7 @@ pub fn contest() -> Html {
         <div class="min-h-screen bg-gray-50">
             <header class="app-bar-material px-3 py-3 sm:p-4">
                 <div class="mx-auto flex max-w-4xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    <h1 class="text-lg sm:text-xl font-medium text-gray-900">{"Create New Contest"}</h1>
+                    <h1 class="text-lg sm:text-xl font-medium text-gray-900">{"Record Contest"}</h1>
                     <button
                         onclick={on_back}
                         type="button"
@@ -615,7 +615,7 @@ pub fn contest() -> Html {
                         if *is_submitting {
                             <div class="text-center py-8">
                                 <div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-primary-500"></div>
-                                <p class="mt-2 text-gray-600">{"Creating contest..."}</p>
+                                <p class="mt-2 text-gray-600">{"Recording contest..."}</p>
                             </div>
                         } else {
                             <ContestForm
@@ -657,7 +657,7 @@ pub fn contest() -> Html {
                         }
                     } else {
                         <div class="text-center text-gray-600 py-8">
-                            {"You must be logged in to create a contest."}
+                            {"You must be logged in to record a contest."}
                         </div>
                     }
                 </div>

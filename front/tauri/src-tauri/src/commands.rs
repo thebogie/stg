@@ -12,14 +12,33 @@ pub struct AppConfig {
     pub is_tauri: bool,
 }
 
+fn default_api_base_url() -> String {
+    if let Ok(url) = std::env::var("STG_API_URL") {
+        let trimmed = url.trim();
+        if !trimmed.is_empty() {
+            return trimmed.to_string();
+        }
+    }
+    #[cfg(debug_assertions)]
+    {
+        return "http://127.0.0.1:50002".to_string();
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        option_env!("STG_API_URL")
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or("https://smacktalkgaming.com")
+            .to_string()
+    }
+}
+
 /// Returns app config for the frontend. Called once on load when running inside Tauri.
-/// API URL comes from env STG_API_URL or defaults to http://127.0.0.1:50002.
+/// API URL: `STG_API_URL` env, else debug `http://127.0.0.1:50002`, else release `https://smacktalkgaming.com`.
 #[tauri::command]
 pub fn get_app_config() -> AppConfig {
-    let api_base_url =
-        std::env::var("STG_API_URL").unwrap_or_else(|_| "http://127.0.0.1:50002".to_string());
     AppConfig {
-        api_base_url,
+        api_base_url: default_api_base_url(),
         is_tauri: true,
     }
 }

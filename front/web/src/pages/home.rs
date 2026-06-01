@@ -47,7 +47,7 @@ pub fn home() -> Html {
 
                         // Subtitle with better mobile spacing
                         <p class="text-lg sm:text-xl lg:text-2xl text-gray-600 mb-8 sm:mb-12 leading-relaxed max-w-3xl mx-auto">
-                            {"Create and manage your contests with ease. "}
+                            {"Record contests and manage your tournament history with ease. "}
                             <span class="font-medium text-gray-800">{"Professional tournament management made simple."}</span>
                         </p>
 
@@ -59,7 +59,7 @@ pub fn home() -> Html {
                                     class="w-full sm:w-auto inline-flex items-center justify-center px-8 py-4 text-lg font-semibold text-white bg-gradient-to-r from-blue-600 to-indigo-600 rounded-xl shadow-lg hover:shadow-xl transform hover:-translate-y-1 transition-all duration-200 active:scale-95 min-h-[56px]"
                                 >
                                     <span class="mr-2 text-xl">{"🏆"}</span>
-                                    {"Add Contest"}
+                                    {"Record Contest"}
                                 </button>
                                 <button
                                     onclick={on_view_profile.clone()}
@@ -118,9 +118,9 @@ pub fn home() -> Html {
                             <div class="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4 sm:mb-6">
                                 <span class="text-2xl sm:text-3xl">{"🏆"}</span>
                             </div>
-                            <h3 class="text-xl sm:text-2xl font-semibold text-gray-900 mb-3">{"Easy Contest Creation"}</h3>
+                            <h3 class="text-xl sm:text-2xl font-semibold text-gray-900 mb-3">{"Record contests easily"}</h3>
                             <p class="text-gray-600 leading-relaxed">
-                                {"Create professional contests in minutes with our intuitive interface"}
+                                {"Log game results after play with venue, players, and scores in minutes"}
                             </p>
                         </div>
 
@@ -160,15 +160,15 @@ pub fn home() -> Html {
                         <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
                             <div class="aspect-[16/10] bg-gradient-to-br from-gray-50 to-gray-100" loading="lazy"></div>
                             <div class="p-4 sm:p-6">
-                                <h3 class="text-lg font-semibold text-gray-900 mb-2">{"Create a contest"}</h3>
-                                <p class="text-gray-600">{"Set up brackets, venues, and rules with guided steps."}</p>
+                                <h3 class="text-lg font-semibold text-gray-900 mb-2">{"Record a contest"}</h3>
+                                <p class="text-gray-600">{"Enter venue, game, players, and outcomes after your session."}</p>
                             </div>
                         </div>
                         <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
                             <div class="aspect-[16/10] bg-gradient-to-br from-gray-50 to-gray-100" loading="lazy"></div>
                             <div class="p-4 sm:p-6">
-                                <h3 class="text-lg font-semibold text-gray-900 mb-2">{"Track results live"}</h3>
-                                <p class="text-gray-600">{"See standings and game history update in real-time."}</p>
+                                <h3 class="text-lg font-semibold text-gray-900 mb-2">{"Start Contest (app)"}</h3>
+                                <p class="text-gray-600">{"Run live turn order at the table with the STG app and ESP32 displays."}</p>
                             </div>
                         </div>
                     </div>
@@ -216,7 +216,7 @@ pub fn home() -> Html {
                             class="inline-flex items-center justify-center px-8 py-4 text-lg font-semibold text-white bg-gradient-to-r from-blue-600 to-indigo-600 rounded-xl shadow-lg hover:shadow-xl transform hover:-translate-y-1 transition-all duration-200 active:scale-95 min-h-[56px]"
                         >
                             <span class="mr-2 text-xl">{"🚀"}</span>
-                            {"Create Your First Contest"}
+                            {"Record Your First Contest"}
                         </button>
                     } else {
                         <button

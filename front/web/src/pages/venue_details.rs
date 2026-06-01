@@ -311,7 +311,7 @@ pub fn venue_details(props: &VenueDetailsProps) -> Html {
                                 onclick={on_create_contest.clone()}
                                 class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm"
                             >
-                                {"Create Contest"}
+                                {"Record Contest"}
                             </button>
                         </div>
                     </div>
@@ -513,7 +513,7 @@ pub fn venue_details(props: &VenueDetailsProps) -> Html {
                                         class="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
                                     >
                                         <span class="mr-2">{"🏆"}</span>
-                                        {"Create First Contest"}
+                                        {"Record First Contest"}
                                     </button>
                                 </div>
                             } else {

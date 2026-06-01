@@ -728,10 +728,10 @@ pub fn contest_form(props: &ContestFormProps) -> Html {
                     >
                         if *is_submitting {
                             <span class="animate-spin mr-2">{"⏳"}</span>
-                            {"Creating Contest..."}
+                            {"Recording Contest..."}
                         } else {
                             <span class="mr-2 text-xl">{"🚀"}</span>
-                            {"Add Contest"}
+                            {"Record Contest"}
                         }
                     </button>
                 </div>

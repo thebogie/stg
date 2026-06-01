@@ -95,7 +95,7 @@ pub fn contest_confirmation_modal(props: &ContestConfirmationModalProps) -> Html
                         onclick={on_confirm_click}
                         class="btn-material-primary px-4 py-2 text-sm font-medium"
                     >
-                        {"Confirm & add contest"}
+                        {"Confirm & record contest"}
                     </button>
                 </div>
             </div>

@@ -40,6 +40,7 @@ pub mod pages {
     pub mod contest;
     pub mod contest_details;
     pub mod contests;
+    pub mod tracker_start;
     pub mod game_history;
     pub mod leaderboards;
     pub mod not_found;
@@ -52,6 +53,7 @@ pub mod pages {
 use pages::{
     admin::AdminPage, analytics::Analytics, analytics_test::AnalyticsTest, contest::Contest,
     contest_details::ContestDetails, contests::Contests, game_details::GameDetails,
+    tracker_start::TrackerStart,
     game_history::GameHistory, games::Games, home::Home, leaderboards::Leaderboards, login::Login,
     not_found::NotFound, player_profile::PlayerProfilePage, players::Players, profile::ProfilePage,
     venue_details::VenueDetails, venue_history::VenueHistory, venues::Venues,
@@ -102,6 +104,8 @@ pub enum Route {
     VenueHistory { venue_id: String },
     #[at("/contest/create")]
     Contest,
+    #[at("/tracker")]
+    TrackerStart,
     #[not_found]
     #[at("/404")]
     NotFound,
@@ -237,10 +241,18 @@ fn switch(routes: Route) -> Html {
             }
         }
         Route::Contest => {
-            debug!("Rendering Contest creation component (protected)");
+            debug!("Rendering Record Contest form (protected)");
             html! {
                 <ProtectedRoute>
                     <Contest />
+                </ProtectedRoute>
+            }
+        }
+        Route::TrackerStart => {
+            debug!("Rendering Start Contest / tracker stub (protected)");
+            html! {
+                <ProtectedRoute>
+                    <TrackerStart />
                 </ProtectedRoute>
             }
         }

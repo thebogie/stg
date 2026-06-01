@@ -216,6 +216,7 @@ jobs:
         env:
           GIT_COMMIT: ${{ steps.env.outputs.short_sha }}
           BUILD_DATE: ${{ steps.env.outputs.date }}
+          STG_API_URL: https://smacktalkgaming.com
         run: cargo tauri build
 
       - name: Upload Tauri artifact
