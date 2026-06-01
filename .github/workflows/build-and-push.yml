@@ -235,13 +235,23 @@ jobs:
   build-tauri-android:
     name: Build Tauri Android APK
     runs-on: ubuntu-latest
-    if: |
-      hashFiles('front/tauri/src-tauri/gen/android/gradlew') != '' &&
-      (github.event_name != 'workflow_dispatch' || inputs.build_android)
+    # hashFiles() is invalid in job-level if; detect gen/android in "Detect Android scaffold" step.
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.build_android)
     steps:
       - uses: actions/checkout@v4
 
+      - name: Detect Android scaffold
+        id: android_scaffold
+        run: |
+          if [ -f front/tauri/src-tauri/gen/android/gradlew ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping Android build: commit front/tauri/src-tauri/gen/android (run: cargo tauri android init)"
+          fi
+
       - name: Set up Node
+        if: steps.android_scaffold.outputs.present == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: "20"
@@ -249,25 +259,30 @@ jobs:
           cache-dependency-path: front/web/package-lock.json
 
       - name: Install frontend npm deps
+        if: steps.android_scaffold.outputs.present == 'true'
         working-directory: front/web
         run: npm ci
 
       - name: Set up Java 17
+        if: steps.android_scaffold.outputs.present == 'true'
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
 
       - name: Set up Android SDK
+        if: steps.android_scaffold.outputs.present == 'true'
         uses: android-actions/setup-android@v3
 
       - name: Install NDK
+        if: steps.android_scaffold.outputs.present == 'true'
         uses: nttld/setup-ndk@v1
         with:
           ndk-version: r26d
           add-to-path: true
 
       - name: Install Rust and Android targets
+        if: steps.android_scaffold.outputs.present == 'true'
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: >-
@@ -278,18 +293,22 @@ jobs:
             x86_64-linux-android
 
       - name: Install Trunk
+        if: steps.android_scaffold.outputs.present == 'true'
         run: cargo install trunk --locked
 
       - name: Install Tauri CLI
+        if: steps.android_scaffold.outputs.present == 'true'
         run: cargo install tauri-cli --version "^2.0.0" --locked
 
       - name: Set build env
+        if: steps.android_scaffold.outputs.present == 'true'
         id: env
         run: |
           echo "short_sha=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
           echo "date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_OUTPUT
 
       - name: Build Android APK
+        if: steps.android_scaffold.outputs.present == 'true'
         working-directory: front/tauri
         env:
           GIT_COMMIT: ${{ steps.env.outputs.short_sha }}
@@ -298,6 +317,7 @@ jobs:
         run: cargo tauri android build
 
       - name: Upload Android APK
+        if: steps.android_scaffold.outputs.present == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: tauri-android-apk
