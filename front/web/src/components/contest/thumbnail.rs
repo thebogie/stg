@@ -78,6 +78,8 @@ pub fn contest_thumbnail(props: &ContestThumbnailProps) -> Html {
         .clone()
         .or_else(|| props.image_url.clone());
     let hover_preview = use_state(|| false);
+    let preview_anchor = use_state(|| None::<(f64, f64)>);
+    let thumb_ref = use_node_ref();
     let lightbox_open = use_state(|| false);
 
     {
@@ -192,11 +194,20 @@ pub fn contest_thumbnail(props: &ContestThumbnailProps) -> Html {
     let on_enter = {
         let preview_on_hover = props.preview_on_hover;
         let hover_preview = hover_preview.clone();
+        let preview_anchor = preview_anchor.clone();
+        let thumb_ref = thumb_ref.clone();
         let thumb_blob = thumb_blob.clone();
         let load_detail = load_detail.clone();
         Callback::from(move |_: MouseEvent| {
             if preview_on_hover && (*thumb_blob).is_some() {
                 load_detail.emit(());
+                if let Some(el) = thumb_ref.cast::<web_sys::HtmlElement>() {
+                    let rect = el.get_bounding_client_rect();
+                    preview_anchor.set(Some((
+                        rect.top() + rect.height() / 2.0,
+                        rect.right() + 8.0,
+                    )));
+                }
                 hover_preview.set(true);
             }
         })
@@ -204,8 +215,10 @@ pub fn contest_thumbnail(props: &ContestThumbnailProps) -> Html {
 
     let on_leave = {
         let hover_preview = hover_preview.clone();
+        let preview_anchor = preview_anchor.clone();
         Callback::from(move |_: MouseEvent| {
             hover_preview.set(false);
+            preview_anchor.set(None);
         })
     };
 
@@ -218,9 +231,9 @@ pub fn contest_thumbnail(props: &ContestThumbnailProps) -> Html {
     };
 
     let thumb_body = if let Some(src) = (*thumb_blob).clone() {
-        let preview_src = large_src.clone().unwrap_or(src.clone());
         html! {
             <div
+                ref={thumb_ref}
                 class="relative inline-block"
                 onmouseenter={on_enter}
                 onmouseleave={on_leave}
@@ -231,18 +244,6 @@ pub fn contest_thumbnail(props: &ContestThumbnailProps) -> Html {
                     class={img_class.clone()}
                     onclick={on_thumb_click}
                 />
-                if *hover_preview && props.preview_on_hover {
-                    <div
-                        class="hidden md:block absolute z-50 left-full ml-2 top-1/2 -translate-y-1/2 pointer-events-none"
-                        aria-hidden="true"
-                    >
-                        <img
-                            src={preview_src}
-                            alt=""
-                            class="max-w-[min(28rem,85vw)] max-h-[min(32rem,85vh)] object-contain rounded-lg shadow-xl border border-gray-200 bg-white p-1"
-                        />
-                    </div>
-                }
                 if props.expand_on_click {
                     <span class="sr-only">{"Click for larger view"}</span>
                 }
@@ -260,6 +261,27 @@ pub fn contest_thumbnail(props: &ContestThumbnailProps) -> Html {
                 <span class="text-lg">{"🎯"}</span>
             </div>
         }
+    };
+
+    let hover_preview_el = if *hover_preview && props.preview_on_hover {
+        (*preview_anchor).and_then(|(top, left)| {
+            let preview_src = large_src.clone().or_else(|| (*thumb_blob).clone())?;
+            Some(html! {
+                <div
+                    class="hidden md:block fixed z-[150] pointer-events-none -translate-y-1/2"
+                    style={format!("top: {top}px; left: {left}px;")}
+                    aria-hidden="true"
+                >
+                    <img
+                        src={preview_src}
+                        alt=""
+                        class="max-w-[min(28rem,85vw)] max-h-[min(32rem,85vh)] object-contain rounded-lg shadow-xl border border-gray-200 bg-white p-1"
+                    />
+                </div>
+            })
+        })
+    } else {
+        None
     };
 
     let lightbox = if *lightbox_open {
@@ -296,8 +318,11 @@ pub fn contest_thumbnail(props: &ContestThumbnailProps) -> Html {
     html! {
         <>
             {thumb_body}
-            if let Some(lightbox) = lightbox {
-                if let Some(body) = document().body() {
+            if let Some(body) = document().body() {
+                if let Some(hover_preview) = hover_preview_el {
+                    {create_portal(hover_preview, body.clone().into())}
+                }
+                if let Some(lightbox) = lightbox {
                     {create_portal(lightbox, body.into())}
                 }
             }
