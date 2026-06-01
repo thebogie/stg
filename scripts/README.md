@@ -100,6 +100,8 @@ On the host, from a tree that includes **`deploy/`** (and `config/.env.prod` nex
 | `./scripts/smoke-test-player-auth.sh` | Quick HTTP smoke vs `BASE_URL` (see `testing/INTEGRATION_TEST_GUIDE.md`). |
 | `./scripts/backend-watch.sh` | `cargo watch` for backend (also: `just backend-watch`). |
 | `./scripts/start-front.sh` / `start-tauri.sh` | Frontend dev servers. |
+| `./scripts/build-tauri.sh` | Desktop installer (`.deb`; output `_build/target/release/bundle/`). |
+| `./scripts/build-tauri-android.sh` | Android APK for sideload (prod API default). |
 | `./scripts/import-bgg-catalog.sh`, `arango-to-surreal-import.sh` | Data tooling. |
 | `./scripts/backfill-contest-names.sh` | Dry-run or `--apply` retro rename of contest titles (`{Game} — {Weekday Mon D}`). |
 | `./scripts/verify-contest-scores.sh` | Check prod-copy Surreal + backend path returns scores (use after `SURREAL_SEED_FORCE=1 ./scripts/start-deps.sh`). |

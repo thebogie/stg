@@ -8,8 +8,20 @@ Tauri shell that **embeds the same Yew frontend** as the website (`front/web`). 
 ## Prerequisites
 
 - Rust, Trunk, and the same setup as `front/web`.
-- [Tauri CLI](https://v2.tauri.app/start/install/): `cargo install tauri-cli`
-- For Linux: webkit2gtk and other [Tauri system deps](https://v2.tauri.app/start/install/#linux).
+- [Tauri CLI](https://v2.tauri.app/start/install/): `cargo install tauri-cli --version "^2.0.0"`
+- **Linux desktop**: webkit2gtk and other [Tauri system deps](https://v2.tauri.app/start/install/#linux).
+- **Android**: JDK 17, Android SDK, NDK — [mobile prerequisites](https://v2.tauri.app/start/prerequisites/#android).
+
+## Quick commands (from repo root)
+
+| Goal | Command |
+|------|---------|
+| Desktop dev | `./scripts/start-tauri.sh` (backend should be up) |
+| Desktop `.deb` (prod API) | `./scripts/build-tauri.sh` |
+| Desktop `.deb` (local API) | `./scripts/build-tauri.sh dev` |
+| Android APK (prod API) | `./scripts/build-tauri-android.sh` |
+
+Installers use workspace target dir: **`_build/target/release/bundle/`** (see `.cargo/config.toml`).
 
 ## Run (development)
 
@@ -19,22 +31,45 @@ From this directory (`front/tauri`):
 cargo tauri dev
 ```
 
-This will:
+Or from repo root: `./scripts/start-tauri.sh`
 
-1. Start `trunk serve` in `front/web` (port 50003).
-2. Open the Tauri window loading that URL.
-
-Ensure the backend is running (e.g. `back/api` on port 50002) so the app can call the API.
+Ensure the backend is running (e.g. `./scripts/start-back.sh`) so the app can call the API.
 
 ## Build (production)
 
-From `front/tauri`:
+**Desktop** — prefer the script (sets `STG_API_URL`, Tailwind, bundles):
 
 ```bash
-cargo tauri build
+./scripts/build-tauri.sh
 ```
 
-This runs `trunk build` in `front/web`, then builds the Tauri binary and bundles the Yew output. The binary is in `front/tauri/src-tauri/target/release/` (or `target/debug/` for unoptimized).
+Manual:
+
+```bash
+cd front/tauri
+STG_API_URL=https://smacktalkgaming.com cargo tauri build --bundles deb
+```
+
+Output: `../../_build/target/release/bundle/deb/*.deb`
+
+Optional local bundles (AppImage can fail on flaky networks):
+
+```bash
+./scripts/build-tauri.sh prod deb,rpm,appimage
+```
+
+**Android** — one-time init, then build:
+
+```bash
+cd front/tauri
+cargo tauri android init   # once per machine / after clone if gen/android missing
+cd ../..
+./scripts/build-tauri-android.sh
+```
+
+APK under: `front/tauri/src-tauri/gen/android/app/build/outputs/apk/`
+
+Commit the **`gen/android`** scaffold (not `build/` or `.gradle/`) so GitHub Actions can build APKs.
 
 ## Structure
 
@@ -47,15 +82,17 @@ This runs `trunk build` in `front/web`, then builds the Tauri binary and bundles
 
 ## Configuration
 
-- **tauri.conf.json** (in `src-tauri/`): `beforeDevCommand` / `beforeBuildCommand` run Trunk in `../web`; `devUrl` is `http://localhost:50003`; `frontendDist` is `../../../_build/frontend-dist`.
-- **Trunk** (`front/web/Trunk.toml`): `ws_protocol = "ws"` for Tauri dev; build output goes to `_build/frontend-dist`.
-- **API URL**: The frontend gets the backend base URL from the Tauri command `get_app_config` (invoked once on load). Set env **`STG_API_URL`** to override the default `http://127.0.0.1:50002` (e.g. for production or a different host).
+- **tauri.conf.json**: `bundle.targets` is `["deb"]` by default (avoids flaky AppImage downloads in CI).
+- **API URL**: `get_app_config` in Rust — debug default `http://127.0.0.1:50002`, release default `https://smacktalkgaming.com`; override with **`STG_API_URL`**.
+- See also: [`deploy/WEB_AND_TAURI.md`](../../deploy/WEB_AND_TAURI.md), [`deploy/env.tauri.prod.template`](../../deploy/env.tauri.prod.template).
 
 ## Mobile (iOS / Android)
 
-The same Tauri project can target mobile. Install [Tauri mobile deps](https://v2.tauri.app/start/mobile/), then from `front/tauri`:
+Install [Tauri mobile deps](https://v2.tauri.app/start/mobile/), then from `front/tauri`:
 
 - `cargo tauri android dev` / `cargo tauri android build`
-- `cargo tauri ios dev` / `cargo tauri ios build`
+- `cargo tauri ios dev` / `cargo tauri ios build` (macOS only)
 
-Use the same backend URL (or a deployed API) in the app config if needed.
+**Phone not on same machine as PC:** build APK with `./scripts/build-tauri-android.sh`, copy to Google Drive, install on device.
+
+**CI:** Production workflow builds `.deb` always; Android APK when `gen/android/gradlew` is in the repo (artifact `tauri-android-apk`).

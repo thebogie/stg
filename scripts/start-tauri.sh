@@ -23,7 +23,7 @@ if ! command -v cargo >/dev/null 2>&1; then
   exit 1
 fi
 if ! cargo tauri --version >/dev/null 2>&1; then
-  echo "Error: Tauri CLI not found. Install with:  cargo install tauri-cli" >&2
+  echo "Error: Tauri CLI not found. Install with:  cargo install tauri-cli --version \"^2.0.0\"" >&2
   exit 1
 fi
 

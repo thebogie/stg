@@ -93,7 +93,8 @@ The **Production CI/CD** workflow (`.github/workflows/build-and-push.yml`) runs 
 |-----|--------|---------------------------|
 | **build-backend** | Image pushed to GHCR | On the server: `./deploy_stg.sh <tag>` (pulls image and restarts stack). Tag = `latest` or the short SHA from the run. |
 | **build-frontend** | Artifact `frontend-dist` | Download from the run, extract to your web server docroot (or use the deploy-frontend-pages job). |
-| **build-tauri** | Artifact `tauri-app` | Download installers (e.g. `.deb`, `.AppImage`) and distribute. Users set `STG_API_URL` when running (see `env.tauri.prod.template`). |
+| **build-tauri** | Artifact `tauri-app` | `.deb` under `_build/target/release/bundle/deb/` (AppImage disabled in CI; use `./scripts/build-tauri.sh prod deb,appimage` locally if needed). |
+| **build-tauri-android** | Artifact `tauri-android-apk` | Universal APK when `front/tauri/src-tauri/gen/android/gradlew` is committed; prod API baked via `STG_API_URL`. |
 | **deploy-frontend-pages** | (optional) | Run manually: Actions → Production CI/CD → Run workflow, check **Deploy web frontend to GitHub Pages**. Requires GitHub Pages enabled in repo settings (Settings → Pages → Source: GitHub Actions). |
 
 ### Deploying backend on the server
@@ -109,4 +110,9 @@ The **Production CI/CD** workflow (`.github/workflows/build-and-push.yml`) runs 
 
 ### Tauri production API URL
 
-- The built Tauri app reads **`STG_API_URL`** at runtime (empty or unset → default `http://127.0.0.1:50002`). For production, users (or your installer/documentation) should set it to your public API base, e.g. `export STG_API_URL=https://smacktalkgaming.com`. See `env.tauri.prod.template`.
+- **Release builds** default to `https://smacktalkgaming.com` (`front/tauri/src-tauri/src/commands.rs` + `build.rs`). **`STG_API_URL`** still overrides at runtime.
+- **Local builds:** `./scripts/build-tauri.sh` (desktop) and `./scripts/build-tauri-android.sh` (APK) set prod API unless you pass `dev` or export another URL. See `env.tauri.prod.template`.
+
+### Commit Android scaffold for CI
+
+After `cargo tauri android init`, commit `front/tauri/src-tauri/gen/android/` **except** build caches (`build/`, `.gradle/` are gitignored there). Without `gradlew` in git, the `build-tauri-android` job is skipped.

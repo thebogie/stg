@@ -1,7 +1,8 @@
 # Production CI/CD: backend image to GHCR, web frontend artifact, Tauri desktop artifact.
 # - Backend: docker pull ghcr.io/OWNER/REPO/backend:SHA_OR_TAG (use with deploy/deploy_stg.sh)
 # - Frontend: download frontend-dist artifact and serve as static files (or use deploy-frontend job)
-# - Tauri: download app artifact; set STG_API_URL when running to point at production API
+# - Tauri desktop: artifact tauri-app (.deb under _build/target/release/bundle/)
+# - Tauri Android: artifact tauri-android-apk (when gen/android/gradlew is committed)
 #
 # See docs/GHCR_SETUP.md and deploy/WEB_AND_TAURI.md.
 
@@ -16,6 +17,11 @@ on:
         description: "Deploy web frontend to GitHub Pages"
         required: false
         default: false
+        type: boolean
+      build_android:
+        description: "Build Android APK (requires committed gen/android scaffold)"
+        required: false
+        default: true
         type: boolean
 
 permissions:
@@ -211,19 +217,92 @@ jobs:
           echo "short_sha=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
           echo "date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_OUTPUT
 
-      - name: Build Tauri app
+      - name: Build Tauri desktop (.deb)
         working-directory: front/tauri
         env:
           GIT_COMMIT: ${{ steps.env.outputs.short_sha }}
           BUILD_DATE: ${{ steps.env.outputs.date }}
           STG_API_URL: https://smacktalkgaming.com
-        run: cargo tauri build
+        # deb only — AppImage downloads often fail in CI (Peer disconnected)
+        run: cargo tauri build --bundles deb
 
-      - name: Upload Tauri artifact
+      - name: Upload Tauri desktop artifact
         uses: actions/upload-artifact@v4
         with:
           name: tauri-app
-          path: front/tauri/target/release/bundle/
+          path: _build/target/release/bundle/
+
+  build-tauri-android:
+    name: Build Tauri Android APK
+    runs-on: ubuntu-latest
+    if: |
+      hashFiles('front/tauri/src-tauri/gen/android/gradlew') != '' &&
+      (github.event_name != 'workflow_dispatch' || inputs.build_android)
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: front/web/package-lock.json
+
+      - name: Install frontend npm deps
+        working-directory: front/web
+        run: npm ci
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install NDK
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r26d
+          add-to-path: true
+
+      - name: Install Rust and Android targets
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: >-
+            wasm32-unknown-unknown,
+            aarch64-linux-android,
+            armv7-linux-androideabi,
+            i686-linux-android,
+            x86_64-linux-android
+
+      - name: Install Trunk
+        run: cargo install trunk --locked
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version "^2.0.0" --locked
+
+      - name: Set build env
+        id: env
+        run: |
+          echo "short_sha=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+          echo "date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_OUTPUT
+
+      - name: Build Android APK
+        working-directory: front/tauri
+        env:
+          GIT_COMMIT: ${{ steps.env.outputs.short_sha }}
+          BUILD_DATE: ${{ steps.env.outputs.date }}
+          STG_API_URL: https://smacktalkgaming.com
+        run: cargo tauri android build
+
+      - name: Upload Android APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: tauri-android-apk
+          path: front/tauri/src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+          if-no-files-found: error
 
   deploy-frontend-pages:
     name: Deploy frontend to GitHub Pages
