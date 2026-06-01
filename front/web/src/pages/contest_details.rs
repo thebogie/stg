@@ -1,5 +1,5 @@
 use crate::api::contests::{contest_key_from_any, delete_contest};
-use crate::components::contest::thumbnail::ContestThumbnail;
+use crate::components::contest::thumbnail_editor::ContestThumbnailEditor;
 use crate::api::ai::{ai_smacktalk, AiSmacktalkRequest};
 use crate::api::utils::authenticated_get;
 use crate::auth::AuthContext;
@@ -119,6 +119,11 @@ fn viewer_is_contest_creator(contest: &ContestData, auth: &AuthContext) -> bool 
         return false;
     };
     contest_key_from_any(&p.id) == contest_key_from_any(&contest.creator_id)
+}
+
+/// Same rule as backend `can_mutate_image`: contest creator or admin.
+fn viewer_can_edit_contest_image(contest: &ContestData, auth: &AuthContext) -> bool {
+    auth.state.is_admin() || viewer_is_contest_creator(contest, auth)
 }
 
 impl ContestData {
@@ -672,10 +677,20 @@ pub fn contest_details(props: &ContestDetailsProps) -> Html {
                             <div class="relative z-10">
                                 <div class="flex justify-between items-start mb-3 gap-4">
                                     <div class="flex flex-1 items-start gap-4 min-w-0">
-                                        <ContestThumbnail
+                                        <ContestThumbnailEditor
+                                            contest_id={contest.id.clone()}
                                             image_url={contest.image_url.clone()}
-                                            class="w-20 h-20 rounded-lg object-cover border-2 border-white/30 shrink-0"
-                                            placeholder_class="w-20 h-20 rounded-lg bg-white/20 shrink-0 flex items-center justify-center text-2xl"
+                                            can_edit={viewer_can_edit_contest_image(contest, &auth)}
+                                            on_image_url_change={{
+                                                let contest_details = contest_details.clone();
+                                                Callback::from(move |url: Option<String>| {
+                                                    if let Some(c) = (*contest_details).clone() {
+                                                        let mut updated = c;
+                                                        updated.image_url = url;
+                                                        contest_details.set(Some(updated));
+                                                    }
+                                                })
+                                            }}
                                         />
                                         <div class="flex-1 min-w-0">
                                         <h2 class="text-2xl font-bold mb-2 drop-shadow-lg">{&contest.name}</h2>

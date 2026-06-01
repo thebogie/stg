@@ -436,3 +436,27 @@ pub async fn upload_contest_image(
         .await
         .map_err(|e| format!("Failed to parse upload response: {}", e))
 }
+
+/// Remove contest thumbnail (creator or admin only).
+pub async fn delete_contest_image(contest_id: &str) -> Result<(), String> {
+    let key = contest_key_from_any(contest_id);
+    let url = format!("{}/{}/image", api_url("/api/contests"), key);
+    let response = authenticated_delete(&url)
+        .send()
+        .await
+        .map_err(|e| format!("Failed to delete image: {}", e))?;
+
+    if response.status() == 204 {
+        return Ok(());
+    }
+
+    let body = response
+        .text()
+        .await
+        .unwrap_or_else(|_| "Unknown error".to_string());
+    let error = serde_json::from_str::<ErrorResponse>(&body)
+        .ok()
+        .map(|err| err.error)
+        .unwrap_or(body);
+    Err(error)
+}
