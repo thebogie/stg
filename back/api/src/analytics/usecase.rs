@@ -96,21 +96,33 @@ impl AnalyticsUseCase {
         &self.repo
     }
 
+    fn normalize_timezone(tz: Option<&str>) -> String {
+        tz.map(shared::timezone::normalize_iana_timezone)
+            .unwrap_or_else(|| "UTC".to_string())
+    }
+
     /// Get contest heatmap buckets (7x24) for recent weeks, optional game filter
     pub async fn get_contest_heatmap(
         &self,
         weeks: i32,
         game_id: Option<&str>,
+        timezone: Option<&str>,
     ) -> Result<serde_json::Value> {
         let weeks = weeks.clamp(1, 52);
-        let rows = self.repo.get_contest_heatmap(weeks, game_id).await?;
+        let tz = Self::normalize_timezone(timezone);
+        let rows = self.repo.get_contest_heatmap(weeks, game_id, &tz).await?;
         let mut buckets = vec![vec![0u64; 24]; 7];
         for r in rows {
             let d = r.day.clamp(0, 6) as usize;
             let h = r.hour.clamp(0, 23) as usize;
             buckets[d][h] = r.plays as u64;
         }
-        Ok(serde_json::json!({ "weeks": weeks, "buckets": buckets }))
+        Ok(serde_json::json!({
+            "weeks": weeks,
+            "buckets": buckets,
+            "timezone": tz,
+            "timezone_label": shared::timezone::get_timezone_abbreviation(&tz),
+        }))
     }
 
     /// Get platform statistics with caching
@@ -620,6 +632,7 @@ impl AnalyticsUseCase {
                     most_popular_game: None,
                     difficulty_rating: 5.0,
                     excitement_rating: 5.0,
+                    started_at: None,
                     last_updated: chrono::Utc::now().into(),
                 }
             }
@@ -1320,12 +1333,14 @@ impl AnalyticsUseCase {
     pub async fn get_venue_performance_timeslot_chart(
         &self,
         config: Option<ChartConfig>,
+        timezone: Option<&str>,
     ) -> Result<Chart> {
-        let performance = self.repo.get_venue_performance_timeslots().await?;
+        let tz = Self::normalize_timezone(timezone);
+        let performance = self.repo.get_venue_performance_timeslots(&tz).await?;
 
         // Group by venue and create heatmap data
         let mut venue_data = std::collections::HashMap::new();
-        for (venue, timeslot, rate) in performance {
+        for (_venue_id, venue, timeslot, rate) in performance {
             venue_data
                 .entry(venue)
                 .or_insert_with(Vec::new)
@@ -1505,6 +1520,205 @@ impl AnalyticsUseCase {
                 ("y_axis".to_string(), "Player 1".to_string()),
                 ("players".to_string(), serde_json::to_string(&players)?),
             ]),
+        })
+    }
+
+    fn pct_change(current: i32, previous: i32) -> f64 {
+        if previous > 0 {
+            ((current - previous) as f64 / previous as f64) * 100.0
+        } else if current > 0 {
+            100.0
+        } else {
+            0.0
+        }
+    }
+
+    pub async fn get_overview_tab(&self, timezone: Option<&str>) -> Result<OverviewTabDto> {
+        let tz = Self::normalize_timezone(timezone);
+        let (new_players, returning) = self.repo.get_new_vs_returning_players(30).await?;
+        let completion = self.repo.get_platform_completion_rate().await?;
+        let (contests_this, contests_last) = self.repo.get_week_over_week_contests().await?;
+        let (players_this, players_last) = self.repo.get_week_over_week_active_players().await?;
+        let sparkline = self.repo.get_weekly_contest_sparkline(8, &tz).await?;
+        Ok(OverviewTabDto {
+            timezone: tz.clone(),
+            new_players_30d: new_players,
+            returning_players_30d: returning,
+            contest_completion_rate_pct: Self::finite_f64(completion),
+            week_over_week: WeekOverWeekDto {
+                contests_this_week: contests_this,
+                contests_last_week: contests_last,
+                contests_change_pct: Self::finite_f64(Self::pct_change(contests_this, contests_last)),
+                players_this_week: players_this,
+                players_last_week: players_last,
+                players_change_pct: Self::finite_f64(Self::pct_change(players_this, players_last)),
+                weekly_contest_sparkline: sparkline
+                    .into_iter()
+                    .map(|(label, count)| CountBucketDto { label, count })
+                    .collect(),
+            },
+        })
+    }
+
+    pub async fn get_contests_tab(&self, timezone: Option<&str>) -> Result<ContestsTabDto> {
+        let tz = Self::normalize_timezone(timezone);
+        let avg_duration = self.repo.get_contest_duration_stats().await?;
+        let time_to_fill = self.repo.get_time_to_fill_hours().await?;
+        let sizes = self.repo.get_contest_size_distribution().await?;
+        let peak = self.repo.get_peak_participants_heatmap(8, &tz).await?;
+        Ok(ContestsTabDto {
+            timezone: tz,
+            avg_duration_minutes: Self::finite_f64(avg_duration),
+            avg_time_to_fill_hours: Self::finite_f64(time_to_fill),
+            size_distribution: sizes
+                .into_iter()
+                .map(|(label, count)| CountBucketDto { label, count })
+                .collect(),
+            peak_participants_heatmap: peak
+                .into_iter()
+                .map(|h| HeatmapCellDto {
+                    day: h.day,
+                    hour: h.hour,
+                    value: h.plays as f64,
+                })
+                .collect(),
+        })
+    }
+
+    pub async fn get_venues_tab(&self, timezone: Option<&str>) -> Result<VenuesTabDto> {
+        let tz = Self::normalize_timezone(timezone);
+        let retention = self.repo.get_venue_retention_rate().await?;
+        let utilization = self.repo.get_venue_utilization_rates(10).await?;
+        let diversity = self.repo.get_venue_game_diversity(10).await?;
+        let timeslots = self.repo.get_venue_performance_timeslots(&tz).await?;
+        Ok(VenuesTabDto {
+            timezone: tz,
+            venue_retention_rate_pct: Self::finite_f64(retention),
+            utilization: utilization
+                .into_iter()
+                .map(|(venue_id, venue_name, contests_30d)| VenueUtilizationDto {
+                    venue_id,
+                    venue_name,
+                    contests_30d,
+                    contests_per_month: Self::finite_f64(contests_30d as f64),
+                })
+                .collect(),
+            diverse_venues: diversity
+                .into_iter()
+                .map(|(venue_id, venue_name, unique_games, total_contests)| VenueDiversityDto {
+                    venue_id,
+                    venue_name,
+                    unique_games,
+                    total_contests,
+                })
+                .collect(),
+            timeslot_breakdown: timeslots
+                .into_iter()
+                .map(|(venue_id, venue_name, timeslot, contest_count)| VenueTimeslotDto {
+                    venue_id,
+                    venue_name,
+                    timeslot,
+                    contest_count: Self::finite_f64(contest_count),
+                })
+                .collect(),
+        })
+    }
+
+    pub async fn get_games_tab(&self) -> Result<GamesTabDto> {
+        let platform = self.get_platform_stats().await?;
+        let fit_score = self.repo.get_player_count_fit_score().await?;
+        let longevity = self.repo.get_game_monthly_longevity(5).await?;
+        let cross_venue = self.repo.get_cross_venue_game_popularity(10).await?;
+        Ok(GamesTabDto {
+            top_games: platform.top_games,
+            player_count_fit_score_pct: Self::finite_f64(fit_score),
+            longevity_trends: longevity
+                .into_iter()
+                .map(|(game_id, game_name, monthly)| GameLongevityDto {
+                    game_id,
+                    game_name,
+                    monthly_plays: monthly
+                        .into_iter()
+                        .map(|(period, plays)| GameLongevityPointDto { period, plays })
+                        .collect(),
+                })
+                .collect(),
+            cross_venue_popularity: cross_venue
+                .into_iter()
+                .map(|(game_id, game_name, venue_count, total_plays)| CrossVenueGameDto {
+                    game_id,
+                    game_name,
+                    venue_count,
+                    total_plays,
+                })
+                .collect(),
+        })
+    }
+
+    pub async fn get_players_tab(
+        &self,
+        player_id: &str,
+        timezone: Option<&str>,
+    ) -> Result<PlayersTabDto> {
+        let tz = Self::normalize_timezone(timezone);
+        let player_id = Self::normalize_player_id(player_id);
+        let distribution = self.repo.get_rating_distribution().await?;
+        let (current_streak, longest_streak) = self
+            .repo
+            .get_player_streaks(&player_id)
+            .await
+            .unwrap_or((0, 0));
+        let (days_since, last_contest_id) = self.repo.get_days_since_last_contest(&player_id).await?;
+        let trajectory = self.repo.get_rating_history_points(&player_id, 12).await?;
+
+        let opponents = self.get_profile_opponents(&player_id).await?;
+        let mut h2h: Vec<HeadToHeadSummaryDto> = opponents
+            .opponents_who_beat_me
+            .into_iter()
+            .chain(opponents.opponents_i_beat)
+            .map(|o| {
+                let my_wins = o.losses_to_me;
+                let win_rate = if o.contests_played > 0 {
+                    (my_wins as f64 / o.contests_played as f64) * 100.0
+                } else {
+                    0.0
+                };
+                HeadToHeadSummaryDto {
+                    opponent_id: o.player_id.clone(),
+                    opponent_handle: o.player_handle,
+                    total_contests: o.contests_played,
+                    my_wins,
+                    my_win_rate: Self::finite_f64(win_rate),
+                }
+            })
+            .collect();
+        h2h.sort_by(|a, b| b.total_contests.cmp(&a.total_contests));
+        h2h.truncate(5);
+
+        let skill_trajectory = trajectory
+            .into_iter()
+            .map(|(period, rating, games_played)| SkillTrajectoryPointDto {
+                period: shared::timezone::format_rfc3339_short(&period, &tz),
+                rating: Self::finite_f64(rating),
+                games_played,
+            })
+            .collect();
+
+        Ok(PlayersTabDto {
+            timezone: tz,
+            rating_distribution: distribution
+                .into_iter()
+                .map(|(range_label, player_count)| RatingBucketDto {
+                    range_label,
+                    player_count,
+                })
+                .collect(),
+            head_to_head_top: h2h,
+            current_streak,
+            longest_streak,
+            days_since_last_contest: days_since,
+            last_contest_id,
+            skill_trajectory,
         })
     }
 }

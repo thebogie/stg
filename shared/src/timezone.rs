@@ -1,5 +1,62 @@
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Datelike, Timelike, Utc};
 use chrono_tz::Tz;
+
+/// Normalize an IANA timezone name; invalid values fall back to UTC.
+pub fn normalize_iana_timezone(tz: &str) -> String {
+    let tz = tz.trim();
+    if tz.is_empty() {
+        return "UTC".to_string();
+    }
+    if tz.parse::<Tz>().is_ok() {
+        return tz.to_string();
+    }
+    "UTC".to_string()
+}
+
+/// Weekday (0=Sun..6=Sat) and hour (0..23) in the given timezone.
+pub fn local_weekday_hour(utc_dt: DateTime<Utc>, timezone_name: &str) -> (i32, i32) {
+    let tz = normalize_iana_timezone(timezone_name);
+    if let Some(local) = convert_to_timezone(utc_dt, &tz) {
+        (
+            local.weekday().num_days_from_sunday() as i32,
+            local.hour() as i32,
+        )
+    } else {
+        (
+            utc_dt.weekday().num_days_from_sunday() as i32,
+            utc_dt.hour() as i32,
+        )
+    }
+}
+
+/// ISO week label (e.g. 2026-W21) in the given timezone.
+pub fn iso_week_label(utc_dt: DateTime<Utc>, timezone_name: &str) -> String {
+    let tz = normalize_iana_timezone(timezone_name);
+    if let Some(local) = convert_to_timezone(utc_dt, &tz) {
+        local.format("%G-W%V").to_string()
+    } else {
+        utc_dt.format("%G-W%V").to_string()
+    }
+}
+
+/// Short display for an RFC3339 timestamp in the player's timezone.
+pub fn format_rfc3339_short(value: &str, timezone_name: &str) -> String {
+    let Ok(dt) = chrono::DateTime::parse_from_rfc3339(value) else {
+        return value.to_string();
+    };
+    format_datetime_short(dt.with_timezone(&Utc), timezone_name)
+}
+
+/// Short display for a UTC datetime in the player's timezone.
+pub fn format_datetime_short(utc_dt: DateTime<Utc>, timezone_name: &str) -> String {
+    let tz = normalize_iana_timezone(timezone_name);
+    if let Some(local) = convert_to_timezone(utc_dt, &tz) {
+        let abbr = get_timezone_abbreviation(&tz);
+        format!("{} {}", local.format("%b %d, %Y %I:%M %p"), abbr)
+    } else {
+        format!("{} UTC", utc_dt.format("%b %d, %Y %I:%M %p"))
+    }
+}
 
 /// Convert a UTC datetime to a specific timezone
 pub fn convert_to_timezone(utc_dt: DateTime<Utc>, timezone_name: &str) -> Option<DateTime<Tz>> {

@@ -19,7 +19,7 @@ use crate::surreal_helpers::{
     normalize_record_id_string, record_id_from_field, record_id_from_row, record_id_to_key,
     record_id_to_canonical, select_one_by_record_id, thing_to_record_id,
 };
-use chrono::{Datelike, Timelike};
+use chrono::Timelike;
 use shared::dto::analytics::{
     GamePerformanceDetailDto, GamePerformanceOpponentDto, GamePerformanceVenueDto,
 };
@@ -123,7 +123,7 @@ fn normalize_player_id(s: &str) -> String {
 }
 
 /// Extract numeric value from SurrealDB result: may be direct number, or { "count": n } from count(), or object with any numeric field.
-fn scalar_i64(v: &serde_json::Value) -> i64 {
+pub(crate) fn scalar_i64(v: &serde_json::Value) -> i64 {
     if let Some(n) = v.as_i64() {
         return n;
     }
@@ -158,7 +158,7 @@ fn scalar_i64(v: &serde_json::Value) -> i64 {
 }
 
 /// Normalize a record id from a Surreal row field (string or record object).
-fn canonical_id_from_value(v: &serde_json::Value, table: &str) -> String {
+pub(crate) fn canonical_id_from_value(v: &serde_json::Value, table: &str) -> String {
     if let Some(s) = v.as_str() {
         normalize_record_id_string(s)
     } else {
@@ -167,7 +167,7 @@ fn canonical_id_from_value(v: &serde_json::Value, table: &str) -> String {
 }
 
 /// Extract f64 from SurrealDB result (e.g. math::mean returns number or wrapped).
-fn scalar_f64(v: &serde_json::Value) -> f64 {
+pub(crate) fn scalar_f64(v: &serde_json::Value) -> f64 {
     fn finite(n: f64) -> f64 {
         if n.is_finite() { n } else { 0.0 }
     }
@@ -295,11 +295,16 @@ impl AnalyticsRepository {
         Self { db, config }
     }
 
-    /// Returns contest counts bucketed by weekday (0=Sun..6=Sat) and hour (0..23)
+    pub(crate) fn db(&self) -> &Db {
+        &self.db
+    }
+
+    /// Returns contest counts bucketed by weekday (0=Sun..6=Sat) and hour (0..23) in `timezone`.
     pub async fn get_contest_heatmap(
         &self,
         weeks: i32,
         game_id: Option<&str>,
+        timezone: &str,
     ) -> Result<Vec<HeatRow>> {
         let contest_ids: Option<Vec<String>> = if let Some(gid) = game_id {
             let key = record_id_to_key(gid, "game");
@@ -380,8 +385,7 @@ impl AnalyticsRepository {
                 continue;
             };
             let dt_utc = dt.with_timezone(&chrono::Utc);
-            let day = dt_utc.weekday().num_days_from_sunday() as i32; // 0..6
-            let hour = dt_utc.hour() as i32; // 0..23
+            let (day, hour) = shared::timezone::local_weekday_hour(dt_utc, timezone);
             *buckets.entry((day, hour)).or_insert(0) += 1;
         }
 
@@ -949,8 +953,8 @@ impl AnalyticsRepository {
         // Convert to proper types with real counts
         let top_games_typed: Vec<GamePopularity> = top_games
             .into_iter()
-            .map(|(name, plays)| GamePopularity {
-                game_id: "".to_string(),
+            .map(|(game_id, name, plays)| GamePopularity {
+                game_id,
                 game_name: name,
                 plays,
                 popularity_score: plays as f64,
@@ -959,8 +963,8 @@ impl AnalyticsRepository {
 
         let top_venues_typed: Vec<VenueActivity> = top_venues
             .into_iter()
-            .map(|(name, contests)| VenueActivity {
-                venue_id: "".to_string(),
+            .map(|(venue_id, name, contests)| VenueActivity {
+                venue_id,
                 venue_name: name,
                 contests_held: contests,
                 total_participants: contests * 4, // Estimate participants per contest
@@ -1092,7 +1096,7 @@ impl AnalyticsRepository {
     }
 
     /// Get active players in the last N days
-    async fn get_active_players(&self, days: i32) -> Result<i32> {
+    pub(crate) async fn get_active_players(&self, days: i32) -> Result<i32> {
         let sql = r#"
             SELECT count() AS count
             FROM (
@@ -1120,7 +1124,7 @@ impl AnalyticsRepository {
     }
 
     /// Get contests in the last N days
-    async fn get_contests_in_period(&self, days: i32) -> Result<i32> {
+    pub(crate) async fn get_contests_in_period(&self, days: i32) -> Result<i32> {
         let mut res = self
             .db
             .query("SELECT count() AS count FROM contest WHERE start >= time::now() - duration::from_days($days) GROUP ALL")
@@ -1159,7 +1163,7 @@ impl AnalyticsRepository {
     }
 
     /// Get top games by play count. SurrealQL has no INNER JOIN; count from played_with then look up names from game.
-    async fn get_top_games(&self, limit: i32) -> Result<Vec<(String, i32)>> {
+    pub(crate) async fn get_top_games(&self, limit: i32) -> Result<Vec<(String, String, i32)>> {
         let sql = r#"SELECT `out` AS game_id, count() AS plays FROM played_with GROUP BY `out` ORDER BY plays DESC LIMIT $limit"#;
         let mut res = self
             .db
@@ -1201,7 +1205,7 @@ impl AnalyticsRepository {
                 Some((id, name))
             })
             .collect();
-        let games: Vec<(String, i32)> = rows
+        let games: Vec<(String, String, i32)> = rows
             .into_iter()
             .filter_map(|v| {
                 let game_id = canonical_id_from_value(v.get("game_id")?, "game");
@@ -1213,7 +1217,7 @@ impl AnalyticsRepository {
                     .get(&game_id)
                     .cloned()
                     .unwrap_or_else(|| "Unknown".to_string());
-                Some((name, plays))
+                Some((game_id, name, plays))
             })
             .collect();
         Ok(games)
@@ -1686,7 +1690,7 @@ WHERE start >= time::now() - duration::days($since_days)
     }
 
     /// Get top venues by contest count. SurrealQL has no INNER JOIN; count from played_at then look up names from venue.
-    async fn get_top_venues(&self, limit: i32) -> Result<Vec<(String, i32)>> {
+    pub(crate) async fn get_top_venues(&self, limit: i32) -> Result<Vec<(String, String, i32)>> {
         let sql = r#"SELECT `out` AS venue_id, count() AS contests FROM played_at GROUP BY `out` ORDER BY contests DESC LIMIT $limit"#;
         let mut res = self
             .db
@@ -1732,7 +1736,7 @@ WHERE start >= time::now() - duration::days($since_days)
                 Some((id, name))
             })
             .collect();
-        let venues: Vec<(String, i32)> = rows
+        let venues: Vec<(String, String, i32)> = rows
             .into_iter()
             .filter_map(|v| {
                 let venue_id = canonical_id_from_value(v.get("venue_id")?, "venue");
@@ -1744,7 +1748,7 @@ WHERE start >= time::now() - duration::days($since_days)
                     .get(&venue_id)
                     .cloned()
                     .unwrap_or_else(|| "Unknown".to_string());
-                Some((name, contests))
+                Some((venue_id, name, contests))
             })
             .collect();
         Ok(venues)
@@ -2390,6 +2394,8 @@ impl AnalyticsRepository {
             .unwrap_or_else(|| contest_id.to_string());
         let stats = ContestStats {
             contest_id: contest_id_norm,
+            contest_name: String::new(),
+            started_at: None,
             participant_count,
             completion_count,
             completion_rate,
@@ -2665,11 +2671,11 @@ impl AnalyticsRepository {
         #[derive(serde::Deserialize, serde::Serialize, surrealdb::types::SurrealValue)]
         struct ContestRow {
             id: Option<String>,
-            #[allow(dead_code)]
+            name: Option<String>,
             start: Option<String>,
             duration_minutes: Option<i32>,
         }
-        let sql = "SELECT string::concat(id) AS id, start, duration_minutes FROM contest ORDER BY start DESC LIMIT $limit";
+        let sql = "SELECT string::concat(id) AS id, name, start, duration_minutes FROM contest ORDER BY start DESC LIMIT $limit";
         let mut res = self
             .db
             .query(sql)
@@ -2795,8 +2801,16 @@ impl AnalyticsRepository {
                 .get_contest_excitement_rating(&contest_id)
                 .await
                 .unwrap_or(5.0);
+            let started_at = c.start.as_ref().and_then(|s| {
+                chrono::DateTime::parse_from_rfc3339(s)
+                    .ok()
+                    .map(|dt| dt.with_timezone(&chrono::FixedOffset::east_opt(0).unwrap()))
+            });
+            let contest_name = c.name.clone().unwrap_or_default();
             out.push(ContestStats {
                 contest_id: contest_id.clone(),
+                contest_name,
+                started_at,
                 participant_count,
                 completion_count,
                 completion_rate,
@@ -5904,8 +5918,11 @@ impl AnalyticsRepository {
         Ok(out)
     }
 
-    /// Get venue performance by time slot
-    pub async fn get_venue_performance_timeslots(&self) -> Result<Vec<(String, String, f64)>> {
+    /// Get venue performance by time slot (Morning/Afternoon/Evening in `timezone`).
+    pub async fn get_venue_performance_timeslots(
+        &self,
+        timezone: &str,
+    ) -> Result<Vec<(String, String, String, f64)>> {
         let mut res_pa = self
             .db
             .query("SELECT `in` AS contest_id, `out` AS venue_id FROM played_at")
@@ -5978,7 +5995,10 @@ impl AnalyticsRepository {
             let Some(start) = contest_start.get(cid) else {
                 continue;
             };
-            let slot = timeslot_for_hour(start.hour()).to_string();
+            let slot = timeslot_for_hour(
+                shared::timezone::local_weekday_hour(*start, timezone).1 as u32,
+            )
+            .to_string();
             *counts.entry((vid.clone(), slot)).or_insert(0) += 1;
         }
 
@@ -6022,14 +6042,14 @@ impl AnalyticsRepository {
             }
         }
 
-        let mut out: Vec<(String, String, f64)> = counts
+        let mut out: Vec<(String, String, String, f64)> = counts
             .into_iter()
             .map(|((vid, slot), count)| {
                 let name = venue_names
                     .get(&vid)
                     .cloned()
                     .unwrap_or_else(|| "Unknown".to_string());
-                (name, slot, count as f64)
+                (vid, name, slot, count as f64)
             })
             .collect();
         out.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));

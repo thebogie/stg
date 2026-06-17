@@ -512,6 +512,28 @@
     z-index: 1;
 }
 
+.section-guide {
+    margin: 0 0 1rem 0;
+    padding: 12px 16px;
+    background: #f8fafc;
+    border-left: 4px solid #6366f1;
+    border-radius: 0 8px 8px 0;
+}
+
+.section-guide-what {
+    font-size: 0.9rem;
+    color: #374151;
+    margin: 0 0 6px 0;
+    line-height: 1.55;
+}
+
+.section-guide-value {
+    font-size: 0.875rem;
+    color: #4b5563;
+    margin: 0;
+    line-height: 1.55;
+}
+
 .chart-content {
     padding: 0 20px 20px 20px;
 }

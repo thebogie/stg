@@ -55,6 +55,12 @@ pub struct ContestStats {
     /// Contest ID this stats belong to
     pub contest_id: String,
 
+    /// Display name from the contest record
+    pub contest_name: String,
+
+    /// Contest start time (UTC)
+    pub started_at: Option<DateTime<FixedOffset>>,
+
     /// Total number of participants
     pub participant_count: i32,
 
@@ -366,6 +372,8 @@ impl ContestStats {
     pub fn new(contest_id: String) -> Self {
         Self {
             contest_id,
+            contest_name: String::new(),
+            started_at: None,
             participant_count: 0,
             completion_count: 0,
             completion_rate: 0.0,

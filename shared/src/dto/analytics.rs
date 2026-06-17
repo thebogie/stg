@@ -36,6 +36,7 @@ pub struct ContestStatsDto {
     pub most_popular_game: Option<String>,
     pub difficulty_rating: f64,
     pub excitement_rating: f64,
+    pub started_at: Option<DateTime<FixedOffset>>,
     pub last_updated: DateTime<FixedOffset>,
 }
 
@@ -472,7 +473,14 @@ impl From<&ContestStats> for ContestStatsDto {
     fn from(stats: &ContestStats) -> Self {
         Self {
             contest_id: stats.contest_id.clone(),
-            contest_name: String::new(), // Will be populated by backend
+            contest_name: if stats.contest_name.is_empty() {
+                stats
+                    .most_popular_game
+                    .clone()
+                    .unwrap_or_else(|| stats.contest_id.clone())
+            } else {
+                stats.contest_name.clone()
+            },
             participant_count: stats.participant_count,
             completion_count: stats.completion_count,
             completion_rate: stats.completion_rate,
@@ -481,6 +489,7 @@ impl From<&ContestStats> for ContestStatsDto {
             most_popular_game: stats.most_popular_game.clone(),
             difficulty_rating: stats.difficulty_rating,
             excitement_rating: stats.excitement_rating,
+            started_at: stats.started_at,
             last_updated: stats.last_updated,
         }
     }
@@ -623,6 +632,146 @@ impl From<&PlayerAchievements> for PlayerAchievementsDto {
             completion_percentage: achievements.completion_percentage,
         }
     }
+}
+
+// --- Tab-specific analytics DTOs (analytics dashboard) ---
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CountBucketDto {
+    pub label: String,
+    pub count: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WeekOverWeekDto {
+    pub contests_this_week: i32,
+    pub contests_last_week: i32,
+    pub contests_change_pct: f64,
+    pub players_this_week: i32,
+    pub players_last_week: i32,
+    pub players_change_pct: f64,
+    pub weekly_contest_sparkline: Vec<CountBucketDto>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OverviewTabDto {
+    pub timezone: String,
+    pub new_players_30d: i32,
+    pub returning_players_30d: i32,
+    pub contest_completion_rate_pct: f64,
+    pub week_over_week: WeekOverWeekDto,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContestsTabDto {
+    pub timezone: String,
+    pub avg_duration_minutes: f64,
+    pub avg_time_to_fill_hours: f64,
+    pub size_distribution: Vec<CountBucketDto>,
+    pub peak_participants_heatmap: Vec<HeatmapCellDto>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HeatmapCellDto {
+    pub day: i32,
+    pub hour: i32,
+    pub value: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VenueUtilizationDto {
+    pub venue_id: String,
+    pub venue_name: String,
+    pub contests_30d: i32,
+    pub contests_per_month: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VenueDiversityDto {
+    pub venue_id: String,
+    pub venue_name: String,
+    pub unique_games: i32,
+    pub total_contests: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VenueTimeslotDto {
+    pub venue_id: String,
+    pub venue_name: String,
+    pub timeslot: String,
+    pub contest_count: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VenuesTabDto {
+    pub timezone: String,
+    pub venue_retention_rate_pct: f64,
+    pub utilization: Vec<VenueUtilizationDto>,
+    pub diverse_venues: Vec<VenueDiversityDto>,
+    pub timeslot_breakdown: Vec<VenueTimeslotDto>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GameLongevityPointDto {
+    pub period: String,
+    pub plays: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GameLongevityDto {
+    pub game_id: String,
+    pub game_name: String,
+    pub monthly_plays: Vec<GameLongevityPointDto>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CrossVenueGameDto {
+    pub game_id: String,
+    pub game_name: String,
+    pub venue_count: i32,
+    pub total_plays: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GamesTabDto {
+    pub top_games: Vec<GamePopularityDto>,
+    pub player_count_fit_score_pct: f64,
+    pub longevity_trends: Vec<GameLongevityDto>,
+    pub cross_venue_popularity: Vec<CrossVenueGameDto>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RatingBucketDto {
+    pub range_label: String,
+    pub player_count: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HeadToHeadSummaryDto {
+    pub opponent_id: String,
+    pub opponent_handle: String,
+    pub total_contests: i32,
+    pub my_wins: i32,
+    pub my_win_rate: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SkillTrajectoryPointDto {
+    pub period: String,
+    pub rating: f64,
+    pub games_played: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlayersTabDto {
+    pub timezone: String,
+    pub rating_distribution: Vec<RatingBucketDto>,
+    pub head_to_head_top: Vec<HeadToHeadSummaryDto>,
+    pub current_streak: i32,
+    pub longest_streak: i32,
+    pub days_since_last_contest: i32,
+    pub last_contest_id: Option<String>,
+    pub skill_trajectory: Vec<SkillTrajectoryPointDto>,
 }
 
 #[cfg(test)]

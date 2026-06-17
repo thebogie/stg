@@ -34,6 +34,7 @@ pub mod analytics {
     pub mod controller;
     pub mod engine;
     pub mod repository;
+    pub mod tab_metrics;
     pub mod usecase;
     pub mod visualization;
 

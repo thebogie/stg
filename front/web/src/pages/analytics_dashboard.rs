@@ -1,3 +1,4 @@
+use crate::api::contests::contest_key_from_any;
 use crate::api::games::get_game_analytics;
 use crate::api::games::search_games;
 use crate::api::utils::authenticated_get;
@@ -6,12 +7,127 @@ use crate::Route;
 use gloo_net::http::Request;
 use serde_json::Value;
 use shared::dto::game::GameDto;
+use urlencoding::encode;
+use wasm_bindgen::prelude::*;
 use web_sys::console;
 use yew::prelude::*;
 use yew_router::prelude::*;
 
+#[wasm_bindgen(module = "/src/js/timezone.js")]
+extern "C" {
+    fn getBrowserIanaTimezone() -> String;
+}
+
+fn player_timezone_query(tz: &str) -> String {
+    format!(
+        "timezone={}",
+        encode(&shared::timezone::normalize_iana_timezone(tz))
+    )
+}
+
+fn format_in_player_timezone(value: &str, tz: &str) -> String {
+    shared::timezone::format_rfc3339_short(value, tz)
+}
+
+fn timezone_label(tz: &str) -> String {
+    shared::timezone::get_timezone_abbreviation(tz)
+}
+
+/// Short "what you're seeing" + "how it helps your play" blurb under section headings.
+fn section_guide(what: &str, player_value: &str) -> Html {
+    html! {
+        <div class="section-guide">
+            <p class="section-guide-what">{what}</p>
+            <p class="section-guide-value"><strong>{"How this helps you: "}</strong>{player_value}</p>
+        </div>
+    }
+}
+
+fn player_profile_key(player_id: &str) -> String {
+    player_id.rsplit('/').next().unwrap_or(player_id).to_string()
+}
+
+fn artifact_label_or_link(id: Option<&str>, label: &str, route: impl FnOnce(String) -> Route) -> Html {
+    let id = id.unwrap_or("").trim();
+    if id.is_empty() {
+        html! { <span>{label}</span> }
+    } else {
+        html! {
+            <Link<Route> to={route(id.to_string())} classes="text-blue-600 hover:text-blue-800 hover:underline">
+                {label}
+            </Link<Route>>
+        }
+    }
+}
+
+fn game_link_from(v: &Value, id_key: &str, name_key: &str, fallback: &str) -> Html {
+    let id = v.get(id_key).and_then(|x| x.as_str());
+    let name = v.get(name_key).and_then(|x| x.as_str()).unwrap_or(fallback);
+    artifact_label_or_link(id, name, |id| Route::GameDetails { game_id: id })
+}
+
+fn venue_link_from(v: &Value, id_key: &str, name_key: &str, fallback: &str) -> Html {
+    let id = v.get(id_key).and_then(|x| x.as_str());
+    let name = v.get(name_key).and_then(|x| x.as_str()).unwrap_or(fallback);
+    artifact_label_or_link(id, name, |id| Route::VenueDetails { venue_id: id })
+}
+
+fn venue_link(id: &str, label: &str) -> Html {
+    artifact_label_or_link(Some(id), label, |id| Route::VenueDetails { venue_id: id })
+}
+
+fn game_link(id: &str, label: &str) -> Html {
+    artifact_label_or_link(Some(id), label, |id| Route::GameDetails { game_id: id })
+}
+
+fn contest_link(contest_id: &str, label: &str) -> Html {
+    let key = contest_key_from_any(contest_id);
+    if key.is_empty() {
+        html! { <span>{label}</span> }
+    } else {
+        html! {
+            <Link<Route> to={Route::ContestDetails { contest_id: key }} classes="text-blue-600 hover:text-blue-800 hover:underline">
+                {label}
+            </Link<Route>>
+        }
+    }
+}
+
+fn contest_label_from_json(c: &Value) -> String {
+    c.get("contest_name")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(String::from)
+        .or_else(|| {
+            c.get("most_popular_game")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty())
+                .map(String::from)
+        })
+        .unwrap_or_else(|| {
+            c.get("contest_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Contest")
+                .to_string()
+        })
+}
+
+fn player_link_from_id(player_id: &str, label: &str) -> Html {
+    let key = player_profile_key(player_id);
+    if key.is_empty() {
+        html! { <span>{label}</span> }
+    } else {
+        html! {
+            <Link<Route> to={Route::PlayerProfile { player_id: key }} classes="text-blue-600 hover:text-blue-800 hover:underline">
+                {label}
+            </Link<Route>>
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 struct GameRecommendation {
+    game_id: String,
     game_name: String,
     reason: String,
     score: f64,
@@ -19,6 +135,7 @@ struct GameRecommendation {
 
 #[derive(Clone, Debug, PartialEq)]
 struct VenuePerformance {
+    venue_id: String,
     venue_name: String,
     total_contests: u64,
     win_rate: f64,
@@ -72,6 +189,9 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
     let contest_heatmap_loading = use_state(|| false);
     let contest_heatmap_error = use_state(|| None::<String>);
     let heatmap_weeks = use_state(|| 8i32);
+    let recent_contests = use_state(|| None::<Vec<Value>>);
+    let recent_contests_loading = use_state(|| false);
+    let recent_contests_error = use_state(|| None::<String>);
 
     // Games tab state
     let game_id_input = use_state(|| String::new());
@@ -85,12 +205,86 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
     let game_search_error = use_state(|| None::<String>);
     let game_search_results = use_state(|| Vec::<GameDto>::new());
 
+    // Per-tab extended analytics
+    let tab_analytics = use_state(|| None::<Value>);
+    let tab_analytics_loading = use_state(|| false);
+    let tab_analytics_error = use_state(|| None::<String>);
+    let player_timezone = use_state(|| String::from("UTC"));
+
+    {
+        let player_timezone = player_timezone.clone();
+        use_effect_with((), move |_| {
+            let tz = shared::timezone::normalize_iana_timezone(&getBrowserIanaTimezone());
+            player_timezone.set(tz);
+            || ()
+        });
+    }
+
     let on_select_tab = {
         let current_tab = current_tab.clone();
         Callback::from(move |tab: AnalyticsTab| {
             current_tab.set(tab);
         })
     };
+
+    // Load extended analytics when the active tab changes
+    {
+        let current_tab = current_tab.clone();
+        let tab_analytics = tab_analytics.clone();
+        let tab_analytics_loading = tab_analytics_loading.clone();
+        let tab_analytics_error = tab_analytics_error.clone();
+        let auth = auth.clone();
+        let player_timezone = player_timezone.clone();
+        use_effect_with(((*current_tab).clone(), (*player_timezone).clone()), move |(tab, tz)| {
+            let tab = (*tab).clone();
+            let tz = (*tz).clone();
+            let (path, needs_auth) = match tab {
+                AnalyticsTab::Overview => ("/api/analytics/tabs/overview", false),
+                AnalyticsTab::Contests => ("/api/analytics/tabs/contests", false),
+                AnalyticsTab::Venues => ("/api/analytics/tabs/venues", false),
+                AnalyticsTab::Games => ("/api/analytics/tabs/games", false),
+                AnalyticsTab::Players => ("/api/analytics/tabs/players", true),
+            };
+            let url = format!("{}?{}", path, player_timezone_query(&tz));
+            tab_analytics_loading.set(true);
+            tab_analytics_error.set(None);
+            tab_analytics.set(None);
+            let tab_analytics = tab_analytics.clone();
+            let tab_analytics_loading = tab_analytics_loading.clone();
+            let tab_analytics_error = tab_analytics_error.clone();
+            let path = url;
+            wasm_bindgen_futures::spawn_local(async move {
+                let result = if needs_auth {
+                    if auth.state.player.is_none() {
+                        tab_analytics_error.set(Some("Sign in to view player analytics".to_string()));
+                        tab_analytics.set(None);
+                        tab_analytics_loading.set(false);
+                        return;
+                    }
+                    authenticated_get(&path).send().await
+                } else {
+                    Request::get(&path).send().await
+                };
+                match result {
+                    Ok(response) if response.ok() => {
+                        if let Ok(data) = response.json::<Value>().await {
+                            tab_analytics.set(Some(data));
+                        } else {
+                            tab_analytics_error.set(Some("Failed to parse tab analytics".to_string()));
+                        }
+                    }
+                    Ok(response) => {
+                        tab_analytics_error.set(Some(format!("Tab analytics failed: {}", response.status())));
+                    }
+                    Err(e) => {
+                        tab_analytics_error.set(Some(format!("Failed to load tab analytics: {}", e)));
+                    }
+                }
+                tab_analytics_loading.set(false);
+            });
+            || ()
+        });
+    }
 
     let on_game_id_input = {
         let game_id_input = game_id_input.clone();
@@ -328,12 +522,18 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
         let contest_heatmap_loading = contest_heatmap_loading.clone();
         let contest_heatmap_error = contest_heatmap_error.clone();
         let heatmap_weeks = heatmap_weeks.clone();
-        use_effect_with(heatmap_weeks.clone(), move |weeks| {
+        let player_timezone = player_timezone.clone();
+        use_effect_with((heatmap_weeks.clone(), (*player_timezone).clone()), move |(weeks, tz)| {
             let w = **weeks;
+            let tz = (*tz).clone();
             contest_heatmap_loading.set(true);
             contest_heatmap_error.set(None);
             wasm_bindgen_futures::spawn_local(async move {
-                match Request::get(&format!("/api/analytics/contests/heatmap?weeks={}", w))
+                match Request::get(&format!(
+                    "/api/analytics/contests/heatmap?weeks={}&{}",
+                    w,
+                    player_timezone_query(&tz)
+                ))
                     .send()
                     .await
                 {
@@ -356,6 +556,44 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
                 contest_heatmap_loading.set(false);
             });
             || ()
+        });
+    }
+
+    // Load recent contests for Contests tab
+    {
+        let current_tab = current_tab.clone();
+        let recent_contests = recent_contests.clone();
+        let recent_contests_loading = recent_contests_loading.clone();
+        let recent_contests_error = recent_contests_error.clone();
+        use_effect_with((*current_tab).clone(), move |tab| {
+            if *tab != AnalyticsTab::Contests {
+                return;
+            }
+            recent_contests_loading.set(true);
+            recent_contests_error.set(None);
+            let recent_contests = recent_contests.clone();
+            let recent_contests_loading = recent_contests_loading.clone();
+            let recent_contests_error = recent_contests_error.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                match Request::get("/api/analytics/contests/recent?limit=15").send().await {
+                    Ok(resp) if resp.ok() => {
+                        match resp.json::<Vec<Value>>().await {
+                            Ok(rows) => recent_contests.set(Some(rows)),
+                            Err(e) => recent_contests_error
+                                .set(Some(format!("Failed to parse recent contests: {}", e))),
+                        }
+                    }
+                    Ok(resp) => {
+                        recent_contests_error
+                            .set(Some(format!("Recent contests failed: {}", resp.status())));
+                    }
+                    Err(e) => {
+                        recent_contests_error
+                            .set(Some(format!("Failed to load recent contests: {}", e)));
+                    }
+                }
+                recent_contests_loading.set(false);
+            });
         });
     }
 
@@ -492,15 +730,18 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
                                         .iter()
                                         .filter_map(|v| {
                                             if let (
+                                                Some(venue_id),
                                                 Some(venue_name),
                                                 Some(total_contests),
                                                 Some(win_rate),
                                             ) = (
+                                                v.get("venue_id").and_then(|n| n.as_str()),
                                                 v.get("venue_name").and_then(|n| n.as_str()),
                                                 v.get("total_contests").and_then(|c| c.as_u64()),
                                                 v.get("win_rate").and_then(|w| w.as_f64()),
                                             ) {
                                                 Some(VenuePerformance {
+                                                    venue_id: venue_id.to_string(),
                                                     venue_name: venue_name.to_string(),
                                                     total_contests,
                                                     win_rate,
@@ -548,6 +789,11 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
                                     let recs: Vec<GameRecommendation> = rec_array
                                         .iter()
                                         .filter_map(|v| {
+                                            let game_id = v
+                                                .get("game_id")
+                                                .and_then(|n| n.as_str())
+                                                .unwrap_or("")
+                                                .to_string();
                                             let game_name = v
                                                 .get("game_name")
                                                 .and_then(|n| n.as_str())
@@ -564,6 +810,7 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
                                                 (game_name, reason, score)
                                             {
                                                 Some(GameRecommendation {
+                                                    game_id,
                                                     game_name: game_name.to_string(),
                                                     reason: reason.to_string(),
                                                     score,
@@ -750,6 +997,12 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
                 </div>
             }
 
+            if let Some(err) = &*tab_analytics_error {
+                <div class="error-message">
+                    <p>{"Tab analytics: "}{err}</p>
+                </div>
+            }
+
             if *loading {
                 // Global skeleton while first load occurs
                 <div class="space-y-6">
@@ -765,6 +1018,10 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
                     // Platform Overview Section
                     <div class="dashboard-section">
                         <h2>{"🏆 Platform Overview"}</h2>
+                        {section_guide(
+                            "Headline counts for the whole community — registered players, contests played, active users, games in the library, and venues on the map.",
+                            "See whether the scene around you is growing before you commit to a new league night or venue. A healthy player base usually means easier matchmaking and more table options."
+                        )}
                         <div class="stats-grid">
                             if let Some(stats) = (*platform_stats).as_ref() {
                                 <div class="stat-card primary">
@@ -804,9 +1061,87 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
                         </div>
                     </div>
 
+                    if *tab_analytics_loading && *current_tab == AnalyticsTab::Overview {
+                        <div class="dashboard-section">
+                            <div class="h-24 rounded-lg bg-gray-100 animate-pulse"></div>
+                        </div>
+                    } else if let Some(data) = &*tab_analytics {
+                        if *current_tab == AnalyticsTab::Overview {
+                            <div class="dashboard-section">
+                                <h2>{"📈 Player Engagement"}</h2>
+                                {section_guide(
+                                    "How many people joined in the last 30 days versus came back for another contest, plus the share of contests that finished with recorded results.",
+                                    "Spot whether the community is attracting newcomers and keeping them. A high completion rate means posted results you can trust for ratings and rivalries."
+                                )}
+                                <div class="stats-grid">
+                                    <div class="stat-card success">
+                                        <h3>{"New Players (30d)"}</h3>
+                                        <div class="stat-value">{data["new_players_30d"].as_i64().unwrap_or(0)}</div>
+                                        <div class="stat-subtitle">{"First contest in period"}</div>
+                                    </div>
+                                    <div class="stat-card success">
+                                        <h3>{"Returning (30d)"}</h3>
+                                        <div class="stat-value">{data["returning_players_30d"].as_i64().unwrap_or(0)}</div>
+                                        <div class="stat-subtitle">{"Played before + active now"}</div>
+                                    </div>
+                                    <div class="stat-card warning">
+                                        <h3>{"Completion Rate"}</h3>
+                                        <div class="stat-value">{format!("{:.0}%", data["contest_completion_rate_pct"].as_f64().unwrap_or(0.0))}</div>
+                                        <div class="stat-subtitle">{"Contests with recorded results"}</div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="dashboard-section">
+                                <h2>{"📊 Week-over-Week Growth"}</h2>
+                                {section_guide(
+                                    "Contests and unique active players in the last 7 days compared with the prior 7 days. The mini bar chart shows contest volume by calendar week in your timezone.",
+                                    "Know if this is a busy week to find open tables or a quiet one to organize your own game. Rising activity often means more opponents at your skill level."
+                                )}
+                                {if let Some(wow) = data.get("week_over_week") {
+                                    html! {
+                                        <>
+                                            <div class="metrics-grid">
+                                                <div class="metric-card">
+                                                    <h3>{"Contests"}</h3>
+                                                    <div class="metric-value">{wow["contests_this_week"].as_i64().unwrap_or(0)}</div>
+                                                    <div class="metric-description">{format!("vs {} last week ({:+.0}%)", wow["contests_last_week"].as_i64().unwrap_or(0), wow["contests_change_pct"].as_f64().unwrap_or(0.0))}</div>
+                                                </div>
+                                                <div class="metric-card">
+                                                    <h3>{"Active Players"}</h3>
+                                                    <div class="metric-value">{wow["players_this_week"].as_i64().unwrap_or(0)}</div>
+                                                    <div class="metric-description">{format!("vs {} last week ({:+.0}%)", wow["players_last_week"].as_i64().unwrap_or(0), wow["players_change_pct"].as_f64().unwrap_or(0.0))}</div>
+                                                </div>
+                                            </div>
+                                            {if let Some(spark) = wow.get("weekly_contest_sparkline").and_then(|v| v.as_array()) {
+                                                html! {
+                                                    <div class="mt-4 flex flex-wrap gap-2 items-end">
+                                                        {for spark.iter().map(|pt| {
+                                                            let count = pt["count"].as_i64().unwrap_or(0);
+                                                            let h = (count as f64).sqrt() * 8.0 + 4.0;
+                                                            html! {
+                                                                <div class="text-center" title={format!("{}: {} contests", pt["label"].as_str().unwrap_or(""), count)}>
+                                                                    <div class="bg-blue-500 rounded-t mx-auto" style={format!("width:2rem;height:{}px", h as i32)}></div>
+                                                                    <div class="text-[10px] text-gray-500 mt-1">{pt["label"].as_str().unwrap_or("").chars().rev().take(3).collect::<String>().chars().rev().collect::<String>()}</div>
+                                                                </div>
+                                                            }
+                                                        })}
+                                                    </div>
+                                                }
+                                            } else { html!{} }}
+                                        </>
+                                    }
+                                } else { html!{<div class="no-data">{"No growth data"}</div>} }}
+                            </div>
+                        }
+                    }
+
                     // Engagement Metrics Section
                     <div class="dashboard-section">
                         <h2>{"📊 Platform Health Metrics"}</h2>
+                        {section_guide(
+                            "Recent contest volume, typical table size, contests per player, what share of players were active this month, and how this month compares to the yearly average.",
+                            "Gauge whether people are actually playing or just signed up. Steady contests per player and activity rate suggest you'll find regular events, not one-off gatherings."
+                        )}
                         <div class="metrics-grid">
                             if let Some(stats) = (*platform_stats).as_ref() {
                                 <div class="metric-card">
@@ -860,6 +1195,10 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
                     // Platform Insights Section
                     <div class="dashboard-section">
                         <h2>{"💡 Platform Insights"}</h2>
+                        {section_guide(
+                            "Quick read on game and venue variety plus overall contest throughput across the platform.",
+                            "A wider game library and more venues mean more chances to try new titles and meet players without traveling far. Use this when planning what to learn or where to host."
+                        )}
                         <div class="insights-grid">
                             if let Some(stats) = (*platform_stats).as_ref() {
                                 <div class="insight-card">
@@ -921,6 +1260,10 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
                     // Top Games & Venues Section
                     <div class="dashboard-section">
                         <h2>{"🏆 Popular Games & Venues"}</h2>
+                        {section_guide(
+                            "The games and locations with the most recorded plays on the platform right now.",
+                            "Follow the crowd when you want a guaranteed pickup game, or avoid the top entries when you're looking for something less crowded. Busy venues are good bets for finding opponents."
+                        )}
                         <div class="popularity-grid">
                             if let Some(stats) = (*platform_stats).as_ref() {
                                 <div class="popularity-card">
@@ -932,7 +1275,7 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
                                                     html! {
                                                         <div class="popularity-item">
                                                             <span class="rank">{i + 1}</span>
-                                                            <span class="name">{game["game_name"].as_str().unwrap_or("Unknown")}</span>
+                                                            <span class="name">{game_link_from(game, "game_id", "game_name", "Unknown")}</span>
                                                             <span class="count">{game["plays"].as_i64().unwrap_or(0)} {"plays"}</span>
                                                         </div>
                                                     }
@@ -954,7 +1297,7 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
                                                     html! {
                                                         <div class="popularity-item">
                                                             <span class="rank">{i + 1}</span>
-                                                            <span class="name">{venue["venue_name"].as_str().unwrap_or("Unknown")}</span>
+                                                            <span class="name">{venue_link_from(venue, "venue_id", "venue_name", "Unknown")}</span>
                                                             <span class="count">{venue["contests_held"].as_i64().unwrap_or(0)} {"contests"}</span>
                                                         </div>
                                                     }
@@ -977,6 +1320,10 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
                     // Growth Trends Section
                     <div class="dashboard-section">
                         <h2>{"📈 Activity Trends"}</h2>
+                        {section_guide(
+                            "Side-by-side snapshots of this month's contests and active players, total platform scale, and simple engagement ratios.",
+                            "Compare short-term buzz (30 days) with long-term size. If monthly contests are rising while average table size holds steady, the scene is growing without thinning out your games."
+                        )}
                         <div class="trends-grid">
                             if let Some(stats) = (*platform_stats).as_ref() {
                                 <div class="trend-card">
@@ -1090,6 +1437,10 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
                     if let Some(chart_data) = (*activity_metrics_chart).as_ref() {
                         <div class="dashboard-section">
                             <h2>{"Activity Metrics"}</h2>
+                            {section_guide(
+                                "A line chart of monthly active players and monthly contests over recent months.",
+                                "See whether participation is climbing or cooling off before you invest in a new game night. Align your schedule with upward trends to meet more players."
+                            )}
                             <div class="chart-container">
                                 <ChartRenderer
                                     chart_data={chart_data.clone()}
@@ -1100,13 +1451,138 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
                             </div>
                         </div>
                     }
+
+                    // Quick Actions
+                    <div class="dashboard-section">
+                        <h2>{"⚡ Quick Actions"}</h2>
+                        <div class="actions-grid">
+                            <button class="action-button primary" onclick={|_| {
+                                gloo_utils::window().location().reload().unwrap();
+                            }}>
+                                {"🔄 Refresh Dashboard"}
+                            </button>
+                            <button class="action-button secondary" onclick={|_| {
+                                log::info!("Export functionality would be implemented here");
+                            }}>
+                                {"📊 Export Data"}
+                            </button>
+                            <button class="action-button secondary" onclick={|_| {
+                                log::info!("Report generation would be implemented here");
+                            }}>
+                                {"📋 Generate Report"}
+                            </button>
+                        </div>
+                    </div>
+
+                    // System Health Section
+                    <div class="dashboard-section">
+                        <h2>{"💚 System Health"}</h2>
+                        <div class="health-grid">
+                            <div class="health-card">
+                                <h3>{"Database Status"}</h3>
+                                <div class="health-indicator online">{"🟢 Online"}</div>
+                                <div class="health-details">{"All collections accessible"}</div>
+                            </div>
+                            <div class="health-card">
+                                <h3>{"Cache Status"}</h3>
+                                <div class="health-indicator online">{"🟢 Online"}</div>
+                                <div class="health-details">{"Redis cache active"}</div>
+                            </div>
+                            <div class="health-card">
+                                <h3>{"API Response"}</h3>
+                                <div class="health-indicator online">{"🟢 Online"}</div>
+                                <div class="health-details">{"Endpoints responding"}</div>
+                            </div>
+                        </div>
+                    </div>
                     }
 
                     // Contests Tab
                     if *current_tab == AnalyticsTab::Contests {
+                        if *tab_analytics_loading {
+                            <div class="dashboard-section"><div class="h-24 rounded-lg bg-gray-100 animate-pulse"></div></div>
+                        } else if let Some(data) = &*tab_analytics {
+                            <div class="dashboard-section">
+                                <h2>{"⏱️ Contest Metrics"}</h2>
+                                {section_guide(
+                                    "Typical contest length from start to finish, and how long it usually takes for a posted contest to reach its start time.",
+                                    "Plan your evening — know if games run two hours or four, and whether you need to sign up days ahead or can jump in same-day."
+                                )}
+                                <div class="stats-grid">
+                                    <div class="stat-card primary">
+                                        <h3>{"Avg Duration"}</h3>
+                                        <div class="stat-value">{format!("{:.0}", data["avg_duration_minutes"].as_f64().unwrap_or(0.0))}</div>
+                                        <div class="stat-subtitle">{"minutes"}</div>
+                                    </div>
+                                    <div class="stat-card info">
+                                        <h3>{"Time to Fill"}</h3>
+                                        <div class="stat-value">{format!("{:.1}", data["avg_time_to_fill_hours"].as_f64().unwrap_or(0.0))}</div>
+                                        <div class="stat-subtitle">{"hours (created → start)"}</div>
+                                    </div>
+                                </div>
+                            </div>
+                            {if let Some(sizes) = data.get("size_distribution").and_then(|v| v.as_array()) {
+                                html! {
+                                    <div class="dashboard-section">
+                                        <h2>{"👥 Contest Size Distribution"}</h2>
+                                        {section_guide(
+                                            "How many contests were played at each player count (2-player, 3–4, 5–6, etc.).",
+                                            "Pick games and events that match how people actually play here. If most tables are 4-player, prioritize titles that shine at that count."
+                                        )}
+                                        <div class="popularity-list">
+                                            {for sizes.iter().map(|row| html! {
+                                                <div class="popularity-item">
+                                                    <span class="name">{row["label"].as_str().unwrap_or("")}</span>
+                                                    <span class="count">{row["count"].as_i64().unwrap_or(0)} {"contests"}</span>
+                                                </div>
+                                            })}
+                                        </div>
+                                    </div>
+                                }
+                            } else { html!{} }}
+                            {if let Some(cells) = data.get("peak_participants_heatmap").and_then(|v| v.as_array()) {
+                                html! {
+                                    <div class="dashboard-section">
+                                        <h2>{"📊 Peak Capacity by Time (avg participants)"}</h2>
+                                        {section_guide(
+                                            &format!(
+                                                "A weekday × hour grid showing average players per contest in {}. Darker green = fuller tables.",
+                                                timezone_label(&player_timezone)
+                                            ),
+                                            "Find the sweet spots when tables actually fill up — great for competitive play — versus quieter hours when you can learn a new game without pressure."
+                                        )}
+                                        <div class="overflow-x-auto">
+                                            <div class="inline-grid gap-1" style="grid-template-columns: auto repeat(24, 1.5rem);">
+                                                <div></div>
+                                                {for (0..24).map(|h| html!{<div class="w-6 text-[10px] text-gray-500 text-center">{format!("{:02}", h)}</div>})}
+                                                {for (0..7).map(|day_idx| {
+                                                    let day_label = match day_idx { 0=>"Sun",1=>"Mon",2=>"Tue",3=>"Wed",4=>"Thu",5=>"Fri", _=>"Sat" };
+                                                    html! {
+                                                        <>
+                                                            <div class="text-[10px] text-gray-500 pr-1">{day_label}</div>
+                                                            {for (0..24).map(|hour| {
+                                                                let val = cells.iter().find(|c| c["day"].as_i64().unwrap_or(-1) == day_idx && c["hour"].as_i64().unwrap_or(-1) == hour)
+                                                                    .and_then(|c| c["value"].as_f64()).unwrap_or(0.0);
+                                                                let intensity = if val == 0.0 { 0.0 } else { (val / 6.0).min(1.0) };
+                                                                let bg = if intensity == 0.0 { "bg-gray-100" } else if intensity < 0.25 { "bg-green-100" } else if intensity < 0.5 { "bg-green-200" } else if intensity < 0.75 { "bg-green-400" } else { "bg-green-600" };
+                                                                html!{<div class={classes!("w-6","h-6","rounded", bg)} title={format!("{} {:02}:00 — {:.1} avg players", day_label, hour, val)}></div>}
+                                                            })}
+                                                        </>
+                                                    }
+                                                })}
+                                            </div>
+                                        </div>
+                                    </div>
+                                }
+                            } else { html!{} }}
+                        }
                         if let Some(chart_data) = (*contest_trends_chart).as_ref() {
                             <div class="dashboard-section">
                                 <h2>{"Contest Trends"}</h2>
+                                {section_guide(
+                                    "Monthly contest counts over the past year — how many games were logged each month.",
+                                    "Spot busy seasons and slow months. Schedule your big events when activity is already high, or fill a gap when the community goes quiet."
+                                )}
                                 <div class="chart-container">
                                     <ChartRenderer
                                         chart_data={chart_data.clone()}
@@ -1139,9 +1615,13 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
                                     })}
                                 </div>
                             </div>
-                            <p class="mt-1 mb-3 text-sm text-gray-600">
-                                {"Rows are days of week (Sun–Sat). Columns are hours in UTC (00–23). Colors indicate how many contests started in that hour over the last N weeks (darker = more)."}
-                            </p>
+                            {section_guide(
+                                &format!(
+                                    "Each cell is a day-of-week row and hour column in {}. Color shows how many contests started in that slot over the selected window (darker blue = more).",
+                                    timezone_label(&player_timezone)
+                                ),
+                                "Compare community rhythm with your own schedule. Dark bands reveal when players are online — line up your regular game night or discover underused slots with less competition for tables."
+                            )}
                             if *contest_heatmap_loading {
                                 <div class="h-64 rounded-lg bg-gray-100 animate-pulse"></div>
                             } else if let Some(err) = &*contest_heatmap_error {
@@ -1191,15 +1671,90 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
                                 <div class="text-sm text-gray-500">{"No heatmap data available"}</div>
                             }
                         </div>
+
+                        <div class="dashboard-section">
+                            <h2>{"🕹️ Recent Contests"}</h2>
+                            {section_guide(
+                                "The latest contests logged on the platform, with game, player count, and duration.",
+                                "Jump straight into a finished or in-progress event — open any row to see results, players, and venue details."
+                            )}
+                            if *recent_contests_loading {
+                                <div class="h-32 rounded-lg bg-gray-100 animate-pulse"></div>
+                            } else if let Some(err) = &*recent_contests_error {
+                                <div class="error-message"><p>{err}</p></div>
+                            } else if let Some(rows) = &*recent_contests {
+                                if rows.is_empty() {
+                                    <div class="no-data"><p>{"No recent contests found"}</p></div>
+                                } else {
+                                    <div class="overflow-x-auto">
+                                        <table class="min-w-full divide-y divide-gray-200 text-sm">
+                                            <thead class="bg-gray-50">
+                                                <tr>
+                                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">{"Contest"}</th>
+                                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">{"When"}</th>
+                                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">{"Players"}</th>
+                                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">{"Duration"}</th>
+                                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">{"Top Game"}</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody class="bg-white divide-y divide-gray-200">
+                                                {for rows.iter().map(|c| {
+                                                    let contest_id = c["contest_id"].as_str().unwrap_or("");
+                                                    let label = contest_label_from_json(c);
+                                                    let when = c.get("started_at")
+                                                        .and_then(|v| v.as_str())
+                                                        .map(|s| format_in_player_timezone(s, &player_timezone))
+                                                        .unwrap_or_else(|| "—".to_string());
+                                                    let players = c["participant_count"].as_i64().unwrap_or(0);
+                                                    let duration = c["duration_minutes"].as_i64().unwrap_or(0);
+                                                    let game = c.get("most_popular_game").and_then(|v| v.as_str()).unwrap_or("—");
+                                                    html! {
+                                                        <tr class="hover:bg-gray-50">
+                                                            <td class="px-4 py-2">{contest_link(contest_id, &label)}</td>
+                                                            <td class="px-4 py-2 text-gray-600">{when}</td>
+                                                            <td class="px-4 py-2">{players}</td>
+                                                            <td class="px-4 py-2">{format!("{} min", duration)}</td>
+                                                            <td class="px-4 py-2 text-gray-600">{game}</td>
+                                                        </tr>
+                                                    }
+                                                })}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                }
+                            } else {
+                                <div class="no-data"><p>{"Recent contests not loaded"}</p></div>
+                            }
+                        </div>
                     }
 
 
 
                     // Venues Tab
                     if *current_tab == AnalyticsTab::Venues {
-                        // Reuse venue-related sections (popular venues)
+                        if let Some(stats) = (*platform_stats).as_ref() {
+                            <div class="dashboard-section">
+                                <h2>{"🏟️ Venue Overview"}</h2>
+                                {section_guide(
+                                    "Total registered play locations on the platform.",
+                                    "More venues usually means games closer to home and different atmospheres — cafes, shops, clubs — to match how you like to play."
+                                )}
+                                <div class="stats-grid">
+                                    <div class="stat-card info">
+                                        <h3>{"Total Venues"}</h3>
+                                        <div class="stat-value">{stats["total_venues"].as_i64().unwrap_or(0)}</div>
+                                        <div class="stat-subtitle">{"Registered play locations"}</div>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+
                         <div class="dashboard-section">
                             <h2>{"🏟️ Top Venues"}</h2>
+                            {section_guide(
+                                "Venues ranked by how many contests have been held at each location.",
+                                "The busiest spots are where you're most likely to walk in and find a game. Use this when choosing where to spend your first visit."
+                            )}
                             if let Some(stats) = (*platform_stats).as_ref() {
                                 if let Some(top_venues) = stats["top_venues"].as_array() {
                                     if !top_venues.is_empty() {
@@ -1208,7 +1763,7 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
                                                 html! {
                                                     <div class="popularity-item">
                                                         <span class="rank">{i + 1}</span>
-                                                        <span class="name">{venue["venue_name"].as_str().unwrap_or("Unknown")}</span>
+                                                        <span class="name">{venue_link_from(venue, "venue_id", "venue_name", "Unknown")}</span>
                                                         <span class="count">{venue["contests_held"].as_i64().unwrap_or(0)} {"contests"}</span>
                                                     </div>
                                                 }
@@ -1222,12 +1777,243 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
                                 }
                             }
                         </div>
+
+                        if *tab_analytics_loading {
+                            <div class="dashboard-section"><div class="h-24 rounded-lg bg-gray-100 animate-pulse"></div></div>
+                        } else if let Some(data) = &*tab_analytics {
+                            <div class="dashboard-section">
+                                <h2>{"🔄 Venue Retention"}</h2>
+                                {section_guide(
+                                    "The percentage of players who return to the same venue for another contest after their first visit.",
+                                    "High retention means a venue people genuinely come back to — not just a one-time meetup spot. Favor those places for building a local group."
+                                )}
+                                <div class="stat-card success">
+                                    <h3>{"Return Rate"}</h3>
+                                    <div class="stat-value">{format!("{:.0}%", data["venue_retention_rate_pct"].as_f64().unwrap_or(0.0))}</div>
+                                    <div class="stat-subtitle">{"Players who revisit the same venue"}</div>
+                                </div>
+                            </div>
+                            {if let Some(rows) = data.get("utilization").and_then(|v| v.as_array()) {
+                                html! {
+                                    <div class="dashboard-section">
+                                        <h2>{"📈 Venue Utilization (30d)"}</h2>
+                                        {section_guide(
+                                            "Contests held at each venue in the last 30 days.",
+                                            "See which locations are hot right now versus fading. A venue with steady recent activity is a safer bet for finding players this month."
+                                        )}
+                                        <div class="popularity-list">
+                                            {for rows.iter().map(|v| html! {
+                                                <div class="popularity-item">
+                                                    <span class="name">{venue_link_from(v, "venue_id", "venue_name", "Unknown")}</span>
+                                                    <span class="count">{v["contests_30d"].as_i64().unwrap_or(0)} {"contests"}</span>
+                                                </div>
+                                            })}
+                                        </div>
+                                    </div>
+                                }
+                            } else { html!{} }}
+                            {if let Some(rows) = data.get("diverse_venues").and_then(|v| v.as_array()) {
+                                html! {
+                                    <div class="dashboard-section">
+                                        <h2>{"🎲 Most Diverse Venues"}</h2>
+                                        {section_guide(
+                                            "Venues that host the widest variety of games, with total contest counts.",
+                                            "Great for explorers — these locations rotate through many titles so you can sample new games without committing to a single league."
+                                        )}
+                                        <div class="overflow-x-auto">
+                                            <table class="min-w-full divide-y divide-gray-200">
+                                                <thead class="bg-gray-50"><tr>
+                                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">{"Venue"}</th>
+                                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">{"Unique Games"}</th>
+                                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">{"Contests"}</th>
+                                                </tr></thead>
+                                                <tbody class="bg-white divide-y divide-gray-200">
+                                                    {for rows.iter().map(|v| html! {
+                                                        <tr>
+                                                            <td class="px-4 py-2 text-sm">{venue_link_from(v, "venue_id", "venue_name", "")}</td>
+                                                            <td class="px-4 py-2 text-sm">{v["unique_games"].as_i64().unwrap_or(0)}</td>
+                                                            <td class="px-4 py-2 text-sm">{v["total_contests"].as_i64().unwrap_or(0)}</td>
+                                                        </tr>
+                                                    })}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                }
+                            } else { html!{} }}
+                            {if let Some(rows) = data.get("timeslot_breakdown").and_then(|v| v.as_array()) {
+                                html! {
+                                    <div class="dashboard-section">
+                                        <h2>{"🕐 Venue × Timeslot Activity"}</h2>
+                                        {section_guide(
+                                            &format!(
+                                                "Which venues see the most contests in Morning, Afternoon, or Evening buckets, using {} local time.",
+                                                timezone_label(&player_timezone)
+                                            ),
+                                            "Match a venue to your lifestyle — morning coffee-shop sessions versus evening weeknight games. Pick the combo that fits when you can actually play."
+                                        )}
+                                        <div class="overflow-x-auto">
+                                            <table class="min-w-full divide-y divide-gray-200 text-sm">
+                                                <thead class="bg-gray-50"><tr>
+                                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">{"Venue"}</th>
+                                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">{"Timeslot"}</th>
+                                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">{"Contests"}</th>
+                                                </tr></thead>
+                                                <tbody class="bg-white divide-y divide-gray-200">
+                                                    {for rows.iter().take(15).map(|v| html! {
+                                                        <tr>
+                                                            <td class="px-4 py-2">{venue_link_from(v, "venue_id", "venue_name", "")}</td>
+                                                            <td class="px-4 py-2">{v["timeslot"].as_str().unwrap_or("")}</td>
+                                                            <td class="px-4 py-2">{format!("{:.0}", v["contest_count"].as_f64().unwrap_or(0.0))}</td>
+                                                        </tr>
+                                                    })}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                }
+                            } else { html!{} }}
+                        }
+
+                        <div class="dashboard-section">
+                            <h2>{"📍 Your Venue Performance"}</h2>
+                            {section_guide(
+                                "Every venue you've played at, with your contest count and win rate at each.",
+                                "Discover your home turf — where you play most and where you perform best. Lean into strong venues for tournaments and try new spots where your win rate suggests room to grow."
+                            )}
+                            if *venue_loading {
+                                <div class="loading-container"><p>{"Loading venue performance..."}</p></div>
+                            } else if let Some(performance) = (*venue_performance).as_ref() {
+                                if !performance.is_empty() {
+                                    <div class="overflow-x-auto">
+                                        <table class="min-w-full divide-y divide-gray-200">
+                                            <thead class="bg-gray-50">
+                                                <tr>
+                                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{"Venue"}</th>
+                                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{"Contests"}</th>
+                                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{"Win Rate"}</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody class="bg-white divide-y divide-gray-200">
+                                                {performance.iter().map(|v| {
+                                                    html! {
+                                                        <tr>
+                                                            <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-700">{venue_link(&v.venue_id, &v.venue_name)}</td>
+                                                            <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-700">{v.total_contests}</td>
+                                                            <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-700">{format!("{:.1}%", v.win_rate)}</td>
+                                                        </tr>
+                                                    }
+                                                }).collect::<Html>()}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                } else {
+                                    <div class="no-data"><p>{"No venue performance data yet. Play contests at venues to see stats here."}</p></div>
+                                }
+                            } else {
+                                <div class="no-data"><p>{"Venue performance not loaded"}</p></div>
+                            }
+                        </div>
                     }
 
                     // Games Tab
                     if *current_tab == AnalyticsTab::Games {
+                        if *tab_analytics_loading {
+                            <div class="dashboard-section"><div class="h-24 rounded-lg bg-gray-100 animate-pulse"></div></div>
+                        } else if let Some(data) = &*tab_analytics {
+                            <div class="dashboard-section">
+                                <h2>{"🏆 Platform Top Games"}</h2>
+                                {section_guide(
+                                    "Games with the most recorded plays across the whole platform.",
+                                    "See what's trending in your community before buying or learning a title. Popular games are easier to get to the table."
+                                )}
+                                {if let Some(games) = data.get("top_games").and_then(|v| v.as_array()) {
+                                    html! {
+                                        <div class="popularity-list">
+                                            {for games.iter().enumerate().map(|(i, g)| html! {
+                                                <div class="popularity-item">
+                                                    <span class="rank">{i + 1}</span>
+                                                    <span class="name">{game_link_from(g, "game_id", "game_name", "Unknown")}</span>
+                                                    <span class="count">{g["plays"].as_i64().unwrap_or(0)} {"plays"}</span>
+                                                </div>
+                                            })}
+                                        </div>
+                                    }
+                                } else { html!{<div class="no-data">{"No game data"}</div>} }}
+                            </div>
+                            <div class="dashboard-section">
+                                <h2>{"🎯 Player Count Fit"}</h2>
+                                {section_guide(
+                                    "How often contests use the most common table size on the platform (e.g. 4-player).",
+                                    "A high score means posted games usually match typical group sizes — less friction finding a seat that fits the rules. Low scores may mean more niche player counts."
+                                )}
+                                <div class="stat-value text-3xl font-bold mt-2">{format!("{:.0}%", data["player_count_fit_score_pct"].as_f64().unwrap_or(0.0))}</div>
+                            </div>
+                            {if let Some(rows) = data.get("cross_venue_popularity").and_then(|v| v.as_array()) {
+                                html! {
+                                    <div class="dashboard-section">
+                                        <h2>{"🌍 Cross-Venue Popularity"}</h2>
+                                        {section_guide(
+                                            "Games played across multiple venues — how many locations and total plays each title has.",
+                                            "Titles that travel well are safe picks wherever you go. Single-venue hits might be local favorites worth trying at that specific spot."
+                                        )}
+                                        <div class="overflow-x-auto">
+                                            <table class="min-w-full divide-y divide-gray-200 text-sm">
+                                                <thead class="bg-gray-50"><tr>
+                                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">{"Game"}</th>
+                                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">{"Venues"}</th>
+                                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">{"Plays"}</th>
+                                                </tr></thead>
+                                                <tbody class="bg-white divide-y divide-gray-200">
+                                                    {for rows.iter().map(|g| html! {
+                                                        <tr>
+                                                            <td class="px-4 py-2">{game_link_from(g, "game_id", "game_name", "")}</td>
+                                                            <td class="px-4 py-2">{g["venue_count"].as_i64().unwrap_or(0)}</td>
+                                                            <td class="px-4 py-2">{g["total_plays"].as_i64().unwrap_or(0)}</td>
+                                                        </tr>
+                                                    })}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                }
+                            } else { html!{} }}
+                            {if let Some(trends) = data.get("longevity_trends").and_then(|v| v.as_array()) {
+                                html! {
+                                    <div class="dashboard-section">
+                                        <h2>{"📈 Game Longevity Trends"}</h2>
+                                        {section_guide(
+                                            "Month-by-month play counts for selected games — whether interest is rising, steady, or fading.",
+                                            "Avoid investing in a dying fad or catch a rising title early. Pair this with your own taste to choose what to learn next."
+                                        )}
+                                        {for trends.iter().map(|game| {
+                                            let game_id = game["game_id"].as_str().unwrap_or("");
+                                            let name = game["game_name"].as_str().unwrap_or("Unknown");
+                                            html! {
+                                                <div class="mb-4">
+                                                    <h3 class="text-sm font-medium text-gray-900 mb-1">{game_link(game_id, name)}</h3>
+                                                    {if let Some(months) = game.get("monthly_plays").and_then(|v| v.as_array()) {
+                                                        html! {
+                                                            <div class="flex flex-wrap gap-2 text-xs text-gray-600">
+                                                                {for months.iter().map(|m| html! {
+                                                                    <span class="bg-gray-100 px-2 py-1 rounded">{m["period"].as_str().unwrap_or("")}{": "}{m["plays"].as_i64().unwrap_or(0)}</span>
+                                                                })}
+                                                            </div>
+                                                        }
+                                                    } else { html!{} }}
+                                                </div>
+                                            }
+                                        })}
+                                    </div>
+                                }
+                            } else { html!{} }}
+                        }
                         <div class="dashboard-section">
                             <h2>{"🎮 Game Analytics"}</h2>
+                            {section_guide(
+                                "Look up a specific game to see total plays, unique players and venues, average duration, top players, and popular locations.",
+                                "Research before you show up — know if a game is a quick filler or an all-night affair, and who the regulars are if you want a friendly table."
+                            )}
                             <div class="games-analytics-controls">
                                 <input
                                     class="input"
@@ -1283,7 +2069,7 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
                                                 let navigator = navigator.clone();
                                                 html! {
                                                     <tr>
-                                                        <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-700">{g.name.clone()}</td>
+                                                        <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-700">{game_link(&gid, &g.name)}</td>
                                                         <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-700">{g.year_published.map(|y| y.to_string()).unwrap_or_else(|| "".to_string())}</td>
                                                         <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-700">{g.bgg_id.map(|id| id.to_string()).unwrap_or_else(|| "".to_string())}</td>
                                                         <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-700 space-x-2">
@@ -1341,9 +2127,14 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
                                         <div class="space-y-2">
                                             {if let Some(top_players) = analytics_data.get("top_players").and_then(|v| v.as_array()) {
                                                 html! { {for top_players.iter().take(5).map(|player| {
+                                                    let name = player.get("name").and_then(|v| v.as_str()).unwrap_or("Unknown");
+                                                    let player_id = player.get("player_id")
+                                                        .or_else(|| player.get("id"))
+                                                        .and_then(|v| v.as_str())
+                                                        .unwrap_or("");
                                                     html! {
                                                         <div class="flex justify-between text-sm">
-                                                            <span class="text-gray-700">{player.get("name").and_then(|v| v.as_str()).unwrap_or("Unknown")}</span>
+                                                            <span class="text-gray-700">{player_link_from_id(player_id, name)}</span>
                                                             <span class="text-gray-500">{player.get("plays").and_then(|v| v.as_u64()).unwrap_or(0)} {"plays"}</span>
                                                         </div>
                                                     }
@@ -1358,7 +2149,7 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
                                                 html! { {for top_venues.iter().take(5).map(|venue| {
                                                     html! {
                                                         <div class="flex justify-between text-sm">
-                                                            <span class="text-gray-700">{venue.get("name").and_then(|v| v.as_str()).unwrap_or("Unknown")}</span>
+                                                            <span class="text-gray-700">{venue_link_from(venue, "venue_id", "name", "Unknown")}</span>
                                                             <span class="text-gray-500">{venue.get("plays").and_then(|v| v.as_u64()).unwrap_or(0)} {"plays"}</span>
                                                         </div>
                                                     }
@@ -1371,13 +2162,142 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
                                 <div class="no-data"><p>{"Enter a game ID to view analytics"}</p></div>
                             }
                         </div>
+
+                        if let Some(chart_data) = (*game_popularity_chart).as_ref() {
+                            <div class="dashboard-section">
+                                <h2>{"Games by Player Count Distribution"}</h2>
+                                {section_guide(
+                                    "A chart of how contests break down by number of players — which table sizes are most common on the platform.",
+                                    "Bring games that fit the local meta. If the chart peaks at 4 players, your 2-player duel might need a dedicated partner rather than an open night."
+                                )}
+                                <div class="chart-container">
+                                    <ChartRenderer
+                                        chart_data={chart_data.clone()}
+                                        chart_id={"game-popularity-chart".to_string()}
+                                        width={Some(800)}
+                                        height={Some(400)}
+                                    />
+                                </div>
+                            </div>
+                        }
                     }
 
                     // Players Tab
                     if *current_tab == AnalyticsTab::Players {
+                        if *tab_analytics_loading {
+                            <div class="dashboard-section"><div class="h-24 rounded-lg bg-gray-100 animate-pulse"></div></div>
+                        } else if let Some(data) = &*tab_analytics {
+                            <div class="dashboard-section">
+                                <h2>{"📊 Your Activity"}</h2>
+                                {section_guide(
+                                    "Your current win streak, best-ever streak, and how many days since your last recorded contest.",
+                                    "Track consistency and spot when you've gone quiet. Streaks reward regular play; a long gap might mean it's time to post or join a contest."
+                                )}
+                                <div class="stats-grid">
+                                    <div class="stat-card primary">
+                                        <h3>{"Current Streak"}</h3>
+                                        <div class="stat-value">{data["current_streak"].as_i64().unwrap_or(0)}</div>
+                                    </div>
+                                    <div class="stat-card success">
+                                        <h3>{"Longest Streak"}</h3>
+                                        <div class="stat-value">{data["longest_streak"].as_i64().unwrap_or(0)}</div>
+                                    </div>
+                                    <div class="stat-card info">
+                                        <h3>{"Days Since Last Contest"}</h3>
+                                        <div class="stat-value">{data["days_since_last_contest"].as_i64().unwrap_or(-1)}</div>
+                                        {if let Some(last_id) = data.get("last_contest_id").and_then(|v| v.as_str()).filter(|s| !s.is_empty()) {
+                                            html! {
+                                                <div class="stat-subtitle mt-2">
+                                                    {"Last played: "}{contest_link(last_id, "View contest")}
+                                                </div>
+                                            }
+                                        } else { html!{} }}
+                                    </div>
+                                </div>
+                            </div>
+                            {if let Some(buckets) = data.get("rating_distribution").and_then(|v| v.as_array()) {
+                                html! {
+                                    <div class="dashboard-section">
+                                        <h2>{"📈 Rating Distribution (Platform)"}</h2>
+                                        {section_guide(
+                                            "How many rated players fall into each skill band on the platform.",
+                                            "See where you sit in the field — crowded middle bands mean lots of peers at your level; thin tails mean fewer extreme beginners or experts."
+                                        )}
+                                        <div class="flex flex-wrap gap-3 items-end mt-2">
+                                            {for buckets.iter().map(|b| {
+                                                let count = b["player_count"].as_i64().unwrap_or(0);
+                                                let h = (count as f64).sqrt() * 6.0 + 4.0;
+                                                html! {
+                                                    <div class="text-center">
+                                                        <div class="bg-purple-500 rounded-t mx-auto" style={format!("width:3rem;height:{}px", h as i32)}></div>
+                                                        <div class="text-xs text-gray-600 mt-1">{b["range_label"].as_str().unwrap_or("")}</div>
+                                                        <div class="text-xs text-gray-500">{count}</div>
+                                                    </div>
+                                                }
+                                            })}
+                                        </div>
+                                    </div>
+                                }
+                            } else { html!{} }}
+                            {if let Some(points) = data.get("skill_trajectory").and_then(|v| v.as_array()) {
+                                html! {
+                                    <div class="dashboard-section">
+                                        <h2>{"📉 Skill Trajectory"}</h2>
+                                        {section_guide(
+                                            "Your Glicko-2 rating over recent rating periods, with games played in each window (times shown in your timezone).",
+                                            "Watch whether you're improving, plateauing, or slipping. Pair rating moves with games played to see if changes are meaningful or just noise from inactivity."
+                                        )}
+                                        <div class="space-y-1 text-sm">
+                                            {for points.iter().map(|p| html! {
+                                                <div class="flex justify-between border-b border-gray-100 py-1">
+                                                    <span>{p["period"].as_str().unwrap_or("")}</span>
+                                                    <span>{format!("{:.0} rating", p["rating"].as_f64().unwrap_or(0.0))}</span>
+                                                    <span class="text-gray-500">{p["games_played"].as_i64().unwrap_or(0)}{" games"}</span>
+                                                </div>
+                                            })}
+                                        </div>
+                                    </div>
+                                }
+                            } else { html!{} }}
+                            {if let Some(h2h) = data.get("head_to_head_top").and_then(|v| v.as_array()) {
+                                html! {
+                                    <div class="dashboard-section">
+                                        <h2>{"⚔️ Head-to-Head (Top Opponents)"}</h2>
+                                        {section_guide(
+                                            "Players you've faced most often, with your wins and win rate against each.",
+                                            "Identify rivals and nemeses — someone you beat often is a confidence booster; a tough opponent shows where to study. Great for picking rematches or balanced tables."
+                                        )}
+                                        <div class="overflow-x-auto">
+                                            <table class="min-w-full divide-y divide-gray-200 text-sm">
+                                                <thead class="bg-gray-50"><tr>
+                                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">{"Opponent"}</th>
+                                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">{"Contests"}</th>
+                                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">{"Your Wins"}</th>
+                                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">{"Win %"}</th>
+                                                </tr></thead>
+                                                <tbody class="bg-white divide-y divide-gray-200">
+                                                    {for h2h.iter().map(|o| html! {
+                                                        <tr>
+                                                            <td class="px-4 py-2">{player_link_from_id(o["opponent_id"].as_str().unwrap_or(""), o["opponent_handle"].as_str().unwrap_or(""))}</td>
+                                                            <td class="px-4 py-2">{o["total_contests"].as_i64().unwrap_or(0)}</td>
+                                                            <td class="px-4 py-2">{o["my_wins"].as_i64().unwrap_or(0)}</td>
+                                                            <td class="px-4 py-2">{format!("{:.0}%", o["my_win_rate"].as_f64().unwrap_or(0.0))}</td>
+                                                        </tr>
+                                                    })}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                }
+                            } else { html!{} }}
+                        }
                     // Glicko2 Ratings Leaderboard Section
                     <div class="dashboard-section">
                         <h2>{"🏆 Glicko2 Ratings Leaderboard"}</h2>
+                        {section_guide(
+                            "Top-rated players by Glicko-2 skill estimate, with rating deviation (RD) showing confidence and when each player was last active.",
+                            "Benchmark yourself against the best in the community. Lower RD means a steadier, battle-tested rating — useful when scouting serious opponents or tournament fields."
+                        )}
                         <div class="glicko-leaderboard-container">
                             if *glicko_loading {
                                 <div class="overflow-x-auto">
@@ -1421,7 +2341,10 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
                                                     let rating = player["rating"].as_f64().unwrap_or(1500.0);
                                                     let rd = player["rd"].as_f64().unwrap_or(350.0);
                                                     let games_played = player["games_played"].as_i64().unwrap_or(0);
-                                                    let last_active = player["last_active"].as_str().unwrap_or("Unknown");
+                                                    let last_active = player["last_active"]
+                                                        .as_str()
+                                                        .map(|s| format_in_player_timezone(s, &player_timezone))
+                                                        .unwrap_or_else(|| "Unknown".to_string());
 
                                                     let row_class = if rank == 1 { "bg-yellow-50" } else if rank == 2 { "bg-gray-50" } else if rank == 3 { "bg-orange-50" } else { "" };
 
@@ -1462,49 +2385,13 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
                         </div>
                     </div>
 
-
-
-                    // Contest Trends Chart
-                    if let Some(chart_data) = (*contest_trends_chart).as_ref() {
-                        <div class="dashboard-section">
-                            <h2>{"Contest Trends"}</h2>
-                            <div class="chart-container">
-                                <ChartRenderer
-                                    chart_data={chart_data.clone()}
-                                    chart_id={"contest-trends-chart".to_string()}
-                                    width={Some(800)}
-                                    height={Some(400)}
-                                />
-                            </div>
-                        </div>
-                    }
-                    }
-
-                    // Games by Player Count Distribution
-                    if let Some(chart_data) = (*game_popularity_chart).as_ref() {
-                        <div class="dashboard-section">
-                            <h2>{"Games by Player Count Distribution"}</h2>
-                            <div class="chart-container">
-                                <ChartRenderer
-                                    chart_data={chart_data.clone()}
-                                    chart_id={"game-popularity-chart".to_string()}
-                                    width={Some(800)}
-                                    height={Some(400)}
-                                />
-                            </div>
-                        </div>
-                    }
-
-
-
-
-
-
-
                     // Game Recommendations Section
                     <div class="dashboard-section">
                         <h2>{"🎮 Game Recommendations"}</h2>
-                        <p class="text-sm text-gray-600 mb-3">{"Personalized suggestions based on opponents, frequency, and inferred preferences."}</p>
+                        {section_guide(
+                            "Games suggested for you based on who you play with, how often you play, and inferred preferences from your history.",
+                            "Skip the research spiral — get pointed at titles you're likely to enjoy and can actually get played with your usual group."
+                        )}
                         if *recommendations_loading {
                             <div class="loading-container"><p>{"Loading game recommendations..."}</p></div>
                         } else if let Some(recommendations) = (*game_recommendations).as_ref() {
@@ -1522,7 +2409,7 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
                                             {recommendations.iter().map(|g| {
                                                 html! {
                                                     <tr>
-                                                        <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-700">{g.game_name.clone()}</td>
+                                                        <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-700">{game_link(&g.game_id, &g.game_name)}</td>
                                                         <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-700">{g.reason.clone()}</td>
                                                         <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-700">{format!("{:.0}%", g.score)}</td>
                                                     </tr>
@@ -1545,7 +2432,10 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
                     // Gaming Communities Section
                     <div class="dashboard-section">
                         <h2>{"👥 Gaming Communities"}</h2>
-                        <p class="text-sm text-gray-600 mb-3">{"Clusters of players the user frequently plays with, highlighting community leaders and strength."}</p>
+                        {section_guide(
+                            "Groups of players who frequently share tables, with a community leader and a strength score for the cluster.",
+                            "Find your people — these are the circles you're already orbiting. Joining a strong community makes recurring game nights and invites much easier."
+                        )}
                         if *communities_loading {
                             <div class="loading-container"><p>{"Loading gaming communities..."}</p></div>
                         } else if let Some(communities_data) = (*gaming_communities).as_ref() {
@@ -1563,12 +2453,13 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
                                             <tbody class="bg-white divide-y divide-gray-200">
                                                 {communities.iter().map(|c| {
                                                     let leader = &c["community_leader"];
+                                                    let leader_id = leader["player_id"].as_str().unwrap_or("");
                                                     let leader_name = leader["opponent_handle"].as_str().unwrap_or("Unknown");
                                                     let total_members = c["total_members"].as_i64().unwrap_or(0);
                                                     let community_strength = c["community_strength"].as_f64().unwrap_or(0.0);
                                                     html! {
                                                         <tr>
-                                                            <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-700">{leader_name}</td>
+                                                            <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-700">{player_link_from_id(leader_id, leader_name)}</td>
                                                             <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-700">{total_members}</td>
                                                             <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-700">{format!("{:.0}", community_strength)}</td>
                                                         </tr>
@@ -1594,6 +2485,10 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
                     // Player Networking Section
                     <div class="dashboard-section">
                         <h2>{"📊 Social Network"}</h2>
+                        {section_guide(
+                            "Your most frequent opponents — contests played together, wins and losses, and when you last shared a table (in your timezone).",
+                            "Map your network at a glance. Reconnect with familiar faces, notice one-sided matchups worth revisiting, and see who you haven't played in a while."
+                        )}
                         if *networking_loading {
                             <div class="loading-container">
                                 <p>{"Loading social network data..."}</p>
@@ -1602,14 +2497,18 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
                             <div class="networking-grid">
                                 if let Some(opponents) = networking_data["opponent_analysis"].as_array() {
                                     {opponents.iter().take(5).map(|opponent| {
+                                        let opponent_id = opponent["opponent_id"].as_str().unwrap_or("");
                                         let opponent_handle = opponent["opponent_handle"].as_str().unwrap_or("Unknown");
                                         let total_contests = opponent["total_contests"].as_i64().unwrap_or(0);
                                         let win_rate = opponent["win_rate"].as_f64().unwrap_or(0.0);
-                                        let last_played = opponent["last_played"].as_str().unwrap_or("Never");
+                                        let last_played = opponent["last_played"]
+                                            .as_str()
+                                            .map(|s| format_in_player_timezone(s, &player_timezone))
+                                            .unwrap_or_else(|| "Never".to_string());
 
                                         html! {
                                             <div class="opponent-card">
-                                                <h3>{opponent_handle}</h3>
+                                                <h3>{player_link_from_id(opponent_id, opponent_handle)}</h3>
                                                 <div class="opponent-stats">
                                                     <div class="stat">
                                                         <span class="label">{"Games:"}</span>
@@ -1639,53 +2538,7 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
                             </div>
                         }
                     </div>
-
-                    // Quick Actions
-                    <div class="dashboard-section">
-                        <h2>{"⚡ Quick Actions"}</h2>
-                        <div class="actions-grid">
-                            <button class="action-button primary" onclick={|_| {
-                                // Refresh all charts
-                                gloo_utils::window().location().reload().unwrap();
-                            }}>
-                                {"🔄 Refresh Dashboard"}
-                            </button>
-                            <button class="action-button secondary" onclick={|_| {
-                                // Export data
-                                log::info!("Export functionality would be implemented here");
-                            }}>
-                                {"📊 Export Data"}
-                            </button>
-                            <button class="action-button secondary" onclick={|_| {
-                                // Generate report
-                                log::info!("Report generation would be implemented here");
-                            }}>
-                                {"📋 Generate Report"}
-                            </button>
-                        </div>
-                    </div>
-
-                    // System Health Section
-                    <div class="dashboard-section">
-                        <h2>{"💚 System Health"}</h2>
-                        <div class="health-grid">
-                            <div class="health-card">
-                                <h3>{"Database Status"}</h3>
-                                <div class="health-indicator online">{"🟢 Online"}</div>
-                                <div class="health-details">{"All collections accessible"}</div>
-                            </div>
-                            <div class="health-card">
-                                <h3>{"Cache Status"}</h3>
-                                <div class="health-indicator online">{"🟢 Online"}</div>
-                                <div class="health-details">{"Redis cache active"}</div>
-                            </div>
-                            <div class="health-card">
-                                <h3>{"API Response"}</h3>
-                                <div class="health-indicator online">{"🟢 Online"}</div>
-                                <div class="health-details">{"Endpoints responding"}</div>
-                            </div>
-                        </div>
-                    </div>
+                    }
                 </div>
             }
         </div>

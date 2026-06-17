@@ -43,7 +43,8 @@ impl AnalyticsController {
             .and_then(|w| w.parse::<i32>().ok())
             .unwrap_or(8);
         let game_id = query.get("game_id").map(|s| s.as_str());
-        match self.usecase.get_contest_heatmap(weeks, game_id).await {
+        let timezone = query.get("timezone").map(|s| s.as_str());
+        match self.usecase.get_contest_heatmap(weeks, game_id, timezone).await {
             Ok(payload) => Ok(HttpResponse::Ok().json(payload)),
             Err(e) => {
                 log::error!("Failed to get contest heatmap: {}", e);
@@ -175,6 +176,94 @@ impl AnalyticsController {
                 log::error!("Failed to get platform insights: {}", e);
                 Ok(HttpResponse::InternalServerError().json(json!({
                     "error": "Failed to get platform insights"
+                })))
+            }
+        }
+    }
+
+    pub async fn get_overview_tab(
+        &self,
+        _req: HttpRequest,
+        query: web::Query<std::collections::HashMap<String, String>>,
+    ) -> Result<HttpResponse, actix_web::Error> {
+        let timezone = query.get("timezone").map(|s| s.as_str());
+        match self.usecase.get_overview_tab(timezone).await {
+            Ok(data) => Ok(HttpResponse::Ok().json(data)),
+            Err(e) => {
+                log::error!("Failed to get overview tab analytics: {}", e);
+                Ok(HttpResponse::InternalServerError().json(json!({
+                    "error": "Failed to get overview tab analytics"
+                })))
+            }
+        }
+    }
+
+    pub async fn get_contests_tab(
+        &self,
+        _req: HttpRequest,
+        query: web::Query<std::collections::HashMap<String, String>>,
+    ) -> Result<HttpResponse, actix_web::Error> {
+        let timezone = query.get("timezone").map(|s| s.as_str());
+        match self.usecase.get_contests_tab(timezone).await {
+            Ok(data) => Ok(HttpResponse::Ok().json(data)),
+            Err(e) => {
+                log::error!("Failed to get contests tab analytics: {}", e);
+                Ok(HttpResponse::InternalServerError().json(json!({
+                    "error": "Failed to get contests tab analytics"
+                })))
+            }
+        }
+    }
+
+    pub async fn get_venues_tab(
+        &self,
+        _req: HttpRequest,
+        query: web::Query<std::collections::HashMap<String, String>>,
+    ) -> Result<HttpResponse, actix_web::Error> {
+        let timezone = query.get("timezone").map(|s| s.as_str());
+        match self.usecase.get_venues_tab(timezone).await {
+            Ok(data) => Ok(HttpResponse::Ok().json(data)),
+            Err(e) => {
+                log::error!("Failed to get venues tab analytics: {}", e);
+                Ok(HttpResponse::InternalServerError().json(json!({
+                    "error": "Failed to get venues tab analytics"
+                })))
+            }
+        }
+    }
+
+    pub async fn get_games_tab(
+        &self,
+        _req: HttpRequest,
+        _query: web::Query<std::collections::HashMap<String, String>>,
+    ) -> Result<HttpResponse, actix_web::Error> {
+        match self.usecase.get_games_tab().await {
+            Ok(data) => Ok(HttpResponse::Ok().json(data)),
+            Err(e) => {
+                log::error!("Failed to get games tab analytics: {}", e);
+                Ok(HttpResponse::InternalServerError().json(json!({
+                    "error": "Failed to get games tab analytics"
+                })))
+            }
+        }
+    }
+
+    pub async fn get_players_tab(
+        &self,
+        req: HttpRequest,
+        query: web::Query<std::collections::HashMap<String, String>>,
+    ) -> Result<HttpResponse, actix_web::Error> {
+        let player_id = match self.resolve_player_id(&req, Some(&query)).await {
+            Ok(id) => id,
+            Err(resp) => return Ok(resp),
+        };
+        let timezone = query.get("timezone").map(|s| s.as_str());
+        match self.usecase.get_players_tab(&player_id, timezone).await {
+            Ok(data) => Ok(HttpResponse::Ok().json(data)),
+            Err(e) => {
+                log::error!("Failed to get players tab analytics: {}", e);
+                Ok(HttpResponse::InternalServerError().json(json!({
+                    "error": "Failed to get players tab analytics"
                 })))
             }
         }
@@ -970,9 +1059,10 @@ impl AnalyticsController {
         query: web::Query<std::collections::HashMap<String, String>>,
     ) -> Result<HttpResponse, actix_web::Error> {
         let config = self.parse_chart_config(&query);
+        let timezone = query.get("timezone").map(|s| s.as_str());
         match self
             .usecase
-            .get_venue_performance_timeslot_chart(Some(config))
+            .get_venue_performance_timeslot_chart(Some(config), timezone)
             .await
         {
             Ok(chart) => Ok(HttpResponse::Ok().json(chart)),
@@ -1724,6 +1814,24 @@ pub fn configure_routes(
             .route("/insights", web::get().to(|req: HttpRequest, controller: web::Data<AnalyticsController>| async move {
                 controller.get_platform_insights(req).await
             }))
+            .service(
+                web::scope("/tabs")
+                    .route("/overview", web::get().to(|req: HttpRequest, query: web::Query<std::collections::HashMap<String, String>>, controller: web::Data<AnalyticsController>| async move {
+                        controller.get_overview_tab(req, query).await
+                    }))
+                    .route("/contests", web::get().to(|req: HttpRequest, query: web::Query<std::collections::HashMap<String, String>>, controller: web::Data<AnalyticsController>| async move {
+                        controller.get_contests_tab(req, query).await
+                    }))
+                    .route("/venues", web::get().to(|req: HttpRequest, query: web::Query<std::collections::HashMap<String, String>>, controller: web::Data<AnalyticsController>| async move {
+                        controller.get_venues_tab(req, query).await
+                    }))
+                    .route("/games", web::get().to(|req: HttpRequest, query: web::Query<std::collections::HashMap<String, String>>, controller: web::Data<AnalyticsController>| async move {
+                        controller.get_games_tab(req, query).await
+                    }))
+                    .route("/players", web::get().to(|req: HttpRequest, query: web::Query<std::collections::HashMap<String, String>>, controller: web::Data<AnalyticsController>| async move {
+                        controller.get_players_tab(req, query).await
+                    }).wrap(AuthMiddleware { redis: std::sync::Arc::new((*redis_client).clone()) }))
+            )
             .route("/sample-platform", web::get().to(|req: HttpRequest, controller: web::Data<AnalyticsController>| async move {
                 controller.get_sample_platform_stats(req).await
             }))
