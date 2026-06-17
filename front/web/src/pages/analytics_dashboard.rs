@@ -332,24 +332,83 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
         use_effect_with(heatmap_weeks.clone(), move |weeks| {
             let w = **weeks;
             contest_heatmap_loading.set(true);
+            contest_heatmap_error.set(None);
             wasm_bindgen_futures::spawn_local(async move {
                 match Request::get(&format!("/api/analytics/contests/heatmap?weeks={}", w))
                     .send()
                     .await
                 {
                     Ok(resp) => {
+                        let status = resp.status();
                         if resp.ok() {
                             match resp.json::<Value>().await {
-                                Ok(data) => contest_heatmap.set(Some(data)),
+                                Ok(data) => {
+                                    // #region agent log
+                                    {
+                                        let buckets_len = data
+                                            .get("buckets")
+                                            .and_then(|b| b.as_array())
+                                            .map(|a| a.len());
+                                        let _ = gloo_net::http::Request::post("http://localhost:7327/ingest/092d89aa-ec11-4f83-9ed9-0567d2046e3c")
+                                            .header("Content-Type", "application/json")
+                                            .header("X-Debug-Session-Id", "62fa5a")
+                                            .body(serde_json::json!({
+                                                "sessionId": "62fa5a",
+                                                "hypothesisId": "D",
+                                                "location": "analytics_dashboard.rs:heatmap_fetch_ok",
+                                                "message": "heatmap response ok",
+                                                "data": { "status": status, "weeks": w, "buckets_rows": buckets_len },
+                                                "timestamp": js_sys::Date::now() as i64,
+                                                "runId": "pre-fix"
+                                            }).to_string())
+                                            .map(|r| r.send());
+                                    }
+                                    // #endregion
+                                    contest_heatmap.set(Some(data));
+                                }
                                 Err(e) => contest_heatmap_error
                                     .set(Some(format!("Failed to parse heatmap: {}", e))),
                             }
                         } else {
+                            // #region agent log
+                            {
+                                let _ = gloo_net::http::Request::post("http://localhost:7327/ingest/092d89aa-ec11-4f83-9ed9-0567d2046e3c")
+                                    .header("Content-Type", "application/json")
+                                    .header("X-Debug-Session-Id", "62fa5a")
+                                    .body(serde_json::json!({
+                                        "sessionId": "62fa5a",
+                                        "hypothesisId": "D",
+                                        "location": "analytics_dashboard.rs:heatmap_fetch_http_err",
+                                        "message": "heatmap response not ok",
+                                        "data": { "status": status, "weeks": w },
+                                        "timestamp": js_sys::Date::now() as i64,
+                                        "runId": "pre-fix"
+                                    }).to_string())
+                                    .map(|r| r.send());
+                            }
+                            // #endregion
                             contest_heatmap_error
-                                .set(Some(format!("Heatmap request failed: {}", resp.status())));
+                                .set(Some(format!("Heatmap request failed: {}", status)));
                         }
                     }
                     Err(e) => {
+                        // #region agent log
+                        {
+                            let _ = gloo_net::http::Request::post("http://localhost:7327/ingest/092d89aa-ec11-4f83-9ed9-0567d2046e3c")
+                                .header("Content-Type", "application/json")
+                                .header("X-Debug-Session-Id", "62fa5a")
+                                .body(serde_json::json!({
+                                    "sessionId": "62fa5a",
+                                    "hypothesisId": "D",
+                                    "location": "analytics_dashboard.rs:heatmap_fetch_err",
+                                    "message": "heatmap fetch failed",
+                                    "data": { "error": e.to_string(), "weeks": w },
+                                    "timestamp": js_sys::Date::now() as i64,
+                                    "runId": "pre-fix"
+                                }).to_string())
+                                .map(|r| r.send());
+                        }
+                        // #endregion
                         contest_heatmap_error.set(Some(format!("Failed to fetch heatmap: {}", e)))
                     }
                 }
@@ -1441,6 +1500,12 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
                                                 {leaderboard.iter().enumerate().map(|(index, player)| {
                                                     let rank = index + 1;
                                                     let player_id = player["player_id"].as_str().unwrap_or("Unknown");
+                                                    let player_key = player_id
+                                                        .split('/')
+                                                        .last()
+                                                        .unwrap_or(player_id)
+                                                        .trim_matches('`')
+                                                        .to_string();
                                                     let handle = player["handle"].as_str().unwrap_or("Unknown");
                                                     let rating = player["rating"].as_f64().unwrap_or(1500.0);
                                                     let rd = player["rd"].as_f64().unwrap_or(350.0);
@@ -1450,11 +1515,16 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
                                                     let row_class = if rank == 1 { "bg-yellow-50" } else if rank == 2 { "bg-gray-50" } else if rank == 3 { "bg-orange-50" } else { "" };
 
                                                     html! {
-                                                        <tr class={classes!(row_class)}>
+                                                        <tr class={classes!(row_class, "hover:bg-gray-50")}>
                                                             <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-700">{rank}</td>
                                                             <td class="px-4 py-2 whitespace-nowrap">
-                                                                <div class="text-sm font-medium text-gray-900">{handle}</div>
-                                                                <div class="text-xs text-gray-500">{"#"}{&player_id[8..]}</div>
+                                                                <Link<Route>
+                                                                    to={Route::PlayerProfile { player_id: player_key.clone() }}
+                                                                    classes="text-blue-600 hover:text-blue-800 hover:underline"
+                                                                >
+                                                                    <div class="text-sm font-medium">{handle}</div>
+                                                                    <div class="text-xs text-gray-500 font-normal">{format!("player/{}", player_key)}</div>
+                                                                </Link<Route>>
                                                             </td>
                                                             <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-700">{format!("{:.0}", rating)}</td>
                                                             <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-700">{format!("{:.0}", rd)}</td>

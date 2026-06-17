@@ -157,6 +157,15 @@ fn scalar_i64(v: &serde_json::Value) -> i64 {
     0
 }
 
+/// Normalize a record id from a Surreal row field (string or record object).
+fn canonical_id_from_value(v: &serde_json::Value, table: &str) -> String {
+    if let Some(s) = v.as_str() {
+        normalize_record_id_string(s)
+    } else {
+        record_id_from_row(&serde_json::json!({ "id": v }), Some(table)).unwrap_or_default()
+    }
+}
+
 /// Extract f64 from SurrealDB result (e.g. math::mean returns number or wrapped).
 fn scalar_f64(v: &serde_json::Value) -> f64 {
     if let Some(n) = v.as_f64() {
@@ -289,6 +298,27 @@ impl AnalyticsRepository {
         weeks: i32,
         game_id: Option<&str>,
     ) -> Result<Vec<HeatRow>> {
+        // #region agent log
+        {
+            use std::io::Write;
+            let payload = serde_json::json!({
+                "sessionId": "62fa5a",
+                "hypothesisId": "A",
+                "location": "repository.rs:get_contest_heatmap:entry",
+                "message": "heatmap request",
+                "data": { "weeks": weeks, "game_id": game_id },
+                "timestamp": chrono::Utc::now().timestamp_millis(),
+                "runId": "pre-fix"
+            });
+            if let Ok(mut f) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open("/home/thebogie/work/stg/.cursor/debug-62fa5a.log")
+            {
+                let _ = writeln!(f, "{}", payload);
+            }
+        }
+        // #endregion
         let contest_ids: Option<Vec<String>> = if let Some(gid) = game_id {
             let key = record_id_to_key(gid, "game");
             if key.is_empty() {
@@ -296,8 +326,9 @@ impl AnalyticsRepository {
             }
             let record_id = surrealdb::types::RecordId::new("game", key.as_str());
             #[derive(serde::Deserialize, serde::Serialize, surrealdb::types::SurrealValue)]
-            struct OutRow {
-                out: Option<surrealdb::types::RecordId>,
+            struct InRow {
+                #[serde(rename = "in")]
+                contest_id: Option<surrealdb::types::RecordId>,
             }
             let mut res = self
                 .db
@@ -305,14 +336,14 @@ impl AnalyticsRepository {
                 .bind(("record_id", record_id))
                 .await
                 .map_err(|e| SharedError::Database(e.to_string()))?;
-            let rows: Vec<OutRow> = res
+            let rows: Vec<InRow> = res
                 .take(0)
                 .map_err(|e| SharedError::Database(format!("heatmap game filter: {}", e)))?;
             let ids: Vec<String> = rows
                 .into_iter()
                 .filter_map(|r| {
                     let rid = r
-                        .out
+                        .contest_id
                         .as_ref()
                         .map(crate::surreal_helpers::record_id_to_canonical)
                         .unwrap_or_default();
@@ -335,7 +366,7 @@ impl AnalyticsRepository {
         // We fetch contest start timestamps and compute (weekday, hour) in Rust instead.
         #[derive(serde::Deserialize, serde::Serialize, surrealdb::types::SurrealValue)]
         struct StartRow {
-            start: Option<String>,
+            start: Option<surrealdb::types::Datetime>,
         }
 
         let sql = if contest_ids.is_some() {
@@ -353,20 +384,104 @@ impl AnalyticsRepository {
         if let Some(ref ids) = contest_ids {
             q = q.bind(("contest_ids", ids.clone()));
         }
-        let mut res = q.await.map_err(|e| SharedError::Database(e.to_string()))?;
-        let rows: Vec<StartRow> = res.take(0).unwrap_or_default();
+        let mut res = q.await.map_err(|e| {
+            // #region agent log
+            {
+                use std::io::Write;
+                let payload = serde_json::json!({
+                    "sessionId": "62fa5a",
+                    "hypothesisId": "A",
+                    "location": "repository.rs:get_contest_heatmap:query_err",
+                    "message": "heatmap SQL await failed",
+                    "data": { "error": e.to_string() },
+                    "timestamp": chrono::Utc::now().timestamp_millis(),
+                    "runId": "pre-fix"
+                });
+                if let Ok(mut f) = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open("/home/thebogie/work/stg/.cursor/debug-62fa5a.log")
+                {
+                    let _ = writeln!(f, "{}", payload);
+                }
+            }
+            // #endregion
+            SharedError::Database(e.to_string())
+        })?;
+        let take_result = res.take::<Vec<StartRow>>(0);
+        let take_err = take_result.as_ref().err().map(|e| e.to_string());
+        let rows: Vec<StartRow> = take_result.unwrap_or_default();
+        // #region agent log
+        {
+            use std::io::Write;
+            let payload = serde_json::json!({
+                "sessionId": "62fa5a",
+                "hypothesisId": "B",
+                "location": "repository.rs:get_contest_heatmap:after_take",
+                "message": "heatmap rows deserialized",
+                "data": {
+                    "row_count": rows.len(),
+                    "take_err": take_err,
+                    "starts_present": rows.iter().filter(|r| r.start.is_some()).count()
+                },
+                "timestamp": chrono::Utc::now().timestamp_millis(),
+                "runId": "pre-fix"
+            });
+            if let Ok(mut f) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open("/home/thebogie/work/stg/.cursor/debug-62fa5a.log")
+            {
+                let _ = writeln!(f, "{}", payload);
+            }
+        }
+        // #endregion
 
         let mut buckets: HashMap<(i32, i32), i64> = HashMap::new();
+        let mut parse_ok = 0usize;
+        let mut parse_fail = 0usize;
+        let mut start_missing = 0usize;
         for r in rows {
-            let Some(start_str) = r.start else { continue };
-            let Ok(dt) = chrono::DateTime::parse_from_rfc3339(&start_str) else {
+            let Some(start) = r.start else {
+                start_missing += 1;
                 continue;
             };
+            let Ok(dt) = chrono::DateTime::parse_from_rfc3339(&start.to_string()) else {
+                parse_fail += 1;
+                continue;
+            };
+            parse_ok += 1;
             let dt_utc = dt.with_timezone(&chrono::Utc);
             let day = dt_utc.weekday().num_days_from_sunday() as i32; // 0..6
             let hour = dt_utc.hour() as i32; // 0..23
             *buckets.entry((day, hour)).or_insert(0) += 1;
         }
+        // #region agent log
+        {
+            use std::io::Write;
+            let payload = serde_json::json!({
+                "sessionId": "62fa5a",
+                "hypothesisId": "C",
+                "location": "repository.rs:get_contest_heatmap:after_parse",
+                "message": "heatmap parse stats",
+                "data": {
+                    "parse_ok": parse_ok,
+                    "parse_fail": parse_fail,
+                    "start_missing": start_missing,
+                    "bucket_cells": buckets.len()
+                },
+                "timestamp": chrono::Utc::now().timestamp_millis(),
+                "runId": "pre-fix"
+            });
+            if let Ok(mut f) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open("/home/thebogie/work/stg/.cursor/debug-62fa5a.log")
+            {
+                let _ = writeln!(f, "{}", payload);
+            }
+        }
+        // #endregion
 
         let mut out: Vec<HeatRow> = buckets
             .into_iter()
@@ -998,9 +1113,10 @@ impl AnalyticsRepository {
 
         let distinct_sql = r#"
             SELECT count() AS count FROM (
-                SELECT DISTINCT VALUE string::lowercase(email)
+                SELECT email
                 FROM player
                 WHERE email != NONE AND email != ""
+                GROUP BY email
             ) GROUP ALL
         "#;
 
@@ -1078,11 +1194,12 @@ impl AnalyticsRepository {
         let sql = r#"
             SELECT count() AS count
             FROM (
-                SELECT DISTINCT VALUE `out`
+                SELECT `out` AS player_id
                 FROM resulted_in
                 WHERE `in` IN (
                     SELECT VALUE id FROM contest WHERE start >= time::now() - duration::from_days($days)
                 )
+                GROUP BY `out`
             ) GROUP ALL
         "#;
         let mut res = self
@@ -1121,7 +1238,7 @@ impl AnalyticsRepository {
         let sql = r#"
             SELECT math::mean(participant_count) AS avg
             FROM (
-                SELECT count() AS participant_count
+                SELECT `in` AS contest_id, count() AS participant_count
                 FROM resulted_in
                 GROUP BY `in`
             ) GROUP ALL
@@ -1141,27 +1258,57 @@ impl AnalyticsRepository {
 
     /// Get top games by play count. SurrealQL has no INNER JOIN; count from played_with then look up names from game.
     async fn get_top_games(&self, limit: i32) -> Result<Vec<(String, i32)>> {
-        let sql = r#"SELECT string::concat(`out`) AS game_id, count() AS plays FROM played_with GROUP BY string::concat(`out`) ORDER BY plays DESC LIMIT $limit"#;
+        let sql = r#"SELECT `out` AS game_id, count() AS plays FROM played_with GROUP BY `out` ORDER BY plays DESC LIMIT $limit"#;
         let mut res = self
             .db
             .query(sql)
             .bind(("limit", limit))
             .await
             .map_err(|e| SharedError::Database(e.to_string()))?;
-        let rows: Vec<serde_json::Value> = res.take(0).unwrap_or_default();
-        let game_ids: Vec<String> = rows
+        let take_result = res.take::<Vec<serde_json::Value>>(0);
+        let take_err = take_result.as_ref().err().map(|e| e.to_string());
+        let rows: Vec<serde_json::Value> = take_result.unwrap_or_default();
+        // #region agent log
+        {
+            use std::io::Write;
+            let sample = rows.first().cloned().unwrap_or(serde_json::Value::Null);
+            let payload = serde_json::json!({
+                "sessionId": "62fa5a",
+                "hypothesisId": "A",
+                "location": "repository.rs:get_top_games:after_group",
+                "message": "top games group query",
+                "data": { "row_count": rows.len(), "take_err": take_err, "sample": sample },
+                "timestamp": chrono::Utc::now().timestamp_millis(),
+                "runId": "post-fix"
+            });
+            if let Ok(mut f) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open("/home/thebogie/work/stg/.cursor/debug-62fa5a.log")
+            {
+                let _ = writeln!(f, "{}", payload);
+            }
+        }
+        // #endregion
+        let record_ids: Vec<surrealdb::types::RecordId> = rows
             .iter()
-            .filter_map(|v| v.get("game_id").and_then(|x| x.as_str()).map(String::from))
-            .map(|s| s.replace('/', ":"))
+            .filter_map(|v| {
+                let canonical = canonical_id_from_value(v.get("game_id")?, "game");
+                let key = record_id_to_key(&canonical, "game");
+                if key.is_empty() {
+                    None
+                } else {
+                    Some(surrealdb::types::RecordId::new("game", key.as_str()))
+                }
+            })
             .collect();
-        if game_ids.is_empty() {
+        if record_ids.is_empty() {
             return Ok(Vec::new());
         }
-        let name_sql = "SELECT string::concat(id) AS game_id, name FROM game WHERE id INSIDE $ids";
         let mut name_res = self
             .db
-            .query(name_sql)
-            .bind(("ids", game_ids))
+            .query("SELECT string::concat(id) AS game_id, name FROM game WHERE id INSIDE $ids")
+            .bind(("ids", record_ids))
             .await
             .map_err(|e| SharedError::Database(e.to_string()))?;
         let name_rows: Vec<serde_json::Value> = name_res.take(0).unwrap_or_default();
@@ -1171,7 +1318,7 @@ impl AnalyticsRepository {
                 let id = v
                     .get("game_id")
                     .and_then(|x| x.as_str())
-                    .map(|s| s.replace('/', ":"))?;
+                    .map(normalize_record_id_string)?;
                 let name = v.get("name").and_then(|x| x.as_str()).map(String::from)?;
                 Some((id, name))
             })
@@ -1179,10 +1326,10 @@ impl AnalyticsRepository {
         let games: Vec<(String, i32)> = rows
             .into_iter()
             .filter_map(|v| {
-                let game_id = v
-                    .get("game_id")
-                    .and_then(|x| x.as_str())
-                    .map(|s| s.replace('/', ":"))?;
+                let game_id = canonical_id_from_value(v.get("game_id")?, "game");
+                if game_id.is_empty() {
+                    return None;
+                }
                 let plays = v.get("plays").map(scalar_i64).unwrap_or(0) as i32;
                 let name = id_to_name
                     .get(&game_id)
@@ -1662,27 +1809,57 @@ WHERE start >= time::now() - duration::days($since_days)
 
     /// Get top venues by contest count. SurrealQL has no INNER JOIN; count from played_at then look up names from venue.
     async fn get_top_venues(&self, limit: i32) -> Result<Vec<(String, i32)>> {
-        let sql = r#"SELECT string::concat(`out`) AS venue_id, count() AS contests FROM played_at GROUP BY string::concat(`out`) ORDER BY contests DESC LIMIT $limit"#;
+        let sql = r#"SELECT `out` AS venue_id, count() AS contests FROM played_at GROUP BY `out` ORDER BY contests DESC LIMIT $limit"#;
         let mut res = self
             .db
             .query(sql)
             .bind(("limit", limit))
             .await
             .map_err(|e| SharedError::Database(e.to_string()))?;
-        let rows: Vec<serde_json::Value> = res.take(0).unwrap_or_default();
-        let venue_ids: Vec<String> = rows
+        let take_result = res.take::<Vec<serde_json::Value>>(0);
+        let take_err = take_result.as_ref().err().map(|e| e.to_string());
+        let rows: Vec<serde_json::Value> = take_result.unwrap_or_default();
+        // #region agent log
+        {
+            use std::io::Write;
+            let sample = rows.first().cloned().unwrap_or(serde_json::Value::Null);
+            let payload = serde_json::json!({
+                "sessionId": "62fa5a",
+                "hypothesisId": "A",
+                "location": "repository.rs:get_top_venues:after_group",
+                "message": "top venues group query",
+                "data": { "row_count": rows.len(), "take_err": take_err, "sample": sample },
+                "timestamp": chrono::Utc::now().timestamp_millis(),
+                "runId": "post-fix"
+            });
+            if let Ok(mut f) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open("/home/thebogie/work/stg/.cursor/debug-62fa5a.log")
+            {
+                let _ = writeln!(f, "{}", payload);
+            }
+        }
+        // #endregion
+        let record_ids: Vec<surrealdb::types::RecordId> = rows
             .iter()
-            .filter_map(|v| v.get("venue_id").and_then(|x| x.as_str()).map(String::from))
-            .map(|s| s.replace('/', ":"))
+            .filter_map(|v| {
+                let canonical = canonical_id_from_value(v.get("venue_id")?, "venue");
+                let key = record_id_to_key(&canonical, "venue");
+                if key.is_empty() {
+                    None
+                } else {
+                    Some(surrealdb::types::RecordId::new("venue", key.as_str()))
+                }
+            })
             .collect();
-        if venue_ids.is_empty() {
+        if record_ids.is_empty() {
             return Ok(Vec::new());
         }
-        let name_sql = "SELECT string::concat(id) AS venue_id, displayName AS name FROM venue WHERE id INSIDE $ids";
         let mut name_res = self
             .db
-            .query(name_sql)
-            .bind(("ids", venue_ids))
+            .query("SELECT string::concat(id) AS venue_id, displayName AS name FROM venue WHERE id INSIDE $ids")
+            .bind(("ids", record_ids))
             .await
             .map_err(|e| SharedError::Database(e.to_string()))?;
         let name_rows: Vec<serde_json::Value> = name_res.take(0).unwrap_or_default();
@@ -1692,7 +1869,7 @@ WHERE start >= time::now() - duration::days($since_days)
                 let id = v
                     .get("venue_id")
                     .and_then(|x| x.as_str())
-                    .map(|s| s.replace('/', ":"))?;
+                    .map(normalize_record_id_string)?;
                 let name = v
                     .get("name")
                     .and_then(|x| x.as_str())
@@ -1704,10 +1881,10 @@ WHERE start >= time::now() - duration::days($since_days)
         let venues: Vec<(String, i32)> = rows
             .into_iter()
             .filter_map(|v| {
-                let venue_id = v
-                    .get("venue_id")
-                    .and_then(|x| x.as_str())
-                    .map(|s| s.replace('/', ":"))?;
+                let venue_id = canonical_id_from_value(v.get("venue_id")?, "venue");
+                if venue_id.is_empty() {
+                    return None;
+                }
                 let contests = v.get("contests").map(scalar_i64).unwrap_or(0) as i32;
                 let name = id_to_name
                     .get(&venue_id)
@@ -2844,10 +3021,8 @@ impl AnalyticsRepository {
         Ok((beat_me, i_beat))
     }
 
-    /// Fetch all head-to-head opponent stats for a player (shared by beat_me / i_beat).
-    /// Two indexed queries: 1) my contest IDs from resulted_in, 2) all resulted_in rows for those contests.
-    /// Avoids nested subqueries that can hang or full-scan in some SurrealDB setups.
-    async fn fetch_opponent_stats(&self, player_id: &str) -> Result<Vec<PlayerOpponentDto>> {
+    /// Fetch all head-to-head opponent stats for a player (shared by beat_me / i_beat / networking).
+    pub async fn fetch_opponent_stats(&self, player_id: &str) -> Result<Vec<PlayerOpponentDto>> {
         let key = player_id_to_key(player_id);
         if key.is_empty() {
             return Ok(Vec::new());
@@ -5611,17 +5786,14 @@ impl AnalyticsRepository {
     pub async fn get_player_rankings(&self, player_id: &str) -> Result<Vec<PlayerRanking>> {
         let mut rankings = Vec::new();
 
-        // Get win rate ranking
         if let Ok(win_rate_rank) = self.get_player_win_rate_ranking(player_id).await {
             rankings.push(win_rate_rank);
         }
 
-        // Get total wins ranking
         if let Ok(total_wins_rank) = self.get_player_total_wins_ranking(player_id).await {
             rankings.push(total_wins_rank);
         }
 
-        // Get total contests ranking
         if let Ok(total_contests_rank) = self.get_player_total_contests_ranking(player_id).await {
             rankings.push(total_contests_rank);
         }
@@ -5629,46 +5801,612 @@ impl AnalyticsRepository {
         Ok(rankings)
     }
 
+    /// Per-player (contests, wins) from resulted_in — SurrealDB 3.x safe GROUP BY on `out`.
+    async fn aggregate_player_contest_stats(&self) -> Result<HashMap<String, (i32, i32)>> {
+        let mut stats: HashMap<String, (i32, i32)> = HashMap::new();
+        let mut res = self
+            .db
+            .query("SELECT `out` AS player_id, count() AS total FROM resulted_in GROUP BY `out`")
+            .await
+            .map_err(|e| SharedError::Database(e.to_string()))?;
+        for row in res.take::<Vec<serde_json::Value>>(0).unwrap_or_default() {
+            let Some(pid_val) = row.get("player_id") else {
+                continue;
+            };
+            let pid = canonical_id_from_value(pid_val, "player");
+            if pid.is_empty() {
+                continue;
+            }
+            let total = row.get("total").map(scalar_i64).unwrap_or(0) as i32;
+            stats.insert(pid, (total, 0));
+        }
+        let mut res2 = self
+            .db
+            .query(
+                "SELECT `out` AS player_id, count() AS wins FROM resulted_in WHERE place = 1 GROUP BY `out`",
+            )
+            .await
+            .map_err(|e| SharedError::Database(e.to_string()))?;
+        for row in res2.take::<Vec<serde_json::Value>>(0).unwrap_or_default() {
+            let Some(pid_val) = row.get("player_id") else {
+                continue;
+            };
+            let pid = canonical_id_from_value(pid_val, "player");
+            if pid.is_empty() {
+                continue;
+            }
+            let wins = row.get("wins").map(scalar_i64).unwrap_or(0) as i32;
+            stats.entry(pid).and_modify(|e| e.1 = wins).or_insert((0, wins));
+        }
+        Ok(stats)
+    }
+
+    fn ranking_for_player(
+        entries: &[(String, f64)],
+        player_id: &str,
+        category: &str,
+    ) -> Result<PlayerRanking> {
+        let target = normalize_player_id(player_id);
+        let rank = entries
+            .iter()
+            .position(|(pid, _)| normalize_player_id(pid) == target)
+            .map(|i| i as i32 + 1)
+            .ok_or_else(|| SharedError::NotFound("Player not found in rankings".to_string()))?;
+        let value = entries
+            .iter()
+            .find(|(pid, _)| normalize_player_id(pid) == target)
+            .map(|(_, v)| *v)
+            .unwrap_or(0.0);
+        Ok(PlayerRanking {
+            category: category.to_string(),
+            rank,
+            total_players: entries.len() as i32,
+            value,
+        })
+    }
+
     /// Get player's win rate ranking
-    async fn get_player_win_rate_ranking(&self, _player_id: &str) -> Result<PlayerRanking> {
-        // TODO: implement with SurrealQL (aggregate win rate per player, sort, find rank)
-        Err(SharedError::NotFound(
-            "Player not found in rankings".to_string(),
-        ))
+    async fn get_player_win_rate_ranking(&self, player_id: &str) -> Result<PlayerRanking> {
+        let stats = self.aggregate_player_contest_stats().await?;
+        let mut entries: Vec<(String, f64)> = stats
+            .into_iter()
+            .filter(|(_, (total, _))| *total >= 3)
+            .map(|(pid, (total, wins))| {
+                let rate = if total > 0 {
+                    (wins as f64 * 100.0) / total as f64
+                } else {
+                    0.0
+                };
+                (pid, rate)
+            })
+            .collect();
+        entries.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        Self::ranking_for_player(&entries, player_id, "win_rate")
     }
 
     /// Get player's total wins ranking
-    async fn get_player_total_wins_ranking(&self, _player_id: &str) -> Result<PlayerRanking> {
-        // TODO: implement with SurrealQL
-        Err(SharedError::NotFound(
-            "Player not found in rankings".to_string(),
-        ))
+    async fn get_player_total_wins_ranking(&self, player_id: &str) -> Result<PlayerRanking> {
+        let stats = self.aggregate_player_contest_stats().await?;
+        let mut entries: Vec<(String, f64)> = stats
+            .into_iter()
+            .map(|(pid, (_, wins))| (pid, wins as f64))
+            .collect();
+        entries.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        Self::ranking_for_player(&entries, player_id, "total_wins")
     }
 
     /// Get player's total contests ranking
-    async fn get_player_total_contests_ranking(&self, _player_id: &str) -> Result<PlayerRanking> {
-        // TODO: implement with SurrealQL
-        Err(SharedError::NotFound(
-            "Player not found in rankings".to_string(),
-        ))
+    async fn get_player_total_contests_ranking(&self, player_id: &str) -> Result<PlayerRanking> {
+        let stats = self.aggregate_player_contest_stats().await?;
+        let mut entries: Vec<(String, f64)> = stats
+            .into_iter()
+            .map(|(pid, (total, _))| (pid, total as f64))
+            .collect();
+        entries.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        Self::ranking_for_player(&entries, player_id, "total_contests")
     }
 
     /// Get player performance distribution by win rate ranges
     pub async fn get_player_performance_distribution(&self) -> Result<Vec<(String, i32)>> {
-        // TODO: implement with SurrealQL
-        Ok(Vec::new())
+        let stats = self.aggregate_player_contest_stats().await?;
+        let labels = ["0-20%", "21-40%", "41-60%", "61-80%", "81-100%"];
+        let mut counts = [0i32; 5];
+        for (_, (total, wins)) in stats {
+            if total < 1 {
+                continue;
+            }
+            let wr = (wins as f64 * 100.0) / total as f64;
+            let idx = if wr <= 20.0 {
+                0
+            } else if wr <= 40.0 {
+                1
+            } else if wr <= 60.0 {
+                2
+            } else if wr <= 80.0 {
+                3
+            } else {
+                4
+            };
+            counts[idx] += 1;
+        }
+        Ok(labels
+            .iter()
+            .enumerate()
+            .map(|(i, label)| (label.to_string(), counts[i]))
+            .collect())
     }
 
     /// Get game difficulty vs popularity data
     pub async fn get_game_difficulty_popularity(&self) -> Result<Vec<(String, f64, i32, f64)>> {
-        // TODO: implement with SurrealQL
-        Ok(Vec::new())
+        let mut res_pw = self
+            .db
+            .query("SELECT `in` AS contest_id, `out` AS game_id FROM played_with")
+            .await
+            .map_err(|e| SharedError::Database(e.to_string()))?;
+        let pw_rows: Vec<serde_json::Value> = res_pw.take(0).unwrap_or_default();
+        let mut contest_to_game: HashMap<String, String> = HashMap::new();
+        for row in &pw_rows {
+            let Some(cid_val) = row.get("contest_id") else {
+                continue;
+            };
+            let Some(gid_val) = row.get("game_id") else {
+                continue;
+            };
+            let cid = canonical_id_from_value(cid_val, "contest");
+            let gid = canonical_id_from_value(gid_val, "game");
+            if !cid.is_empty() && !gid.is_empty() {
+                contest_to_game.insert(cid, gid);
+            }
+        }
+
+        let mut res_ri = self
+            .db
+            .query(
+                "SELECT `in` AS contest_id, count() AS participants, math::min(place) AS min_place FROM resulted_in GROUP BY `in`",
+            )
+            .await
+            .map_err(|e| SharedError::Database(e.to_string()))?;
+        let ri_rows: Vec<serde_json::Value> = res_ri.take(0).unwrap_or_default();
+
+        let mut agg: HashMap<String, (i32, i32, i32)> = HashMap::new(); // plays, sum_participants, completed
+        for row in &ri_rows {
+            let Some(cid_val) = row.get("contest_id") else {
+                continue;
+            };
+            let cid = canonical_id_from_value(cid_val, "contest");
+            let Some(gid) = contest_to_game.get(&cid).cloned() else {
+                continue;
+            };
+            let participants = row
+                .get("participants")
+                .map(scalar_i64)
+                .unwrap_or(0) as i32;
+            let min_place = row.get("min_place").map(scalar_i64).unwrap_or(0) as i32;
+            let completed = if participants > 0 && min_place > 0 {
+                1
+            } else {
+                0
+            };
+            let e = agg.entry(gid).or_insert((0, 0, 0));
+            e.0 += 1;
+            e.1 += participants;
+            e.2 += completed;
+        }
+
+        let game_ids: Vec<surrealdb::types::RecordId> = agg
+            .keys()
+            .filter_map(|gid| {
+                let key = record_id_to_key(gid, "game");
+                if key.is_empty() {
+                    None
+                } else {
+                    Some(surrealdb::types::RecordId::new("game", key.as_str()))
+                }
+            })
+            .collect();
+        let mut names: HashMap<String, String> = HashMap::new();
+        if !game_ids.is_empty() {
+            let mut res_names = self
+                .db
+                .query("SELECT string::concat(id) AS game_id, name FROM game WHERE id INSIDE $ids")
+                .bind(("ids", game_ids))
+                .await
+                .map_err(|e| SharedError::Database(e.to_string()))?;
+            for row in res_names.take::<Vec<serde_json::Value>>(0).unwrap_or_default() {
+                let Some(id_val) = row.get("game_id") else {
+                    continue;
+                };
+                let gid = canonical_id_from_value(id_val, "game");
+                let name = row
+                    .get("name")
+                    .and_then(|n| n.as_str())
+                    .unwrap_or("Unknown")
+                    .to_string();
+                if !gid.is_empty() {
+                    names.insert(gid, name);
+                }
+            }
+        }
+
+        let mut out: Vec<(String, f64, i32, f64)> = agg
+            .into_iter()
+            .map(|(gid, (plays, sum_part, completed))| {
+                let difficulty = if plays > 0 {
+                    sum_part as f64 / plays as f64
+                } else {
+                    0.0
+                };
+                let win_rate = if plays > 0 {
+                    (completed as f64 * 100.0) / plays as f64
+                } else {
+                    0.0
+                };
+                let name = names.get(&gid).cloned().unwrap_or_else(|| "Unknown".to_string());
+                (name, difficulty, plays, win_rate)
+            })
+            .collect();
+        out.sort_by(|a, b| b.2.cmp(&a.2));
+        out.truncate(25);
+        Ok(out)
     }
 
     /// Get venue performance by time slot
     pub async fn get_venue_performance_timeslots(&self) -> Result<Vec<(String, String, f64)>> {
-        // TODO: implement with SurrealQL
-        Ok(Vec::new())
+        let mut res_pa = self
+            .db
+            .query("SELECT `in` AS contest_id, `out` AS venue_id FROM played_at")
+            .await
+            .map_err(|e| SharedError::Database(e.to_string()))?;
+        let pa_rows: Vec<serde_json::Value> = res_pa.take(0).unwrap_or_default();
+        let mut contest_venue: HashMap<String, String> = HashMap::new();
+        for row in &pa_rows {
+            let Some(cid_val) = row.get("contest_id") else {
+                continue;
+            };
+            let Some(vid_val) = row.get("venue_id") else {
+                continue;
+            };
+            let cid = canonical_id_from_value(cid_val, "contest");
+            let vid = canonical_id_from_value(vid_val, "venue");
+            if !cid.is_empty() && !vid.is_empty() {
+                contest_venue.insert(cid, vid);
+            }
+        }
+        if contest_venue.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let contest_ids: Vec<surrealdb::types::RecordId> = contest_venue
+            .keys()
+            .filter_map(|cid| {
+                let key = record_id_to_key(cid, "contest");
+                if key.is_empty() {
+                    None
+                } else {
+                    Some(surrealdb::types::RecordId::new("contest", key.as_str()))
+                }
+            })
+            .collect();
+        let mut res_starts = self
+            .db
+            .query("SELECT id, start FROM contest WHERE id INSIDE $ids")
+            .bind(("ids", contest_ids))
+            .await
+            .map_err(|e| SharedError::Database(e.to_string()))?;
+        #[derive(serde::Deserialize, serde::Serialize, surrealdb::types::SurrealValue)]
+        struct ContestStartRow {
+            id: Option<surrealdb::types::RecordId>,
+            start: Option<surrealdb::types::Datetime>,
+        }
+        let start_rows: Vec<ContestStartRow> = res_starts.take(0).unwrap_or_default();
+        let mut contest_start: HashMap<String, chrono::DateTime<chrono::Utc>> = HashMap::new();
+        for r in start_rows {
+            if let (Some(id), Some(start)) = (r.id, r.start) {
+                let cid = thing_to_record_id(&Some(id));
+                if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(&start.to_string()) {
+                    contest_start.insert(cid, dt.with_timezone(&chrono::Utc));
+                }
+            }
+        }
+
+        fn timeslot_for_hour(hour: u32) -> &'static str {
+            if (6..12).contains(&hour) {
+                "Morning"
+            } else if (12..18).contains(&hour) {
+                "Afternoon"
+            } else {
+                "Evening"
+            }
+        }
+
+        let mut counts: HashMap<(String, String), i32> = HashMap::new();
+        for (cid, vid) in &contest_venue {
+            let Some(start) = contest_start.get(cid) else {
+                continue;
+            };
+            let slot = timeslot_for_hour(start.hour()).to_string();
+            *counts.entry((vid.clone(), slot)).or_insert(0) += 1;
+        }
+
+        let venue_ids: Vec<surrealdb::types::RecordId> = counts
+            .keys()
+            .map(|(vid, _)| vid)
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
+            .filter_map(|vid| {
+                let key = record_id_to_key(vid, "venue");
+                if key.is_empty() {
+                    None
+                } else {
+                    Some(surrealdb::types::RecordId::new("venue", key.as_str()))
+                }
+            })
+            .collect();
+        let mut venue_names: HashMap<String, String> = HashMap::new();
+        if !venue_ids.is_empty() {
+            let mut res_names = self
+                .db
+                .query(
+                    "SELECT string::concat(id) AS venue_id, displayName AS name FROM venue WHERE id INSIDE $ids",
+                )
+                .bind(("ids", venue_ids))
+                .await
+                .map_err(|e| SharedError::Database(e.to_string()))?;
+            for row in res_names.take::<Vec<serde_json::Value>>(0).unwrap_or_default() {
+                let Some(id_val) = row.get("venue_id") else {
+                    continue;
+                };
+                let vid = canonical_id_from_value(id_val, "venue");
+                let name = row
+                    .get("name")
+                    .and_then(|n| n.as_str())
+                    .unwrap_or("Unknown")
+                    .to_string();
+                if !vid.is_empty() {
+                    venue_names.insert(vid, name);
+                }
+            }
+        }
+
+        let mut out: Vec<(String, String, f64)> = counts
+            .into_iter()
+            .map(|((vid, slot), count)| {
+                let name = venue_names
+                    .get(&vid)
+                    .cloned()
+                    .unwrap_or_else(|| "Unknown".to_string());
+                (name, slot, count as f64)
+            })
+            .collect();
+        out.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
+        Ok(out)
+    }
+
+    /// Gaming communities: opponents with overlapping co-players across shared contests.
+    pub async fn get_gaming_communities_for_player(
+        &self,
+        player_id: &str,
+        min_contests: i32,
+    ) -> Result<Vec<serde_json::Value>> {
+        let key = player_id_to_key(player_id);
+        if key.is_empty() {
+            return Ok(Vec::new());
+        }
+        let record_id = surrealdb::types::RecordId::new("player", key.as_str());
+        let mut res1 = self
+            .db
+            .query("SELECT `in` AS contest_id FROM resulted_in WHERE `out` = $record_id")
+            .bind(("record_id", record_id))
+            .await
+            .map_err(|e| SharedError::Database(e.to_string()))?;
+        let my_rows: Vec<ResultedInRow> = res1
+            .take(0)
+            .map_err(|e| SharedError::Database(format!("communities my contests: {}", e)))?;
+        let contest_ids: Vec<String> = my_rows
+            .iter()
+            .filter_map(|r| {
+                let rid = thing_to_record_id(&r.contest_id);
+                if rid.is_empty() {
+                    None
+                } else {
+                    Some(rid.replace('/', ":"))
+                }
+            })
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
+            .collect();
+        if contest_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let contest_things = strings_to_record_id_array(&contest_ids);
+        let mut res = self
+            .db
+            .query(
+                "SELECT `in` AS contest_id, `out` AS player_id FROM resulted_in WHERE `in` INSIDE $contest_ids",
+            )
+            .bind(("contest_ids", contest_things))
+            .await
+            .map_err(|e| SharedError::Database(e.to_string()))?;
+        let rows: Vec<ResultedInRow> = res
+            .take(0)
+            .map_err(|e| SharedError::Database(format!("communities participants: {}", e)))?;
+
+        let my_id_norm = normalize_player_id(player_id);
+        let mut by_contest: HashMap<String, Vec<String>> = HashMap::new();
+        for r in rows {
+            let cid = thing_to_record_id(&r.contest_id);
+            let pid = thing_to_record_id(&r.player_id);
+            if cid.is_empty() || pid.is_empty() || pid == my_id_norm {
+                continue;
+            }
+            by_contest.entry(cid).or_default().push(pid);
+        }
+
+        let mut opponent_contests: HashMap<String, i32> = HashMap::new();
+        for players in by_contest.values() {
+            for pid in players {
+                *opponent_contests.entry(pid.clone()).or_insert(0) += 1;
+            }
+        }
+
+        let mut communities: Vec<serde_json::Value> = Vec::new();
+        for (opponent_id, shared_with_me) in opponent_contests {
+            if shared_with_me < min_contests {
+                continue;
+            }
+            let mut member_set: std::collections::HashSet<String> = std::collections::HashSet::new();
+            let mut strength = 0i32;
+            for players in by_contest.values() {
+                if !players.contains(&opponent_id) {
+                    continue;
+                }
+                for pid in players {
+                    if pid != &opponent_id {
+                        member_set.insert(pid.clone());
+                        strength += 1;
+                    }
+                }
+            }
+            if member_set.is_empty() {
+                continue;
+            }
+            let opp_key = record_id_to_key(&opponent_id, "player");
+            let opp_rid = surrealdb::types::RecordId::new("player", opp_key.as_str());
+            let mut hres = self
+                .db
+                .query("SELECT handle FROM player WHERE id = $record_id LIMIT 1")
+                .bind(("record_id", opp_rid))
+                .await
+                .map_err(|e| SharedError::Database(e.to_string()))?;
+            let handle_rows: Vec<serde_json::Value> = hres.take(0).unwrap_or_default();
+            let handle = handle_rows
+                .first()
+                .and_then(|v| v.get("handle"))
+                .and_then(|h| h.as_str())
+                .unwrap_or("Unknown")
+                .to_string();
+            communities.push(serde_json::json!({
+                "community_leader": {
+                    "opponent_handle": handle,
+                    "player_id": opponent_id,
+                },
+                "total_members": member_set.len(),
+                "community_strength": (strength as f64) + (shared_with_me as f64),
+            }));
+        }
+        communities.sort_by(|a, b| {
+            let sa = a["community_strength"].as_f64().unwrap_or(0.0);
+            let sb = b["community_strength"].as_f64().unwrap_or(0.0);
+            sb.partial_cmp(&sa).unwrap_or(std::cmp::Ordering::Equal)
+        });
+        communities.truncate(10);
+        Ok(communities)
+    }
+
+    /// Get contest completion rate by game
+    pub async fn get_contest_completion_by_game(&self) -> Result<Vec<(String, i32, f64)>> {
+        let mut res_pw = self
+            .db
+            .query("SELECT `in` AS contest_id, `out` AS game_id FROM played_with")
+            .await
+            .map_err(|e| SharedError::Database(e.to_string()))?;
+        let pw_rows: Vec<serde_json::Value> = res_pw.take(0).unwrap_or_default();
+        let mut contest_to_game: HashMap<String, String> = HashMap::new();
+        for row in &pw_rows {
+            let Some(cid_val) = row.get("contest_id") else {
+                continue;
+            };
+            let Some(gid_val) = row.get("game_id") else {
+                continue;
+            };
+            let cid = canonical_id_from_value(cid_val, "contest");
+            let gid = canonical_id_from_value(gid_val, "game");
+            if !cid.is_empty() && !gid.is_empty() {
+                contest_to_game.insert(cid, gid);
+            }
+        }
+
+        let mut res_ri = self
+            .db
+            .query(
+                "SELECT `in` AS contest_id, count() AS participants, math::min(place) AS min_place FROM resulted_in GROUP BY `in`",
+            )
+            .await
+            .map_err(|e| SharedError::Database(e.to_string()))?;
+        let ri_rows: Vec<serde_json::Value> = res_ri.take(0).unwrap_or_default();
+
+        let mut agg: HashMap<String, (i32, i32)> = HashMap::new(); // total, completed
+        for row in &ri_rows {
+            let Some(cid_val) = row.get("contest_id") else {
+                continue;
+            };
+            let cid = canonical_id_from_value(cid_val, "contest");
+            let Some(gid) = contest_to_game.get(&cid).cloned() else {
+                continue;
+            };
+            let participants = row
+                .get("participants")
+                .map(scalar_i64)
+                .unwrap_or(0) as i32;
+            let min_place = row.get("min_place").map(scalar_i64).unwrap_or(0) as i32;
+            let completed = participants > 0 && min_place > 0;
+            let e = agg.entry(gid).or_insert((0, 0));
+            e.0 += 1;
+            if completed {
+                e.1 += 1;
+            }
+        }
+
+        let game_ids: Vec<surrealdb::types::RecordId> = agg
+            .keys()
+            .filter_map(|gid| {
+                let key = record_id_to_key(gid, "game");
+                if key.is_empty() {
+                    None
+                } else {
+                    Some(surrealdb::types::RecordId::new("game", key.as_str()))
+                }
+            })
+            .collect();
+        let mut names: HashMap<String, String> = HashMap::new();
+        if !game_ids.is_empty() {
+            let mut res_names = self
+                .db
+                .query("SELECT string::concat(id) AS game_id, name FROM game WHERE id INSIDE $ids")
+                .bind(("ids", game_ids))
+                .await
+                .map_err(|e| SharedError::Database(e.to_string()))?;
+            for row in res_names.take::<Vec<serde_json::Value>>(0).unwrap_or_default() {
+                let Some(id_val) = row.get("game_id") else {
+                    continue;
+                };
+                let gid = canonical_id_from_value(id_val, "game");
+                let name = row
+                    .get("name")
+                    .and_then(|n| n.as_str())
+                    .unwrap_or("Unknown")
+                    .to_string();
+                if !gid.is_empty() {
+                    names.insert(gid, name);
+                }
+            }
+        }
+
+        let mut out: Vec<(String, i32, f64)> = agg
+            .into_iter()
+            .map(|(gid, (total, completed))| {
+                let rate = if total > 0 {
+                    (completed as f64 * 100.0) / total as f64
+                } else {
+                    0.0
+                };
+                let name = names.get(&gid).cloned().unwrap_or_else(|| "Unknown".to_string());
+                (name, total, rate)
+            })
+            .collect();
+        out.sort_by(|a, b| b.1.cmp(&a.1));
+        out.truncate(25);
+        Ok(out)
     }
 
     /// Get player retention cohort data
@@ -5708,12 +6446,6 @@ impl AnalyticsRepository {
             cohorts.push((week, players, retention));
         }
         Ok(cohorts)
-    }
-
-    /// Get contest completion rate by game
-    pub async fn get_contest_completion_by_game(&self) -> Result<Vec<(String, i32, f64)>> {
-        // TODO: implement with SurrealQL
-        Ok(Vec::new())
     }
 
     /// Get head-to-head win matrix for top players
@@ -5828,8 +6560,152 @@ impl AnalyticsRepository {
 
     /// Get games by player count distribution with individual game breakdowns
     pub async fn get_games_by_player_count(&self) -> Result<Vec<(i32, Vec<(String, i32)>)>> {
-        // TODO: implement with SurrealQL (group by participant count and game name)
-        Ok((2..=10).map(|pc| (pc, Vec::new())).collect())
+        let mut res_pc = self
+            .db
+            .query(
+                "SELECT `in` AS contest_id, count() AS participant_count FROM resulted_in GROUP BY `in`",
+            )
+            .await
+            .map_err(|e| SharedError::Database(e.to_string()))?;
+        let pc_rows: Vec<serde_json::Value> = res_pc.take(0).unwrap_or_default();
+
+        let mut participants_by_contest: HashMap<String, i32> = HashMap::new();
+        for row in &pc_rows {
+            let Some(contest_val) = row.get("contest_id") else {
+                continue;
+            };
+            let contest_id = canonical_id_from_value(contest_val, "contest");
+            if contest_id.is_empty() {
+                continue;
+            }
+            let count = row
+                .get("participant_count")
+                .map(scalar_i64)
+                .unwrap_or(0) as i32;
+            if count >= 2 {
+                participants_by_contest.insert(contest_id, count);
+            }
+        }
+
+        let mut res_pw = self
+            .db
+            .query("SELECT `in` AS contest_id, `out` AS game_id FROM played_with")
+            .await
+            .map_err(|e| SharedError::Database(e.to_string()))?;
+        let pw_rows: Vec<serde_json::Value> = res_pw.take(0).unwrap_or_default();
+
+        let mut plays_by_bucket_game: HashMap<(i32, String), i32> = HashMap::new();
+        for row in &pw_rows {
+            let Some(contest_val) = row.get("contest_id") else {
+                continue;
+            };
+            let Some(game_val) = row.get("game_id") else {
+                continue;
+            };
+            let contest_id = canonical_id_from_value(contest_val, "contest");
+            let game_id = canonical_id_from_value(game_val, "game");
+            if contest_id.is_empty() || game_id.is_empty() {
+                continue;
+            }
+            let Some(participant_count) = participants_by_contest.get(&contest_id) else {
+                continue;
+            };
+            let bucket = if *participant_count >= 10 {
+                10
+            } else {
+                *participant_count
+            };
+            *plays_by_bucket_game
+                .entry((bucket, game_id.clone()))
+                .or_insert(0) += 1;
+        }
+
+        // #region agent log
+        {
+            use std::io::Write;
+            let payload = serde_json::json!({
+                "sessionId": "62fa5a",
+                "hypothesisId": "A",
+                "location": "repository.rs:get_games_by_player_count",
+                "message": "player count distribution aggregation",
+                "data": {
+                    "contest_pc_rows": pc_rows.len(),
+                    "contests_with_2plus": participants_by_contest.len(),
+                    "played_with_rows": pw_rows.len(),
+                    "agg_cells": plays_by_bucket_game.len()
+                },
+                "timestamp": chrono::Utc::now().timestamp_millis(),
+                "runId": "post-fix"
+            });
+            if let Ok(mut f) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open("/home/thebogie/work/stg/.cursor/debug-62fa5a.log")
+            {
+                let _ = writeln!(f, "{}", payload);
+            }
+        }
+        // #endregion
+
+        let game_record_ids: Vec<surrealdb::types::RecordId> = plays_by_bucket_game
+            .keys()
+            .map(|(_, gid)| gid.as_str())
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
+            .filter_map(|gid| {
+                let key = record_id_to_key(gid, "game");
+                if key.is_empty() {
+                    None
+                } else {
+                    Some(surrealdb::types::RecordId::new("game", key.as_str()))
+                }
+            })
+            .collect();
+
+        let mut name_by_game: HashMap<String, String> = HashMap::new();
+        if !game_record_ids.is_empty() {
+            let mut res_names = self
+                .db
+                .query("SELECT string::concat(id) AS game_id, name FROM game WHERE id INSIDE $ids")
+                .bind(("ids", game_record_ids))
+                .await
+                .map_err(|e| SharedError::Database(e.to_string()))?;
+            let name_rows: Vec<serde_json::Value> = res_names.take(0).unwrap_or_default();
+            for row in name_rows {
+                let Some(id_val) = row.get("game_id") else {
+                    continue;
+                };
+                let gid = canonical_id_from_value(id_val, "game");
+                let name = row
+                    .get("name")
+                    .and_then(|n| n.as_str())
+                    .unwrap_or("Unknown")
+                    .to_string();
+                if !gid.is_empty() {
+                    name_by_game.insert(gid, name);
+                }
+            }
+        }
+
+        let mut out: Vec<(i32, Vec<(String, i32)>)> = Vec::new();
+        for bucket in 2..=10 {
+            let mut games: Vec<(String, i32)> = plays_by_bucket_game
+                .iter()
+                .filter_map(|((pc, gid), count)| {
+                    if *pc != bucket {
+                        return None;
+                    }
+                    let name = name_by_game
+                        .get(gid)
+                        .cloned()
+                        .unwrap_or_else(|| "Unknown".to_string());
+                    Some((name, *count))
+                })
+                .collect();
+            games.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+            out.push((bucket, games));
+        }
+        Ok(out)
     }
 }
 

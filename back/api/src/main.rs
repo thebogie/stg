@@ -201,7 +201,10 @@ async fn main() -> std::io::Result<()> {
 
     // Initialize client analytics components
     let client_analytics_repo =
-        backend::client_analytics::repository::ClientAnalyticsRepositoryImpl::new(db.clone());
+        backend::client_analytics::repository::ClientAnalyticsRepositoryImpl::new(
+            db.clone(),
+            config.database.clone(),
+        );
     let client_analytics_usecase =
         backend::client_analytics::usecase::ClientAnalyticsUseCaseImpl::new(client_analytics_repo);
     let client_analytics_controller = web::Data::new(

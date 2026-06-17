@@ -1,3 +1,4 @@
+use crate::analytics::repository::AnalyticsRepository;
 use crate::db::Db;
 use crate::surreal_helpers::{
     record_id_from_field, record_id_from_row, record_id_to_key, scalar_i64,
@@ -5,6 +6,7 @@ use crate::surreal_helpers::{
 use async_trait::async_trait;
 use chrono::{DateTime, FixedOffset};
 use log;
+use crate::config::DatabaseConfig;
 use shared::dto::client_sync::*;
 use shared::error::SharedError;
 use shared::models::{contest::Contest, game::Game, player::Player, venue::Venue};
@@ -100,6 +102,7 @@ pub struct ContestParticipant {
 /// Implementation of client analytics repository
 pub struct ClientAnalyticsRepositoryImpl {
     db: Db,
+    analytics: AnalyticsRepository,
 }
 
 fn to_rid(s: &str) -> String {
@@ -205,8 +208,11 @@ fn json_to_game(v: &serde_json::Value) -> Option<Game> {
 }
 
 impl ClientAnalyticsRepositoryImpl {
-    pub fn new(db: Db) -> Self {
-        Self { db }
+    pub fn new(db: Db, database_config: DatabaseConfig) -> Self {
+        Self {
+            analytics: AnalyticsRepository::new(db.clone(), database_config),
+            db,
+        }
     }
 
     /// Fetch contest ids for a player (two-query workaround for IN (SELECT VALUE out) returning [] in some SurrealDB setups).
@@ -826,8 +832,33 @@ impl ClientAnalyticsRepository for ClientAnalyticsRepositoryImpl {
             player_id,
             min_contests
         );
-        let _ = (self, player_id, min_contests);
-        Ok(Vec::new())
+        let communities = self
+            .analytics
+            .get_gaming_communities_for_player(player_id, min_contests)
+            .await
+            .map_err(|e| SharedError::Database(e.to_string()))?;
+        // #region agent log
+        {
+            use std::io::Write;
+            let payload = serde_json::json!({
+                "sessionId": "62fa5a",
+                "hypothesisId": "H-communities",
+                "location": "client_analytics/repository.rs:get_gaming_communities",
+                "message": "communities result",
+                "data": { "player_id": player_id, "count": communities.len() },
+                "timestamp": chrono::Utc::now().timestamp_millis(),
+                "runId": "post-fix"
+            });
+            if let Ok(mut f) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open("/home/thebogie/work/stg/.cursor/debug-62fa5a.log")
+            {
+                let _ = writeln!(f, "{}", payload);
+            }
+        }
+        // #endregion
+        Ok(communities)
     }
 
     async fn get_player_networking(
@@ -838,12 +869,89 @@ impl ClientAnalyticsRepository for ClientAnalyticsRepositoryImpl {
             "🔍 Getting player networking insights for player: {}",
             player_id
         );
-        // Stub: return minimal structure; full SurrealQL can be added later
+        let opponents = self
+            .analytics
+            .fetch_opponent_stats(player_id)
+            .await
+            .map_err(|e| SharedError::Database(e.to_string()))?;
+
+        let rid = to_rid(player_id);
+        let (_, player_key) = split_rid_owned(&rid);
+        let player_rid = surrealdb::types::RecordId::new("player", player_key.as_str());
+        let mut hres = self
+            .db
+            .query("SELECT handle FROM player WHERE id = $record_id LIMIT 1")
+            .bind(("record_id", player_rid))
+            .await
+            .map_err(|e| SharedError::Database(e.to_string()))?;
+        let handle_rows: Vec<serde_json::Value> = hres.take(0).unwrap_or_default();
+        let player_handle = handle_rows
+            .first()
+            .and_then(|v| v.get("handle"))
+            .and_then(|h| h.as_str())
+            .unwrap_or("")
+            .to_string();
+
+        let mut opponent_analysis: Vec<serde_json::Value> = opponents
+            .iter()
+            .map(|o| {
+                let my_win_rate = if o.contests_played > 0 {
+                    (o.losses_to_me as f64 * 100.0) / o.contests_played as f64
+                } else {
+                    0.0
+                };
+                let last_played = o
+                    .last_played
+                    .map(|dt| dt.to_rfc3339())
+                    .unwrap_or_else(|| "Never".to_string());
+                serde_json::json!({
+                    "opponent_handle": o.player_handle,
+                    "opponent_id": o.player_id,
+                    "total_contests": o.contests_played,
+                    "win_rate": my_win_rate,
+                    "last_played": last_played,
+                })
+            })
+            .collect();
+        opponent_analysis.sort_by(|a, b| {
+            let ca = a["total_contests"].as_i64().unwrap_or(0);
+            let cb = b["total_contests"].as_i64().unwrap_or(0);
+            cb.cmp(&ca)
+        });
+
+        // #region agent log
+        {
+            use std::io::Write;
+            let payload = serde_json::json!({
+                "sessionId": "62fa5a",
+                "hypothesisId": "H-networking",
+                "location": "client_analytics/repository.rs:get_player_networking",
+                "message": "networking result",
+                "data": {
+                    "player_id": player_id,
+                    "opponent_count": opponents.len(),
+                    "top_opponent": opponent_analysis.first().cloned()
+                },
+                "timestamp": chrono::Utc::now().timestamp_millis(),
+                "runId": "post-fix"
+            });
+            if let Ok(mut f) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open("/home/thebogie/work/stg/.cursor/debug-62fa5a.log")
+            {
+                let _ = writeln!(f, "{}", payload);
+            }
+        }
+        // #endregion
+
         Ok(serde_json::json!({
             "player_id": player_id,
-            "player_handle": "",
-            "opponent_analysis": [],
-            "network_metrics": { "total_opponents": 0 }
+            "player_handle": player_handle,
+            "opponent_analysis": opponent_analysis,
+            "network_metrics": {
+                "total_opponents": opponents.len(),
+            }
         }))
     }
 
