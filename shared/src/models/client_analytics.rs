@@ -2,6 +2,22 @@ use chrono::{DateTime, FixedOffset};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+fn compute_streaks_from_client_contests(contests: &[ClientContest]) -> (i32, i32) {
+    let mut sorted: Vec<&ClientContest> = contests.iter().collect();
+    sorted.sort_by(|a, b| b.start.cmp(&a.start));
+    let mut longest_streak = 0i32;
+    let mut temp_streak = 0i32;
+    for contest in sorted {
+        match contest.my_result.result.as_str() {
+            "won" => temp_streak = temp_streak.max(0) + 1,
+            "lost" => temp_streak = temp_streak.min(0) - 1,
+            _ => temp_streak = 0,
+        }
+        longest_streak = longest_streak.max(temp_streak.abs());
+    }
+    (temp_streak, longest_streak)
+}
+
 /// Optimized contest data for client-side analytics
 /// Strips unnecessary fields and flattens relationships for fast access
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -436,6 +452,8 @@ impl ClientAnalyticsCache {
             worst_placement = worst_placement.max(placement);
         }
 
+        let (current_streak, longest_streak) = compute_streaks_from_client_contests(contests);
+
         CoreStats {
             total_contests,
             total_wins,
@@ -456,8 +474,8 @@ impl ClientAnalyticsCache {
                 best_placement
             },
             worst_placement,
-            current_streak: 0, // Would need to compute from full dataset
-            longest_streak: 0, // Would need to compute from full dataset
+            current_streak,
+            longest_streak,
             skill_rating: 1000.0,
             total_points: 0,
         }

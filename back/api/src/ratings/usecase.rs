@@ -334,6 +334,8 @@ impl RatingsUsecase {
         // Load existing ratings for all players in scope (contest participants plus anyone with a latest rating)
         let mut last_period_end_by_player: std::collections::HashMap<String, String> =
             std::collections::HashMap::new();
+        let mut prior_games_played: std::collections::HashMap<String, i32> =
+            std::collections::HashMap::new();
         for player_id in &all_players {
             if let Some(existing_rating) = self
                 .repo
@@ -352,6 +354,11 @@ impl RatingsUsecase {
                     .get("volatility")
                     .and_then(|x| x.as_f64())
                     .unwrap_or(self.params.default_vol);
+                let existing_gp = existing_rating
+                    .get("games_played")
+                    .and_then(|x| x.as_i64())
+                    .unwrap_or(0) as i32;
+                prior_games_played.insert(player_id.clone(), existing_gp);
                 if let Some(lpe) = existing_rating
                     .get("last_period_end")
                     .and_then(|x| x.as_str())
@@ -506,7 +513,9 @@ impl RatingsUsecase {
         let now = Utc::now().to_rfc3339();
         for ((player_id, scope), state) in latest.into_iter() {
             if let RatingScope::Global = scope {
-                let gp = *games_played.get(&player_id).unwrap_or(&0);
+                let period_gp = *games_played.get(&player_id).unwrap_or(&0);
+                let prior_gp = *prior_games_played.get(&player_id).unwrap_or(&0);
+                let total_gp = prior_gp.saturating_add(period_gp);
                 let wins = *wins_by_player.get(&player_id).unwrap_or(&0);
                 let losses = *losses_by_player.get(&player_id).unwrap_or(&0);
                 self.repo
@@ -515,7 +524,7 @@ impl RatingsUsecase {
                         state.rating,
                         state.rd,
                         state.vol,
-                        gp,
+                        total_gp,
                         &period_end,
                         &now,
                     )
@@ -528,7 +537,7 @@ impl RatingsUsecase {
                         state.rating,
                         state.rd,
                         state.vol,
-                        gp,
+                        period_gp,
                         wins,
                         losses,
                         0,

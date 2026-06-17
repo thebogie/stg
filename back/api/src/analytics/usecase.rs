@@ -26,6 +26,20 @@ impl AnalyticsUseCase {
         }
     }
 
+    fn finite_f64(n: f64) -> f64 {
+        if n.is_finite() { n } else { 0.0 }
+    }
+
+    pub(crate) fn sanitize_platform_stats_dto(dto: &mut PlatformStatsDto) {
+        dto.average_participants_per_contest = Self::finite_f64(dto.average_participants_per_contest);
+        for game in &mut dto.top_games {
+            game.popularity_score = Self::finite_f64(game.popularity_score);
+        }
+        for venue in &mut dto.top_venues {
+            venue.activity_score = Self::finite_f64(venue.activity_score);
+        }
+    }
+
     fn default_player_stats(player_id: &str) -> PlayerStatsDto {
         PlayerStatsDto {
             player_id: player_id.to_string(),
@@ -105,14 +119,16 @@ impl AnalyticsUseCase {
 
         // Try to get from cache first
         if let Some(cached_data) = self.cache.get(&cache_key).await {
-            if let Ok(stats) = serde_json::from_str::<PlatformStatsDto>(&cached_data) {
+            if let Ok(mut stats) = serde_json::from_str::<PlatformStatsDto>(&cached_data) {
+                Self::sanitize_platform_stats_dto(&mut stats);
                 return Ok(stats);
             }
         }
 
         // If not in cache, get from repository
         let stats = self.repo.get_platform_stats().await?;
-        let dto = PlatformStatsDto::from(&stats);
+        let mut dto = PlatformStatsDto::from(&stats);
+        Self::sanitize_platform_stats_dto(&mut dto);
 
         // Cache the result
         let json_data = serde_json::to_string(&dto)?;

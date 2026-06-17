@@ -168,30 +168,33 @@ fn canonical_id_from_value(v: &serde_json::Value, table: &str) -> String {
 
 /// Extract f64 from SurrealDB result (e.g. math::mean returns number or wrapped).
 fn scalar_f64(v: &serde_json::Value) -> f64 {
+    fn finite(n: f64) -> f64 {
+        if n.is_finite() { n } else { 0.0 }
+    }
     if let Some(n) = v.as_f64() {
-        return n;
+        return finite(n);
     }
     if let Some(n) = v.as_i64() {
-        return n as f64;
+        return finite(n as f64);
     }
     if let Some(n) = v.as_u64() {
-        return n as f64;
+        return finite(n as f64);
     }
     if let Some(obj) = v.as_object() {
         for key in &["count", "Count", "total", "value", "mean"] {
             if let Some(n) = obj.get(*key).and_then(|c| c.as_f64()) {
-                return n;
+                return finite(n);
             }
             if let Some(n) = obj.get(*key).and_then(|c| c.as_i64()) {
-                return n as f64;
+                return finite(n as f64);
             }
         }
         for (_, val) in obj {
             if let Some(n) = val.as_f64() {
-                return n;
+                return finite(n);
             }
             if let Some(n) = val.as_i64() {
-                return n as f64;
+                return finite(n as f64);
             }
         }
     }
@@ -298,27 +301,6 @@ impl AnalyticsRepository {
         weeks: i32,
         game_id: Option<&str>,
     ) -> Result<Vec<HeatRow>> {
-        // #region agent log
-        {
-            use std::io::Write;
-            let payload = serde_json::json!({
-                "sessionId": "62fa5a",
-                "hypothesisId": "A",
-                "location": "repository.rs:get_contest_heatmap:entry",
-                "message": "heatmap request",
-                "data": { "weeks": weeks, "game_id": game_id },
-                "timestamp": chrono::Utc::now().timestamp_millis(),
-                "runId": "pre-fix"
-            });
-            if let Ok(mut f) = std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open("/home/thebogie/work/stg/.cursor/debug-62fa5a.log")
-            {
-                let _ = writeln!(f, "{}", payload);
-            }
-        }
-        // #endregion
         let contest_ids: Option<Vec<String>> = if let Some(gid) = game_id {
             let key = record_id_to_key(gid, "game");
             if key.is_empty() {
@@ -384,104 +366,24 @@ impl AnalyticsRepository {
         if let Some(ref ids) = contest_ids {
             q = q.bind(("contest_ids", ids.clone()));
         }
-        let mut res = q.await.map_err(|e| {
-            // #region agent log
-            {
-                use std::io::Write;
-                let payload = serde_json::json!({
-                    "sessionId": "62fa5a",
-                    "hypothesisId": "A",
-                    "location": "repository.rs:get_contest_heatmap:query_err",
-                    "message": "heatmap SQL await failed",
-                    "data": { "error": e.to_string() },
-                    "timestamp": chrono::Utc::now().timestamp_millis(),
-                    "runId": "pre-fix"
-                });
-                if let Ok(mut f) = std::fs::OpenOptions::new()
-                    .create(true)
-                    .append(true)
-                    .open("/home/thebogie/work/stg/.cursor/debug-62fa5a.log")
-                {
-                    let _ = writeln!(f, "{}", payload);
-                }
-            }
-            // #endregion
-            SharedError::Database(e.to_string())
-        })?;
-        let take_result = res.take::<Vec<StartRow>>(0);
-        let take_err = take_result.as_ref().err().map(|e| e.to_string());
-        let rows: Vec<StartRow> = take_result.unwrap_or_default();
-        // #region agent log
-        {
-            use std::io::Write;
-            let payload = serde_json::json!({
-                "sessionId": "62fa5a",
-                "hypothesisId": "B",
-                "location": "repository.rs:get_contest_heatmap:after_take",
-                "message": "heatmap rows deserialized",
-                "data": {
-                    "row_count": rows.len(),
-                    "take_err": take_err,
-                    "starts_present": rows.iter().filter(|r| r.start.is_some()).count()
-                },
-                "timestamp": chrono::Utc::now().timestamp_millis(),
-                "runId": "pre-fix"
-            });
-            if let Ok(mut f) = std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open("/home/thebogie/work/stg/.cursor/debug-62fa5a.log")
-            {
-                let _ = writeln!(f, "{}", payload);
-            }
-        }
-        // #endregion
+        let mut res = q
+            .await
+            .map_err(|e| SharedError::Database(e.to_string()))?;
+        let rows: Vec<StartRow> = res.take(0).unwrap_or_default();
 
         let mut buckets: HashMap<(i32, i32), i64> = HashMap::new();
-        let mut parse_ok = 0usize;
-        let mut parse_fail = 0usize;
-        let mut start_missing = 0usize;
         for r in rows {
             let Some(start) = r.start else {
-                start_missing += 1;
                 continue;
             };
             let Ok(dt) = chrono::DateTime::parse_from_rfc3339(&start.to_string()) else {
-                parse_fail += 1;
                 continue;
             };
-            parse_ok += 1;
             let dt_utc = dt.with_timezone(&chrono::Utc);
             let day = dt_utc.weekday().num_days_from_sunday() as i32; // 0..6
             let hour = dt_utc.hour() as i32; // 0..23
             *buckets.entry((day, hour)).or_insert(0) += 1;
         }
-        // #region agent log
-        {
-            use std::io::Write;
-            let payload = serde_json::json!({
-                "sessionId": "62fa5a",
-                "hypothesisId": "C",
-                "location": "repository.rs:get_contest_heatmap:after_parse",
-                "message": "heatmap parse stats",
-                "data": {
-                    "parse_ok": parse_ok,
-                    "parse_fail": parse_fail,
-                    "start_missing": start_missing,
-                    "bucket_cells": buckets.len()
-                },
-                "timestamp": chrono::Utc::now().timestamp_millis(),
-                "runId": "pre-fix"
-            });
-            if let Ok(mut f) = std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open("/home/thebogie/work/stg/.cursor/debug-62fa5a.log")
-            {
-                let _ = writeln!(f, "{}", payload);
-            }
-        }
-        // #endregion
 
         let mut out: Vec<HeatRow> = buckets
             .into_iter()
@@ -1265,31 +1167,7 @@ impl AnalyticsRepository {
             .bind(("limit", limit))
             .await
             .map_err(|e| SharedError::Database(e.to_string()))?;
-        let take_result = res.take::<Vec<serde_json::Value>>(0);
-        let take_err = take_result.as_ref().err().map(|e| e.to_string());
-        let rows: Vec<serde_json::Value> = take_result.unwrap_or_default();
-        // #region agent log
-        {
-            use std::io::Write;
-            let sample = rows.first().cloned().unwrap_or(serde_json::Value::Null);
-            let payload = serde_json::json!({
-                "sessionId": "62fa5a",
-                "hypothesisId": "A",
-                "location": "repository.rs:get_top_games:after_group",
-                "message": "top games group query",
-                "data": { "row_count": rows.len(), "take_err": take_err, "sample": sample },
-                "timestamp": chrono::Utc::now().timestamp_millis(),
-                "runId": "post-fix"
-            });
-            if let Ok(mut f) = std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open("/home/thebogie/work/stg/.cursor/debug-62fa5a.log")
-            {
-                let _ = writeln!(f, "{}", payload);
-            }
-        }
-        // #endregion
+        let rows: Vec<serde_json::Value> = res.take(0).unwrap_or_default();
         let record_ids: Vec<surrealdb::types::RecordId> = rows
             .iter()
             .filter_map(|v| {
@@ -1816,31 +1694,7 @@ WHERE start >= time::now() - duration::days($since_days)
             .bind(("limit", limit))
             .await
             .map_err(|e| SharedError::Database(e.to_string()))?;
-        let take_result = res.take::<Vec<serde_json::Value>>(0);
-        let take_err = take_result.as_ref().err().map(|e| e.to_string());
-        let rows: Vec<serde_json::Value> = take_result.unwrap_or_default();
-        // #region agent log
-        {
-            use std::io::Write;
-            let sample = rows.first().cloned().unwrap_or(serde_json::Value::Null);
-            let payload = serde_json::json!({
-                "sessionId": "62fa5a",
-                "hypothesisId": "A",
-                "location": "repository.rs:get_top_venues:after_group",
-                "message": "top venues group query",
-                "data": { "row_count": rows.len(), "take_err": take_err, "sample": sample },
-                "timestamp": chrono::Utc::now().timestamp_millis(),
-                "runId": "post-fix"
-            });
-            if let Ok(mut f) = std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open("/home/thebogie/work/stg/.cursor/debug-62fa5a.log")
-            {
-                let _ = writeln!(f, "{}", payload);
-            }
-        }
-        // #endregion
+        let rows: Vec<serde_json::Value> = res.take(0).unwrap_or_default();
         let record_ids: Vec<surrealdb::types::RecordId> = rows
             .iter()
             .filter_map(|v| {
@@ -6411,33 +6265,87 @@ impl AnalyticsRepository {
 
     /// Get player retention cohort data
     pub async fn get_player_retention_cohort(&self) -> Result<Vec<(String, i32, f64)>> {
-        let sql = r#"
-            SELECT time::format(c.start, '%Y-W%V') AS cohort_week,
-                   count(DISTINCT ri.out) AS players
-            FROM resulted_in ri
-            JOIN contest c ON ri.in = c.id
-            WHERE c.start >= time::now() - 12w
-            GROUP BY cohort_week
-            ORDER BY cohort_week ASC
-        "#;
-        let mut res = self
+        let mut res_c = self
             .db
-            .query(sql)
+            .query("SELECT id, start FROM contest WHERE start >= time::now() - 12w")
             .await
             .map_err(|e| SharedError::Database(e.to_string()))?;
-        let rows: Vec<serde_json::Value> = res.take(0).unwrap_or_default();
+        #[derive(serde::Deserialize, serde::Serialize, surrealdb::types::SurrealValue)]
+        struct ContestStartRow {
+            id: Option<surrealdb::types::RecordId>,
+            start: Option<surrealdb::types::Datetime>,
+        }
+        let contest_rows: Vec<ContestStartRow> = res_c.take(0).unwrap_or_default();
+        let mut contest_week: HashMap<String, String> = HashMap::new();
+        for r in contest_rows {
+            let cid = thing_to_record_id(&r.id);
+            let Some(start) = r.start else {
+                continue;
+            };
+            let Ok(dt) = chrono::DateTime::parse_from_rfc3339(&start.to_string()) else {
+                continue;
+            };
+            let week = dt.format("%G-W%V").to_string();
+            if !cid.is_empty() {
+                contest_week.insert(cid, week);
+            }
+        }
+        if contest_week.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let contest_ids: Vec<surrealdb::types::RecordId> = contest_week
+            .keys()
+            .filter_map(|cid| {
+                let key = record_id_to_key(cid, "contest");
+                if key.is_empty() {
+                    None
+                } else {
+                    Some(surrealdb::types::RecordId::new("contest", key.as_str()))
+                }
+            })
+            .collect();
+        let mut res_ri = self
+            .db
+            .query(
+                "SELECT `in` AS contest_id, `out` AS player_id FROM resulted_in WHERE `in` INSIDE $contest_ids",
+            )
+            .bind(("contest_ids", contest_ids))
+            .await
+            .map_err(|e| SharedError::Database(e.to_string()))?;
+        let ri_rows: Vec<serde_json::Value> = res_ri.take(0).unwrap_or_default();
+
+        let mut week_players: HashMap<String, std::collections::HashSet<String>> = HashMap::new();
+        for row in &ri_rows {
+            let Some(cid_val) = row.get("contest_id") else {
+                continue;
+            };
+            let Some(pid_val) = row.get("player_id") else {
+                continue;
+            };
+            let cid = canonical_id_from_value(cid_val, "contest");
+            let pid = canonical_id_from_value(pid_val, "player");
+            let Some(week) = contest_week.get(&cid) else {
+                continue;
+            };
+            if pid.is_empty() {
+                continue;
+            }
+            week_players
+                .entry(week.clone())
+                .or_default()
+                .insert(pid);
+        }
+
+        let mut weeks: Vec<String> = week_players.keys().cloned().collect();
+        weeks.sort();
         let mut cohorts: Vec<(String, i32, f64)> = Vec::new();
         let mut prev_count: Option<i32> = None;
-        for row in rows {
-            let week = row
-                .get("cohort_week")
-                .and_then(|v| v.as_str())
-                .unwrap_or("unknown")
-                .to_string();
-            let players = row
-                .get("players")
-                .and_then(|v| v.as_i64())
-                .unwrap_or(0) as i32;
+        for week in weeks {
+            let players = week_players
+                .get(&week)
+                .map(|s| s.len() as i32)
+                .unwrap_or(0);
             let retention = match prev_count {
                 Some(prev) if prev > 0 => (players as f64) / (prev as f64),
                 _ => 1.0,
@@ -6619,33 +6527,6 @@ impl AnalyticsRepository {
                 .entry((bucket, game_id.clone()))
                 .or_insert(0) += 1;
         }
-
-        // #region agent log
-        {
-            use std::io::Write;
-            let payload = serde_json::json!({
-                "sessionId": "62fa5a",
-                "hypothesisId": "A",
-                "location": "repository.rs:get_games_by_player_count",
-                "message": "player count distribution aggregation",
-                "data": {
-                    "contest_pc_rows": pc_rows.len(),
-                    "contests_with_2plus": participants_by_contest.len(),
-                    "played_with_rows": pw_rows.len(),
-                    "agg_cells": plays_by_bucket_game.len()
-                },
-                "timestamp": chrono::Utc::now().timestamp_millis(),
-                "runId": "post-fix"
-            });
-            if let Ok(mut f) = std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open("/home/thebogie/work/stg/.cursor/debug-62fa5a.log")
-            {
-                let _ = writeln!(f, "{}", payload);
-            }
-        }
-        // #endregion
 
         let game_record_ids: Vec<surrealdb::types::RecordId> = plays_by_bucket_game
             .keys()

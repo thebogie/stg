@@ -2,7 +2,7 @@ use crate::contest::repository::{ContestRepository, ContestRepositoryImpl};
 use crate::player::repository::PlayerRepository;
 use crate::surreal_helpers::{canonical_id_from_http_path_param, record_id_to_key};
 use actix_web::HttpMessage;
-use actix_web::{delete, get, post, web, HttpRequest, HttpResponse, Responder};
+use actix_web::{delete, get, post, put, web, HttpRequest, HttpResponse, Responder};
 use chrono::{NaiveDate, NaiveTime, TimeZone, Utc};
 use serde::Deserialize;
 use serde_json::json;
@@ -116,6 +116,74 @@ pub async fn create_contest_handler(
             HttpResponse::InternalServerError().json(serde_json::json!({
                 "error": e,
             }))
+        }
+    }
+}
+
+#[put("/{contest_id}")]
+pub async fn update_contest_handler(
+    path: web::Path<String>,
+    contest: web::Json<ContestDto>,
+    req: HttpRequest,
+    repo: web::Data<ContestRepositoryImpl>,
+) -> impl Responder {
+    if let Err(e) = contest.validate() {
+        return HttpResponse::BadRequest().json(serde_json::json!({
+            "error": "validation_failed",
+            "details": e.to_string(),
+        }));
+    }
+    let param = path.into_inner();
+    let contest_id = if param.contains('/') {
+        param
+    } else {
+        format!("contest/{}", param)
+    };
+    let mut dto = contest.into_inner();
+    dto.id = contest_id.clone();
+
+    let existing = match repo.find_by_id(&contest_id).await {
+        Some(c) => c,
+        None => {
+            return HttpResponse::NotFound().json(serde_json::json!({
+                "error": "Contest not found",
+            }));
+        }
+    };
+
+    let email_opt = req.extensions().get::<String>().cloned();
+    let caller_id = match email_opt {
+        Some(email) => match repo
+            .player_usecase
+            .repo
+            .find_by_email_for_auth(email.as_str())
+            .await
+        {
+            Some(player) => player.id,
+            None => {
+                return HttpResponse::Unauthorized().json(serde_json::json!({
+                    "error": "user_not_found",
+                }));
+            }
+        },
+        None => {
+            return HttpResponse::Unauthorized().json(serde_json::json!({
+                "error": "not_authenticated",
+            }));
+        }
+    };
+    if existing.creator_id != caller_id {
+        return HttpResponse::Forbidden().json(serde_json::json!({
+            "error": "forbidden",
+            "details": "Only the contest creator can update this contest",
+        }));
+    }
+
+    match repo.update_contest(dto).await {
+        Ok(updated) => HttpResponse::Ok().json(updated),
+        Err(e) => {
+            log::error!("Contest update failed: {}", e);
+            HttpResponse::InternalServerError().json(serde_json::json!({ "error": e }))
         }
     }
 }

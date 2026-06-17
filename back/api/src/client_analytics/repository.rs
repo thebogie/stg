@@ -832,33 +832,10 @@ impl ClientAnalyticsRepository for ClientAnalyticsRepositoryImpl {
             player_id,
             min_contests
         );
-        let communities = self
-            .analytics
+        self.analytics
             .get_gaming_communities_for_player(player_id, min_contests)
             .await
-            .map_err(|e| SharedError::Database(e.to_string()))?;
-        // #region agent log
-        {
-            use std::io::Write;
-            let payload = serde_json::json!({
-                "sessionId": "62fa5a",
-                "hypothesisId": "H-communities",
-                "location": "client_analytics/repository.rs:get_gaming_communities",
-                "message": "communities result",
-                "data": { "player_id": player_id, "count": communities.len() },
-                "timestamp": chrono::Utc::now().timestamp_millis(),
-                "runId": "post-fix"
-            });
-            if let Ok(mut f) = std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open("/home/thebogie/work/stg/.cursor/debug-62fa5a.log")
-            {
-                let _ = writeln!(f, "{}", payload);
-            }
-        }
-        // #endregion
-        Ok(communities)
+            .map_err(|e| SharedError::Database(e.to_string()))
     }
 
     async fn get_player_networking(
@@ -918,32 +895,6 @@ impl ClientAnalyticsRepository for ClientAnalyticsRepositoryImpl {
             let cb = b["total_contests"].as_i64().unwrap_or(0);
             cb.cmp(&ca)
         });
-
-        // #region agent log
-        {
-            use std::io::Write;
-            let payload = serde_json::json!({
-                "sessionId": "62fa5a",
-                "hypothesisId": "H-networking",
-                "location": "client_analytics/repository.rs:get_player_networking",
-                "message": "networking result",
-                "data": {
-                    "player_id": player_id,
-                    "opponent_count": opponents.len(),
-                    "top_opponent": opponent_analysis.first().cloned()
-                },
-                "timestamp": chrono::Utc::now().timestamp_millis(),
-                "runId": "post-fix"
-            });
-            if let Ok(mut f) = std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open("/home/thebogie/work/stg/.cursor/debug-62fa5a.log")
-            {
-                let _ = writeln!(f, "{}", payload);
-            }
-        }
-        // #endregion
 
         Ok(serde_json::json!({
             "player_id": player_id,

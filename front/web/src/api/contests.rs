@@ -182,31 +182,6 @@ pub async fn get_contest_by_id(id: &str) -> Result<ContestDto, String> {
     Ok(contest)
 }
 
-pub async fn list_contests() -> Result<Vec<ContestDto>, String> {
-    debug!("Fetching all contests");
-
-    let response = authenticated_get(&api_url("/api/contests"))
-        .send()
-        .await
-        .map_err(|e| format!("Failed to fetch contests: {}", e))?;
-
-    if !response.ok() {
-        let error = response
-            .json::<ErrorResponse>()
-            .await
-            .map_err(|_| "Unknown error occurred".to_string())?;
-        return Err(error.error);
-    }
-
-    let contests = response
-        .json::<Vec<ContestDto>>()
-        .await
-        .map_err(|e| format!("Failed to parse contests response: {}", e))?;
-
-    debug!("Successfully fetched {} contests", contests.len());
-    Ok(contests)
-}
-
 pub async fn update_contest(id: &str, contest: ContestDto) -> Result<ContestDto, String> {
     debug!("Updating contest with ID: {}", contest.id);
 

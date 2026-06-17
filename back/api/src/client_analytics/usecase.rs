@@ -5,7 +5,9 @@ use crate::client_analytics::repository::ClientAnalyticsRepository;
 use chrono::Utc;
 use log;
 use shared::error::SharedError;
+use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 
 /// Use case trait for client analytics operations
 #[async_trait]
@@ -223,6 +225,34 @@ where
             .collect()
     }
 
+    fn compute_streaks_from_contests(contests: &[ClientContestDto]) -> (i32, i32) {
+        let mut sorted: Vec<&ClientContestDto> = contests.iter().collect();
+        sorted.sort_by(|a, b| b.start.cmp(&a.start));
+        let mut longest_streak = 0i32;
+        let mut temp_streak = 0i32;
+        for contest in sorted {
+            match contest.my_result.result.as_str() {
+                "won" => temp_streak = temp_streak.max(0) + 1,
+                "lost" => temp_streak = temp_streak.min(0) - 1,
+                _ => temp_streak = 0,
+            }
+            longest_streak = longest_streak.max(temp_streak.abs());
+        }
+        (temp_streak, longest_streak)
+    }
+
+    fn server_data_hash(player_id: &str, contest_ids: &[String]) -> String {
+        let mut sorted = contest_ids.to_vec();
+        sorted.sort();
+        let mut hasher = DefaultHasher::new();
+        player_id.hash(&mut hasher);
+        for id in sorted {
+            id.hash(&mut hasher);
+        }
+        contest_ids.len().hash(&mut hasher);
+        format!("{:016x}", hasher.finish())
+    }
+
     /// Computes analytics from contest data
     fn compute_analytics_from_contests(
         &self,
@@ -276,6 +306,8 @@ where
             worst_placement = worst_placement.max(placement);
         }
 
+        let (current_streak, longest_streak) = Self::compute_streaks_from_contests(contests);
+
         let stats = ClientStatsDto {
             total_contests,
             total_wins,
@@ -296,8 +328,8 @@ where
                 best_placement
             },
             worst_placement,
-            current_streak: 0, // Would need to compute from full dataset
-            longest_streak: 0, // Would need to compute from full dataset
+            current_streak,
+            longest_streak,
         };
 
         // Compute game performance
@@ -364,10 +396,25 @@ where
 
         // Compute opponent performance
         let mut opponent_stats: HashMap<String, ClientHeadToHeadDto> = HashMap::new();
+        let mut opponent_profiles: HashMap<String, ClientPlayerDto> = HashMap::new();
 
         for contest in contests {
             for participant in &contest.participants {
                 if participant.player_id != player_id {
+                    opponent_profiles
+                        .entry(participant.player_id.clone())
+                        .or_insert_with(|| ClientPlayerDto {
+                            id: participant.player_id.clone(),
+                            handle: if participant.handle.trim().is_empty() {
+                                participant.player_id.clone()
+                            } else {
+                                participant.handle.clone()
+                            },
+                            firstname: participant.firstname.clone(),
+                            lastname: participant.lastname.clone(),
+                            email: None,
+                            last_seen: contest.start,
+                        });
                     let entry = opponent_stats
                         .entry(participant.player_id.clone())
                         .or_insert_with(|| ClientHeadToHeadDto {
@@ -402,15 +449,17 @@ where
         let mut opponent_performance: Vec<_> = opponent_stats
             .into_iter()
             .map(|(opponent_id, head_to_head)| {
-                // Create a placeholder opponent - in real implementation, you'd get this from the repository
-                let opponent = ClientPlayerDto {
-                    id: opponent_id.clone(),
-                    handle: "unknown".to_string(),
-                    firstname: None,
-                    lastname: None,
-                    email: None,
-                    last_seen: Utc::now().fixed_offset(),
-                };
+                let opponent = opponent_profiles
+                    .get(&opponent_id)
+                    .cloned()
+                    .unwrap_or_else(|| ClientPlayerDto {
+                        id: opponent_id.clone(),
+                        handle: opponent_id.clone(),
+                        firstname: None,
+                        lastname: None,
+                        email: None,
+                        last_seen: Utc::now().fixed_offset(),
+                    });
 
                 ClientOpponentPerformanceDto {
                     opponent,
@@ -603,9 +652,8 @@ where
             .get_all_contests_for_player(player_id)
             .await?;
         let server_contest_count = server_contests.len();
-
-        // Calculate server hash (simplified - in real implementation, use proper hashing)
-        let server_hash = format!("{}:{}", player_id, server_contest_count);
+        let contest_ids: Vec<String> = server_contests.iter().map(|c| c.id.clone()).collect();
+        let server_hash = Self::server_data_hash(player_id, &contest_ids);
 
         // Compare with client data
         let is_valid =

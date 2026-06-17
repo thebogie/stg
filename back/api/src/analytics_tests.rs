@@ -1,6 +1,7 @@
 #[cfg(test)]
 mod analytics_tests {
     use chrono::Utc;
+    use crate::analytics::usecase::AnalyticsUseCase;
     use shared::dto::analytics::*;
 
     #[test]
@@ -69,6 +70,37 @@ mod analytics_tests {
         assert_eq!(stats.total_venues, 10);
         assert_eq!(stats.total_contests, 50);
         assert_eq!(stats.total_players, 200);
+    }
+
+    #[test]
+    fn test_platform_stats_dto_serializes_with_non_finite_averages() {
+        let mut stats = PlatformStatsDto {
+            total_players: 1,
+            total_contests: 0,
+            total_games: 0,
+            total_venues: 0,
+            active_players_30d: 0,
+            active_players_7d: 0,
+            contests_30d: 0,
+            average_participants_per_contest: f64::NAN,
+            top_games: vec![GamePopularityDto {
+                game_id: "game/1".into(),
+                game_name: "Test".into(),
+                plays: 1,
+                popularity_score: f64::INFINITY,
+            }],
+            top_venues: vec![VenueActivityDto {
+                venue_id: "venue/1".into(),
+                venue_name: "Venue".into(),
+                contests_held: 1,
+                total_participants: 1,
+                activity_score: f64::NEG_INFINITY,
+            }],
+            last_updated: Utc::now().fixed_offset(),
+        };
+        AnalyticsUseCase::sanitize_platform_stats_dto(&mut stats);
+        let json = serde_json::to_string(&stats).expect("platform stats must serialize");
+        assert!(json.contains("\"average_participants_per_contest\":0"));
     }
 
     #[test]

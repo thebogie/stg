@@ -217,6 +217,7 @@ pub trait ContestRepository: Send + Sync {
         contest_dto: ContestDto,
         creator_id: String,
     ) -> Result<ContestDto, String>;
+    async fn update_contest(&self, contest_dto: ContestDto) -> Result<ContestDto, String>;
     async fn find_by_id(&self, id: &str) -> Option<Contest>;
     async fn find_all(&self) -> Vec<Contest>;
     async fn search(&self, query: &str) -> Vec<Contest>;
@@ -738,6 +739,40 @@ impl ContestRepository for ContestRepositoryImpl {
 
         Ok(created_dto)
     }
+
+    async fn update_contest(&self, mut contest_dto: ContestDto) -> Result<ContestDto, String> {
+        let contest_id = contest_dto.id.clone();
+        let existing = self
+            .find_by_id(&contest_id)
+            .await
+            .ok_or_else(|| "Contest not found".to_string())?;
+        let key = record_id_to_key(&contest_id, "contest");
+        if key.is_empty() {
+            return Err("Invalid contest id".to_string());
+        }
+        if contest_dto.name.trim().is_empty() {
+            let game_names: Vec<&str> = contest_dto.games.iter().map(|g| g.name.as_str()).collect();
+            let tz = contest_dto.venue.timezone.as_str();
+            contest_dto.name = generate_contest_name(&game_names, contest_dto.start, tz);
+        }
+        let update_sql = self.query_with_scope(
+            "UPDATE type::record('contest', $key) SET name = $name, start = type::datetime($start), stop = type::datetime($stop)",
+        );
+        self.db
+            .query(&update_sql)
+            .bind(("key", key.clone()))
+            .bind(("name", contest_dto.name.clone()))
+            .bind(("start", contest_dto.start.to_rfc3339()))
+            .bind(("stop", contest_dto.stop.to_rfc3339()))
+            .await
+            .map_err(|e| format!("Failed to update contest: {}", e))?;
+
+        self.delete_contest_edges(&contest_id).await?;
+        contest_dto.creator_id = existing.creator_id;
+        self.rebuild_contest_relations(&contest_id, &mut contest_dto)
+            .await
+    }
+
     async fn find_by_id(&self, id: &str) -> Option<Contest> {
         log::info!("🔍 Finding contest by ID: {}", id);
         let key = id
@@ -863,13 +898,47 @@ impl ContestRepository for ContestRepositoryImpl {
         Some(contest)
     }
     async fn find_all(&self) -> Vec<Contest> {
-        unimplemented!()
+        let sql = self.query_with_scope("SELECT * FROM contest ORDER BY created_at DESC LIMIT 500");
+        self.db
+            .query(&sql)
+            .await
+            .ok()
+            .and_then(|mut res| res.take(0).ok())
+            .unwrap_or_default()
     }
-    async fn search(&self, _query: &str) -> Vec<Contest> {
-        unimplemented!()
+    async fn search(&self, query: &str) -> Vec<Contest> {
+        let q = query.trim();
+        if q.is_empty() {
+            return self.find_all().await;
+        }
+        let sql = self.query_with_scope(
+            "SELECT * FROM contest WHERE string::lowercase(name) CONTAINS string::lowercase($q) ORDER BY created_at DESC LIMIT 100",
+        );
+        self.db
+            .query(&sql)
+            .bind(("q", q.to_string()))
+            .await
+            .ok()
+            .and_then(|mut res| res.take(0).ok())
+            .unwrap_or_default()
     }
-    async fn update(&self, _contest: Contest) -> Result<Contest, String> {
-        unimplemented!()
+    async fn update(&self, contest: Contest) -> Result<Contest, String> {
+        let key = record_id_to_key(&contest.id, "contest");
+        if key.is_empty() {
+            return Err("Invalid contest id".to_string());
+        }
+        let update_sql = self.query_with_scope(
+            "UPDATE type::record('contest', $key) SET name = $name, start = type::datetime($start), stop = type::datetime($stop)",
+        );
+        self.db
+            .query(&update_sql)
+            .bind(("key", key))
+            .bind(("name", contest.name.clone()))
+            .bind(("start", contest.start.to_rfc3339()))
+            .bind(("stop", contest.stop.to_rfc3339()))
+            .await
+            .map_err(|e| format!("Failed to update contest: {}", e))?;
+        Ok(contest)
     }
     async fn delete(&self, id: &str) -> Result<(), String> {
         if self.find_by_id(id).await.is_none() {
@@ -880,18 +949,8 @@ impl ContestRepository for ContestRepositoryImpl {
             return Err("Contest not found".to_string());
         }
         crate::contest::image::delete_image_file(&key);
+        self.delete_contest_edges(id).await?;
         let contest_rid = surrealdb::types::RecordId::new("contest", key.as_str());
-
-        for table in ["played_at", "played_with", "resulted_in"] {
-            let sql =
-                self.query_with_scope(&format!("DELETE FROM {} WHERE `in` = $contest_id", table));
-            self.db
-                .query(&sql)
-                .bind(("contest_id", contest_rid.clone()))
-                .await
-                .map_err(|e| format!("Failed to remove {} edges: {}", table, e))?;
-        }
-
         let delete_sql = self.query_with_scope("DELETE FROM contest WHERE id = $record_id");
         self.db
             .query(&delete_sql)
@@ -1128,6 +1187,145 @@ impl ContestRepositoryImpl {
             })?;
         log::info!("✅ RESULTED_IN edge created");
         Ok(())
+    }
+
+    async fn delete_contest_edges(&self, contest_id: &str) -> Result<(), String> {
+        let key = record_id_to_key(contest_id, "contest");
+        if key.is_empty() {
+            return Err("Invalid contest id".to_string());
+        }
+        let contest_rid = surrealdb::types::RecordId::new("contest", key.as_str());
+        for table in ["played_at", "played_with", "resulted_in"] {
+            let sql =
+                self.query_with_scope(&format!("DELETE FROM {} WHERE `in` = $contest_id", table));
+            self.db
+                .query(&sql)
+                .bind(("contest_id", contest_rid.clone()))
+                .await
+                .map_err(|e| format!("Failed to remove {} edges: {}", table, e))?;
+        }
+        Ok(())
+    }
+
+    /// Rebuild venue/game/outcome edges after contest document update.
+    async fn rebuild_contest_relations(
+        &self,
+        contest_id: &str,
+        contest_dto: &mut ContestDto,
+    ) -> Result<ContestDto, String> {
+        let venue = if contest_dto.venue.source == shared::models::venue::VenueSource::Database
+            && !contest_dto.venue.id.is_empty()
+        {
+            self.venue_usecase
+                .get_venue(&contest_dto.venue.id)
+                .await
+                .map_err(|e| format!("Failed to get venue: {}", e))?
+        } else {
+            self.venue_usecase
+                .create_venue(contest_dto.venue.clone())
+                .await
+                .map_err(|e| format!("Failed to create venue: {}", e))?
+        };
+        self.create_played_at_relation(contest_id, &venue.id)
+            .await
+            .map_err(|e| format!("Failed to create played_at edge: {:?}", e))?;
+
+        let mut processed_games = Vec::new();
+        for game_dto in &contest_dto.games {
+            let game = if game_dto.id.starts_with("game/") {
+                self.game_usecase
+                    .get_game(&game_dto.id)
+                    .await
+                    .map_err(|e| format!("Failed to get game: {}", e))?
+            } else {
+                self.game_usecase
+                    .create_game(game_dto.clone())
+                    .await
+                    .map_err(|e| format!("Failed to create game: {}", e))?
+            };
+            processed_games.push(game);
+        }
+        for game in &processed_games {
+            self.create_played_with_relation(contest_id, &game.id)
+                .await
+                .map_err(|e| format!("Failed to create played_with edge: {:?}", e))?;
+        }
+
+        let mut processed_outcomes = Vec::new();
+        for outcome in &contest_dto.outcomes {
+            let player = if outcome.player_id.starts_with("player/") && outcome.player_id.len() > 7
+            {
+                self.player_usecase
+                    .get_player(&outcome.player_id)
+                    .await
+                    .map_err(|e| format!("Player not found: {}", e))?
+            } else {
+                let salt_string = argon2::password_hash::SaltString::generate(
+                    &mut argon2::password_hash::rand_core::OsRng,
+                );
+                let default_password = uuid::Uuid::new_v4().to_string();
+                let hashed_password = Argon2::default()
+                    .hash_password(default_password.as_bytes(), &salt_string)
+                    .map_err(|e| format!("Failed to hash password: {}", e))?
+                    .to_string();
+                let player = shared::models::player::Player::new_for_db(
+                    outcome.handle.clone(),
+                    outcome.handle.clone(),
+                    outcome.email.clone(),
+                    hashed_password,
+                    chrono::Utc::now().fixed_offset(),
+                    false,
+                )
+                .map_err(|e| format!("Failed to create player: {}", e))?;
+                self.player_usecase
+                    .repo
+                    .create(player)
+                    .await
+                    .map_err(|e| format!("Failed to create player: {}", e))?
+            };
+            let mut updated_outcome = outcome.clone();
+            updated_outcome.player_id = player.id.clone();
+            self.create_resulted_in_relation(contest_id, &updated_outcome)
+                .await
+                .map_err(|e| format!("Failed to create resulted_in edge: {:?}", e))?;
+            processed_outcomes.push(updated_outcome);
+        }
+
+        let existing = self
+            .find_by_id(contest_id)
+            .await
+            .ok_or_else(|| "Contest not found".to_string())?;
+        let creator_handle = self
+            .player_usecase
+            .get_player(&existing.creator_id)
+            .await
+            .ok()
+            .map(|p| p.handle);
+        let mut dto = ContestDto {
+            id: contest_id.to_string(),
+            name: existing.name,
+            start: existing.start.into(),
+            stop: existing.stop.into(),
+            venue: VenueDto::from(&venue),
+            games: processed_games.iter().map(GameDto::from).collect(),
+            outcomes: processed_outcomes,
+            creator_id: existing.creator_id,
+            creator_handle,
+            created_at: Some(existing.created_at.into()),
+            moderation_status: existing.moderation_status,
+            moderated_at: existing.moderated_at.map(|t| t.into()),
+            moderated_by: if existing.moderated_by.is_empty() {
+                None
+            } else {
+                Some(existing.moderated_by)
+            },
+            moderation_note: existing.moderation_note,
+            has_image: existing.has_image,
+            image_url: None,
+            image_detail_url: None,
+        };
+        crate::contest::image::enrich_contest_dto(&mut dto);
+        Ok(dto)
     }
 }
 

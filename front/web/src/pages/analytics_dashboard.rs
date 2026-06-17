@@ -42,7 +42,6 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
     let navigator = use_navigator().unwrap();
     let platform_stats = use_state(|| None::<Value>);
     let contest_trends_chart = use_state(|| None::<String>);
-    let platform_dashboard = use_state(|| None::<Vec<Value>>);
 
     let _contest_analysis_chart = use_state(|| None::<String>);
     let game_popularity_chart = use_state(|| None::<String>);
@@ -339,111 +338,23 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
                     .await
                 {
                     Ok(resp) => {
-                        let status = resp.status();
                         if resp.ok() {
                             match resp.json::<Value>().await {
-                                Ok(data) => {
-                                    // #region agent log
-                                    {
-                                        let buckets_len = data
-                                            .get("buckets")
-                                            .and_then(|b| b.as_array())
-                                            .map(|a| a.len());
-                                        let _ = gloo_net::http::Request::post("http://localhost:7327/ingest/092d89aa-ec11-4f83-9ed9-0567d2046e3c")
-                                            .header("Content-Type", "application/json")
-                                            .header("X-Debug-Session-Id", "62fa5a")
-                                            .body(serde_json::json!({
-                                                "sessionId": "62fa5a",
-                                                "hypothesisId": "D",
-                                                "location": "analytics_dashboard.rs:heatmap_fetch_ok",
-                                                "message": "heatmap response ok",
-                                                "data": { "status": status, "weeks": w, "buckets_rows": buckets_len },
-                                                "timestamp": js_sys::Date::now() as i64,
-                                                "runId": "pre-fix"
-                                            }).to_string())
-                                            .map(|r| r.send());
-                                    }
-                                    // #endregion
-                                    contest_heatmap.set(Some(data));
-                                }
+                                Ok(data) => contest_heatmap.set(Some(data)),
                                 Err(e) => contest_heatmap_error
                                     .set(Some(format!("Failed to parse heatmap: {}", e))),
                             }
                         } else {
-                            // #region agent log
-                            {
-                                let _ = gloo_net::http::Request::post("http://localhost:7327/ingest/092d89aa-ec11-4f83-9ed9-0567d2046e3c")
-                                    .header("Content-Type", "application/json")
-                                    .header("X-Debug-Session-Id", "62fa5a")
-                                    .body(serde_json::json!({
-                                        "sessionId": "62fa5a",
-                                        "hypothesisId": "D",
-                                        "location": "analytics_dashboard.rs:heatmap_fetch_http_err",
-                                        "message": "heatmap response not ok",
-                                        "data": { "status": status, "weeks": w },
-                                        "timestamp": js_sys::Date::now() as i64,
-                                        "runId": "pre-fix"
-                                    }).to_string())
-                                    .map(|r| r.send());
-                            }
-                            // #endregion
                             contest_heatmap_error
-                                .set(Some(format!("Heatmap request failed: {}", status)));
+                                .set(Some(format!("Heatmap request failed: {}", resp.status())));
                         }
                     }
                     Err(e) => {
-                        // #region agent log
-                        {
-                            let _ = gloo_net::http::Request::post("http://localhost:7327/ingest/092d89aa-ec11-4f83-9ed9-0567d2046e3c")
-                                .header("Content-Type", "application/json")
-                                .header("X-Debug-Session-Id", "62fa5a")
-                                .body(serde_json::json!({
-                                    "sessionId": "62fa5a",
-                                    "hypothesisId": "D",
-                                    "location": "analytics_dashboard.rs:heatmap_fetch_err",
-                                    "message": "heatmap fetch failed",
-                                    "data": { "error": e.to_string(), "weeks": w },
-                                    "timestamp": js_sys::Date::now() as i64,
-                                    "runId": "pre-fix"
-                                }).to_string())
-                                .map(|r| r.send());
-                        }
-                        // #endregion
                         contest_heatmap_error.set(Some(format!("Failed to fetch heatmap: {}", e)))
                     }
                 }
                 contest_heatmap_loading.set(false);
             });
-            || ()
-        });
-    }
-
-    // Load platform dashboard
-    {
-        let platform_dashboard = platform_dashboard.clone();
-        let error = error.clone();
-
-        use_effect_with((), move |_| {
-            wasm_bindgen_futures::spawn_local(async move {
-                match Request::get(
-                    "/api/analytics/charts/platform-dashboard?title=Platform%20Overview",
-                )
-                .send()
-                .await
-                {
-                    Ok(response) => {
-                        if let Ok(charts) = response.json::<Vec<Value>>().await {
-                            platform_dashboard.set(Some(charts));
-                        } else {
-                            error.set(Some("Failed to parse platform dashboard".to_string()));
-                        }
-                    }
-                    Err(e) => {
-                        error.set(Some(format!("Failed to fetch platform dashboard: {}", e)));
-                    }
-                }
-            });
-
             || ()
         });
     }
