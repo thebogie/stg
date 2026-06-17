@@ -21,6 +21,7 @@ use utoipa::OpenApi;
         (name = "venues", description = "Venue management"),
         (name = "games", description = "Game management"),
         (name = "contests", description = "Contest management"),
+        (name = "sell", description = "Sell a Game marketplace listing workflow"),
         (name = "analytics", description = "Analytics and statistics"),
     ),
     info(

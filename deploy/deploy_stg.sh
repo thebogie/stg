@@ -10,7 +10,7 @@
 # What this script does:
 # 1. If systemd unit stg.service does not exist: create and install it, daemon-reload, enable.
 # 2. Stop the stg service (if running).
-# 3. docker pull backend and frontend images from GHCR with <label>.
+# 3. docker pull backend, frontend, and playwright-worker images from GHCR with <label>.
 # 4. docker compose down (docker-compose.full.yml in this directory).
 # 5. Start SurrealDB + Redis, run DB migrations, then start backend + frontend with new images.
 #
@@ -23,9 +23,10 @@ SERVICE_NAME="stg"
 UNIT_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 STG_ENV_FILE="/etc/stg/stg.env"
 
-# GHCR image names (no tag). CI pushes to ghcr.io/<owner>/<repo>/backend and .../frontend
+# GHCR image names (no tag). CI pushes to ghcr.io/<owner>/<repo>/backend, .../frontend, .../playwright-worker
 GHCR_IMAGE_BACKEND="${GHCR_IMAGE_BACKEND:-ghcr.io/thebogie/stg/backend}"
 GHCR_IMAGE_FRONTEND="${GHCR_IMAGE_FRONTEND:-ghcr.io/thebogie/stg/frontend}"
+GHCR_IMAGE_PLAYWRIGHT_WORKER="${GHCR_IMAGE_PLAYWRIGHT_WORKER:-ghcr.io/thebogie/stg/playwright-worker}"
 
 # Deploy root = directory containing this script (the deploy/ folder). Scp this folder to the server.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -38,6 +39,7 @@ usage() {
   echo "  <label>  Image tag to pull from GHCR and run (e.g. latest, or short sha 0013844)" >&2
   echo "  Backend:  $GHCR_IMAGE_BACKEND:<label>" >&2
   echo "  Frontend: $GHCR_IMAGE_FRONTEND:<label>" >&2
+  echo "  Playwright worker: $GHCR_IMAGE_PLAYWRIGHT_WORKER:<label>" >&2
   exit 1
 }
 
@@ -49,6 +51,7 @@ fi
 
 BACKEND_IMAGE_FULL="${GHCR_IMAGE_BACKEND}:${LABEL}"
 FRONTEND_IMAGE_FULL="${GHCR_IMAGE_FRONTEND}:${LABEL}"
+PLAYWRIGHT_WORKER_IMAGE_FULL="${GHCR_IMAGE_PLAYWRIGHT_WORKER}:${LABEL}"
 
 # --- Ensure systemd unit exists ---
 install_unit_if_missing() {
@@ -99,12 +102,14 @@ stop_service() {
   fi
 }
 
-# --- Pull backend and frontend images from GHCR ---
+# --- Pull backend, frontend, and playwright-worker images from GHCR ---
 pull_images() {
   echo "==> Pulling $BACKEND_IMAGE_FULL"
   docker pull "$BACKEND_IMAGE_FULL"
   echo "==> Pulling $FRONTEND_IMAGE_FULL"
   docker pull "$FRONTEND_IMAGE_FULL"
+  echo "==> Pulling $PLAYWRIGHT_WORKER_IMAGE_FULL"
+  docker pull "$PLAYWRIGHT_WORKER_IMAGE_FULL"
 }
 
 # --- Write BACKEND_IMAGE and FRONTEND_IMAGE so systemd unit (or compose) uses them ---
@@ -116,8 +121,9 @@ write_image_env() {
   mkdir -p "$(dirname "$STG_ENV_FILE")"
   echo "BACKEND_IMAGE=$BACKEND_IMAGE_FULL" > "$STG_ENV_FILE"
   echo "FRONTEND_IMAGE=$FRONTEND_IMAGE_FULL" >> "$STG_ENV_FILE"
+  echo "PLAYWRIGHT_WORKER_IMAGE=$PLAYWRIGHT_WORKER_IMAGE_FULL" >> "$STG_ENV_FILE"
   echo "IMAGE_TAG=$LABEL" >> "$STG_ENV_FILE"
-  echo "==> Wrote BACKEND_IMAGE and FRONTEND_IMAGE to $STG_ENV_FILE"
+  echo "==> Wrote BACKEND_IMAGE, FRONTEND_IMAGE, and PLAYWRIGHT_WORKER_IMAGE to $STG_ENV_FILE"
 }
 
 # --- Compose down (ensure everything is down before we start again) ---
@@ -132,13 +138,14 @@ compose_down() {
   # Ensure required IMAGE_* env vars are set so a fresh deploy doesn't fail interpolation.
   export BACKEND_IMAGE="$BACKEND_IMAGE_FULL"
   export FRONTEND_IMAGE="$FRONTEND_IMAGE_FULL"
+  export PLAYWRIGHT_WORKER_IMAGE="$PLAYWRIGHT_WORKER_IMAGE_FULL"
   export IMAGE_TAG="$LABEL"
   docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" down || true
 }
 
 # --- Start service ---
 start_service() {
-  echo "==> Starting $SERVICE_NAME.service (backend: $BACKEND_IMAGE_FULL, frontend: $FRONTEND_IMAGE_FULL)"
+  echo "==> Starting $SERVICE_NAME.service (backend: $BACKEND_IMAGE_FULL, frontend: $FRONTEND_IMAGE_FULL, playwright-worker: $PLAYWRIGHT_WORKER_IMAGE_FULL)"
   if [ "$(id -u)" -eq 0 ] && systemctl is-enabled "$SERVICE_NAME" &>/dev/null; then
     write_image_env
     systemctl start "$SERVICE_NAME"
@@ -147,6 +154,7 @@ start_service() {
     export COMPOSE_PROJECT_NAME=stg
     export BACKEND_IMAGE="$BACKEND_IMAGE_FULL"
     export FRONTEND_IMAGE="$FRONTEND_IMAGE_FULL"
+    export PLAYWRIGHT_WORKER_IMAGE="$PLAYWRIGHT_WORKER_IMAGE_FULL"
     export IMAGE_TAG="$LABEL"
     docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d
   fi
@@ -158,6 +166,7 @@ start_deps_only() {
   export COMPOSE_PROJECT_NAME=stg
   export BACKEND_IMAGE="$BACKEND_IMAGE_FULL"
   export FRONTEND_IMAGE="$FRONTEND_IMAGE_FULL"
+  export PLAYWRIGHT_WORKER_IMAGE="$PLAYWRIGHT_WORKER_IMAGE_FULL"
   export IMAGE_TAG="$LABEL"
   docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d surrealdb redis
 }
@@ -201,4 +210,4 @@ start_deps_only
 run_db_migrations
 ensure_backend_data_writable
 start_service
-echo "✅ Deploy finished: backend $BACKEND_IMAGE_FULL, frontend $FRONTEND_IMAGE_FULL"
+echo "✅ Deploy finished: backend $BACKEND_IMAGE_FULL, frontend $FRONTEND_IMAGE_FULL, playwright-worker $PLAYWRIGHT_WORKER_IMAGE_FULL"

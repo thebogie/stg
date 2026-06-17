@@ -193,6 +193,34 @@ struct ParticipantInfo {
 }
 
 #[derive(Clone, PartialEq)]
+struct RivalryLine {
+    handle: String,
+    my_wins: i32,
+    opponent_wins: i32,
+    total_contests: i32,
+}
+
+fn build_share_summary(contest: &ContestData) -> String {
+    let game = contest
+        .games
+        .first()
+        .map(|g| g.name.as_str())
+        .unwrap_or("a game");
+    let venue = contest.venue.display_name.as_deref().unwrap_or(&contest.venue.name);
+    let winner = contest
+        .participants
+        .iter()
+        .find(|p| p.place == 1 || p.place.to_string() == "1")
+        .map(|p| p.handle.as_str())
+        .unwrap_or("someone");
+    let when = format_date(&contest.start, &contest.venue.timezone);
+    format!(
+        "{} won {} at {} ({}) — logged on Smack Talk Gaming",
+        winner, game, venue, when
+    )
+}
+
+#[derive(Clone, PartialEq)]
 struct ContestStats {
     participant_count: i32,
     completion_count: i32,
@@ -223,6 +251,9 @@ pub fn contest_details(props: &ContestDetailsProps) -> Html {
     let smack_target = use_state(|| "everyone".to_string());
     let smack_style = use_state(|| "set_3".to_string());
     let smack_intensity = use_state(|| "med".to_string());
+
+    let share_text = use_state(|| None::<String>);
+    let rivalry_lines = use_state(Vec::<RivalryLine>::new);
 
     let on_open_smack = {
         let smack_open = smack_open.clone();
@@ -561,6 +592,64 @@ pub fn contest_details(props: &ContestDetailsProps) -> Html {
         });
     }
 
+    {
+        let share_text = share_text.clone();
+        let rivalry_lines = rivalry_lines.clone();
+        let auth = auth.clone();
+        use_effect_with(contest_details.clone(), move |details| {
+            if let Some(contest) = details.as_ref() {
+                share_text.set(Some(build_share_summary(contest)));
+                if let Some(me) = auth.state.player.as_ref() {
+                    let my_id = contest_key_from_any(&me.id);
+                    let opponents: Vec<String> = contest
+                        .participants
+                        .iter()
+                        .filter(|p| contest_key_from_any(&p.player_id) != my_id)
+                        .map(|p| p.player_id.clone())
+                        .collect();
+                    let rivalry_lines = rivalry_lines.clone();
+                    wasm_bindgen_futures::spawn_local(async move {
+                        let mut lines = Vec::new();
+                        for opp_id in opponents {
+                            let url = format!(
+                                "/api/analytics/player/head-to-head/{}",
+                                contest_key_from_any(&opp_id)
+                            );
+                            if let Ok(resp) = authenticated_get(&url).send().await {
+                                if resp.ok() {
+                                    if let Ok(v) = resp.json::<Value>().await {
+                                        let handle = v
+                                            .get("opponent_handle")
+                                            .and_then(|x| x.as_str())
+                                            .unwrap_or("opponent")
+                                            .to_string();
+                                        lines.push(RivalryLine {
+                                            handle,
+                                            my_wins: v
+                                                .get("my_wins")
+                                                .and_then(|x| x.as_i64())
+                                                .unwrap_or(0) as i32,
+                                            opponent_wins: v
+                                                .get("opponent_wins")
+                                                .and_then(|x| x.as_i64())
+                                                .unwrap_or(0) as i32,
+                                            total_contests: v
+                                                .get("total_contests")
+                                                .and_then(|x| x.as_i64())
+                                                .unwrap_or(0) as i32,
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                        rivalry_lines.set(lines);
+                    });
+                }
+            }
+            || ()
+        });
+    }
+
     let on_back = {
         let navigator = navigator.clone();
         Callback::from(move |_| {
@@ -629,6 +718,14 @@ pub fn contest_details(props: &ContestDetailsProps) -> Html {
                             >
                                 {"Delete contest"}
                             </button>
+                        }
+                        if contest_details.is_some() {
+                            <a
+                                href={format!("/contest?from={}", contest_key_from_any(&contest_id))}
+                                class="px-3 py-1.5 text-sm font-medium text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-md hover:bg-indigo-100 transition-colors"
+                            >
+                                {"Record similar contest"}
+                            </a>
                         }
                     </div>
                 </div>
@@ -826,6 +923,53 @@ pub fn contest_details(props: &ContestDetailsProps) -> Html {
                                 </div>
                             </div>
                         </div>
+
+                        // Share result + rivalry
+                        if let Some(summary) = (*share_text).clone() {
+                            <div class="bg-white rounded-md shadow-sm border border-gray-100 p-3 mb-4">
+                                <h3 class="text-base font-semibold text-gray-900 mb-2">{"Share result"}</h3>
+                                <p class="text-sm text-gray-700 mb-3">{summary.clone()}</p>
+                                <div class="flex flex-wrap gap-2">
+                                    <button
+                                        type="button"
+                                        class="px-3 py-2 rounded-md border border-gray-300 text-sm hover:bg-gray-50"
+                                        onclick={{
+                                            let summary = summary.clone();
+                                            let toast_context = toast_context.clone();
+                                            Callback::from(move |_| {
+                                                if let Some(win) = web_sys::window() {
+                                                    let clipboard = win.navigator().clipboard();
+                                                    let _ = clipboard.write_text(&summary);
+                                                    let toast = Toast::new(
+                                                        "Summary copied".to_string(),
+                                                        ToastType::Success,
+                                                    )
+                                                    .with_duration(3000);
+                                                    toast_context.add_toast.emit(toast);
+                                                }
+                                            })
+                                        }}
+                                    >
+                                        {"Copy summary"}
+                                    </button>
+                                </div>
+                                if !(*rivalry_lines).is_empty() {
+                                    <div class="mt-4 border-t border-gray-100 pt-3">
+                                        <h4 class="text-sm font-semibold text-gray-800 mb-2">{"Your rivalries in this game"}</h4>
+                                        <ul class="space-y-1 text-sm text-gray-600">
+                                            {(*rivalry_lines).iter().map(|r| html! {
+                                                <li>
+                                                    {format!(
+                                                        "@{} — you {}-{} ({} contests)",
+                                                        r.handle, r.my_wins, r.opponent_wins, r.total_contests
+                                                    )}
+                                                </li>
+                                            }).collect::<Html>()}
+                                        </ul>
+                                    </div>
+                                }
+                            </div>
+                        }
 
                         // AI: Smacktalk generator (MVP)
                         <div class="bg-white rounded-md shadow-sm border border-gray-100 p-3 mb-4">

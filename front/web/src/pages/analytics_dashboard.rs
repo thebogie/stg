@@ -480,17 +480,19 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
         let player_networking = player_networking.clone();
         let networking_loading = networking_loading.clone();
 
-        use_effect_with((), move |_| {
+        let auth = auth.clone();
+        use_effect_with(auth.state.player.clone(), move |player| {
+            if let Some(user_id) = player.as_ref().map(|p| p.id.clone()) {
             // Load venue performance for the current user
             let set_venue_performance = venue_performance.clone();
             let set_venue_loading = venue_loading.clone();
             set_venue_loading.set(true);
 
+            let user_id_venue = user_id.clone();
             wasm_bindgen_futures::spawn_local(async move {
-                let user_id = "player/2025041711441894568690500"; // Placeholder
                 match crate::api::utils::authenticated_get(&format!(
                     "/api/analytics-enhanced/venues/player-stats/{}",
-                    user_id
+                    user_id_venue
                 ))
                 .send()
                 .await
@@ -555,11 +557,11 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
             let set_recommendations_loading = recommendations_loading.clone();
             set_recommendations_loading.set(true);
 
+            let user_id_rec = user_id.clone();
             wasm_bindgen_futures::spawn_local(async move {
-                let user_id = "player/2025041711441894568690500"; // Placeholder
                 match crate::api::utils::authenticated_get(&format!(
                     "/api/analytics-enhanced/games/recommendations/{}?limit=5",
-                    user_id
+                    user_id_rec
                 ))
                 .send()
                 .await
@@ -618,12 +620,11 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
             let set_communities_loading = communities_loading.clone();
             set_communities_loading.set(true);
 
+            let user_id_comm = user_id.clone();
             wasm_bindgen_futures::spawn_local(async move {
-                let user_id = "player/2025041711441894568690500"; // Placeholder
-
                 match crate::api::utils::authenticated_get(&format!(
                     "/api/analytics-enhanced/communities/{}?min_contests=2",
-                    user_id
+                    user_id_comm
                 ))
                 .send()
                 .await
@@ -664,12 +665,11 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
             let set_networking_loading = networking_loading.clone();
             set_networking_loading.set(true);
 
+            let user_id_net = user_id.clone();
             wasm_bindgen_futures::spawn_local(async move {
-                let user_id = "player/2025041711441894568690500"; // Placeholder
-
                 match crate::api::utils::authenticated_get(&format!(
                     "/api/analytics-enhanced/networking/{}",
-                    user_id
+                    user_id_net
                 ))
                 .send()
                 .await
@@ -688,6 +688,7 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
                 set_networking_loading.set(false);
             });
 
+            }
             || ()
         });
     }

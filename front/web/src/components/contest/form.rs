@@ -719,8 +719,8 @@ pub fn contest_form(props: &ContestFormProps) -> Html {
                     </div>
                 </div>
 
-                // Submit Button
-                <div class="flex justify-center pt-4 sm:pt-6">
+                // Submit Button — sticky on mobile for thumb reach
+                <div class="fixed bottom-0 left-0 right-0 z-40 border-t border-gray-200 bg-white/95 backdrop-blur px-3 py-3 sm:static sm:border-0 sm:bg-transparent sm:px-0 sm:py-0 sm:flex sm:justify-center sm:pt-6">
                     <button
                         type="submit"
                         disabled={props.locked || *is_submitting || !is_form_valid}
@@ -735,6 +735,7 @@ pub fn contest_form(props: &ContestFormProps) -> Html {
                         }
                     </button>
                 </div>
+                <div class="h-20 sm:hidden" aria-hidden="true"></div>
             </form>
         </div>
     }

@@ -52,6 +52,13 @@ pub trait ClientAnalyticsUseCase: Send + Sync {
         &self,
         player_id: &str,
     ) -> Result<serde_json::Value, SharedError>;
+
+    async fn record_client_event(
+        &self,
+        name: &str,
+        props: serde_json::Value,
+        player_id: Option<&str>,
+    ) -> Result<(), SharedError>;
 }
 
 /// Implementation of client analytics use cases
@@ -685,5 +692,16 @@ where
 
         let networking = self.repository.get_player_networking(player_id).await?;
         Ok(networking)
+    }
+
+    async fn record_client_event(
+        &self,
+        name: &str,
+        props: serde_json::Value,
+        player_id: Option<&str>,
+    ) -> Result<(), SharedError> {
+        self.repository
+            .record_client_event(name, props, player_id)
+            .await
     }
 }

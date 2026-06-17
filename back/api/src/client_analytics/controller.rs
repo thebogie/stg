@@ -3,6 +3,7 @@ use crate::db::Db;
 use actix_web::HttpMessage;
 use actix_web::{web, HttpRequest, HttpResponse, Result};
 use log;
+use serde::Deserialize;
 use serde_json::json;
 use shared::dto::client_sync::*;
 use shared::error::SharedError;
@@ -353,6 +354,46 @@ where
     }
 }
 
+#[derive(Deserialize)]
+struct ClientEventPayload {
+    name: String,
+    #[serde(default)]
+    props: serde_json::Value,
+    #[serde(default)]
+    player_id: Option<String>,
+}
+
+impl<U> ClientAnalyticsController<U>
+where
+    U: ClientAnalyticsUseCase,
+{
+    /// Public telemetry ingest (client checks consent before calling).
+    pub async fn record_client_event(
+        &self,
+        req: HttpRequest,
+        payload: web::Json<ClientEventPayload>,
+    ) -> Result<HttpResponse> {
+        let player_id = payload
+            .player_id
+            .clone()
+            .or_else(|| {
+                req.extensions().get::<String>().map(|email| email.clone())
+            });
+        let player_id_ref = player_id.as_deref();
+        match self
+            .usecase
+            .record_client_event(&payload.name, payload.props.clone(), player_id_ref)
+            .await
+        {
+            Ok(()) => Ok(HttpResponse::Ok().json(json!({ "ok": true }))),
+            Err(e) => {
+                log::warn!("record_client_event failed: {}", e);
+                Ok(HttpResponse::InternalServerError().json(json!({ "error": e.to_string() })))
+            }
+        }
+    }
+}
+
 /// Configures client analytics routes. Pass prefix "/api" or "" for Trunk proxy.
 pub fn configure_routes<U>(
     cfg: &mut web::ServiceConfig,
@@ -368,6 +409,21 @@ pub fn configure_routes<U>(
         format!("{}/client", prefix)
     };
     log::debug!("Registering client analytics routes at {}", scope_path);
+
+    cfg.service(
+        web::scope(&scope_path)
+            .app_data(_controller.clone())
+            .route(
+                "/events",
+                web::post().to(
+                    |req: HttpRequest,
+                     payload: web::Json<ClientEventPayload>,
+                     controller: web::Data<ClientAnalyticsController<U>>| async move {
+                        controller.record_client_event(req, payload).await
+                    },
+                ),
+            ),
+    );
 
     cfg.service(
         web::scope(&scope_path)

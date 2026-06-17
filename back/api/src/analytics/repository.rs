@@ -4327,11 +4327,35 @@ impl AnalyticsRepository {
     /// Get contests by venue for a player using graph traversal
     pub async fn get_contests_by_venue(
         &self,
-        _player_id: &str,
-        _venue_id: &str,
+        player_id: &str,
+        venue_id: &str,
     ) -> Result<Vec<serde_json::Value>> {
-        // TODO: implement with SurrealQL (contest + played_at + resulted_in + played_with)
-        Ok(Vec::new())
+        let player_key = player_id_to_key(player_id);
+        let venue_key = record_id_to_key(venue_id, "venue");
+        if player_key.is_empty() || venue_key.is_empty() {
+            return Err(SharedError::Validation("Invalid player or venue id".to_string()));
+        }
+        let sql = r#"
+            SELECT string::replace(string::concat(c.id), '`', '') AS contest_id,
+                   c.name AS contest_name,
+                   c.start AS start,
+                   c.stop AS stop
+            FROM resulted_in ri
+            JOIN played_at pa ON ri.in = pa.in
+            JOIN contest c ON ri.in = c.id
+            WHERE ri.out = type::record('player', $player_key)
+              AND pa.out = type::record('venue', $venue_key)
+            ORDER BY c.start DESC
+        "#;
+        let mut res = self
+            .db
+            .query(sql)
+            .bind(("player_key", player_key))
+            .bind(("venue_key", venue_key))
+            .await
+            .map_err(|e| SharedError::Database(e.to_string()))?;
+        let rows: Vec<serde_json::Value> = res.take(0).unwrap_or_default();
+        Ok(rows)
     }
 
     /// Saves game statistics to database
@@ -5649,8 +5673,41 @@ impl AnalyticsRepository {
 
     /// Get player retention cohort data
     pub async fn get_player_retention_cohort(&self) -> Result<Vec<(String, i32, f64)>> {
-        // TODO: implement with SurrealQL
-        Ok(Vec::new())
+        let sql = r#"
+            SELECT time::format(c.start, '%Y-W%V') AS cohort_week,
+                   count(DISTINCT ri.out) AS players
+            FROM resulted_in ri
+            JOIN contest c ON ri.in = c.id
+            WHERE c.start >= time::now() - 12w
+            GROUP BY cohort_week
+            ORDER BY cohort_week ASC
+        "#;
+        let mut res = self
+            .db
+            .query(sql)
+            .await
+            .map_err(|e| SharedError::Database(e.to_string()))?;
+        let rows: Vec<serde_json::Value> = res.take(0).unwrap_or_default();
+        let mut cohorts: Vec<(String, i32, f64)> = Vec::new();
+        let mut prev_count: Option<i32> = None;
+        for row in rows {
+            let week = row
+                .get("cohort_week")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown")
+                .to_string();
+            let players = row
+                .get("players")
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0) as i32;
+            let retention = match prev_count {
+                Some(prev) if prev > 0 => (players as f64) / (prev as f64),
+                _ => 1.0,
+            };
+            prev_count = Some(players);
+            cohorts.push((week, players, retention));
+        }
+        Ok(cohorts)
     }
 
     /// Get contest completion rate by game
@@ -5660,9 +5717,113 @@ impl AnalyticsRepository {
     }
 
     /// Get head-to-head win matrix for top players
-    pub async fn get_head_to_head_matrix(&self, _limit: i32) -> Result<Vec<(String, String, f64)>> {
-        // TODO: implement with SurrealQL
-        Ok(Vec::new())
+    pub async fn get_head_to_head_matrix(&self, limit: i32) -> Result<Vec<(String, String, f64)>> {
+        let lim = limit.clamp(2, 20) as i64;
+        let top_sql = r#"
+            SELECT p.handle AS handle,
+                   type::record('player', string::replace(string::concat(ri.out), '`', '')) AS player_rid
+            FROM resulted_in ri
+            JOIN player p ON ri.out = p.id
+            GROUP BY ri.out, p.handle
+            ORDER BY count() DESC
+            LIMIT $lim
+        "#;
+        let mut top_res = self
+            .db
+            .query(top_sql)
+            .bind(("lim", lim))
+            .await
+            .map_err(|e| SharedError::Database(e.to_string()))?;
+        let top_rows: Vec<serde_json::Value> = top_res.take(0).unwrap_or_default();
+        if top_rows.len() < 2 {
+            return Ok(Vec::new());
+        }
+
+        let mut handles: Vec<String> = Vec::new();
+        let mut player_ids: Vec<String> = Vec::new();
+        for row in &top_rows {
+            if let (Some(handle), Some(rid)) = (
+                row.get("handle").and_then(|v| v.as_str()),
+                row.get("player_rid").and_then(|v| v.as_str()),
+            ) {
+                handles.push(handle.to_string());
+                player_ids.push(rid.to_string());
+            }
+        }
+
+        let pair_sql = r#"
+            SELECT string::replace(string::concat(my.out), '`', '') AS player1_id,
+                   string::replace(string::concat(opp.out), '`', '') AS player2_id,
+                   my.place AS place1,
+                   opp.place AS place2
+            FROM resulted_in my
+            JOIN resulted_in opp ON my.in = opp.in AND my.out != opp.out
+            WHERE my.out IN $player_rids AND opp.out IN $player_rids
+        "#;
+        let player_rids: Vec<surrealdb::types::RecordId> = player_ids
+            .iter()
+            .filter_map(|id| {
+                let key = player_id_to_key(id);
+                if key.is_empty() {
+                    None
+                } else {
+                    Some(surrealdb::types::RecordId::new("player", key.as_str()))
+                }
+            })
+            .collect();
+        let mut pair_res = self
+            .db
+            .query(pair_sql)
+            .bind(("player_rids", player_rids))
+            .await
+            .map_err(|e| SharedError::Database(e.to_string()))?;
+        let pair_rows: Vec<serde_json::Value> = pair_res.take(0).unwrap_or_default();
+
+        let mut wins: HashMap<(String, String), (i32, i32)> = HashMap::new();
+        for row in pair_rows {
+            let p1 = row
+                .get("player1_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let p2 = row
+                .get("player2_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let place1 = row.get("place1").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+            let place2 = row.get("place2").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+            let entry = wins.entry((p1.clone(), p2.clone())).or_insert((0, 0));
+            entry.1 += 1;
+            if place1 == 1 && place2 != 1 {
+                entry.0 += 1;
+            }
+        }
+
+        let id_to_handle: HashMap<String, String> = player_ids
+            .iter()
+            .zip(handles.iter())
+            .map(|(id, h)| (player_id_to_key(id), h.clone()))
+            .collect();
+
+        let mut matrix = Vec::new();
+        for (i, id1) in player_ids.iter().enumerate() {
+            let key1 = player_id_to_key(id1);
+            let h1 = id_to_handle.get(&key1).cloned().unwrap_or_else(|| key1.clone());
+            for id2 in player_ids.iter().skip(i + 1) {
+                let key2 = player_id_to_key(id2);
+                let h2 = id_to_handle.get(&key2).cloned().unwrap_or_else(|| key2.clone());
+                let (w1, total1) = wins.get(&(key1.clone(), key2.clone())).copied().unwrap_or((0, 0));
+                let (_w2, total2) = wins.get(&(key2.clone(), key1.clone())).copied().unwrap_or((0, 0));
+                let total = total1.max(total2);
+                if total == 0 {
+                    continue;
+                }
+                let rate = (w1 as f64 * 100.0) / total as f64;
+                matrix.push((h1.clone(), h2.clone(), rate));
+            }
+        }
+        Ok(matrix)
     }
 
     /// Get games by player count distribution with individual game breakdowns

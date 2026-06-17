@@ -1,0 +1,38 @@
+# STG unified Playwright image — production worker daemon + CI E2E test runner.
+#
+# Playwright version is pinned to @playwright/test in package-lock.json (must match base image tag).
+#
+# Build (from repo root):
+#   ./scripts/build-playwright-image.sh
+#
+# Production (default CMD): Redis queue worker
+#   docker compose up playwright-worker
+#
+# CI / local E2E (override entrypoint via run-playwright-e2e-docker.sh):
+#   npm exec playwright test
+
+ARG PLAYWRIGHT_VERSION=1.59.1
+FROM mcr.microsoft.com/playwright:v${PLAYWRIGHT_VERSION}-noble
+
+WORKDIR /app
+
+# E2E test runner (@playwright/test). Specs/config are mounted at runtime for CI.
+COPY package.json package-lock.json ./
+RUN npm ci
+
+# Worker queue daemon (ioredis only; browser automation uses root playwright package).
+COPY tools/playwright-worker/package.json tools/playwright-worker/
+RUN cd tools/playwright-worker && npm install --omit=dev
+
+# Site automation scripts (import playwright from /app/node_modules).
+COPY tools/bgg-marketplace/fill-listing.mjs tools/bgg-marketplace/
+COPY tools/playwright-worker/worker.mjs tools/playwright-worker/
+
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+ENV PLAYWRIGHT_JOBS_DIR=/jobs
+ENV BGG_SCRIPT_PATH=/app/tools/bgg-marketplace/fill-listing.mjs
+ENV BGG_HEADLESS=1
+ENV BGG_AUTO_SUBMIT=0
+
+# Production: playwright-worker service consumes Redis jobs.
+CMD ["node", "tools/playwright-worker/worker.mjs"]

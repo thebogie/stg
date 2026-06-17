@@ -7,7 +7,7 @@
 #   2) Integration: cargo test -p testing --test api_tests (smoke), then
 #                   cargo test -p testing -- --include-ignored --test-threads 1 (full crate, incl. ignored)
 #   3) E2E:         Playwright vs stack frontend (USE_PRODUCTION_CONTAINERS=1); default is pre-baked Docker
-#                   image (see scripts/build-playwright-e2e-image.sh + run-playwright-e2e-docker.sh).
+#                   image (see scripts/build-playwright-image.sh + run-playwright-e2e-docker.sh).
 #                   Host run: FULL_PROD_TEST_PLAYWRIGHT_HOST=1 (needs Node).
 #
 # BGG CSV import and docker iterate/clean skips only affect speed/data — they do not substitute for the three tiers above.
@@ -57,7 +57,23 @@ cd "$ROOT"
 # Use deploy/ as project dir so ./Caddyfile.frontend in docker-compose.full.yml resolves next to that file
 # (not under repo root, where the Caddyfile does not exist).
 stg_compose() {
-  docker compose --project-directory "$ROOT/deploy" "$@"
+  docker compose -p stg --project-directory "$ROOT/deploy" "$@"
+}
+
+# deploy/docker-compose*.yml use fixed container_name values (stg-surrealdb, etc.).
+# `compose down` only removes containers for its project label; orphans from project
+# "deploy" (older scripts) or manual runs block a fresh `up`.
+stg_remove_named_containers() {
+  local names=(
+    stg-surrealdb stg-redis stg-wait-for-surrealdb stg-backend stg-frontend
+    stg-playwright-worker stg-ollama
+  )
+  for name in "${names[@]}"; do
+    if docker inspect "$name" >/dev/null 2>&1; then
+      echo "==> Removing leftover container /$name"
+      docker rm -f "$name" || true
+    fi
+  done
 }
 
 stamp() { echo "==> [$(date -u +%Y-%m-%dT%H:%M:%SZ)] $*"; }
@@ -76,6 +92,15 @@ if [ "${FULL_PROD_TEST_ITERATE:-0}" = "1" ]; then
 fi
 
 # --- Phase 0: Clean project stack (containers + named volumes) ---
+DEV_COMPOSE_FILE="$ROOT/deploy/docker-compose.yml"
+DEV_ENV_FILE="$ROOT/config/.env.dev"
+if [ -f "$DEV_COMPOSE_FILE" ] && [ -f "$DEV_ENV_FILE" ]; then
+  echo "==> [0/7] Stopping dev dependency stack (shares container names with prod gate)"
+  for compose_proj in stg deploy; do
+    docker compose -p "$compose_proj" --project-directory "$ROOT/deploy" \
+      -f "$DEV_COMPOSE_FILE" --env-file "$DEV_ENV_FILE" down || true
+  done
+fi
 if [ "${FULL_PROD_TEST_KEEP_VOLUMES:-0}" = "1" ]; then
   echo "==> [0/7] Stopping project docker stack (keeping named volumes — FULL_PROD_TEST_KEEP_VOLUMES=1)"
 else
@@ -86,14 +111,20 @@ if [ -f "$COMPOSE_FILE" ] && [ -f "$ENV_FILE" ]; then
   # Provide placeholders so `down -v` actually executes and wipes stale SurrealDB credentials.
   export BACKEND_IMAGE="${BACKEND_IMAGE:-stg-backend:local}"
   export FRONTEND_IMAGE="${FRONTEND_IMAGE:-stg-frontend:local}"
-  if [ "${FULL_PROD_TEST_KEEP_VOLUMES:-0}" = "1" ]; then
-    stg_compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" down || true
-  else
-    stg_compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" down -v || true
-  fi
+  export PLAYWRIGHT_WORKER_IMAGE="${PLAYWRIGHT_WORKER_IMAGE:-stg-playwright:local}"
+  for compose_proj in stg deploy; do
+    if [ "${FULL_PROD_TEST_KEEP_VOLUMES:-0}" = "1" ]; then
+      docker compose -p "$compose_proj" --project-directory "$ROOT/deploy" \
+        -f "$COMPOSE_FILE" --env-file "$ENV_FILE" down || true
+    else
+      docker compose -p "$compose_proj" --project-directory "$ROOT/deploy" \
+        -f "$COMPOSE_FILE" --env-file "$ENV_FILE" down -v || true
+    fi
+  done
 else
   echo "Warning: compose or env file missing; skipping docker compose down."
 fi
+stg_remove_named_containers
 
 # Build version: same identifier for image tag, footer, and _build output (YYYYMMDD-HHMMSS-<short-sha>)
 GIT_COMMIT="$(git rev-parse --short HEAD)"
@@ -124,7 +155,7 @@ SUMMARY_JSON="$BUILD_DIR/summary.json"
 SUMMARY_TXT="$BUILD_DIR/summary.txt"
 
 # VOLUME_PATH is absolute (see scripts/load-env.sh).
-mkdir -p "$VOLUME_PATH/surrealdb_data" "$VOLUME_PATH/redis_data" "$VOLUME_PATH/backend_data/contest-images"
+mkdir -p "$VOLUME_PATH/surrealdb_data" "$VOLUME_PATH/redis_data" "$VOLUME_PATH/backend_data/contest-images" "$VOLUME_PATH/playwright_jobs"
 chmod 777 "$VOLUME_PATH/surrealdb_data" 2>/dev/null || true
 chown -R 1000:1000 "$VOLUME_PATH/backend_data" 2>/dev/null || chmod -R a+rwx "$VOLUME_PATH/backend_data" 2>/dev/null || true
 
@@ -167,6 +198,13 @@ docker build -f front/web/Dockerfile.frontend.caddy \
   --build-arg "SOURCE_HASH=$GIT_COMMIT" \
   -t "stg-frontend:$BUILD_VERSION" .
 
+PW_VERSION="$(bash "$SCRIPT_DIR/playwright-version.sh")"
+echo "==> [2b/7] Building unified Playwright image stg-playwright:$BUILD_VERSION (Playwright $PW_VERSION)"
+docker build -f deploy/Dockerfile.playwright \
+  --build-arg "PLAYWRIGHT_VERSION=$PW_VERSION" \
+  -t "stg-playwright:$BUILD_VERSION" \
+  -t "stg-playwright:latest" .
+
 case "${FULL_PROD_TEST_STOP_AFTER:-}" in
   images|docker-images)
     echo "==> FULL_PROD_TEST_STOP_AFTER=images — exiting before compose stack (Surreal/Redis/backend/frontend)."
@@ -178,8 +216,10 @@ esac
 echo "==> [3/7] Starting SurrealDB + Redis, applying schema/functions, then backend + frontend"
 export BACKEND_IMAGE="stg-backend:$BUILD_VERSION"
 export FRONTEND_IMAGE="stg-frontend:$BUILD_VERSION"
+export PLAYWRIGHT_WORKER_IMAGE="stg-playwright:$BUILD_VERSION"
 export IMAGE_TAG="$BUILD_VERSION"
 # Start stores first so import scripts hit a live server before the backend binary connects.
+stg_remove_named_containers
 stg_compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d surrealdb redis wait-for-surrealdb
 
 # Wait for each data service on the host (same ports compose publishes)
@@ -442,8 +482,8 @@ if [ "${FULL_PROD_TEST_PLAYWRIGHT_HOST:-0}" = "1" ]; then
     E2E_OK=${PIPESTATUS[0]:-$?}
   fi
 else
-  # Default: pre-baked Playwright image (build once: ./scripts/build-playwright-e2e-image.sh).
-  export PLAYWRIGHT_DOCKER_IMAGE="${PLAYWRIGHT_DOCKER_IMAGE:-stg-playwright-e2e:latest}"
+  # Default: unified Playwright image (build once: ./scripts/build-playwright-image.sh).
+  export PLAYWRIGHT_DOCKER_IMAGE="${PLAYWRIGHT_DOCKER_IMAGE:-stg-playwright:$BUILD_VERSION}"
   # Provision per-run E2E users (idempotent: treat "already exists" as OK for iterate runs).
   ensure_e2e_user() {
     local email="$1"
@@ -476,9 +516,9 @@ EOF
   if ! docker image inspect "$PLAYWRIGHT_DOCKER_IMAGE" >/dev/null 2>&1; then
     if [ "${FULL_PROD_TEST_BUILD_PLAYWRIGHT_IMAGE:-1}" = "1" ]; then
       stamp "Pre-baked Playwright image missing; building ${PLAYWRIGHT_DOCKER_IMAGE} (CDN access required once)…"
-      bash "$SCRIPT_DIR/build-playwright-e2e-image.sh"
+      bash "$SCRIPT_DIR/build-playwright-image.sh"
     else
-      echo "FAIL: Playwright image ${PLAYWRIGHT_DOCKER_IMAGE} not found. Run ./scripts/build-playwright-e2e-image.sh" >&2
+      echo "FAIL: Playwright image ${PLAYWRIGHT_DOCKER_IMAGE} not found. Run ./scripts/build-playwright-image.sh" >&2
       E2E_OK=1
     fi
   fi

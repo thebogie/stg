@@ -8,6 +8,8 @@ pub mod models {
     pub mod game;
     pub mod player;
     pub mod relations;
+    pub mod sell_listing;
+    pub mod sell_preferences;
     pub mod venue;
 }
 
@@ -22,6 +24,8 @@ pub mod dto {
     pub mod player;
     pub mod ratings;
     pub mod relations;
+    pub mod sell_listing;
+    pub mod sell_preferences;
     pub mod venue;
 }
 
@@ -45,6 +49,7 @@ pub use models::{
     game::Game,
     player::Player,
     relations::{PlayedAt, PlayedWith, ResultedIn},
+    sell_listing::SellListing,
     venue::Venue,
 };
 
@@ -68,6 +73,13 @@ pub use dto::{
         PlayerRatingDto, PlayerRatingHistoryPointDto, RatingLeaderboardEntryDto, RatingScope,
     },
     relations::{PlayedAtDto, PlayedWithDto, ResultedInDto},
+    sell_listing::{
+        AiExtractionResultDto, BggExportPayload, SellListingDto, SellListingPhotoDto,
+        UpdateSellListingDraftRequest,
+    },
+    sell_preferences::{
+        BggAutomateRequest, BggAutomateResponse, PlaywrightJobStatusDto, SellPreferencesDto,
+    },
     venue::VenueDto,
 };
 

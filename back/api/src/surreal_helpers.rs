@@ -419,3 +419,33 @@ mod http_path_param_tests {
         assert_eq!(canonical_id_from_http_path_param("game", "   "), "");
     }
 }
+
+#[cfg(test)]
+mod record_id_field_tests {
+    use super::record_id_from_field;
+    use serde_json::json;
+
+    #[test]
+    fn seller_id_from_record_link_object() {
+        let row = json!({
+            "id": "sell_listing:25e3c142-0a6b-4adc-9c63-3d141eab7265",
+            "seller_id": { "tb": "player", "id": "abc-player-uuid" }
+        });
+        assert_eq!(
+            record_id_from_field(&row, "seller_id").as_deref(),
+            Some("player/abc-player-uuid")
+        );
+    }
+
+    #[test]
+    fn seller_id_from_string_colon_form() {
+        let row = json!({
+            "id": "sell_listing:listing-1",
+            "seller_id": "player:abc-player-uuid"
+        });
+        assert_eq!(
+            record_id_from_field(&row, "seller_id").as_deref(),
+            Some("player/abc-player-uuid")
+        );
+    }
+}

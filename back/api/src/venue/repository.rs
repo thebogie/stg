@@ -1,6 +1,6 @@
 use crate::cache::{CacheKeys, CacheTTL, RedisCache};
 use crate::db::Db;
-use crate::surreal_helpers::{record_id_from_row, select_one_by_record_id_scoped};
+use crate::surreal_helpers::{record_id_from_row, record_id_to_key, select_one_by_record_id_scoped};
 use crate::third_party::{google::timezone::GoogleTimezoneService, GooglePlacesService};
 use anyhow::Result;
 use log;
@@ -543,27 +543,135 @@ impl VenueRepository for VenueRepositoryImpl {
 
     async fn get_venue_performance(&self, venue_id: &str) -> Result<serde_json::Value, String> {
         log::info!("🔍 Getting venue performance for venue: {}", venue_id);
-        // TODO: implement with SurrealQL (played_at `out`=contest, `in`=venue; resulted_in, played_with)
+        self.ensure_scope().await;
         let venue = self
             .find_by_id(venue_id)
             .await
             .ok_or_else(|| format!("Venue not found: {}", venue_id))?;
+        let venue_key = record_id_to_key(venue_id, "venue");
+        if venue_key.is_empty() {
+            return Err("Invalid venue id".to_string());
+        }
+
+        let total_sql = self.query_with_scope(
+            "SELECT count() AS total FROM played_at WHERE out = type::record('venue', $venue_key) GROUP ALL",
+        );
+        let mut total_res = self
+            .db
+            .query(&total_sql)
+            .bind(("venue_key", venue_key.clone()))
+            .await
+            .map_err(|e| format!("venue performance count: {}", e))?;
+        let total_rows: Vec<serde_json::Value> = total_res.take(0).unwrap_or_default();
+        let total_contests = total_rows
+            .first()
+            .and_then(|r| r.get("total"))
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0);
+
+        let games_sql = self.query_with_scope(
+            r#"SELECT string::replace(string::concat(pw.out), '`', '') AS game_id,
+                      g.name AS game_name,
+                      count() AS plays
+               FROM played_at pa
+               JOIN played_with pw ON pa.in = pw.in
+               JOIN game g ON pw.out = g.id
+               WHERE pa.out = type::record('venue', $venue_key)
+               GROUP BY pw.out, g.name
+               ORDER BY plays DESC
+               LIMIT 10"#,
+        );
+        let mut games_res = self
+            .db
+            .query(&games_sql)
+            .bind(("venue_key", venue_key.clone()))
+            .await
+            .map_err(|e| format!("venue game popularity: {}", e))?;
+        let game_popularity: Vec<serde_json::Value> = games_res.take(0).unwrap_or_default();
+
+        let players_sql = self.query_with_scope(
+            r#"SELECT string::replace(string::concat(ri.out), '`', '') AS player_id,
+                      p.handle AS handle,
+                      count() AS contests,
+                      math::sum(IF ri.place = 1 THEN 1 ELSE 0 END) AS wins
+               FROM played_at pa
+               JOIN resulted_in ri ON pa.in = ri.in
+               JOIN player p ON ri.out = p.id
+               WHERE pa.out = type::record('venue', $venue_key)
+               GROUP BY ri.out, p.handle
+               ORDER BY contests DESC
+               LIMIT 10"#,
+        );
+        let mut players_res = self
+            .db
+            .query(&players_sql)
+            .bind(("venue_key", venue_key))
+            .await
+            .map_err(|e| format!("venue top players: {}", e))?;
+        let top_players: Vec<serde_json::Value> = players_res.take(0).unwrap_or_default();
+
         Ok(serde_json::json!({
             "venue": { "id": venue.id, "name": venue.display_name, "address": venue.formatted_address },
-            "total_contests": 0,
+            "total_contests": total_contests,
             "player_performance": [],
-            "game_popularity": [],
-            "top_players": []
+            "game_popularity": game_popularity,
+            "top_players": top_players
         }))
     }
 
     async fn get_player_venue_stats(
         &self,
-        _player_id: &str,
+        player_id: &str,
     ) -> Result<Vec<serde_json::Value>, String> {
-        log::info!("🔍 Getting venue stats for player");
-        // TODO: implement with SurrealQL
-        Ok(Vec::new())
+        log::info!("🔍 Getting venue stats for player: {}", player_id);
+        self.ensure_scope().await;
+        let player_key = record_id_to_key(player_id, "player");
+        if player_key.is_empty() {
+            return Err("Invalid player id".to_string());
+        }
+
+        let sql = self.query_with_scope(
+            r#"SELECT string::replace(string::concat(pa.out), '`', '') AS venue_id,
+                      v.displayName AS venue_name,
+                      count() AS total_contests,
+                      math::sum(IF ri.place = 1 THEN 1 ELSE 0 END) AS wins
+               FROM resulted_in ri
+               JOIN played_at pa ON ri.in = pa.in
+               LEFT JOIN venue v ON pa.out = v.id
+               WHERE ri.out = type::record('player', $player_key)
+               GROUP BY pa.out, v.displayName
+               ORDER BY total_contests DESC"#,
+        );
+        let mut res = self
+            .db
+            .query(&sql)
+            .bind(("player_key", player_key))
+            .await
+            .map_err(|e| format!("player venue stats: {}", e))?;
+        let rows: Vec<serde_json::Value> = res.take(0).unwrap_or_default();
+        let out: Vec<serde_json::Value> = rows
+            .into_iter()
+            .map(|row| {
+                let total = row
+                    .get("total_contests")
+                    .and_then(|v| v.as_i64())
+                    .unwrap_or(0) as f64;
+                let wins = row.get("wins").and_then(|v| v.as_i64()).unwrap_or(0) as f64;
+                let win_rate = if total > 0.0 {
+                    (wins * 100.0) / total
+                } else {
+                    0.0
+                };
+                serde_json::json!({
+                    "venue_id": row.get("venue_id").cloned().unwrap_or(serde_json::Value::Null),
+                    "venue_name": row.get("venue_name").cloned().unwrap_or(serde_json::json!("Unknown venue")),
+                    "total_contests": total as u64,
+                    "wins": wins as i64,
+                    "win_rate": win_rate,
+                })
+            })
+            .collect();
+        Ok(out)
     }
 
     async fn create(&self, venue: Venue) -> Result<Venue, String> {

@@ -72,6 +72,10 @@ pub async fn connect_surreal(database: &DatabaseConfig) -> anyhow::Result<Db> {
                 .await
                 .context("contest moderation schema bootstrap")?;
 
+            ensure_sell_listing_schema(&db)
+                .await
+                .context("sell listing schema bootstrap")?;
+
             Ok(db)
         }
         .await;
@@ -109,5 +113,19 @@ pub async fn ensure_contest_moderation_schema(db: &Db) -> anyhow::Result<()> {
     db.query("DEFINE FIELD IF NOT EXISTS moderation_note ON contest TYPE option<string>")
         .await
         .context("DEFINE FIELD moderation_note ON contest")?;
+    Ok(())
+}
+
+/// Ensures sell_listing tables exist for the Sell a Game workflow.
+pub async fn ensure_sell_listing_schema(db: &Db) -> anyhow::Result<()> {
+    db.query("DEFINE TABLE IF NOT EXISTS sell_listing SCHEMALESS")
+        .await
+        .context("DEFINE TABLE sell_listing")?;
+    db.query("DEFINE TABLE IF NOT EXISTS sell_listing_photo SCHEMALESS")
+        .await
+        .context("DEFINE TABLE sell_listing_photo")?;
+    db.query("DEFINE TABLE IF NOT EXISTS sell_preferences SCHEMALESS")
+        .await
+        .context("DEFINE TABLE sell_preferences")?;
     Ok(())
 }

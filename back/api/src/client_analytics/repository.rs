@@ -74,6 +74,14 @@ pub trait ClientAnalyticsRepository: Send + Sync {
         &self,
         player_id: &str,
     ) -> Result<serde_json::Value, SharedError>;
+
+    /// Record a client-side telemetry event (consent-gated on the client).
+    async fn record_client_event(
+        &self,
+        name: &str,
+        props: serde_json::Value,
+        player_id: Option<&str>,
+    ) -> Result<(), SharedError>;
 }
 
 /// Contest participant with result data
@@ -837,5 +845,25 @@ impl ClientAnalyticsRepository for ClientAnalyticsRepositoryImpl {
             "opponent_analysis": [],
             "network_metrics": { "total_opponents": 0 }
         }))
+    }
+
+    async fn record_client_event(
+        &self,
+        name: &str,
+        props: serde_json::Value,
+        player_id: Option<&str>,
+    ) -> Result<(), SharedError> {
+        let doc = serde_json::json!({
+            "name": name,
+            "props": props,
+            "playerId": player_id,
+            "createdAt": chrono::Utc::now().to_rfc3339(),
+        });
+        self.db
+            .query("INSERT INTO client_event CONTENT $doc")
+            .bind(("doc", doc))
+            .await
+            .map_err(|e| SharedError::Database(format!("record client event: {}", e)))?;
+        Ok(())
     }
 }

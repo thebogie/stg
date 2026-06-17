@@ -1,0 +1,13 @@
+{
+  "name": "bgg-marketplace",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Human-assisted Playwright tool to fill BGG Marketplace sell form from STG export JSON",
+  "type": "module",
+  "scripts": {
+    "fill": "node fill-listing.mjs"
+  },
+  "dependencies": {
+    "playwright": "^1.59.0"
+  }
+}

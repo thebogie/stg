@@ -30,7 +30,7 @@ chmod 777 "$VOLUME_PATH/surrealdb_data" 2>/dev/null || true
 stg_compose() {
   # docker-compose.yml lives under deploy/. Use that as project dir so build contexts like `..`
   # resolve to repo root (deploy/..), not to a parent of the repo root.
-  docker compose --project-directory "$ROOT/deploy" "$@"
+  docker compose -p stg --project-directory "$ROOT/deploy" "$@"
 }
 
 # Optional seed import: set SURREAL_SEED_DIR to a dir containing *.surql or *.surql.gz exports.

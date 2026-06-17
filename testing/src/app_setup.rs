@@ -60,6 +60,9 @@ pub async fn setup_test_app_data(env: &TestEnvironment) -> Result<TestAppData> {
         backend::db::ensure_contest_moderation_schema(&db)
             .await
             .context("contest moderation schema bootstrap")?;
+        backend::db::ensure_sell_listing_schema(&db)
+            .await
+            .context("sell listing schema bootstrap")?;
         Ok::<Db, anyhow::Error>(db)
     };
     let db: Db = tokio::time::timeout(Duration::from_secs(15), connect)

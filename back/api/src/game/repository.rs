@@ -1,7 +1,7 @@
 use crate::bgg_catalog::repository::search_bgg_catalog;
 use crate::cache::{CacheKeys, CacheTTL, RedisCache};
 use crate::db::Db;
-use crate::surreal_helpers::{record_id_from_row, select_one_by_record_id_scoped};
+use crate::surreal_helpers::{record_id_from_row, record_id_to_key, select_one_by_record_id_scoped};
 use crate::third_party::BGGService;
 use shared::dto::game::GameDto;
 use shared::models::game::Game;
@@ -396,27 +396,151 @@ impl GameRepository for GameRepositoryImpl {
     async fn get_game_recommendations(
         &self,
         player_id: &str,
-        _limit: i32,
+        limit: i32,
     ) -> Result<Vec<serde_json::Value>, String> {
         log::info!("🔍 Getting game recommendations for player: {}", player_id);
-        // TODO: implement with SurrealQL graph-style queries
-        Ok(Vec::new())
+        self.ensure_scope().await;
+        let player_key = record_id_to_key(player_id, "player");
+        if player_key.is_empty() {
+            return Err("Invalid player id".to_string());
+        }
+        let lim = limit.clamp(1, 50) as i64;
+        let sql = self.query_with_scope(
+            r#"SELECT string::replace(string::concat(pw.out), '`', '') AS game_id,
+                      g.name AS game_name,
+                      count() AS play_count
+               FROM played_with pw
+               JOIN game g ON pw.out = g.id
+               WHERE pw.out NOT IN (
+                   SELECT VALUE sub.out
+                   FROM resulted_in sub_ri
+                   JOIN played_with sub ON sub_ri.in = sub.in
+                   WHERE sub_ri.out = type::record('player', $player_key)
+               )
+               GROUP BY pw.out, g.name
+               ORDER BY play_count DESC
+               LIMIT $lim"#,
+        );
+        let mut res = self
+            .db
+            .query(&sql)
+            .bind(("player_key", player_key))
+            .bind(("lim", lim))
+            .await
+            .map_err(|e| format!("game recommendations: {}", e))?;
+        let rows: Vec<serde_json::Value> = res.take(0).unwrap_or_default();
+        Ok(rows
+            .into_iter()
+            .map(|row| {
+                let name = row
+                    .get("game_name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("Unknown game");
+                let score = row
+                    .get("play_count")
+                    .and_then(|v| v.as_i64())
+                    .unwrap_or(0) as f64;
+                serde_json::json!({
+                    "game_id": row.get("game_id").cloned().unwrap_or(serde_json::Value::Null),
+                    "game_name": name,
+                    "name": name,
+                    "reason": "Popular on STG — you have not logged a contest with this game yet",
+                    "score": score,
+                })
+            })
+            .collect())
     }
 
     async fn get_similar_games(
         &self,
         game_id: &str,
-        _limit: i32,
+        limit: i32,
     ) -> Result<Vec<serde_json::Value>, String> {
         log::info!("🔍 Getting similar games for game: {}", game_id);
-        // TODO: implement with SurrealQL
-        Ok(Vec::new())
+        self.ensure_scope().await;
+        let game_key = record_id_to_key(game_id, "game");
+        if game_key.is_empty() {
+            return Err("Invalid game id".to_string());
+        }
+        let lim = limit.clamp(1, 50) as i64;
+        let sql = if uuid::Uuid::parse_str(&game_key).is_ok() {
+            self.query_with_scope(
+                r#"SELECT string::replace(string::concat(pw2.out), '`', '') AS game_id,
+                          g.name AS game_name,
+                          count() AS co_occurrence
+                   FROM played_with pw1
+                   JOIN played_with pw2 ON pw1.in = pw2.in AND pw1.out != pw2.out
+                   JOIN game g ON pw2.out = g.id
+                   WHERE pw1.out = type::record('game', type::uuid($game_key))
+                   GROUP BY pw2.out, g.name
+                   ORDER BY co_occurrence DESC
+                   LIMIT $lim"#,
+            )
+        } else {
+            self.query_with_scope(
+                r#"SELECT string::replace(string::concat(pw2.out), '`', '') AS game_id,
+                          g.name AS game_name,
+                          count() AS co_occurrence
+                   FROM played_with pw1
+                   JOIN played_with pw2 ON pw1.in = pw2.in AND pw1.out != pw2.out
+                   JOIN game g ON pw2.out = g.id
+                   WHERE pw1.out = type::record('game', $game_key)
+                   GROUP BY pw2.out, g.name
+                   ORDER BY co_occurrence DESC
+                   LIMIT $lim"#,
+            )
+        };
+        let mut res = self
+            .db
+            .query(&sql)
+            .bind(("game_key", game_key))
+            .bind(("lim", lim))
+            .await
+            .map_err(|e| format!("similar games: {}", e))?;
+        let rows: Vec<serde_json::Value> = res.take(0).unwrap_or_default();
+        Ok(rows
+            .into_iter()
+            .map(|row| {
+                serde_json::json!({
+                    "game_id": row.get("game_id").cloned().unwrap_or(serde_json::Value::Null),
+                    "game_name": row.get("game_name").cloned().unwrap_or(serde_json::json!("Unknown game")),
+                    "similarity_score": row.get("co_occurrence").cloned().unwrap_or(serde_json::json!(0)),
+                })
+            })
+            .collect())
     }
 
-    async fn get_popular_games(&self, _limit: i32) -> Result<Vec<serde_json::Value>, String> {
+    async fn get_popular_games(&self, limit: i32) -> Result<Vec<serde_json::Value>, String> {
         log::info!("🔍 Getting popular games");
-        // TODO: implement with SurrealQL (count played_with per game, order, limit)
-        Ok(Vec::new())
+        self.ensure_scope().await;
+        let lim = limit.clamp(1, 50) as i64;
+        let sql = self.query_with_scope(
+            r#"SELECT string::replace(string::concat(pw.out), '`', '') AS game_id,
+                      g.name AS game_name,
+                      count() AS play_count
+               FROM played_with pw
+               JOIN game g ON pw.out = g.id
+               GROUP BY pw.out, g.name
+               ORDER BY play_count DESC
+               LIMIT $lim"#,
+        );
+        let mut res = self
+            .db
+            .query(&sql)
+            .bind(("lim", lim))
+            .await
+            .map_err(|e| format!("popular games: {}", e))?;
+        let rows: Vec<serde_json::Value> = res.take(0).unwrap_or_default();
+        Ok(rows
+            .into_iter()
+            .map(|row| {
+                serde_json::json!({
+                    "game_id": row.get("game_id").cloned().unwrap_or(serde_json::Value::Null),
+                    "game_name": row.get("game_name").cloned().unwrap_or(serde_json::json!("Unknown game")),
+                    "play_count": row.get("play_count").cloned().unwrap_or(serde_json::json!(0)),
+                })
+            })
+            .collect())
     }
 
     async fn search_dto(&self, query: &str) -> Vec<GameDto> {

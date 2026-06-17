@@ -111,6 +111,9 @@ async fn main() -> std::io::Result<()> {
     if let Err(e) = backend::contest::image::ensure_image_dir() {
         log::warn!("Could not create contest image directory: {}", e);
     }
+    if let Err(e) = backend::sell::image::ensure_image_dir() {
+        log::warn!("Could not create sell image directory: {}", e);
+    }
 
     // Initialize Redis cache for repositories
     use backend::cache::{CacheTTL, RedisCache};
@@ -224,6 +227,34 @@ async fn main() -> std::io::Result<()> {
     // Store scheduler in web::Data for health checks
     let scheduler_data = web::Data::new(ratings_scheduler.clone());
 
+    // Sell listing repository and image cleanup scheduler
+    let sell_listing_repo = web::Data::new(
+        backend::sell::repository::SellListingRepositoryImpl::new_with_scope(
+            db.clone(),
+            config.database.ns.clone(),
+            config.database.name.clone(),
+        ),
+    );
+    let sell_prefs_repo = web::Data::new(
+        backend::sell::preferences_repository::SellPreferencesRepositoryImpl::new_with_scope(
+            db.clone(),
+            config.database.ns.clone(),
+            config.database.name.clone(),
+        ),
+    );
+    let mut sell_cleanup_scheduler = backend::sell::scheduler::SellImageCleanupScheduler::new(
+        backend::sell::repository::SellListingRepositoryImpl::new_with_scope(
+            db.clone(),
+            config.database.ns.clone(),
+            config.database.name.clone(),
+        ),
+    );
+    if let Err(e) = sell_cleanup_scheduler.start().await {
+        log::error!("Failed to start sell image cleanup scheduler: {}", e);
+    } else {
+        log::info!("Sell listing image cleanup scheduler started");
+    }
+
     // Analytics components will be initialized in the route configuration
 
     // Start HTTP server
@@ -279,6 +310,8 @@ async fn main() -> std::io::Result<()> {
             .app_data(venue_repo.clone())
             .app_data(game_repo.clone())
             .app_data(contest_repo.clone())
+            .app_data(sell_listing_repo.clone())
+            .app_data(sell_prefs_repo.clone())
             .app_data(session_store.clone())
             .service(utoipa_swagger_ui::SwaggerUi::new("/swagger-ui/{_:.*}").url(
                 "/api-docs/openapi.json",
@@ -458,6 +491,80 @@ async fn main() -> std::io::Result<()> {
                             .service(backend::contest::controller::reject_contest_handler)
                             .service(backend::contest::controller::delete_contest_handler),
                     ),
+            )
+            .service(
+                web::scope("/api/sell/preferences")
+                    .wrap(backend::auth::AuthMiddleware {
+                        redis: std::sync::Arc::new(redis_data.get_ref().clone()),
+                    })
+                    .app_data(player_repo.clone())
+                    .service(backend::sell::controller::get_preferences_handler)
+                    .service(backend::sell::controller::put_preferences_handler),
+            )
+            .service(
+                web::scope("/sell/preferences")
+                    .wrap(backend::auth::AuthMiddleware {
+                        redis: std::sync::Arc::new(redis_data.get_ref().clone()),
+                    })
+                    .app_data(player_repo.clone())
+                    .service(backend::sell::controller::get_preferences_handler)
+                    .service(backend::sell::controller::put_preferences_handler),
+            )
+            .service(
+                web::scope("/api/sell/listings")
+                    .wrap(backend::auth::AuthMiddleware {
+                        redis: std::sync::Arc::new(redis_data.get_ref().clone()),
+                    })
+                    .app_data(web::PayloadConfig::default().limit(
+                        backend::sell::image::max_upload_bytes(),
+                    ))
+                    .app_data(player_repo.clone())
+                    .app_data(sell_prefs_repo.clone())
+                    .app_data(redis_data.clone())
+                    .service(backend::sell::controller::create_listing_handler)
+                    .service(backend::sell::controller::list_listings_handler)
+                    .service(backend::sell::controller::get_listing_handler)
+                    .service(backend::sell::controller::upload_photo_handler)
+                    .service(backend::sell::controller::get_photo_detail_handler)
+                    .service(backend::sell::controller::get_photo_handler)
+                    .service(backend::sell::controller::delete_photo_handler)
+                    .service(backend::sell::controller::approve_checkpoint_handler)
+                    .service(backend::sell::controller::extract_handler)
+                    .service(backend::sell::controller::update_draft_handler)
+                    .service(backend::sell::controller::bgg_match_handler)
+                    .service(backend::sell::controller::export_listing_handler)
+                    .service(backend::sell::controller::automate_handler)
+                    .service(backend::sell::controller::automate_job_status_handler)
+                    .service(backend::sell::controller::automation_result_handler)
+                    .service(backend::sell::controller::cancel_listing_handler),
+            )
+            .service(
+                web::scope("/sell/listings")
+                    .wrap(backend::auth::AuthMiddleware {
+                        redis: std::sync::Arc::new(redis_data.get_ref().clone()),
+                    })
+                    .app_data(web::PayloadConfig::default().limit(
+                        backend::sell::image::max_upload_bytes(),
+                    ))
+                    .app_data(player_repo.clone())
+                    .app_data(sell_prefs_repo.clone())
+                    .app_data(redis_data.clone())
+                    .service(backend::sell::controller::create_listing_handler)
+                    .service(backend::sell::controller::list_listings_handler)
+                    .service(backend::sell::controller::get_listing_handler)
+                    .service(backend::sell::controller::upload_photo_handler)
+                    .service(backend::sell::controller::get_photo_detail_handler)
+                    .service(backend::sell::controller::get_photo_handler)
+                    .service(backend::sell::controller::delete_photo_handler)
+                    .service(backend::sell::controller::approve_checkpoint_handler)
+                    .service(backend::sell::controller::extract_handler)
+                    .service(backend::sell::controller::update_draft_handler)
+                    .service(backend::sell::controller::bgg_match_handler)
+                    .service(backend::sell::controller::export_listing_handler)
+                    .service(backend::sell::controller::automate_handler)
+                    .service(backend::sell::controller::automate_job_status_handler)
+                    .service(backend::sell::controller::automation_result_handler)
+                    .service(backend::sell::controller::cancel_listing_handler),
             )
             .configure(|cfg| {
                 log::debug!("Registering /api/analytics routes");

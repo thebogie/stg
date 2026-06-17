@@ -190,20 +190,6 @@ pub fn nav() -> Html {
                                         {"Contests"}
                                     </Link<Route>>
                                     <Link<Route>
-                                        to={Route::Venues}
-                                        classes={classes!(
-                                            "px-3", "py-2", "rounded-md", "text-sm", "font-medium",
-                                            "transition-colors", "duration-200", "min-h-[44px]", "flex", "items-center",
-                                            if current_route == Route::Venues {
-                                                classes!("bg-white/20", "text-white")
-                                            } else {
-                                                classes!("text-white/90", "hover:bg-white/10", "hover:text-white")
-                                            }
-                                        )}
-                                    >
-                                        {"Venues"}
-                                    </Link<Route>>
-                                    <Link<Route>
                                         to={Route::Games}
                                         classes={classes!(
                                             "px-3", "py-2", "rounded-md", "text-sm", "font-medium",

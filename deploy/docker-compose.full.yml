@@ -101,11 +101,16 @@ services:
       - BGG_API_URL=${BGG_API_URL:-}
       - BGG_API_TOKEN=${BGG_API_TOKEN:-}
       - ADMIN_EMAILS=${ADMIN_EMAILS:-}
+      - PLAYWRIGHT_MODE=${PLAYWRIGHT_MODE:-queue}
+      - PLAYWRIGHT_JOB_TTL_SECONDS=${PLAYWRIGHT_JOB_TTL_SECONDS:-900}
+      - PLAYWRIGHT_STATUS_TTL_SECONDS=${PLAYWRIGHT_STATUS_TTL_SECONDS:-3600}
     depends_on:
       wait-for-surrealdb:
         condition: service_completed_successfully
       redis:
         condition: service_healthy
+      playwright-worker:
+        condition: service_started
     volumes:
       - ${VOLUME_PATH}/backend_data:/app/data
     # Use CMD-SHELL + $SERVER_PORT so the probe matches the process (compose only expands
@@ -120,6 +125,26 @@ services:
       timeout: 5s
       retries: 8
       start_period: 60s
+    networks:
+      - stg
+
+  playwright-worker:
+    container_name: stg-playwright-worker
+    image: ${PLAYWRIGHT_WORKER_IMAGE:?Set PLAYWRIGHT_WORKER_IMAGE (e.g. ghcr.io/owner/repo/playwright-worker:latest)}
+    restart: unless-stopped
+    environment:
+      - REDIS_URL=redis://redis:6379/
+      - PLAYWRIGHT_JOBS_DIR=/jobs
+      - BGG_HEADLESS=${BGG_HEADLESS:-1}
+      - BGG_AUTO_SUBMIT=${BGG_AUTO_SUBMIT:-0}
+      - PLAYWRIGHT_JOB_TTL_SECONDS=${PLAYWRIGHT_JOB_TTL_SECONDS:-900}
+      - PLAYWRIGHT_STATUS_TTL_SECONDS=${PLAYWRIGHT_STATUS_TTL_SECONDS:-3600}
+    volumes:
+      - ${VOLUME_PATH}/backend_data:/app/data
+      - ${VOLUME_PATH}/playwright_jobs:/jobs
+    depends_on:
+      redis:
+        condition: service_healthy
     networks:
       - stg
 

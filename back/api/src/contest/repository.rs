@@ -605,8 +605,12 @@ impl ContestRepository for ContestRepositoryImpl {
                     is_admin: false,
                 };
 
-                // Create player with a default password
-                let default_password = "letmein"; // TODO: Generate random password or require email verification
+                // Create player with a random password (not emailed; organiser shares separately)
+                let default_password = uuid::Uuid::new_v4().to_string();
+                log::info!(
+                    "Generated guest password for {} (not emailed)",
+                    outcome.email
+                );
                 let salt_string = argon2::password_hash::SaltString::generate(
                     &mut argon2::password_hash::rand_core::OsRng,
                 );

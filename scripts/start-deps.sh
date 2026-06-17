@@ -1,7 +1,9 @@
 #!/bin/bash
-# Start only SurrealDB + Redis (no backend container). Use with local backend for quick iteration.
+# Start dependency containers (no backend). Use with local backend for quick iteration.
+# Default: SurrealDB + Redis + Ollama.
+# When PLAYWRIGHT_MODE=queue in config/.env.*, also starts playwright-worker (Sell → BGG).
 # Usage: ./scripts/start-deps.sh [dev] [--no-build]
-#        Then run: just backend-watch (terminal 2) and ./scripts/start-tauri.sh (terminal 3)
+#        Then run: just backend-watch (terminal 2) and ./scripts/start-front.sh (terminal 3)
 #
 # Data import (dev): same as start-back.sh — if backup zip exists, smacktalk.surql is removed,
 # regenerated from the zip, then imported. Never use a cached .surql; never runs in production.
@@ -12,7 +14,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$SCRIPT_DIR/.."
 cd "$ROOT"
 
-ENV_ARG="${1:-dev}"
+NO_BUILD=""
+ENV_ARG="dev"
+for a in "$@"; do
+  if [ "$a" = "--no-build" ]; then
+    NO_BUILD=1
+  elif [ "$a" = "dev" ] || [ "$a" = "prod" ]; then
+    ENV_ARG="$a"
+  fi
+done
 source "$SCRIPT_DIR/load-env.sh" "$ENV_ARG"
 
 export COMPOSE_PROJECT_NAME=stg
@@ -22,10 +32,15 @@ ENV_FILE="$ROOT/config/.env.${RUST_ENV}"
 mkdir -p "$VOLUME_PATH/surrealdb_data" "$VOLUME_PATH/redis_data"
 chmod 777 "$VOLUME_PATH/surrealdb_data" 2>/dev/null || true
 
+PLAYWRIGHT_MODE="${PLAYWRIGHT_MODE:-local}"
+DEPS_SERVICES=(surrealdb redis ollama)
+if [ "${PLAYWRIGHT_MODE,,}" = "queue" ]; then
+  mkdir -p "$VOLUME_PATH/backend_data/sell-images" "$VOLUME_PATH/playwright_jobs"
+  DEPS_SERVICES+=(playwright-worker)
+fi
+
 stg_compose() {
-  # docker-compose.yml lives under deploy/. Use that as project dir so build contexts like `..`
-  # resolve to repo root (deploy/..), not to a parent of the repo root.
-  docker compose --project-directory "$ROOT/deploy" "$@"
+  docker compose -p stg --project-directory "$ROOT/deploy" "$@"
 }
 
 # Dev only: optional wipe + import (same logic as start-back.sh)
@@ -49,9 +64,17 @@ if [ "$RUST_ENV" = "dev" ] || [ "$RUST_ENV" = "development" ]; then
   fi
 fi
 
-# Start only SurrealDB + Redis + Ollama (no backend, no full stack down/up)
-echo "==> Starting SurrealDB, Redis, and Ollama only..."
-stg_compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d surrealdb redis ollama
+# Start deps (no backend container)
+if [ "${PLAYWRIGHT_MODE,,}" = "queue" ]; then
+  echo "==> Starting SurrealDB, Redis, Ollama, and Playwright worker (PLAYWRIGHT_MODE=queue)..."
+else
+  echo "==> Starting SurrealDB, Redis, and Ollama..."
+fi
+if [ -n "$NO_BUILD" ]; then
+  stg_compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d "${DEPS_SERVICES[@]}"
+else
+  stg_compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d --build "${DEPS_SERVICES[@]}"
+fi
 
 # If we wiped the volume, restart SurrealDB so it sees the empty data dir (otherwise it keeps old in-memory schema)
 if [ -n "$WIPED" ]; then
@@ -215,7 +238,10 @@ fi
 
 echo ""
 echo "==> SurrealDB: http://127.0.0.1:${SURREALDB_PORT}  |  Redis: 127.0.0.1:${REDIS_PORT}"
+if [ "${PLAYWRIGHT_MODE,,}" = "queue" ]; then
+  echo "==> Playwright worker: docker logs -f stg-playwright-worker"
+fi
 echo "==> Next: run backend and frontend (2 terminals):"
 echo "      Terminal 2:  just backend-watch"
-echo "      Terminal 3:  ./scripts/start-tauri.sh"
+echo "      Terminal 3:  ./scripts/start-front.sh"
 echo ""

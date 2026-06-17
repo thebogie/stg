@@ -27,10 +27,23 @@ ARG BUILD_DATE
 ENV GIT_COMMIT=${GIT_COMMIT:-unknown}
 ENV BUILD_DATE=${BUILD_DATE:-unknown}
 
+# crates.io can reset mid-download inside Docker; retry + sparse index + cache mounts help.
+ENV CARGO_NET_RETRY=10 \
+    CARGO_HTTP_MULTIPLEXING=false \
+    CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
+
 # Build the backend binary from workspace root
 # Using --package backend (back/api) ensures we only build the backend package
 # Strip binary to reduce size (strip will fail if binary doesn't exist)
-RUN cargo build --release --package backend && \
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    set -e; \
+    for attempt in 1 2 3 4 5; do \
+      if cargo build --release --locked --package backend; then break; fi; \
+      if [ "$attempt" -eq 5 ]; then echo "cargo build failed after 5 attempts"; exit 1; fi; \
+      echo "==> cargo build attempt $attempt failed (network/crates.io); retrying in 20s..."; \
+      sleep 20; \
+    done && \
     strip /app/target/release/backend && \
     strip /app/target/release/import_bgg_catalog && \
     strip /app/target/release/backfill_contest_names && \

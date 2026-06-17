@@ -8,6 +8,7 @@ use crate::components::scheduler_monitor::SchedulerMonitor;
 use gloo_timers::callback::Interval;
 use shared::dto::analytics::PlatformStatsDto;
 use shared::dto::contest::ContestDto;
+use shared::dto::player::PlayerDto;
 use yew::prelude::*;
 
 #[derive(Properties, PartialEq, Clone, Debug)]
@@ -41,6 +42,10 @@ pub fn admin_page(_props: &AdminPageProps) -> Html {
     let pending_loading = use_state(|| false);
     let pending_error = use_state(|| None::<String>);
     let pending_expanded_id = use_state(|| None::<String>);
+
+    let user_search_query = use_state(String::new);
+    let user_search_results = use_state(Vec::<PlayerDto>::new);
+    let user_search_loading = use_state(|| false);
 
     let toggle_pending_detail = {
         let pending_expanded_id = pending_expanded_id.clone();
@@ -428,6 +433,97 @@ pub fn admin_page(_props: &AdminPageProps) -> Html {
                             .emit(format!("Ratings rebuild failed: {} - {}", status, text));
                     }
                     Err(e) => show_error_toast.emit(format!("Ratings rebuild failed: {}", e)),
+                }
+            });
+        })
+    };
+
+    let on_user_search = {
+        let user_search_query = user_search_query.clone();
+        let user_search_results = user_search_results.clone();
+        let user_search_loading = user_search_loading.clone();
+        let show_error_toast = show_error_toast.clone();
+        Callback::from(move |_| {
+            let q = (*user_search_query).clone();
+            user_search_loading.set(true);
+            let user_search_results = user_search_results.clone();
+            let user_search_loading = user_search_loading.clone();
+            let show_error_toast = show_error_toast.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                let url = api_url(&format!(
+                    "/api/admin/users/search?q={}&limit=20",
+                    urlencoding::encode(&q)
+                ));
+                match authenticated_get(&url).send().await {
+                    Ok(resp) if resp.ok() => {
+                        if let Ok(body) = resp.json::<serde_json::Value>().await {
+                            let users: Vec<PlayerDto> = body
+                                .get("users")
+                                .and_then(|v| serde_json::from_value(v.clone()).ok())
+                                .unwrap_or_default();
+                            user_search_results.set(users);
+                        }
+                    }
+                    Ok(resp) => {
+                        show_error_toast.emit(format!("User search failed: {}", resp.status()));
+                    }
+                    Err(e) => show_error_toast.emit(format!("User search failed: {}", e)),
+                }
+                user_search_loading.set(false);
+            });
+        })
+    };
+
+    let on_toggle_admin = {
+        let show_success_toast = show_success_toast.clone();
+        let show_error_toast = show_error_toast.clone();
+        let on_user_search = on_user_search.clone();
+        Callback::from(move |(player_id, grant): (String, bool)| {
+            let show_success_toast = show_success_toast.clone();
+            let show_error_toast = show_error_toast.clone();
+            let on_user_search = on_user_search.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                let url = api_url(&format!("/api/admin/users/{}/admin", player_id));
+                let body = serde_json::json!({ "is_admin": grant });
+                match authenticated_post(&url)
+                    .header("Content-Type", "application/json")
+                    .body(body.to_string())
+                {
+                    Ok(req) => match req.send().await {
+                        Ok(resp) if resp.ok() => {
+                            show_success_toast.emit(if grant {
+                                "Admin granted".to_string()
+                            } else {
+                                "Admin revoked".to_string()
+                            });
+                            on_user_search.emit(());
+                        }
+                        Ok(resp) => {
+                            show_error_toast.emit(format!("Admin update failed: {}", resp.status()));
+                        }
+                        Err(e) => show_error_toast.emit(format!("Admin update failed: {}", e)),
+                    },
+                    Err(e) => show_error_toast.emit(format!("Admin update failed: {}", e)),
+                }
+            });
+        })
+    };
+
+    let on_run_smoke = {
+        let show_success_toast = show_success_toast.clone();
+        let show_error_toast = show_error_toast.clone();
+        Callback::from(move |_| {
+            let show_success_toast = show_success_toast.clone();
+            let show_error_toast = show_error_toast.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                match authenticated_post(&api_url("/api/admin/playwright/smoke")).send().await {
+                    Ok(resp) if resp.ok() => {
+                        show_success_toast.emit("Playwright smoke job queued".to_string());
+                    }
+                    Ok(resp) => {
+                        show_error_toast.emit(format!("Smoke enqueue failed: {}", resp.status()));
+                    }
+                    Err(e) => show_error_toast.emit(format!("Smoke enqueue failed: {}", e)),
                 }
             });
         })
@@ -938,6 +1034,17 @@ pub fn admin_page(_props: &AdminPageProps) -> Html {
                                     </div>
 
                                     <div class="config-card">
+                                        <h3>{"Playwright smoke test"}</h3>
+                                        <p class="text-sm text-gray-600 mb-2">{"Queue a smoke.stg job against STG_BASE_URL (requires Playwright worker)."}</p>
+                                        <button type="button" class="action-btn secondary" onclick={{
+                                            let on_run_smoke = on_run_smoke.clone();
+                                            Callback::from(move |_| on_run_smoke.emit(()))
+                                        }}>
+                                            {"Run smoke.stg"}
+                                        </button>
+                                    </div>
+
+                                    <div class="config-card">
                                         <h3>{"System Information"}</h3>
                                         <div class="info-grid">
                                             {if *version_loading {
@@ -999,33 +1106,70 @@ pub fn admin_page(_props: &AdminPageProps) -> Html {
                         },
 
                         AdminTab::Users => html! {
-                            <div class="users-section">
-                                <h2>{"👥 User Management"}</h2>
-                                <div class="users-content">
-                                    <div class="users-info">
-                                        <p>{"Manage user accounts, permissions, and administrative access."}</p>
-                                    </div>
-
-                                    <div class="users-actions">
-                                        <button class="action-btn primary" onclick={show_success_toast.clone().reform(|_| "User management features coming soon!".to_string())}>
-                                            {"👤 Manage Users"}
-                                        </button>
-                                        <button class="action-btn secondary" onclick={show_success_toast.clone().reform(|_| "Permission management features coming soon!".to_string())}>
-                                            {"🔐 Manage Permissions"}
-                                        </button>
-                                    </div>
-
-                                    <div class="coming-soon">
-                                        <h3>{"🚧 Coming Soon"}</h3>
-                                        <p>{"Advanced user management features are under development and will include:"}</p>
-                                        <ul>
-                                            <li>{"User role assignment and management"}</li>
-                                            <li>{"Permission level configuration"}</li>
-                                            <li>{"User activity monitoring"}</li>
-                                            <li>{"Bulk user operations"}</li>
-                                        </ul>
-                                    </div>
+                            <div class="users-section space-y-4">
+                                <h2 class="text-xl font-semibold">{"👥 User Management"}</h2>
+                                <p class="text-gray-600">{"Search players and grant or revoke admin access."}</p>
+                                <div class="flex flex-col sm:flex-row gap-2">
+                                    <input
+                                        type="search"
+                                        class="flex-1 rounded-md border border-gray-300 px-3 py-2 min-h-[44px]"
+                                        placeholder="Search by handle or email"
+                                        value={(*user_search_query).clone()}
+                                        oninput={{
+                                            let user_search_query = user_search_query.clone();
+                                            Callback::from(move |e: InputEvent| {
+                                                let input: web_sys::HtmlInputElement = e.target_unchecked_into();
+                                                user_search_query.set(input.value());
+                                            })
+                                        }}
+                                    />
+                                    <button class="action-btn primary min-h-[44px]" onclick={{
+                                        let on_user_search = on_user_search.clone();
+                                        Callback::from(move |_| on_user_search.emit(()))
+                                    }} disabled={*user_search_loading}>
+                                        {if *user_search_loading { "Searching…" } else { "Search" }}
+                                    </button>
                                 </div>
+                                if !user_search_results.is_empty() {
+                                    <div class="overflow-x-auto rounded-lg border border-gray-200 bg-white">
+                                        <table class="min-w-full text-sm">
+                                            <thead class="bg-gray-50 text-left">
+                                                <tr>
+                                                    <th class="px-3 py-2">{"Handle"}</th>
+                                                    <th class="px-3 py-2">{"Email"}</th>
+                                                    <th class="px-3 py-2">{"Admin"}</th>
+                                                    <th class="px-3 py-2">{"Actions"}</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {user_search_results.iter().map(|u| {
+                                                    let pid = u.id.clone();
+                                                    let grant = {
+                                                        let on_toggle_admin = on_toggle_admin.clone();
+                                                        let pid = pid.clone();
+                                                        Callback::from(move |_| on_toggle_admin.emit((pid.clone(), true)))
+                                                    };
+                                                    let revoke = {
+                                                        let on_toggle_admin = on_toggle_admin.clone();
+                                                        let pid = pid.clone();
+                                                        Callback::from(move |_| on_toggle_admin.emit((pid.clone(), false)))
+                                                    };
+                                                    html! {
+                                                        <tr class="border-t border-gray-100">
+                                                            <td class="px-3 py-2 font-medium">{&u.handle}</td>
+                                                            <td class="px-3 py-2">{&u.email}</td>
+                                                            <td class="px-3 py-2">{if u.is_admin { "Yes" } else { "No" }}</td>
+                                                            <td class="px-3 py-2 space-x-2">
+                                                                <button type="button" class="text-xs text-indigo-700 hover:underline" onclick={grant}>{"Grant"}</button>
+                                                                <button type="button" class="text-xs text-red-700 hover:underline" onclick={revoke}>{"Revoke"}</button>
+                                                            </td>
+                                                        </tr>
+                                                    }
+                                                }).collect::<Html>()}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                }
                             </div>
                         },
                     }}

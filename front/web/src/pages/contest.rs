@@ -2,7 +2,7 @@ use shared::dto::contest::ContestDto;
 use yew::prelude::*;
 use yew_router::prelude::*;
 
-use crate::api::contests::{submit_contest, upload_contest_image};
+use crate::api::contests::{get_contest_by_id, submit_contest, upload_contest_image, contest_key_from_any};
 use crate::api::timezone::{resolve_timezone, resolve_timezone_by_place_id};
 use crate::auth::AuthContext;
 use crate::components::contest::confirmation_modal::ContestConfirmationModal;
@@ -21,6 +21,22 @@ use wasm_bindgen::prelude::*;
 
 /// Set after successful submit; contests list reads once and shows a one-time notice.
 pub const CONTEST_SUBMITTED_MODERATION_FLASH: &str = "stg_contest_submitted_moderation";
+
+/// Session key written by the live tracker before navigating to Record Contest.
+pub const TRACKER_SESSION_STORAGE_KEY: &str = "stg_tracker_session";
+
+fn location_query_param(key: &str) -> Option<String> {
+    let search = web_sys::window()?.location().search().ok()?;
+    let search = search.trim_start_matches('?');
+    for pair in search.split('&') {
+        if let Some((k, v)) = pair.split_once('=') {
+            if k == key && !v.is_empty() {
+                return Some(v.to_string());
+            }
+        }
+    }
+    None
+}
 
 #[wasm_bindgen(module = "/src/js/timezone.js")]
 extern "C" {
@@ -263,6 +279,56 @@ pub fn contest() -> Html {
                 log!("Skipping venue preload - venue is already selected");
             }
 
+            || ()
+        });
+    }
+
+    // Duplicate contest from ?from=<contest_key> or tracker session prefill
+    {
+        let reducer = reducer.clone();
+        use_effect_with((), move |_| {
+            let reducer = reducer.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                if let Ok(tracker_raw) = SessionStorage::get::<String>(TRACKER_SESSION_STORAGE_KEY) {
+                    if let Ok(tracker) = serde_json::from_str::<ContestFormState>(&tracker_raw) {
+                        let _ = SessionStorage::delete(TRACKER_SESSION_STORAGE_KEY);
+                        reducer.dispatch(ContestFormAction::SetVenue(tracker.venue));
+                        reducer.dispatch(ContestFormAction::SetTimezone(tracker.timezone));
+                        reducer.dispatch(ContestFormAction::SetGames(tracker.games));
+                        reducer.dispatch(ContestFormAction::SetOutcomes(tracker.outcomes));
+                        return;
+                    }
+                }
+
+                if let Some(from_key) = location_query_param("from") {
+                    let key = contest_key_from_any(&from_key);
+                    match get_contest_by_id(&key).await {
+                        Ok(source) => {
+                            let now_utc = chrono::Utc::now().fixed_offset();
+                            reducer.dispatch(ContestFormAction::SetStart(
+                                now_utc - chrono::Duration::hours(1),
+                            ));
+                            reducer.dispatch(ContestFormAction::SetStop(now_utc));
+                            reducer.dispatch(ContestFormAction::SetTimezone(
+                                source.venue.timezone.clone(),
+                            ));
+                            reducer.dispatch(ContestFormAction::SetVenue(Some(source.venue)));
+                            reducer.dispatch(ContestFormAction::SetGames(source.games));
+                            let outcomes: Vec<OutcomeDto> = source
+                                .outcomes
+                                .into_iter()
+                                .map(|mut o| {
+                                    o.player_id.clear();
+                                    o
+                                })
+                                .collect();
+                            reducer.dispatch(ContestFormAction::SetOutcomes(outcomes));
+                            let _ = LocalStorage::set("user_selected_venue", true);
+                        }
+                        Err(e) => log!(format!("Failed to duplicate contest {}: {}", key, e)),
+                    }
+                }
+            });
             || ()
         });
     }

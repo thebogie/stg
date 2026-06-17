@@ -1,7 +1,8 @@
 use crate::cache::{CacheKeys, CacheTTL, RedisCache};
 use crate::db::Db;
 use crate::surreal_helpers::{
-    normalize_record_id_string, record_id_from_row, scope_prefix, select_one_by_record_id,
+    normalize_record_id_string, record_id_from_row, record_id_to_key, scope_prefix,
+    select_one_by_record_id,
 };
 use async_trait::async_trait;
 use log;
@@ -37,6 +38,7 @@ pub trait PlayerRepository: Send + Sync {
     async fn update(&self, player: Player) -> Result<Player, String>;
     async fn find_by_handle(&self, handle: &str) -> Option<Player>;
     async fn find_many_by_ids(&self, ids: &[String]) -> Vec<Player>;
+    async fn set_admin_status(&self, player_id: &str, is_admin: bool) -> Result<Player, String>;
 }
 
 #[derive(Clone)]
@@ -709,6 +711,52 @@ impl PlayerRepository for PlayerRepositoryImpl {
         rows.into_iter()
             .filter_map(|v| value_to_player(&v))
             .collect()
+    }
+
+    async fn set_admin_status(&self, player_id: &str, is_admin: bool) -> Result<Player, String> {
+        let key = record_id_to_key(player_id, "player");
+        if key.is_empty() {
+            return Err("Invalid player id".to_string());
+        }
+        self.ensure_scope_via_query()
+            .await
+            .map_err(|e| format!("Failed to set scope: {}", e))?;
+        let update_q = if uuid::Uuid::parse_str(&key).is_ok() {
+            self.query_with_scope(
+                "UPDATE type::record('player', type::uuid($key)) MERGE { isAdmin: $is_admin } RETURN AFTER",
+            )
+        } else {
+            self.query_with_scope(
+                "UPDATE type::record('player', $key) MERGE { isAdmin: $is_admin } RETURN AFTER",
+            )
+        };
+        let mut ur = self
+            .db
+            .query(&update_q)
+            .bind(("key", key))
+            .bind(("is_admin", is_admin))
+            .await
+            .map_err(|e| format!("Failed to update admin status: {}", e))?;
+        let rows: Vec<serde_json::Value> = ur
+            .take(0)
+            .map_err(|e| format!("Failed to parse admin update: {}", e))?;
+        let updated = rows
+            .into_iter()
+            .next()
+            .and_then(|v| value_to_player(&v))
+            .ok_or_else(|| "Player not found".to_string())?;
+        if let Some(ref cache) = self.cache {
+            let _ = cache.delete(&CacheKeys::player(&updated.id)).await;
+            let _ = cache
+                .delete(&CacheKeys::player_by_email(&updated.email))
+                .await;
+            if !updated.handle.is_empty() {
+                let _ = cache
+                    .delete(&CacheKeys::player_by_handle(&updated.handle))
+                    .await;
+            }
+        }
+        Ok(updated)
     }
 }
 

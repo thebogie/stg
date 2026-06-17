@@ -1,0 +1,13 @@
+{
+  "name": "stg-playwright-worker",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Redis-backed Playwright job worker for STG browser automation",
+  "type": "module",
+  "scripts": {
+    "start": "node worker.mjs"
+  },
+  "dependencies": {
+    "ioredis": "^5.4.2"
+  }
+}

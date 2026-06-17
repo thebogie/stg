@@ -17,10 +17,10 @@ Repo layout for ops (Option A):
 
 Builds backend + frontend Docker images, brings up **full** stack (`deploy/docker-compose.full.yml`), runs unit + full integration + Playwright.
 
-**E2E:** Playwright runs **inside Docker** (`--network host`) against the prod stack on `127.0.0.1:${FRONTEND_PORT}`. The gate provisions per-run users (`E2E_USER_EMAIL`, etc.) and authenticates analytics/crud via API `global-setup` (no UI login in `beforeEach`). Build the Playwright image once when `package-lock.json` changes or on a new machine:
+**E2E:** Playwright runs **inside Docker** (`--network host`) against the prod stack on `127.0.0.1:${FRONTEND_PORT}`. The gate provisions per-run users (`E2E_USER_EMAIL`, etc.) and authenticates analytics/crud via API `global-setup` (no UI login in `beforeEach`). Build the unified Playwright image once when `package-lock.json` changes or on a new machine:
 
 ```bash
-./scripts/build-playwright-e2e-image.sh   # needs network once (npm + Playwright CDN)
+./scripts/build-playwright-image.sh   # needs network once (npm + Playwright CDN)
 ```
 
 Then `./scripts/run-playwright-e2e-docker.sh` / the full gate do **not** download browsers at test time. Override with `FULL_PROD_TEST_PLAYWRIGHT_HOST=1` to run on the host instead (needs Node).
@@ -99,8 +99,8 @@ On the host, from a tree that includes **`deploy/`** (and `config/.env.prod` nex
 | `./scripts/apply-surreal-functions.sh` | Apply `tools/arango-to-surreal/surreal-functions.surql`. |
 | `./scripts/run-surreal-script.sh` | Run a `.surql` file against local Surreal (HTTP). |
 | `./scripts/run-integration-tests.sh` | Re-run `cargo test -p testing` with host URLs when stack is already up. |
-| `./scripts/build-playwright-e2e-image.sh` | Build `stg-playwright-e2e` image (npm ci + Chromium baked in; run when lockfile changes). |
-| `./scripts/run-playwright-e2e-docker.sh` | Run Playwright E2E in the pre-baked container (see script header for `PLAYWRIGHT_*` env vars). |
+| `./scripts/build-playwright-image.sh` | Build unified `stg-playwright` image (worker + E2E; run when lockfile changes). |
+| `./scripts/run-playwright-e2e-docker.sh` | Run Playwright E2E in the unified image (see script header for `PLAYWRIGHT_*` env vars). |
 | `./scripts/verify-surreal-local.sh` | Data checks against localhost Surreal. |
 | `./scripts/test-surrealdb-auth.sh` | Debug which root password a running Surreal accepts. |
 | `./scripts/smoke-test-player-auth.sh` | Quick HTTP smoke vs `BASE_URL` (see `testing/INTEGRATION_TEST_GUIDE.md`). |

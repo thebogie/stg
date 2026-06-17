@@ -68,6 +68,8 @@ pub mod ratings {
     pub mod usecase;
 }
 
+pub mod sell;
+
 pub mod migration {
     pub mod timezone_migration;
 }
@@ -116,5 +118,8 @@ mod player_tests;
 
 #[cfg(test)]
 mod game_controller_tests;
+
+#[cfg(test)]
+mod sell_tests;
 
 // Controller tests are in their respective modules
