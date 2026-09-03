@@ -169,4 +169,64 @@ mod analytics_tests {
         assert_eq!(sum, 15);
         assert_eq!(avg, 3.0);
     }
+
+    #[test]
+    fn test_overview_tab_dto_shape() {
+        let dto = OverviewTabDto {
+            timezone: "America/Chicago".to_string(),
+            new_players_30d: 1,
+            returning_players_30d: 2,
+            contest_completion_rate_pct: 80.0,
+            week_over_week: WeekOverWeekDto {
+                contests_this_week: 3,
+                contests_last_week: 2,
+                contests_change_pct: 50.0,
+                players_this_week: 4,
+                players_last_week: 4,
+                players_change_pct: 0.0,
+                weekly_contest_sparkline: vec![CountBucketDto {
+                    label: "2026-W21".to_string(),
+                    count: 1,
+                }],
+            },
+        };
+        let json = serde_json::to_value(&dto).unwrap();
+        assert_eq!(json["timezone"], "America/Chicago");
+        assert!(json.get("week_over_week").is_some());
+    }
+
+    #[test]
+    fn test_contests_tab_dto_shape() {
+        let dto = ContestsTabDto {
+            timezone: "UTC".to_string(),
+            avg_duration_minutes: 90.0,
+            avg_time_to_fill_hours: 12.0,
+            size_distribution: vec![],
+            peak_participants_heatmap: vec![],
+        };
+        let json = serde_json::to_value(&dto).unwrap();
+        assert_eq!(json["timezone"], "UTC");
+        assert!(json.get("avg_duration_minutes").is_some());
+    }
+
+    #[test]
+    fn test_contest_stats_dto_includes_game_id() {
+        let dto = ContestStatsDto {
+            contest_id: "contest/1".to_string(),
+            contest_name: "Friday Night".to_string(),
+            participant_count: 4,
+            completion_count: 4,
+            completion_rate: 100.0,
+            average_placement: 2.5,
+            duration_minutes: 120,
+            most_popular_game: Some("Catan".to_string()),
+            most_popular_game_id: Some("game/catan".to_string()),
+            difficulty_rating: 5.0,
+            excitement_rating: 6.0,
+            started_at: None,
+            last_updated: Utc::now().fixed_offset(),
+        };
+        let json = serde_json::to_value(&dto).unwrap();
+        assert_eq!(json["most_popular_game_id"], "game/catan");
+    }
 }

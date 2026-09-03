@@ -206,6 +206,10 @@ PY
   # This runs after the optional Arango→Surreal conversion/import block above.
   ( wait_surrealdb && try_seed_import ) || true
 
+  if [ -x "$ROOT/deploy/run_surreal_migrations.sh" ]; then
+    ( wait_surrealdb && DEPLOY_ROOT="$ROOT/deploy" ENV_FILE="$ENV_FILE" "$ROOT/deploy/run_surreal_migrations.sh" ) || true
+  fi
+
   # Apply optional SurrealDB functions (contest_row, contest_with_edges, etc.); use host network so we hit 127.0.0.1
   if [ -f "$ROOT/tools/arango-to-surreal/surreal-functions.surql" ]; then
     REMOVE_FILE="$ROOT/tools/arango-to-surreal/surreal-functions-remove.surql"

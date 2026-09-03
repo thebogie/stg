@@ -2,6 +2,9 @@ use actix_web::{HttpResponse, ResponseError};
 use serde::Serialize;
 use std::fmt;
 
+use crate::observability::context::{current_request_id, current_user_id};
+use crate::observability::events::log_api_error;
+
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct ApiError {
     pub error: String,
@@ -55,17 +58,25 @@ impl ResponseError for ApiError {
         let status = match actix_web::http::StatusCode::from_u16(self.status_code) {
             Ok(status) => status,
             Err(_) => {
-                log::warn!(
-                    "Invalid status code {}, defaulting to 500",
-                    self.status_code
+                tracing::warn!(
+                    event = "api.error",
+                    http.status_code = self.status_code,
+                    "invalid status code, defaulting to 500"
                 );
                 actix_web::http::StatusCode::INTERNAL_SERVER_ERROR
             }
         };
 
-        // Return JSON response compatible with frontend ErrorResponse
-        // Frontend expects {error: String}, but we include message and status_code for debugging
-        // Serde will ignore extra fields when deserializing to ErrorResponse
+        if self.status_code >= 400 {
+            log_api_error(
+                &self.error,
+                self.status_code,
+                &self.message,
+                current_request_id().as_deref(),
+                current_user_id().as_deref(),
+            );
+        }
+
         HttpResponse::build(status)
             .content_type("application/json")
             .json(self)

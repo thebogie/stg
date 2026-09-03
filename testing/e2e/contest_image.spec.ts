@@ -1,9 +1,5 @@
 import { test, expect } from '@playwright/test';
-import {
-  e2eUserCreds,
-  e2eApiBase,
-  bearerAuth,
-} from './helpers';
+import { e2eUserCreds, loginSession } from './helpers';
 
 /**
  * Contest thumbnail API (upload → GET WebP → delete).
@@ -22,26 +18,14 @@ test.describe('Contest thumbnail image API', () => {
   );
 
   test('upload returns WebP on GET and clears on DELETE', async ({ request }) => {
-    const creds = e2eUserCreds()!;
-    const apiBase = e2eApiBase();
-
-    const loginRes = await request.post(`${apiBase}/api/players/login`, {
-      headers: { 'Content-Type': 'application/json' },
-      data: JSON.stringify({ email: creds.email, password: creds.password }),
-    });
-    const loginText = await loginRes.text();
-    expect(
-      loginRes.ok(),
-      `POST /api/players/login: HTTP ${loginRes.status()} ${loginText}`,
-    ).toBeTruthy();
-    const login = JSON.parse(loginText) as { session_id: string };
-    const auth = bearerAuth(login.session_id);
+    const session = await loginSession(request);
+    expect(session, 'login required for contest image API').toBeTruthy();
+    const { auth, apiBase } = session!;
 
     const ts = Date.now();
     const placeId = `e2e_img_place_${ts}`;
 
     const venueRes = await request.post(`${apiBase}/api/venues`, {
-      headers: auth,
       headers: { ...auth, 'Content-Type': 'application/json' },
       data: JSON.stringify({
         displayName: 'E2E Image Venue',
@@ -61,7 +45,6 @@ test.describe('Contest thumbnail image API', () => {
     const venue = JSON.parse(venueText) as Record<string, unknown>;
 
     const gameRes = await request.post(`${apiBase}/api/games`, {
-      headers: auth,
       headers: { ...auth, 'Content-Type': 'application/json' },
       data: JSON.stringify({
         name: `E2E Image Game ${ts}`,
@@ -76,7 +59,6 @@ test.describe('Contest thumbnail image API', () => {
     const start = new Date().toISOString();
     const stop = new Date(Date.now() + 3600_000).toISOString();
     const contestRes = await request.post(`${apiBase}/api/contests`, {
-      headers: auth,
       headers: { ...auth, 'Content-Type': 'application/json' },
       data: JSON.stringify({
         name: `E2E Image Contest ${ts}`,

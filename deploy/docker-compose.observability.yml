@@ -1,0 +1,75 @@
+# Observability stack: Loki + Promtail + Grafana + Prometheus.
+# Requires the main `stg` Docker network (start deploy/docker-compose.yml first).
+#
+# Usage (from repo root):
+#   ./scripts/start-observability.sh
+#   docker compose --project-directory "$(pwd)/deploy" -f deploy/docker-compose.observability.yml --env-file config/.env.prod up -d
+#
+# Grafana: http://localhost:${GRAFANA_PORT:-3000} (default admin / see GRAFANA_ADMIN_PASSWORD)
+
+services:
+  loki:
+    container_name: stg-loki
+    image: grafana/loki:3.0.0
+    command: -config.file=/etc/loki/loki-config.yml
+    ports:
+      - "${LOKI_PORT:-3100}:3100"
+    volumes:
+      - ./observability/loki-config.yml:/etc/loki/loki-config.yml:ro
+      - ${VOLUME_PATH}/loki:/loki
+    networks:
+      - stg
+    restart: unless-stopped
+
+  promtail:
+    container_name: stg-promtail
+    image: grafana/promtail:3.0.0
+    command: -config.file=/etc/promtail/promtail-config.yml
+    volumes:
+      - ./observability/promtail-config.yml:/etc/promtail/promtail-config.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      - loki
+    networks:
+      - stg
+    restart: unless-stopped
+
+  prometheus:
+    container_name: stg-prometheus
+    image: prom/prometheus:v2.52.0
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=14d"
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ${VOLUME_PATH}/prometheus:/prometheus
+    networks:
+      - stg
+    restart: unless-stopped
+
+  grafana:
+    container_name: stg-grafana
+    image: grafana/grafana:11.0.0
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-changeme}
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ${VOLUME_PATH}/grafana:/var/lib/grafana
+    depends_on:
+      - loki
+      - prometheus
+    networks:
+      - stg
+    restart: unless-stopped
+
+networks:
+  stg:
+    external: true
+    name: stg

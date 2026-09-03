@@ -157,6 +157,140 @@ impl ContestRepositoryImpl {
         })
     }
 
+    // #region agent log
+    fn agent_debug_log(
+        hypothesis_id: &str,
+        location: &str,
+        message: &str,
+        data: serde_json::Value,
+    ) {
+        use std::io::Write;
+        let payload = serde_json::json!({
+            "sessionId": "54cc83",
+            "hypothesisId": hypothesis_id,
+            "location": location,
+            "message": message,
+            "data": data,
+            "timestamp": chrono::Utc::now().timestamp_millis(),
+        });
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open("/home/thebogie/work/stg/.cursor/debug-54cc83.log")
+        {
+            let _ = writeln!(f, "{}", payload);
+        }
+    }
+    // #endregion
+
+    /// Resolve an existing player by id, or create one from outcome email/handle.
+    /// When the web client sends a placeholder `player/{uuid}` that is not yet in the DB, create
+    /// instead of failing lookup (fixes dangling `resulted_in` edges to non-existent players).
+    async fn resolve_or_create_player_from_outcome(
+        &self,
+        outcome: &OutcomeDto,
+    ) -> Result<shared::models::player::Player, String> {
+        let player_id = outcome.player_id.trim();
+        Self::agent_debug_log(
+            "A",
+            "contest/repository.rs:resolve_or_create_player_from_outcome",
+            "resolve outcome player",
+            serde_json::json!({
+                "player_id": player_id,
+                "email": outcome.email,
+                "handle": outcome.handle,
+            }),
+        );
+
+        if !player_id.is_empty() && player_id.starts_with("player/") {
+            if let Some(player) = self.player_usecase.repo.find_by_id(player_id).await {
+                Self::agent_debug_log(
+                    "A",
+                    "contest/repository.rs:resolve_or_create_player_from_outcome",
+                    "found existing player by id",
+                    serde_json::json!({ "resolved_id": player.id }),
+                );
+                return Ok(player);
+            }
+            let key = record_id_to_key(player_id, "player");
+            let has_identity = !outcome.email.trim().is_empty() || !outcome.handle.trim().is_empty();
+            if has_identity {
+                log::info!(
+                    "👥 Player id '{}' not in DB (placeholder or stale); creating from email='{}' handle='{}'",
+                    player_id,
+                    outcome.email,
+                    outcome.handle
+                );
+                Self::agent_debug_log(
+                    "A",
+                    "contest/repository.rs:resolve_or_create_player_from_outcome",
+                    "placeholder id missing in DB; creating player",
+                    serde_json::json!({ "placeholder_key": key }),
+                );
+            } else {
+                return Err(format!("Player not found: {}", player_id));
+            }
+        } else if !player_id.is_empty() {
+            return Err(format!("Invalid player_id: {}", player_id));
+        } else {
+            log::info!(
+                "👥 Creating new player from outcome data: handle='{}', email='{}'",
+                outcome.handle,
+                outcome.email
+            );
+        }
+
+        let default_password = uuid::Uuid::new_v4().to_string();
+        log::info!(
+            "Generated guest password for {} (not emailed)",
+            outcome.email
+        );
+        let salt_string = argon2::password_hash::SaltString::generate(
+            &mut argon2::password_hash::rand_core::OsRng,
+        );
+        let hashed_password = Argon2::default()
+            .hash_password(default_password.as_bytes(), &salt_string)
+            .map_err(|e| format!("Failed to hash password: {}", e))?
+            .to_string();
+
+        let handle = if outcome.handle.trim().is_empty() {
+            outcome.email.split('@').next().unwrap_or("user").to_string()
+        } else {
+            outcome.handle.clone()
+        };
+
+        let player = shared::models::player::Player::new_for_db(
+            handle.clone(),
+            handle,
+            outcome.email.clone(),
+            hashed_password,
+            chrono::Utc::now().fixed_offset(),
+            false,
+        )
+        .map_err(|e| format!("Failed to create player: {}", e))?;
+
+        match self.player_usecase.repo.create(player).await {
+            Ok(player) => {
+                log::info!("✅ Created new player: {} ({})", player.handle, player.id);
+                Self::agent_debug_log(
+                    "A",
+                    "contest/repository.rs:resolve_or_create_player_from_outcome",
+                    "created new player",
+                    serde_json::json!({
+                        "created_id": player.id,
+                        "email": player.email,
+                        "handle": player.handle,
+                    }),
+                );
+                Ok(player)
+            }
+            Err(e) => {
+                log::error!("💥 Failed to create player: {}", e);
+                Err(format!("Failed to create player: {}", e))
+            }
+        }
+    }
+
     fn creator_id_from_contest_value(contest_data: &serde_json::Value) -> String {
         record_id_from_field(contest_data, "creator_id").unwrap_or_else(|| {
             contest_data
@@ -566,82 +700,7 @@ impl ContestRepository for ContestRepositoryImpl {
                 outcome.email
             );
 
-            let player_id = outcome.player_id.clone();
-
-            // Helper: check if player_id is a real DB record id (SurrealDB format)
-            fn is_real_player_id(player_id: &str) -> bool {
-                player_id.starts_with("player/") && player_id.len() > 7
-            }
-
-            let player = if !player_id.is_empty() && is_real_player_id(&player_id) {
-                log::info!("👥 Looking up existing player with ID: {}", player_id);
-                // Fetch existing player by ID (SurrealDB record id)
-                match self.player_usecase.get_player(&player_id).await {
-                    Ok(player) => {
-                        log::info!(
-                            "✅ Found existing player: {} ({})",
-                            player.handle,
-                            player.id
-                        );
-                        player
-                    }
-                    Err(e) => {
-                        log::error!("💥 Failed to find player with ID '{}': {}", player_id, e);
-                        return Err(format!("Player not found: {}", e));
-                    }
-                }
-            } else {
-                log::info!(
-                    "👥 Creating new player from outcome data: handle='{}', email='{}'",
-                    outcome.handle,
-                    outcome.email
-                );
-                // Create new player from outcome data
-                let _player_dto = shared::dto::player::PlayerDto {
-                    id: String::new(), // Will be set by SurrealDB
-                    firstname: outcome.handle.clone(),
-                    handle: outcome.handle.clone(),
-                    email: outcome.email.clone(),
-                    created_at: chrono::Utc::now().fixed_offset(),
-                    is_admin: false,
-                };
-
-                // Create player with a random password (not emailed; organiser shares separately)
-                let default_password = uuid::Uuid::new_v4().to_string();
-                log::info!(
-                    "Generated guest password for {} (not emailed)",
-                    outcome.email
-                );
-                let salt_string = argon2::password_hash::SaltString::generate(
-                    &mut argon2::password_hash::rand_core::OsRng,
-                );
-                let hashed_password = Argon2::default()
-                    .hash_password(default_password.as_bytes(), &salt_string)
-                    .map_err(|e| format!("Failed to hash password: {}", e))?
-                    .to_string();
-
-                let player = shared::models::player::Player::new_for_db(
-                    outcome.handle.clone(),
-                    outcome.handle.clone(),
-                    outcome.email.clone(),
-                    hashed_password,
-                    chrono::Utc::now().fixed_offset(),
-                    false,
-                )
-                .map_err(|e| format!("Failed to create player: {}", e))?;
-
-                // Save to DB
-                match self.player_usecase.repo.create(player).await {
-                    Ok(player) => {
-                        log::info!("✅ Created new player: {} ({})", player.handle, player.id);
-                        player
-                    }
-                    Err(e) => {
-                        log::error!("💥 Failed to create player: {}", e);
-                        return Err(format!("Failed to create player: {}", e));
-                    }
-                }
-            };
+            let player = self.resolve_or_create_player_from_outcome(outcome).await?;
 
             // Update OutcomeDto with correct player_id
             let mut updated_outcome = outcome.clone();
@@ -1253,36 +1312,7 @@ impl ContestRepositoryImpl {
 
         let mut processed_outcomes = Vec::new();
         for outcome in &contest_dto.outcomes {
-            let player = if outcome.player_id.starts_with("player/") && outcome.player_id.len() > 7
-            {
-                self.player_usecase
-                    .get_player(&outcome.player_id)
-                    .await
-                    .map_err(|e| format!("Player not found: {}", e))?
-            } else {
-                let salt_string = argon2::password_hash::SaltString::generate(
-                    &mut argon2::password_hash::rand_core::OsRng,
-                );
-                let default_password = uuid::Uuid::new_v4().to_string();
-                let hashed_password = Argon2::default()
-                    .hash_password(default_password.as_bytes(), &salt_string)
-                    .map_err(|e| format!("Failed to hash password: {}", e))?
-                    .to_string();
-                let player = shared::models::player::Player::new_for_db(
-                    outcome.handle.clone(),
-                    outcome.handle.clone(),
-                    outcome.email.clone(),
-                    hashed_password,
-                    chrono::Utc::now().fixed_offset(),
-                    false,
-                )
-                .map_err(|e| format!("Failed to create player: {}", e))?;
-                self.player_usecase
-                    .repo
-                    .create(player)
-                    .await
-                    .map_err(|e| format!("Failed to create player: {}", e))?
-            };
+            let player = self.resolve_or_create_player_from_outcome(outcome).await?;
             let mut updated_outcome = outcome.clone();
             updated_outcome.player_id = player.id.clone();
             self.create_resulted_in_relation(contest_id, &updated_outcome)

@@ -103,6 +103,7 @@ mod tests {
             password: "hashed_password".to_string(),
             created_at: chrono::Utc::now(),
             is_admin: false,
+            is_active: true,
         };
 
         assert_eq!(player.handle, "testuser");

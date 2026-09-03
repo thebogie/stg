@@ -12,6 +12,9 @@ use surrealdb::engine::remote::ws::Ws;
 use surrealdb::Surreal;
 
 use crate::config::DatabaseConfig;
+use crate::observability::events::{
+    log_db_connect, log_db_connect_failure, log_db_connect_success, url_host_for_log,
+};
 
 /// SurrealDB client (WebSocket). Use for all repository and health code.
 pub type Db = Surreal<Client>;
@@ -22,12 +25,12 @@ pub async fn connect_surreal(database: &DatabaseConfig) -> anyhow::Result<Db> {
         .url
         .replace("http://", "ws://")
         .replace("https://", "wss://");
-    log::info!("Connecting to SurrealDB at {}", ws_url);
+    let url_host = url_host_for_log(&ws_url);
 
-    // Production stack startup is occasionally racy (SurrealDB health is up but WS auth isn't ready
-    // yet). Retry connect+signin+USE for a short window to make container orchestration robust.
     let mut last_err: Option<anyhow::Error> = None;
     for attempt in 1..=30u32 {
+        log_db_connect(&url_host, attempt);
+
         let connected: anyhow::Result<Db> = async {
             let db: Db = if let Some(u) = url::Url::parse(&ws_url).ok() {
                 let host = u.host_str().unwrap_or_default();
@@ -81,8 +84,12 @@ pub async fn connect_surreal(database: &DatabaseConfig) -> anyhow::Result<Db> {
         .await;
 
         match connected {
-            Ok(db) => return Ok(db),
+            Ok(db) => {
+                log_db_connect_success(&url_host);
+                return Ok(db);
+            }
             Err(e) => {
+                log_db_connect_failure(&url_host, attempt, &e.to_string());
                 last_err = Some(e);
                 if attempt < 30 {
                     tokio::time::sleep(std::time::Duration::from_millis(250)).await;

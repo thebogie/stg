@@ -309,7 +309,7 @@ case $ENVIRONMENT in
         export RUST_LOG=info
         ;;
     production)
-        export RUST_LOG=warn
+        export RUST_LOG=info
         ;;
 esac
 

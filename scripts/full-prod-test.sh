@@ -36,6 +36,10 @@
 #     FULL_PROD_TEST_BGG_IMPORT_TIMEOUT_SEC (default 10800 = 3h; 0 = no timeout).
 #   • cargo clean every run: FULL_PROD_TEST_SKIP_CLEAN=1 (faster rebuilds when iterating).
 #   • Playwright: PLAYWRIGHT_GLOBAL_TIMEOUT_MS (default 7200000 = 2h for the whole E2E run).
+#   • Playwright image: rebuilt when no local stg-playwright:latest (or stg-playwright:$BUILD_VERSION).
+#     Set FULL_PROD_TEST_FORCE_PLAYWRIGHT_BUILD=1 to pull/rebuild anyway (needs mcr.microsoft.com).
+#     On MCR/network failure during build, reuses stg-playwright:latest when present.
+#     Host E2E: FULL_PROD_TEST_PLAYWRIGHT_HOST=1.
 #
 # Quick checks without running the full gate (Docker builds + tests):
 #   ./scripts/verify-gate-syntax.sh
@@ -77,6 +81,49 @@ stg_remove_named_containers() {
 }
 
 stamp() { echo "==> [$(date -u +%Y-%m-%dT%H:%M:%SZ)] $*"; }
+
+# Ensure stg-playwright:$BUILD_VERSION exists without re-pulling MCR on every gate run.
+ensure_playwright_image() {
+  local pw_version="$1"
+  local target="stg-playwright:$BUILD_VERSION"
+  if docker image inspect "$target" >/dev/null 2>&1; then
+    stamp "[2b/7] Playwright image $target already exists — skipping build"
+    docker tag "$target" stg-playwright:latest
+    return 0
+  fi
+  if [ "${FULL_PROD_TEST_FORCE_PLAYWRIGHT_BUILD:-0}" != "1" ] \
+    && docker image inspect stg-playwright:latest >/dev/null 2>&1; then
+    stamp "[2b/7] Reusing stg-playwright:latest as $target (set FULL_PROD_TEST_FORCE_PLAYWRIGHT_BUILD=1 to rebuild from MCR)"
+    docker tag stg-playwright:latest "$target"
+    return 0
+  fi
+  if [ "${FULL_PROD_TEST_SKIP_PLAYWRIGHT_BUILD:-0}" = "1" ]; then
+    if docker image inspect stg-playwright:latest >/dev/null 2>&1; then
+      stamp "[2b/7] FULL_PROD_TEST_SKIP_PLAYWRIGHT_BUILD=1 — reusing stg-playwright:latest as $target"
+      docker tag stg-playwright:latest "$target"
+      return 0
+    fi
+    echo "FAIL: FULL_PROD_TEST_SKIP_PLAYWRIGHT_BUILD=1 but stg-playwright:latest not found." >&2
+    echo "      Build once when MCR is reachable: ./scripts/build-playwright-image.sh" >&2
+    return 1
+  fi
+  stamp "[2b/7] Building unified Playwright image $target (Playwright $pw_version)"
+  if docker build -f deploy/Dockerfile.playwright \
+    --build-arg "PLAYWRIGHT_VERSION=$pw_version" \
+    -t "$target" \
+    -t stg-playwright:latest \
+    .; then
+    return 0
+  fi
+  if docker image inspect stg-playwright:latest >/dev/null 2>&1; then
+    echo "WARN: Playwright build failed (often MCR TLS timeout); reusing stg-playwright:latest as $target" >&2
+    docker tag stg-playwright:latest "$target"
+    return 0
+  fi
+  echo "FAIL: Playwright image build failed and no stg-playwright:latest to reuse." >&2
+  echo "      Retry when mcr.microsoft.com is reachable, or: FULL_PROD_TEST_SKIP_PLAYWRIGHT_BUILD=1 ./scripts/test-prod-gate.sh" >&2
+  return 1
+}
 
 # Load production env (BACKEND_PORT, SURREAL_*, etc.)
 source "$SCRIPT_DIR/load-env.sh" prod
@@ -199,11 +246,9 @@ docker build -f front/web/Dockerfile.frontend.caddy \
   -t "stg-frontend:$BUILD_VERSION" .
 
 PW_VERSION="$(bash "$SCRIPT_DIR/playwright-version.sh")"
-echo "==> [2b/7] Building unified Playwright image stg-playwright:$BUILD_VERSION (Playwright $PW_VERSION)"
-docker build -f deploy/Dockerfile.playwright \
-  --build-arg "PLAYWRIGHT_VERSION=$PW_VERSION" \
-  -t "stg-playwright:$BUILD_VERSION" \
-  -t "stg-playwright:latest" .
+if ! ensure_playwright_image "$PW_VERSION"; then
+  exit 1
+fi
 
 case "${FULL_PROD_TEST_STOP_AFTER:-}" in
   images|docker-images)
@@ -265,6 +310,8 @@ done
 
 echo "==> Applying SurrealDB minimal schema + functions (before backend starts)"
 bash "$ROOT/scripts/apply-surreal-schema-minimal.sh" || true
+echo "==> Applying SurrealDB migrations (player isActive, etc.)"
+ENV_FILE="$ENV_FILE" bash "$ROOT/deploy/run_surreal_migrations.sh"
 if ! bash "$ROOT/scripts/apply-surreal-functions.sh"; then
   echo "FAIL: Could not apply SurrealDB functions (required for prod-style tests)." >&2
   stg_compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" logs surrealdb || true
@@ -456,6 +503,7 @@ export CI=1
 set +e
 PW_GLOBAL="${PLAYWRIGHT_GLOBAL_TIMEOUT_MS:-7200000}"
 export PLAYWRIGHT_GLOBAL_TIMEOUT_MS="$PW_GLOBAL"
+rm -f "$ROOT/_build/.auth/user.json"
 
 # Preflight: if frontend is down here, Playwright will just burn time on navigation timeouts.
 if ! curl -sf --connect-timeout 2 --max-time 5 "$PLAYWRIGHT_BASE_URL" >/dev/null 2>&1; then

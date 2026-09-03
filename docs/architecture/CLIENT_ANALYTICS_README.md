@@ -10,12 +10,12 @@ The client analytics system has been fully implemented across all phases, provid
 - **Controller**: `backend/src/client_analytics/controller.rs`
 - **Use Cases**: `backend/src/client_analytics/usecase.rs`
 - **Repository**: `backend/src/client_analytics/repository.rs`
-- **Module**: `backend/src/client_analytics/mod.rs`
+- **Module**: inline in `back/api/src/lib.rs` (`pub mod client_analytics { ... }`)
 
 ### Frontend (Phase 3)
 - **Manager**: `frontend/src/analytics/client_manager.rs`
 - **Components**: `frontend/src/components/analytics/real_time_analytics.rs`
-- **Module**: `frontend/src/analytics/mod.rs`
+- **Module**: inline in `front/web/src/lib.rs` (`pub mod analytics { ... }`)
 
 ### Shared Models
 - **Client Analytics**: `shared/src/models/client_analytics.rs`

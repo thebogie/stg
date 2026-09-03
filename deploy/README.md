@@ -41,6 +41,10 @@ See **WEB_AND_TAURI.md** for CI/CD overview and Tauri setup; **env.tauri.prod.te
 | **config/.env.prod** | Production env (you create from template; not in git). Must set `VOLUME_PATH` to an absolute path outside `deploy/` (e.g. `/opt/stg/data`). |
 | **WEB_AND_TAURI.md** | CI/CD, web + Tauri, deploy flow. |
 | **env.tauri.prod.template** | Example `STG_API_URL` for Tauri production. |
+| **docker-compose.observability.yml** | Loki, Promtail, Grafana, Prometheus (optional; join `stg` network). |
+| **observability/** | Config for Loki, Promtail, Prometheus, Grafana datasources. |
+
+**Observability:** After the main stack is up, run `./scripts/start-observability.sh` from repo root (or `docker compose -f docker-compose.observability.yml` from `deploy/`). See **`docs/observability/LOGGING.md`** for LogQL queries and the production incident runbook.
 
 ---
 

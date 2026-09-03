@@ -1,5 +1,5 @@
+use crate::observability::events::log_scheduler_event;
 use chrono::{DateTime, Datelike, TimeZone, Timelike, Utc};
-use log::{error, info, warn};
 use shared::Result;
 use std::sync::{Arc, Mutex};
 use tokio::time::{sleep, Duration, Instant};
@@ -26,14 +26,13 @@ impl RatingsScheduler {
     /// Start the background scheduler
     pub async fn start(&mut self) -> Result<()> {
         if self.is_running {
-            warn!("Ratings scheduler is already running");
+            log_scheduler_event("ratings", "scheduler.warn", Some("already running"));
             return Ok(());
         }
 
         self.is_running = true;
-        info!("Starting Glicko2 ratings scheduler...");
+        log_scheduler_event("ratings", "scheduler.start", None);
 
-        // Spawn the background task
         let usecase = self.usecase.clone();
         let last_run = self.last_run.clone();
 
@@ -47,7 +46,7 @@ impl RatingsScheduler {
     /// Stop the background scheduler
     pub fn stop(&mut self) {
         self.is_running = false;
-        info!("Stopping Glicko2 ratings scheduler...");
+        log_scheduler_event("ratings", "scheduler.stop", None);
     }
 
     /// Check if scheduler is running
@@ -65,20 +64,23 @@ impl RatingsScheduler {
         usecase: Arc<RatingsUsecase>,
         last_run: Arc<Mutex<Option<DateTime<Utc>>>>,
     ) {
-        info!("Glicko2 ratings scheduler loop started");
+        log_scheduler_event("ratings", "scheduler.loop.start", None);
 
         loop {
-            // Check if it's time to run monthly recalculation
             if Self::should_run_monthly_recalculation(*last_run.lock().unwrap()) {
-                info!("Starting monthly Glicko2 ratings recalculation...");
+                log_scheduler_event("ratings", "scheduler.tick.start", None);
 
                 match Self::run_monthly_recalculation(&usecase).await {
                     Ok(()) => {
                         *last_run.lock().unwrap() = Some(Utc::now());
-                        info!("Monthly Glicko2 ratings recalculation completed successfully");
+                        log_scheduler_event("ratings", "scheduler.tick.success", None);
                     }
                     Err(e) => {
-                        error!("Monthly Glicko2 ratings recalculation failed: {}", e);
+                        log_scheduler_event(
+                            "ratings",
+                            "scheduler.tick.error",
+                            Some(&e.to_string()),
+                        );
                     }
                 }
             }
@@ -129,7 +131,11 @@ impl RatingsScheduler {
         };
 
         let period = format!("{:04}-{:02}", year, month);
-        info!("Recalculating ratings for period: {}", period);
+        log_scheduler_event(
+            "ratings",
+            "scheduler.recalculate",
+            Some(&format!("period={}", period)),
+        );
 
         // Run the recalculation
         let result = usecase.recompute_month_with_history(Some(period)).await;
@@ -149,11 +155,19 @@ impl RatingsScheduler {
 
         match result {
             Ok(_) => {
-                info!("Monthly recalculation completed in {:?}", duration);
+                log_scheduler_event(
+                    "ratings",
+                    "scheduler.recalculate.success",
+                    Some(&format!("duration_ms={}", duration.as_millis())),
+                );
                 Ok(())
             }
             Err(e) => {
-                error!("Monthly recalculation failed after {:?}: {}", duration, e);
+                log_scheduler_event(
+                    "ratings",
+                    "scheduler.recalculate.error",
+                    Some(&format!("{} ({:?})", e, duration)),
+                );
                 Err(e)
             }
         }
@@ -161,9 +175,10 @@ impl RatingsScheduler {
 
     /// Manually trigger recalculation for a specific period
     pub async fn trigger_recalculation(&self, period: Option<String>) -> Result<()> {
-        info!(
-            "Manually triggering ratings recalculation for period: {:?}",
-            period
+        log_scheduler_event(
+            "ratings",
+            "scheduler.manual.trigger",
+            period.as_deref(),
         );
 
         let start_time = Instant::now();
@@ -184,11 +199,19 @@ impl RatingsScheduler {
 
         match result {
             Ok(_) => {
-                info!("Manual recalculation completed in {:?}", duration);
+                log_scheduler_event(
+                    "ratings",
+                    "scheduler.manual.success",
+                    Some(&format!("duration_ms={}", duration.as_millis())),
+                );
                 Ok(())
             }
             Err(e) => {
-                error!("Manual recalculation failed after {:?}: {}", duration, e);
+                log_scheduler_event(
+                    "ratings",
+                    "scheduler.manual.error",
+                    Some(&format!("{} ({:?})", e, duration)),
+                );
                 Err(e)
             }
         }

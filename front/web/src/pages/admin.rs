@@ -1,7 +1,9 @@
 use crate::api::api_url;
 use crate::api::contests::{approve_contest, list_pending_contests, reject_contest};
+use crate::api::utils::authenticated_delete;
 use crate::api::utils::authenticated_get;
 use crate::api::utils::authenticated_post;
+use crate::api::utils::authenticated_put;
 use crate::api::version::{get_version_info, VersionInfo};
 use crate::components::common::toast::{Toast, ToastContext, ToastType};
 use crate::components::scheduler_monitor::SchedulerMonitor;
@@ -46,6 +48,24 @@ pub fn admin_page(_props: &AdminPageProps) -> Html {
     let user_search_query = use_state(String::new);
     let user_search_results = use_state(Vec::<PlayerDto>::new);
     let user_search_loading = use_state(|| false);
+    let editing_player = use_state(|| None::<PlayerDto>);
+    let edit_firstname = use_state(String::new);
+    let edit_handle = use_state(String::new);
+    let edit_email = use_state(String::new);
+    let edit_is_admin = use_state(|| false);
+    let edit_saving = use_state(|| false);
+    let reset_password = use_state(String::new);
+    let reset_password_confirm = use_state(String::new);
+    let reset_saving = use_state(|| false);
+    let show_create_form = use_state(|| false);
+    let create_firstname = use_state(String::new);
+    let create_handle = use_state(String::new);
+    let create_email = use_state(String::new);
+    let create_password = use_state(String::new);
+    let create_is_admin = use_state(|| false);
+    let create_saving = use_state(|| false);
+    let delete_saving = use_state(|| false);
+    let activate_saving = use_state(|| false);
 
     let toggle_pending_detail = {
         let pending_expanded_id = pending_expanded_id.clone();
@@ -483,7 +503,10 @@ pub fn admin_page(_props: &AdminPageProps) -> Html {
             let show_error_toast = show_error_toast.clone();
             let on_user_search = on_user_search.clone();
             wasm_bindgen_futures::spawn_local(async move {
-                let url = api_url(&format!("/api/admin/users/{}/admin", player_id));
+                let url = api_url(&format!(
+                    "/api/admin/users/{}/admin",
+                    urlencoding::encode(&player_id)
+                ));
                 let body = serde_json::json!({ "is_admin": grant });
                 match authenticated_post(&url)
                     .header("Content-Type", "application/json")
@@ -505,6 +528,371 @@ pub fn admin_page(_props: &AdminPageProps) -> Html {
                     },
                     Err(e) => show_error_toast.emit(format!("Admin update failed: {}", e)),
                 }
+            });
+        })
+    };
+
+    let on_edit_user = {
+        let editing_player = editing_player.clone();
+        let edit_firstname = edit_firstname.clone();
+        let edit_handle = edit_handle.clone();
+        let edit_email = edit_email.clone();
+        let edit_is_admin = edit_is_admin.clone();
+        let reset_password = reset_password.clone();
+        let reset_password_confirm = reset_password_confirm.clone();
+        Callback::from(move |player: PlayerDto| {
+            edit_firstname.set(player.firstname.clone());
+            edit_handle.set(player.handle.clone());
+            edit_email.set(player.email.clone());
+            edit_is_admin.set(player.is_admin);
+            reset_password.set(String::new());
+            reset_password_confirm.set(String::new());
+            editing_player.set(Some(player));
+        })
+    };
+
+    let on_cancel_edit = {
+        let editing_player = editing_player.clone();
+        Callback::from(move |_| {
+            editing_player.set(None);
+        })
+    };
+
+    let on_save_user = {
+        let editing_player = editing_player.clone();
+        let edit_firstname = edit_firstname.clone();
+        let edit_handle = edit_handle.clone();
+        let edit_email = edit_email.clone();
+        let edit_is_admin = edit_is_admin.clone();
+        let edit_saving = edit_saving.clone();
+        let show_success_toast = show_success_toast.clone();
+        let show_error_toast = show_error_toast.clone();
+        let on_user_search = on_user_search.clone();
+        Callback::from(move |_| {
+            let Some(player) = (*editing_player).clone() else {
+                return;
+            };
+            edit_saving.set(true);
+            let edit_firstname = edit_firstname.clone();
+            let edit_handle = edit_handle.clone();
+            let edit_email = edit_email.clone();
+            let edit_is_admin = edit_is_admin.clone();
+            let edit_saving = edit_saving.clone();
+            let show_success_toast = show_success_toast.clone();
+            let show_error_toast = show_error_toast.clone();
+            let on_user_search = on_user_search.clone();
+            let editing_player = editing_player.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                let url = api_url(&format!(
+                    "/api/admin/users/{}",
+                    urlencoding::encode(&player.id)
+                ));
+                let body = serde_json::json!({
+                    "firstname": (*edit_firstname).clone(),
+                    "handle": (*edit_handle).clone(),
+                    "email": (*edit_email).clone(),
+                    "is_admin": *edit_is_admin,
+                });
+                match authenticated_put(&url)
+                    .header("Content-Type", "application/json")
+                    .body(body.to_string())
+                {
+                    Ok(req) => match req.send().await {
+                        Ok(resp) if resp.ok() => {
+                            if let Ok(updated) = resp.json::<PlayerDto>().await {
+                                editing_player.set(Some(updated));
+                            }
+                            show_success_toast.emit("Player updated".to_string());
+                            on_user_search.emit(());
+                        }
+                        Ok(resp) => {
+                            let status = resp.status();
+                            let text = resp
+                                .text()
+                                .await
+                                .unwrap_or_else(|_| status.to_string());
+                            show_error_toast.emit(format!("Update failed: {}", text));
+                        }
+                        Err(e) => show_error_toast.emit(format!("Update failed: {}", e)),
+                    },
+                    Err(e) => show_error_toast.emit(format!("Update failed: {}", e)),
+                }
+                edit_saving.set(false);
+            });
+        })
+    };
+
+    let on_reset_password = {
+        let editing_player = editing_player.clone();
+        let reset_password = reset_password.clone();
+        let reset_password_confirm = reset_password_confirm.clone();
+        let reset_saving = reset_saving.clone();
+        let show_success_toast = show_success_toast.clone();
+        let show_error_toast = show_error_toast.clone();
+        Callback::from(move |_| {
+            let Some(player) = (*editing_player).clone() else {
+                return;
+            };
+            if reset_password.len() < 8 {
+                show_error_toast.emit("Password must be at least 8 characters".to_string());
+                return;
+            }
+            if *reset_password != *reset_password_confirm {
+                show_error_toast.emit("Passwords do not match".to_string());
+                return;
+            }
+            reset_saving.set(true);
+            let reset_password = reset_password.clone();
+            let reset_saving = reset_saving.clone();
+            let show_success_toast = show_success_toast.clone();
+            let show_error_toast = show_error_toast.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                let url = api_url(&format!(
+                    "/api/admin/users/{}/password",
+                    urlencoding::encode(&player.id)
+                ));
+                let body = serde_json::json!({ "new_password": (*reset_password).clone() });
+                match authenticated_post(&url)
+                    .header("Content-Type", "application/json")
+                    .body(body.to_string())
+                {
+                    Ok(req) => match req.send().await {
+                        Ok(resp) if resp.ok() => {
+                            show_success_toast.emit("Password reset successfully".to_string());
+                        }
+                        Ok(resp) => {
+                            let status = resp.status();
+                            let text = resp
+                                .text()
+                                .await
+                                .unwrap_or_else(|_| status.to_string());
+                            show_error_toast.emit(format!("Password reset failed: {}", text));
+                        }
+                        Err(e) => show_error_toast.emit(format!("Password reset failed: {}", e)),
+                    },
+                    Err(e) => show_error_toast.emit(format!("Password reset failed: {}", e)),
+                }
+                reset_saving.set(false);
+            });
+        })
+    };
+
+    let on_toggle_create_form = {
+        let show_create_form = show_create_form.clone();
+        let create_firstname = create_firstname.clone();
+        let create_handle = create_handle.clone();
+        let create_email = create_email.clone();
+        let create_password = create_password.clone();
+        let create_is_admin = create_is_admin.clone();
+        Callback::from(move |_| {
+            if *show_create_form {
+                show_create_form.set(false);
+            } else {
+                create_firstname.set(String::new());
+                create_handle.set(String::new());
+                create_email.set(String::new());
+                create_password.set(String::new());
+                create_is_admin.set(false);
+                show_create_form.set(true);
+            }
+        })
+    };
+
+    let on_create_user = {
+        let create_firstname = create_firstname.clone();
+        let create_handle = create_handle.clone();
+        let create_email = create_email.clone();
+        let create_password = create_password.clone();
+        let create_is_admin = create_is_admin.clone();
+        let create_saving = create_saving.clone();
+        let show_create_form = show_create_form.clone();
+        let show_success_toast = show_success_toast.clone();
+        let show_error_toast = show_error_toast.clone();
+        let on_user_search = on_user_search.clone();
+        let user_search_query = user_search_query.clone();
+        Callback::from(move |_| {
+            if create_firstname.trim().is_empty()
+                || create_handle.trim().is_empty()
+                || create_email.trim().is_empty()
+            {
+                show_error_toast.emit("First name, handle, and email are required".to_string());
+                return;
+            }
+            if create_password.len() < 8 {
+                show_error_toast.emit("Password must be at least 8 characters".to_string());
+                return;
+            }
+            create_saving.set(true);
+            let create_firstname = create_firstname.clone();
+            let create_handle = create_handle.clone();
+            let create_email = create_email.clone();
+            let create_password = create_password.clone();
+            let create_is_admin = create_is_admin.clone();
+            let create_saving = create_saving.clone();
+            let show_create_form = show_create_form.clone();
+            let show_success_toast = show_success_toast.clone();
+            let show_error_toast = show_error_toast.clone();
+            let on_user_search = on_user_search.clone();
+            let user_search_query = user_search_query.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                let url = api_url("/api/admin/users");
+                let body = serde_json::json!({
+                    "firstname": (*create_firstname).trim(),
+                    "handle": (*create_handle).trim(),
+                    "email": (*create_email).trim(),
+                    "password": (*create_password).clone(),
+                    "is_admin": *create_is_admin,
+                });
+                match authenticated_post(&url)
+                    .header("Content-Type", "application/json")
+                    .body(body.to_string())
+                {
+                    Ok(req) => match req.send().await {
+                        Ok(resp) if resp.status() == 201 || resp.ok() => {
+                            show_success_toast.emit("Player created".to_string());
+                            show_create_form.set(false);
+                            user_search_query.set((*create_email).trim().to_string());
+                            on_user_search.emit(());
+                        }
+                        Ok(resp) => {
+                            let status = resp.status();
+                            let text = resp
+                                .text()
+                                .await
+                                .unwrap_or_else(|_| status.to_string());
+                            show_error_toast.emit(format!("Create failed: {}", text));
+                        }
+                        Err(e) => show_error_toast.emit(format!("Create failed: {}", e)),
+                    },
+                    Err(e) => show_error_toast.emit(format!("Create failed: {}", e)),
+                }
+                create_saving.set(false);
+            });
+        })
+    };
+
+    let on_delete_user = {
+        let editing_player = editing_player.clone();
+        let delete_saving = delete_saving.clone();
+        let show_success_toast = show_success_toast.clone();
+        let show_error_toast = show_error_toast.clone();
+        let on_user_search = on_user_search.clone();
+        Callback::from(move |_| {
+            let Some(player) = (*editing_player).clone() else {
+                return;
+            };
+            if !gloo::dialogs::confirm(&format!(
+                "Permanently delete \"{}\" ({})?\n\nThis will remove the player from ALL contests and delete their ratings history. The player record cannot be recovered.\n\nConsider deactivating the account instead if you need to keep contest history.",
+                player.handle, player.email
+            )) {
+                return;
+            }
+            if !gloo::dialogs::confirm(&format!(
+                "Final confirmation: permanently delete \"{}\"?\n\nThis cannot be undone.",
+                player.handle
+            )) {
+                return;
+            }
+            delete_saving.set(true);
+            let editing_player = editing_player.clone();
+            let delete_saving = delete_saving.clone();
+            let show_success_toast = show_success_toast.clone();
+            let show_error_toast = show_error_toast.clone();
+            let on_user_search = on_user_search.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                let url = api_url(&format!(
+                    "/api/admin/users/{}",
+                    urlencoding::encode(&player.id)
+                ));
+                match authenticated_delete(&url).send().await {
+                    Ok(resp) if resp.ok() => {
+                        editing_player.set(None);
+                        show_success_toast.emit("Player deleted".to_string());
+                        on_user_search.emit(());
+                    }
+                    Ok(resp) => {
+                        let status = resp.status();
+                        let text = resp
+                            .text()
+                            .await
+                            .unwrap_or_else(|_| status.to_string());
+                        show_error_toast.emit(format!("Delete failed: {}", text));
+                    }
+                    Err(e) => show_error_toast.emit(format!("Delete failed: {}", e)),
+                }
+                delete_saving.set(false);
+            });
+        })
+    };
+
+    let on_set_active = {
+        let editing_player = editing_player.clone();
+        let activate_saving = activate_saving.clone();
+        let show_success_toast = show_success_toast.clone();
+        let show_error_toast = show_error_toast.clone();
+        let on_user_search = on_user_search.clone();
+        Callback::from(move |activate: bool| {
+            let Some(player) = (*editing_player).clone() else {
+                return;
+            };
+            let action = if activate { "reactivate" } else { "deactivate" };
+            let prompt = if activate {
+                format!(
+                    "Reactivate \"{}\"? They will be able to log in again.",
+                    player.handle
+                )
+            } else {
+                format!(
+                    "Deactivate \"{}\" ({})?\n\nThey will not be able to log in. Contest history and ratings are kept.",
+                    player.handle, player.email
+                )
+            };
+            if !gloo::dialogs::confirm(&prompt) {
+                return;
+            }
+            activate_saving.set(true);
+            let editing_player = editing_player.clone();
+            let activate_saving = activate_saving.clone();
+            let show_success_toast = show_success_toast.clone();
+            let show_error_toast = show_error_toast.clone();
+            let on_user_search = on_user_search.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                let url = api_url(&format!(
+                    "/api/admin/users/{}/{}",
+                    urlencoding::encode(&player.id),
+                    action
+                ));
+                match authenticated_post(&url).send().await {
+                    Ok(resp) if resp.ok() => {
+                        if let Ok(updated) = resp.json::<PlayerDto>().await {
+                            editing_player.set(Some(updated));
+                        }
+                        show_success_toast.emit(if activate {
+                            "Player reactivated".to_string()
+                        } else {
+                            "Player deactivated".to_string()
+                        });
+                        on_user_search.emit(());
+                    }
+                    Ok(resp) => {
+                        let status = resp.status();
+                        let text = resp
+                            .text()
+                            .await
+                            .unwrap_or_else(|_| status.to_string());
+                        show_error_toast.emit(format!(
+                            "{} failed: {}",
+                            if activate { "Reactivate" } else { "Deactivate" },
+                            text
+                        ));
+                    }
+                    Err(e) => show_error_toast.emit(format!(
+                        "{} failed: {}",
+                        if activate { "Reactivate" } else { "Deactivate" },
+                        e
+                    )),
+                }
+                activate_saving.set(false);
             });
         })
     };
@@ -1107,8 +1495,108 @@ pub fn admin_page(_props: &AdminPageProps) -> Html {
 
                         AdminTab::Users => html! {
                             <div class="users-section space-y-4">
-                                <h2 class="text-xl font-semibold">{"👥 User Management"}</h2>
-                                <p class="text-gray-600">{"Search players and grant or revoke admin access."}</p>
+                                <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                                    <div>
+                                        <h2 class="text-xl font-semibold">{"👥 User Management"}</h2>
+                                        <p class="text-gray-600">{"Create, edit, delete players, reset passwords, and manage admin access."}</p>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        class="action-btn secondary min-h-[44px] flex-shrink-0"
+                                        onclick={on_toggle_create_form.clone()}
+                                    >
+                                        {if *show_create_form { "Cancel" } else { "+ Add player" }}
+                                    </button>
+                                </div>
+                                if *show_create_form {
+                                    <div class="rounded-lg border border-green-200 bg-white p-4 space-y-4 shadow-sm">
+                                        <h3 class="text-lg font-semibold text-gray-900">{"Add player"}</h3>
+                                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                            <label class="block space-y-1">
+                                                <span class="text-sm font-medium text-gray-700">{"First name"}</span>
+                                                <input
+                                                    type="text"
+                                                    class="w-full rounded-md border border-gray-300 px-3 py-2 min-h-[44px]"
+                                                    value={(*create_firstname).clone()}
+                                                    oninput={{
+                                                        let create_firstname = create_firstname.clone();
+                                                        Callback::from(move |e: InputEvent| {
+                                                            let input: web_sys::HtmlInputElement = e.target_unchecked_into();
+                                                            create_firstname.set(input.value());
+                                                        })
+                                                    }}
+                                                />
+                                            </label>
+                                            <label class="block space-y-1">
+                                                <span class="text-sm font-medium text-gray-700">{"Handle"}</span>
+                                                <input
+                                                    type="text"
+                                                    class="w-full rounded-md border border-gray-300 px-3 py-2 min-h-[44px]"
+                                                    value={(*create_handle).clone()}
+                                                    oninput={{
+                                                        let create_handle = create_handle.clone();
+                                                        Callback::from(move |e: InputEvent| {
+                                                            let input: web_sys::HtmlInputElement = e.target_unchecked_into();
+                                                            create_handle.set(input.value());
+                                                        })
+                                                    }}
+                                                />
+                                            </label>
+                                            <label class="block space-y-1">
+                                                <span class="text-sm font-medium text-gray-700">{"Email"}</span>
+                                                <input
+                                                    type="email"
+                                                    class="w-full rounded-md border border-gray-300 px-3 py-2 min-h-[44px]"
+                                                    value={(*create_email).clone()}
+                                                    oninput={{
+                                                        let create_email = create_email.clone();
+                                                        Callback::from(move |e: InputEvent| {
+                                                            let input: web_sys::HtmlInputElement = e.target_unchecked_into();
+                                                            create_email.set(input.value());
+                                                        })
+                                                    }}
+                                                />
+                                            </label>
+                                            <label class="block space-y-1">
+                                                <span class="text-sm font-medium text-gray-700">{"Password"}</span>
+                                                <input
+                                                    type="password"
+                                                    class="w-full rounded-md border border-gray-300 px-3 py-2 min-h-[44px]"
+                                                    value={(*create_password).clone()}
+                                                    oninput={{
+                                                        let create_password = create_password.clone();
+                                                        Callback::from(move |e: InputEvent| {
+                                                            let input: web_sys::HtmlInputElement = e.target_unchecked_into();
+                                                            create_password.set(input.value());
+                                                        })
+                                                    }}
+                                                />
+                                            </label>
+                                            <label class="flex items-center gap-2 sm:col-span-2">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={*create_is_admin}
+                                                    onchange={{
+                                                        let create_is_admin = create_is_admin.clone();
+                                                        Callback::from(move |e: Event| {
+                                                            let input: web_sys::HtmlInputElement = e.target_unchecked_into();
+                                                            create_is_admin.set(input.checked());
+                                                        })
+                                                    }}
+                                                />
+                                                <span class="text-sm font-medium text-gray-700">{"Administrator"}</span>
+                                            </label>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            class="action-btn primary min-h-[44px]"
+                                            onclick={on_create_user.clone()}
+                                            disabled={*create_saving}
+                                        >
+                                            {if *create_saving { "Creating…" } else { "Create player" }}
+                                        </button>
+                                    </div>
+                                }
                                 <div class="flex flex-col sm:flex-row gap-2">
                                     <input
                                         type="search"
@@ -1137,6 +1625,7 @@ pub fn admin_page(_props: &AdminPageProps) -> Html {
                                                 <tr>
                                                     <th class="px-3 py-2">{"Handle"}</th>
                                                     <th class="px-3 py-2">{"Email"}</th>
+                                                    <th class="px-3 py-2">{"Status"}</th>
                                                     <th class="px-3 py-2">{"Admin"}</th>
                                                     <th class="px-3 py-2">{"Actions"}</th>
                                                 </tr>
@@ -1144,6 +1633,11 @@ pub fn admin_page(_props: &AdminPageProps) -> Html {
                                             <tbody>
                                                 {user_search_results.iter().map(|u| {
                                                     let pid = u.id.clone();
+                                                    let edit = {
+                                                        let on_edit_user = on_edit_user.clone();
+                                                        let u = u.clone();
+                                                        Callback::from(move |_| on_edit_user.emit(u.clone()))
+                                                    };
                                                     let grant = {
                                                         let on_toggle_admin = on_toggle_admin.clone();
                                                         let pid = pid.clone();
@@ -1158,8 +1652,16 @@ pub fn admin_page(_props: &AdminPageProps) -> Html {
                                                         <tr class="border-t border-gray-100">
                                                             <td class="px-3 py-2 font-medium">{&u.handle}</td>
                                                             <td class="px-3 py-2">{&u.email}</td>
+                                                            <td class="px-3 py-2">
+                                                                {if u.is_active {
+                                                                    html! { <span class="text-green-700">{"Active"}</span> }
+                                                                } else {
+                                                                    html! { <span class="text-gray-500">{"Inactive"}</span> }
+                                                                }}
+                                                            </td>
                                                             <td class="px-3 py-2">{if u.is_admin { "Yes" } else { "No" }}</td>
                                                             <td class="px-3 py-2 space-x-2">
+                                                                <button type="button" class="text-xs text-blue-700 hover:underline" onclick={edit}>{"Edit"}</button>
                                                                 <button type="button" class="text-xs text-indigo-700 hover:underline" onclick={grant}>{"Grant"}</button>
                                                                 <button type="button" class="text-xs text-red-700 hover:underline" onclick={revoke}>{"Revoke"}</button>
                                                             </td>
@@ -1168,6 +1670,182 @@ pub fn admin_page(_props: &AdminPageProps) -> Html {
                                                 }).collect::<Html>()}
                                             </tbody>
                                         </table>
+                                    </div>
+                                }
+                                if let Some(player) = (*editing_player).clone() {
+                                    <div class="rounded-lg border border-indigo-200 bg-white p-4 space-y-4 shadow-sm">
+                                        <div class="flex items-center justify-between gap-2">
+                                            <h3 class="text-lg font-semibold text-gray-900">
+                                                {format!("Edit: {}", player.handle)}
+                                            </h3>
+                                            <button type="button" class="text-sm text-gray-600 hover:text-gray-900" onclick={on_cancel_edit.clone()}>
+                                                {"Cancel"}
+                                            </button>
+                                        </div>
+                                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                            <label class="block space-y-1">
+                                                <span class="text-sm font-medium text-gray-700">{"First name"}</span>
+                                                <input
+                                                    type="text"
+                                                    class="w-full rounded-md border border-gray-300 px-3 py-2 min-h-[44px]"
+                                                    value={(*edit_firstname).clone()}
+                                                    oninput={{
+                                                        let edit_firstname = edit_firstname.clone();
+                                                        Callback::from(move |e: InputEvent| {
+                                                            let input: web_sys::HtmlInputElement = e.target_unchecked_into();
+                                                            edit_firstname.set(input.value());
+                                                        })
+                                                    }}
+                                                />
+                                            </label>
+                                            <label class="block space-y-1">
+                                                <span class="text-sm font-medium text-gray-700">{"Handle"}</span>
+                                                <input
+                                                    type="text"
+                                                    class="w-full rounded-md border border-gray-300 px-3 py-2 min-h-[44px]"
+                                                    value={(*edit_handle).clone()}
+                                                    oninput={{
+                                                        let edit_handle = edit_handle.clone();
+                                                        Callback::from(move |e: InputEvent| {
+                                                            let input: web_sys::HtmlInputElement = e.target_unchecked_into();
+                                                            edit_handle.set(input.value());
+                                                        })
+                                                    }}
+                                                />
+                                            </label>
+                                            <label class="block space-y-1 sm:col-span-2">
+                                                <span class="text-sm font-medium text-gray-700">{"Email"}</span>
+                                                <input
+                                                    type="email"
+                                                    class="w-full rounded-md border border-gray-300 px-3 py-2 min-h-[44px]"
+                                                    value={(*edit_email).clone()}
+                                                    oninput={{
+                                                        let edit_email = edit_email.clone();
+                                                        Callback::from(move |e: InputEvent| {
+                                                            let input: web_sys::HtmlInputElement = e.target_unchecked_into();
+                                                            edit_email.set(input.value());
+                                                        })
+                                                    }}
+                                                />
+                                            </label>
+                                            <label class="flex items-center gap-2 sm:col-span-2">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={*edit_is_admin}
+                                                    onchange={{
+                                                        let edit_is_admin = edit_is_admin.clone();
+                                                        Callback::from(move |e: Event| {
+                                                            let input: web_sys::HtmlInputElement = e.target_unchecked_into();
+                                                            edit_is_admin.set(input.checked());
+                                                        })
+                                                    }}
+                                                />
+                                                <span class="text-sm font-medium text-gray-700">{"Administrator"}</span>
+                                            </label>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            class="action-btn primary min-h-[44px]"
+                                            onclick={on_save_user.clone()}
+                                            disabled={*edit_saving}
+                                        >
+                                            {if *edit_saving { "Saving…" } else { "Save changes" }}
+                                        </button>
+                                        <div class="border-t border-gray-200 pt-4 space-y-3">
+                                            <h4 class="text-sm font-semibold text-gray-900">{"Account status"}</h4>
+                                            <p class="text-sm text-gray-600">
+                                                {if (*editing_player).as_ref().map(|p| p.is_active).unwrap_or(true) {
+                                                    "This player can log in. Deactivate to block login while keeping contest history."
+                                                } else {
+                                                    "This player cannot log in. Contest history and ratings are preserved."
+                                                }}
+                                            </p>
+                                            if (*editing_player).as_ref().map(|p| p.is_active).unwrap_or(true) {
+                                                <button
+                                                    type="button"
+                                                    class="action-btn secondary min-h-[44px]"
+                                                    onclick={{
+                                                        let on_set_active = on_set_active.clone();
+                                                        Callback::from(move |_| on_set_active.emit(false))
+                                                    }}
+                                                    disabled={*activate_saving}
+                                                >
+                                                    {if *activate_saving { "Working…" } else { "Deactivate account" }}
+                                                </button>
+                                            } else {
+                                                <button
+                                                    type="button"
+                                                    class="action-btn primary min-h-[44px]"
+                                                    onclick={{
+                                                        let on_set_active = on_set_active.clone();
+                                                        Callback::from(move |_| on_set_active.emit(true))
+                                                    }}
+                                                    disabled={*activate_saving}
+                                                >
+                                                    {if *activate_saving { "Working…" } else { "Reactivate account" }}
+                                                </button>
+                                            }
+                                        </div>
+                                        <div class="border-t border-gray-200 pt-4 space-y-3">
+                                            <h4 class="text-sm font-semibold text-gray-900">{"Reset password"}</h4>
+                                            <p class="text-sm text-gray-600">{"Set a new password without requiring the current one."}</p>
+                                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                                <label class="block space-y-1">
+                                                    <span class="text-sm font-medium text-gray-700">{"New password"}</span>
+                                                    <input
+                                                        type="password"
+                                                        class="w-full rounded-md border border-gray-300 px-3 py-2 min-h-[44px]"
+                                                        value={(*reset_password).clone()}
+                                                        oninput={{
+                                                            let reset_password = reset_password.clone();
+                                                            Callback::from(move |e: InputEvent| {
+                                                                let input: web_sys::HtmlInputElement = e.target_unchecked_into();
+                                                                reset_password.set(input.value());
+                                                            })
+                                                        }}
+                                                    />
+                                                </label>
+                                                <label class="block space-y-1">
+                                                    <span class="text-sm font-medium text-gray-700">{"Confirm password"}</span>
+                                                    <input
+                                                        type="password"
+                                                        class="w-full rounded-md border border-gray-300 px-3 py-2 min-h-[44px]"
+                                                        value={(*reset_password_confirm).clone()}
+                                                        oninput={{
+                                                            let reset_password_confirm = reset_password_confirm.clone();
+                                                            Callback::from(move |e: InputEvent| {
+                                                                let input: web_sys::HtmlInputElement = e.target_unchecked_into();
+                                                                reset_password_confirm.set(input.value());
+                                                            })
+                                                        }}
+                                                    />
+                                                </label>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                class="action-btn secondary min-h-[44px]"
+                                                onclick={on_reset_password.clone()}
+                                                disabled={*reset_saving}
+                                            >
+                                                {if *reset_saving { "Resetting…" } else { "Reset password" }}
+                                            </button>
+                                        </div>
+                                        <div class="border-t border-red-200 pt-4">
+                                            <h4 class="text-sm font-semibold text-red-800">{"Danger zone"}</h4>
+                                            <p class="text-sm text-gray-600 mt-1">
+                                                {"Permanent deletion removes the player from "}
+                                                <strong>{"all contests"}</strong>
+                                                {" and deletes ratings. Use deactivate above for normal support cases. Blocked if they created contests."}
+                                            </p>
+                                            <button
+                                                type="button"
+                                                class="mt-3 text-sm font-medium text-red-700 hover:text-red-900 border border-red-300 rounded-md px-3 py-2 min-h-[44px] hover:bg-red-50"
+                                                onclick={on_delete_user.clone()}
+                                                disabled={*delete_saving}
+                                            >
+                                                {if *delete_saving { "Deleting…" } else { "Delete player" }}
+                                            </button>
+                                        </div>
                                     </div>
                                 }
                             </div>
@@ -1200,6 +1878,7 @@ mod tests {
                 firstname: "Admin".to_string(),
                 created_at: chrono::Utc::now().fixed_offset(),
                 is_admin: true,
+                is_active: true,
             })
         } else {
             Some(PlayerDto {
@@ -1209,6 +1888,7 @@ mod tests {
                 firstname: "Regular".to_string(),
                 created_at: chrono::Utc::now().fixed_offset(),
                 is_admin: false,
+                is_active: true,
             })
         };
 

@@ -37,10 +37,27 @@ fn json_id_part_to_string(v: &Value) -> Option<String> {
 
 /// Normalize a record id string to canonical `"table/key"` (slash, no backticks, no angle brackets).
 /// Use when you have a string that might be `"table:key"`, `"table:⟨key⟩"`, or with backticks.
+/// SurrealDB v3 UUID keys often stringify as `table:u'uuid'` — strip the `u'…'` wrapper.
 #[must_use]
 pub fn normalize_record_id_string(s: &str) -> String {
-    s.replace(':', "/")
-        .replace(['`', ID_ANGLE_OPEN, ID_ANGLE_CLOSE], "")
+    let mut out = s
+        .replace(':', "/")
+        .replace(['`', ID_ANGLE_OPEN, ID_ANGLE_CLOSE], "");
+    // Strip SurrealDB v3 UUID-key display form: `player/u'uuid'` → `player/uuid`
+    if let Some((table, key)) = out.split_once('/') {
+        let key = key.trim();
+        if let Some(inner) = key
+            .strip_prefix("u'")
+            .and_then(|rest| rest.strip_suffix('\''))
+            .or_else(|| {
+                key.strip_prefix("u\"")
+                    .and_then(|rest| rest.strip_suffix('"'))
+            })
+        {
+            out = format!("{}/{}", table, inner);
+        }
+    }
+    out
 }
 
 /// Convert a **single URL path segment** (after percent-decoding) into canonical `"table/key"`.
@@ -106,18 +123,36 @@ pub fn record_id_to_thing(id: &str, table: &str) -> surrealdb::types::RecordId {
     surrealdb::types::RecordId::new(table, key)
 }
 
+/// True when `key` is a UUID v4 string (client-side placeholder or backend-created player keys).
+#[must_use]
+pub fn is_uuid_v4_key(key: &str) -> bool {
+    uuid::Uuid::parse_str(key.trim()).is_ok()
+}
+
 /// Strip table prefix and SurrealDB id wrappers to get raw key for `type::record('table', $key)`.
 /// Accepts "table/key" or "table:key". Returns key only (no backticks/angle brackets).
 #[must_use]
 pub fn record_id_to_key(id: &str, table: &str) -> String {
+    let canonical = normalize_record_id_string(id);
     let prefix = format!("{}/", table);
     let prefix_colon = format!("{}:", table);
-    let key = id
+    let key = canonical
         .trim_start_matches(&prefix)
         .trim_start_matches(&prefix_colon)
         .trim_matches('`')
         .trim_matches('\u{27e8}') // ⟨
         .trim_matches('\u{27e9}'); // ⟩
+    // Extra guard if callers pass a bare `u'uuid'` key fragment.
+    if let Some(inner) = key
+        .strip_prefix("u'")
+        .and_then(|rest| rest.strip_suffix('\''))
+        .or_else(|| {
+            key.strip_prefix("u\"")
+                .and_then(|rest| rest.strip_suffix('"'))
+        })
+    {
+        return inner.to_string();
+    }
     key.to_string()
 }
 
@@ -391,6 +426,21 @@ pub async fn select_one_by_record_id_scoped(
         table, id, key
     );
     None
+}
+
+#[cfg(test)]
+mod uuid_key_tests {
+    use super::is_uuid_v4_key;
+
+    #[test]
+    fn uuid_v4_key_detected() {
+        assert!(is_uuid_v4_key("bf11e185-31ae-4bf0-b497-c88d8a041c63"));
+    }
+
+    #[test]
+    fn numeric_legacy_key_not_uuid() {
+        assert!(!is_uuid_v4_key("2025041711441879994340500"));
+    }
 }
 
 #[cfg(test)]

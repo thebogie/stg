@@ -79,6 +79,9 @@ pub struct ContestStats {
     /// Most popular game in the contest
     pub most_popular_game: Option<String>,
 
+    /// Record id of the most popular game in the contest
+    pub most_popular_game_id: Option<String>,
+
     /// Contest difficulty rating (1-10)
     pub difficulty_rating: f64,
 
@@ -380,6 +383,7 @@ impl ContestStats {
             average_placement: 0.0,
             duration_minutes: 0,
             most_popular_game: None,
+            most_popular_game_id: None,
             difficulty_rating: 5.0,
             excitement_rating: 5.0,
             last_updated: chrono::Utc::now().into(),

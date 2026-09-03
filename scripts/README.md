@@ -25,6 +25,14 @@ Builds backend + frontend Docker images, brings up **full** stack (`deploy/docke
 
 Then `./scripts/run-playwright-e2e-docker.sh` / the full gate do **not** download browsers at test time. Override with `FULL_PROD_TEST_PLAYWRIGHT_HOST=1` to run on the host instead (needs Node).
 
+The gate reuses `stg-playwright:latest` when present (no MCR pull). Rebuild after `package-lock.json` changes:
+
+```bash
+FULL_PROD_TEST_FORCE_PLAYWRIGHT_BUILD=1 ./scripts/build-playwright-image.sh   # when MCR is reachable
+```
+
+If MCR is unreachable and you have no local image, use host Playwright: `FULL_PROD_TEST_PLAYWRIGHT_HOST=1 ./scripts/test-prod-gate.sh`
+
 ```bash
 ./scripts/test-prod-gate.sh
 # same as: ./scripts/full-prod-test.sh
@@ -39,6 +47,8 @@ Surreal + Redis in Docker; you run the Rust API locally so lldb / CodeLLDB break
 # then: just backend-watch   OR   source scripts/load-env.sh dev && cargo run -p backend
 # frontend: ./scripts/start-front.sh  or  ./scripts/start-tauri.sh
 ```
+
+**Prod snapshot:** set `SURREAL_SEED_DIR` (e.g. `/home/thebogie/work/stg-data/prod-db`) and `SURREAL_SEED_FORCE=1` on first import or refresh — see **`docs/DAILY_WORKFLOW.md`**.
 
 ---
 
@@ -110,6 +120,6 @@ On the host, from a tree that includes **`deploy/`** (and `config/.env.prod` nex
 | `./scripts/build-tauri-android.sh` | Android APK for sideload (prod API default). |
 | `./scripts/import-bgg-catalog.sh`, `arango-to-surreal-import.sh` | Data tooling. |
 | `./scripts/backfill-contest-names.sh` | Dry-run or `--apply` retro rename of contest titles (`{Game} — {Weekday Mon D}`). |
-| `./scripts/verify-contest-scores.sh` | Check prod-copy Surreal + backend path returns scores (use after `SURREAL_SEED_FORCE=1 ./scripts/start-deps.sh`). |
+| `./scripts/verify-contest-scores.sh` | Check prod-copy Surreal + backend path returns scores (after prod seed — see `docs/DAILY_WORKFLOW.md`). |
 
 Create env files once: `./config/setup-env.sh dev` and `./config/setup-env.sh prod`.

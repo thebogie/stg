@@ -192,6 +192,15 @@ pub fn outcome_selector(props: &OutcomeSelectorProps) -> Html {
         })
     };
 
+    // Helper: client-side placeholder ids use UUID keys before the player exists in the DB.
+    fn is_placeholder_player_id(player_id: &str) -> bool {
+        if !player_id.starts_with("player/") {
+            return false;
+        }
+        let key = player_id.strip_prefix("player/").unwrap_or("");
+        uuid::Uuid::parse_str(key).is_ok()
+    }
+
     let on_player_select = {
         let _props = props.clone();
         let outcomes = outcomes.clone();
@@ -218,8 +227,8 @@ pub fn outcome_selector(props: &OutcomeSelectorProps) -> Html {
                 return;
             }
 
-            // If this is a new player (not in database), show confirmation
-            if player.id.starts_with("player/") && player.id.contains("Uuid") {
+            // If this is a new player (client placeholder UUID), show confirmation
+            if is_placeholder_player_id(&player.id) {
                 pending_new_player.set(Some(player));
                 show_new_player_confirm.set(true);
                 search_query.set(String::new());
@@ -323,6 +332,7 @@ pub fn outcome_selector(props: &OutcomeSelectorProps) -> Html {
                     email: query.clone(),
                     created_at: chrono::Utc::now().fixed_offset(),
                     is_admin: false,
+                    is_active: true,
                 };
 
                 // Show confirmation for new player
@@ -434,10 +444,11 @@ pub fn outcome_selector(props: &OutcomeSelectorProps) -> Html {
 
     let result_options = vec!["won", "lost", "drop"];
 
-    // Helper function to check if a player_id is a real DB id (not a new UUID)
+    // Helper: existing DB ids use legacy numeric keys; client placeholders are UUID-shaped.
     fn is_real_player_id(player_id: &str) -> bool {
-        // Real DB ids are 'player/1234' (numbers or short ids), new ones have 'Uuid' in them
-        player_id.starts_with("player/") && !player_id.contains("Uuid") && player_id.len() < 40
+        !player_id.is_empty()
+            && player_id.starts_with("player/")
+            && !is_placeholder_player_id(player_id)
     }
 
     html! {

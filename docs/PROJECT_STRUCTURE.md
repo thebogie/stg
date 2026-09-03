@@ -48,7 +48,8 @@ Do not store secrets under `data/`. Do not put compose files or `.env` files her
 - **Full prod-image gate (unit + full integration + Playwright):** `./scripts/test-prod-gate.sh` (wraps `full-prod-test.sh`). Playwright E2E defaults to **Docker** (`./scripts/run-playwright-e2e-docker.sh`); host run needs `FULL_PROD_TEST_PLAYWRIGHT_HOST=1`.
 - **Quick prod-like smoke:** `./scripts/test-prod-like-smoke.sh` or `./ci-local.sh smoke prod`.
 - **CI driver (stages):** `./ci-local.sh [build|unit|smoke|integration|e2e|all] [dev|prod]`. Uses `deploy/docker-compose.yml` and `config/.env.*`.
-- **Dev + breakpoints:** `./scripts/dev-debug.sh` then `just backend-watch` (see `docs/QUICK_ITERATION.md`).
+- **Daily dev (incl. prod snapshot):** `docs/DAILY_WORKFLOW.md`.
+- **Dev + breakpoints:** `./scripts/dev-debug.sh` then `just backend-watch`.
 - **Backend in Docker:** `./scripts/start-back.sh` · stop: `./scripts/stop-back.sh`.
 - **Frontend:** `./scripts/start-front.sh` or `./scripts/start-tauri.sh` (uses `config/.env.dev`).
 - **Production install from GHCR:** `./scripts/install-from-ci.sh <tag>` on the server (wraps `deploy/deploy_stg.sh`). See `docs/GHCR_SETUP.md` and `deploy/README.md`.

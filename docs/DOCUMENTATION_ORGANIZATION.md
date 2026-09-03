@@ -7,6 +7,7 @@ How documentation is organized and where to add or find things. The project foll
 ```
 docs/
 ├── README.md                    # Documentation index (start here)
+├── DAILY_WORKFLOW.md            # Primary dev cheat sheet (prod snapshot, start commands)
 ├── WORKFLOW.txt                 # Short workflow: CI, backend, frontend, production
 ├── PROJECT_STRUCTURE.md         # Single source of truth for repo layout
 ├── SURREALDB_ID_CONVENTIONS.md  # Record IDs (Thing vs string) — follow this
@@ -52,13 +53,14 @@ docs/
 ## Finding docs (canonical — follow these)
 
 1. **Start:** `docs/README.md` – Index and quick links.
-2. **Structure:** `docs/PROJECT_STRUCTURE.md` – Repo layout and run commands (back/api, front/web, SurrealDB, Redis).
-3. **Workflow:** `docs/WORKFLOW.txt` – CI, backend, frontend, production in one page.
-4. **Setup:** `docs/setup/DEVELOPMENT_SETUP.md`.
-5. **Testing:** `docs/testing/HOW_TO_RUN_TESTS.md`.
-6. **Deployment:** `docs/GHCR_SETUP.md`.
-7. **SurrealDB IDs:** `docs/SURREALDB_ID_CONVENTIONS.md` – Record id vs string, type::record (v3), INSIDE bindings.
-8. **Tauri + browser:** `docs/TAURI_BROWSER_PATTERN.md` – One frontend, two runtimes.
+2. **Daily dev:** `docs/DAILY_WORKFLOW.md` – Local start commands, prod snapshot import, test, deploy.
+3. **Structure:** `docs/PROJECT_STRUCTURE.md` – Repo layout and run commands (back/api, front/web, SurrealDB, Redis).
+4. **Workflow / CI:** `docs/WORKFLOW.txt` – Script entrypoints in one page.
+5. **Setup (one-time):** `docs/setup/DEVELOPMENT_SETUP.md` – Env files, troubleshooting.
+6. **Testing:** `docs/testing/HOW_TO_RUN_TESTS.md`.
+7. **Deployment:** `docs/GHCR_SETUP.md`.
+8. **SurrealDB IDs:** `docs/SURREALDB_ID_CONVENTIONS.md` – Record id vs string, type::record (v3), INSIDE bindings.
+9. **Tauri + browser:** `docs/TAURI_BROWSER_PATTERN.md` – One frontend, two runtimes.
 
 ## Adding or moving docs
 

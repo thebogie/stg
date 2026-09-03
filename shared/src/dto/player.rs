@@ -27,6 +27,14 @@ pub struct PlayerDto {
     /// Whether the player has administrative privileges
     #[serde(rename = "isAdmin")]
     pub is_admin: bool,
+
+    /// Whether the player can log in
+    #[serde(rename = "isActive", default = "default_active")]
+    pub is_active: bool,
+}
+
+fn default_active() -> bool {
+    true
 }
 
 /// Request for player registration
@@ -106,6 +114,7 @@ impl From<&Player> for PlayerDto {
             email: player.email.clone(),
             created_at: player.created_at.into(),
             is_admin: player.is_admin,
+            is_active: player.is_active,
         }
     }
 }
@@ -129,6 +138,7 @@ impl From<PlayerDto> for Player {
             password: String::new(), // Password is handled separately
             created_at: dto.created_at.into(),
             is_admin: false,
+            is_active: true,
         })
     }
 }
@@ -184,6 +194,42 @@ pub struct UpdateHandleRequest {
     pub password: String,
 }
 
+/// Admin request to create a new player account.
+#[derive(Debug, Clone, Serialize, Deserialize, Validate)]
+pub struct AdminCreatePlayerRequest {
+    #[validate(length(min = 1, max = 100))]
+    pub firstname: String,
+    #[validate(length(min = 3, max = 50))]
+    #[validate(regex = "HANDLE_REGEX")]
+    pub handle: String,
+    #[validate(email(message = "Invalid email format"))]
+    pub email: String,
+    #[validate(length(min = 8))]
+    pub password: String,
+    #[serde(default)]
+    pub is_admin: bool,
+}
+
+/// Admin request to update player fields (partial update — only provided fields are changed).
+#[derive(Debug, Clone, Serialize, Deserialize, Validate, Default)]
+pub struct AdminUpdatePlayerRequest {
+    #[validate(length(min = 1, max = 100))]
+    pub firstname: Option<String>,
+    #[validate(length(min = 3, max = 50))]
+    #[validate(regex = "HANDLE_REGEX")]
+    pub handle: Option<String>,
+    #[validate(email(message = "Invalid email format"))]
+    pub email: Option<String>,
+    pub is_admin: Option<bool>,
+}
+
+/// Admin request to reset a player's password without knowing the current password.
+#[derive(Debug, Clone, Serialize, Deserialize, Validate)]
+pub struct AdminResetPasswordRequest {
+    #[validate(length(min = 8))]
+    pub new_password: String,
+}
+
 /// Request for updating player password
 #[derive(Debug, Clone, Serialize, Deserialize, Validate)]
 pub struct UpdatePasswordRequest {
@@ -225,6 +271,7 @@ mod tests {
             email: "john@example.com".to_string(),
             created_at: chrono::Utc::now().fixed_offset(),
             is_admin: false,
+            is_active: true,
         }
     }
 
@@ -266,6 +313,56 @@ mod tests {
     }
 
     #[test]
+    fn test_admin_create_player_request_validation_success() {
+        let request = AdminCreatePlayerRequest {
+            firstname: "Jane".to_string(),
+            handle: "jane_doe".to_string(),
+            email: "jane@example.com".to_string(),
+            password: "password123".to_string(),
+            is_admin: false,
+        };
+        assert!(request.validate().is_ok());
+    }
+
+    #[test]
+    fn test_admin_reset_password_request_validation_short_password() {
+        let request = AdminResetPasswordRequest {
+            new_password: "short".to_string(),
+        };
+        assert!(request.validate().is_err());
+    }
+
+    #[test]
+    fn test_admin_reset_password_request_validation_success() {
+        let request = AdminResetPasswordRequest {
+            new_password: "password123".to_string(),
+        };
+        assert!(request.validate().is_ok());
+    }
+
+    #[test]
+    fn test_admin_update_player_request_validation_success() {
+        let request = AdminUpdatePlayerRequest {
+            firstname: Some("Jane".to_string()),
+            handle: Some("jane_doe".to_string()),
+            email: Some("jane@example.com".to_string()),
+            is_admin: Some(false),
+        };
+        assert!(request.validate().is_ok());
+    }
+
+    #[test]
+    fn test_admin_update_player_request_validation_invalid_handle() {
+        let request = AdminUpdatePlayerRequest {
+            firstname: None,
+            handle: Some("bad handle".to_string()),
+            email: None,
+            is_admin: None,
+        };
+        assert!(request.validate().is_err());
+    }
+
+    #[test]
     fn test_player_dto_validation_empty_firstname() {
         let mut dto = create_test_player_dto();
         dto.firstname = "".to_string();
@@ -284,6 +381,7 @@ mod tests {
             handle: "john_doe".to_string(),
             created_at: chrono::Utc::now().fixed_offset(),
             is_admin: false,
+            is_active: true,
         };
         assert!(dto.validate().is_err());
     }
@@ -421,6 +519,7 @@ mod tests {
             password: "hashed_password".to_string(),
             created_at: chrono::Utc::now(),
             is_admin: false,
+            is_active: true,
         };
 
         let dto = PlayerDto::from(&player);
@@ -441,6 +540,7 @@ mod tests {
             password: "hashed_password".to_string(),
             created_at: chrono::Utc::now(),
             is_admin: false,
+            is_active: true,
         };
 
         // Note: StoredPlayer doesn't have a From implementation, so we'll test manual creation
@@ -464,6 +564,7 @@ mod tests {
             password: "hashed_password".to_string(),
             created_at: chrono::Utc::now(),
             is_admin: false,
+            is_active: true,
         };
 
         let profile = PlayerProfileDto::from(&player);
@@ -481,6 +582,7 @@ mod tests {
             email: SafeEmail().fake(),
             created_at: chrono::Utc::now().fixed_offset(),
             is_admin: false,
+            is_active: true,
         };
         assert!(dto.validate().is_ok());
     }
@@ -563,6 +665,7 @@ mod tests {
             email: "john.jane+test@example.com".to_string(),
             created_at: chrono::Utc::now().fixed_offset(),
             is_admin: false,
+            is_active: true,
         };
         assert!(player.validate().is_ok());
     }
@@ -585,6 +688,7 @@ mod tests {
             handle: "john_doe".to_string(),
             created_at: chrono::Utc::now().fixed_offset(),
             is_admin: false,
+            is_active: true,
         };
         assert!(dto.validate().is_err());
     }
@@ -607,6 +711,7 @@ mod tests {
             handle: "john_doe".to_string(),
             created_at: chrono::Utc::now().fixed_offset(),
             is_admin: false,
+            is_active: true,
         };
         let result = dto.try_into_player();
         assert!(result.is_err());

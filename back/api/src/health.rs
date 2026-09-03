@@ -1,4 +1,5 @@
 use crate::db::Db;
+use crate::observability::events::log_health_degraded;
 use actix_web::{get, web, HttpResponse, Responder};
 use serde::Serialize;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -210,13 +211,30 @@ pub async fn detailed_health_check(
     );
     let scheduler_status = check_scheduler(&scheduler);
 
-    // Determine overall status
     let overall_status = if db_status.status == "healthy"
         && redis_status.status == "healthy"
         && scheduler_status.status == "healthy"
     {
         "ok"
     } else {
+        if db_status.status != "healthy" {
+            log_health_degraded(
+                "database",
+                db_status.message.as_deref().unwrap_or("unhealthy"),
+            );
+        }
+        if redis_status.status != "healthy" {
+            log_health_degraded(
+                "redis",
+                redis_status.message.as_deref().unwrap_or("unhealthy"),
+            );
+        }
+        if scheduler_status.status != "healthy" {
+            log_health_degraded(
+                "scheduler",
+                scheduler_status.message.as_deref().unwrap_or("unhealthy"),
+            );
+        }
         "degraded"
     };
 
@@ -231,7 +249,6 @@ pub async fn detailed_health_check(
         },
     };
 
-    // Return appropriate status code based on health
     if overall_status == "ok" {
         HttpResponse::Ok().json(response)
     } else {

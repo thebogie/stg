@@ -11,6 +11,12 @@
 #
 # Requires: config/.env.prod (deploy/config/.env.prod when using deploy folder alone). Set BACKEND_IMAGE and FRONTEND_IMAGE (e.g. from deploy_stg.sh).
 
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "50m"
+    max-file: "5"
+
 services:
   wait-for-surrealdb:
     container_name: stg-wait-for-surrealdb
@@ -95,6 +101,8 @@ services:
       - SERVER_PORT=${BACKEND_PORT:-50002}
       - RUST_ENV=production
       - RUST_LOG=${RUST_LOG:-info}
+      - LOG_FORMAT=${LOG_FORMAT:-json}
+      - LOG_SERVICE_NAME=${LOG_SERVICE_NAME:-stg-backend}
       - GOOGLE_LOCATION_API=${GOOGLE_LOCATION_API:-}
       - GOOGLEMAP_API_URL=${GOOGLEMAP_API_URL:-}
       - GOOGLEMAP_API_TIMEZONE_URL=${GOOGLEMAP_API_TIMEZONE_URL:-}

@@ -5,6 +5,7 @@ use crate::player::error::PlayerError;
 use crate::player::repository::{PlayerRepository, PlayerRepositoryImpl};
 use crate::player::session::SessionStore;
 use crate::player::usecase::{PlayerUseCase, PlayerUseCaseImpl};
+use crate::observability::events::log_auth_event;
 use log::{error, info, warn};
 use shared::dto::player::{
     CreatePlayerRequest, LoginResponse, PlayerDto, UpdateEmailRequest, UpdateHandleRequest,
@@ -57,32 +58,30 @@ where
                         player: player_dto,
                         session_id: session_id.clone(),
                     };
-                    info!(
-                        "Player {} logged in successfully, session {} created",
-                        player.email, session_id
-                    );
+                    log_auth_event("auth.login.success", Some(&player.email), None);
                     Ok(HttpResponse::Ok().json(response))
                 }
                 Err(e) => {
                     let err_msg = format!("Session store error: {}", e);
-                    error!(
-                        "Session store error during login for {}: {}",
-                        player.email, e
+                    log_auth_event(
+                        "auth.login.failure",
+                        Some(&player.email),
+                        Some(&err_msg),
                     );
                     Err(PlayerError::SessionError(err_msg).into())
                 }
             }
         }
         Err(PlayerError::NotFound) => {
-            info!("Login attempt for non-existent player: {}", email);
+            log_auth_event("auth.login.failure", Some(&email), Some("user not found"));
             Err(PlayerError::NotFound.into())
         }
         Err(PlayerError::InvalidPassword) => {
-            info!("Invalid password attempt for player: {}", email);
+            log_auth_event("auth.login.failure", Some(&email), Some("invalid password"));
             Err(PlayerError::InvalidPassword.into())
         }
         Err(e) => {
-            error!("Unexpected login error for {}: {}", email, e);
+            log_auth_event("auth.login.failure", Some(&email), Some(&e.to_string()));
             Err(e.into())
         }
     }
@@ -148,29 +147,31 @@ pub async fn login_handler_prod(
                         player: player_dto,
                         session_id: session_id.clone(),
                     };
+                    log_auth_event("auth.login.success", Some(&player.email), None);
                     // No cookies - frontend will use Authorization header
                     Ok(HttpResponse::Ok().json(response))
                 }
                 Err(e) => {
                     let err_msg = format!("Session store error: {}", e);
-                    error!(
-                        "Session store error during login for {}: {}",
-                        player.email, e
+                    log_auth_event(
+                        "auth.login.failure",
+                        Some(&player.email),
+                        Some(&err_msg),
                     );
                     Err(PlayerError::SessionError(err_msg).into())
                 }
             }
         }
         Err(PlayerError::NotFound) => {
-            info!("Login attempt for non-existent player: {}", email);
+            log_auth_event("auth.login.failure", Some(&email), Some("user not found"));
             Err(PlayerError::NotFound.into())
         }
         Err(PlayerError::InvalidPassword) => {
-            info!("Invalid password attempt for player: {}", email);
+            log_auth_event("auth.login.failure", Some(&email), Some("invalid password"));
             Err(PlayerError::InvalidPassword.into())
         }
         Err(e) => {
-            error!("Unexpected login error for {}: {}", email, e);
+            log_auth_event("auth.login.failure", Some(&email), Some(&e.to_string()));
             Err(e.into())
         }
     }
@@ -327,7 +328,7 @@ where
     let players = if search_query.trim().is_empty() {
         repo.list_players_directory(limit).await
     } else {
-        repo.search_players(search_query.trim(), limit).await
+        repo.search_players(search_query.trim(), limit, false).await
     };
 
     let player_dtos: Vec<PlayerDto> = players.iter().map(player_dto_with_admin_override).collect();

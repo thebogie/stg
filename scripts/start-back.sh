@@ -167,6 +167,11 @@ wait_surrealdb() {
 
   # Optional seed import (only if volume is empty and SURREAL_SEED_DIR is set)
   ( wait_surrealdb && try_seed_import ) || true
+
+  # Schema migrations (idempotent; adds fields like player.isActive after prod seed import)
+  if [ -x "$ROOT/deploy/run_surreal_migrations.sh" ]; then
+    ( wait_surrealdb && DEPLOY_ROOT="$ROOT/deploy" ENV_FILE="$ENV_FILE" "$ROOT/deploy/run_surreal_migrations.sh" ) || true
+  fi
 fi
 
 echo "==> Backend: http://127.0.0.1:${BACKEND_PORT} (SurrealDB: ${SURREALDB_PORT}, Redis: ${REDIS_PORT})"

@@ -1,13 +1,14 @@
 # Documentation index
 
-Start here for project docs. For repo layout and run commands, see **[PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md)** and **[WORKFLOW.txt](WORKFLOW.txt)**. The project follows **Rust, Yew, Tauri, SurrealDB, and Redis**; docs in **[archive/](archive/README.md)** (especially `archive/outdated-stack/`) are obsolete and for reference only.
+Start here for project docs. **Daily dev:** [DAILY_WORKFLOW.md](DAILY_WORKFLOW.md). Repo layout: [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md). CI/script index: [WORKFLOW.txt](WORKFLOW.txt). The project follows **Rust, Yew, Tauri, SurrealDB, and Redis**; docs in **[archive/](archive/README.md)** (especially `archive/outdated-stack/`) are obsolete and for reference only.
 
 ## Quick links
 
 ### Getting started
+- **[Daily workflow](DAILY_WORKFLOW.md)** – **Start here:** local dev, prod snapshot import, test, deploy
 - **[Project structure](PROJECT_STRUCTURE.md)** – Repo layout, back/api, front/web, config, scripts
-- **[Workflow](WORKFLOW.txt)** – CI, backend, frontend, production (one-page reference)
-- **[Development setup](setup/DEVELOPMENT_SETUP.md)** – Environment and local run
+- **[Development setup](setup/DEVELOPMENT_SETUP.md)** – One-time env setup and troubleshooting
+- **[Workflow](WORKFLOW.txt)** – CI and script entrypoints (one-page reference)
 - **[Setup project structure](setup/PROJECT_STRUCTURE.md)** – Points to main PROJECT_STRUCTURE
 - **[Migration guide](setup/MIGRATION_GUIDE.md)** – Migrating from old structure
 - **[Documentation organization](DOCUMENTATION_ORGANIZATION.md)** – How docs are organized
@@ -31,8 +32,8 @@ Start here for project docs. For repo layout and run commands, see **[PROJECT_ST
 - **[Admin authorization](ADMIN_AUTHORIZATION_SYSTEM.md)** – Admin system
 
 ### Deployment and workflows
+- **[Daily workflow](DAILY_WORKFLOW.md)** – Local dev, prod snapshot, test, deploy
 - **[GHCR setup](GHCR_SETUP.md)** – **Primary deployment**: build on push, pull from GHCR on production
-- **[Daily workflow](DAILY_WORKFLOW.md)** – Day-to-day dev and deploy (references GHCR)
 - **[Test-then-deploy workflow](TEST_THEN_DEPLOY_WORKFLOW.md)** – Test before deploy (references GHCR)
 - **[CI/CD](CI_CD.md)** – Pipeline overview (SurrealDB + Redis, ci-local.sh)
 - **[Deploy directory](../deploy/README.md)** – Docker Compose and usage

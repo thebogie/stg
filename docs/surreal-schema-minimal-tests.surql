@@ -16,6 +16,7 @@ DEFINE FIELD IF NOT EXISTS createdAt ON player TYPE option<datetime>;
 DEFINE FIELD IF NOT EXISTS created_at ON player TYPE option<datetime>;
 DEFINE FIELD IF NOT EXISTS isAdmin ON player TYPE option<bool>;
 DEFINE FIELD IF NOT EXISTS is_admin ON player TYPE option<bool>;
+DEFINE FIELD IF NOT EXISTS isActive ON player TYPE option<bool> DEFAULT true;
 DEFINE FIELD IF NOT EXISTS accessToken ON player TYPE option<string>;
 DEFINE INDEX IF NOT EXISTS player_email ON TABLE player COLUMNS email;
 

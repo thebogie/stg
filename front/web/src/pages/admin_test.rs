@@ -32,6 +32,7 @@ mod tests {
                 firstname: "Regular".to_string(),
                 lastname: "User".to_string(),
                 is_admin: false,
+            is_active: true,
             })
         };
 

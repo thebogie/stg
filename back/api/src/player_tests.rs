@@ -15,6 +15,7 @@ mod player_tests {
             email: "test@example.com".to_string(),
             created_at: Utc::now().fixed_offset(),
             is_admin: false,
+            is_active: true,
         };
 
         assert_eq!(player_dto.firstname, "John");
@@ -60,6 +61,7 @@ mod player_tests {
             password: "hashed_password".to_string(),
             created_at: Utc::now(),
             is_admin: false,
+            is_active: true,
         };
 
         assert_eq!(player.firstname, "John");
@@ -79,6 +81,7 @@ mod player_tests {
             password: "hashed_password".to_string(),
             created_at: Utc::now(),
             is_admin: false,
+            is_active: true,
         };
 
         let json = serde_json::to_string(&player).unwrap();

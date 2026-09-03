@@ -70,9 +70,24 @@ export default defineConfig({
       ? [
           {
             name: 'chromium',
-            testIgnore: ['**/analytics.spec.ts', '**/crud.spec.ts', '**/contest_image.spec.ts'],
+            testIgnore: [
+              '**/analytics.spec.ts',
+              '**/crud.spec.ts',
+              '**/contest_image.spec.ts',
+              ...(process.env.E2E_ADMIN_EMAIL ? ['**/admin_users.spec.ts'] : []),
+            ],
             use: { ...devices['Desktop Chrome'] },
           },
+          ...(process.env.E2E_ADMIN_EMAIL
+            ? [
+                {
+                  name: 'chromium-admin',
+                  testMatch: ['**/admin_users.spec.ts'],
+                  timeout: 90_000,
+                  use: { ...devices['Desktop Chrome'] },
+                },
+              ]
+            : []),
           ...(process.env.E2E_USER_EMAIL
             ? [
                 {
@@ -94,8 +109,19 @@ export default defineConfig({
       : [
           {
             name: 'chromium',
+            testIgnore: process.env.E2E_ADMIN_EMAIL ? ['**/admin_users.spec.ts'] : [],
             use: { ...devices['Desktop Chrome'] },
           },
+          ...(process.env.E2E_ADMIN_EMAIL
+            ? [
+                {
+                  name: 'chromium-admin',
+                  testMatch: ['**/admin_users.spec.ts'],
+                  timeout: 90_000,
+                  use: { ...devices['Desktop Chrome'] },
+                },
+              ]
+            : []),
 
           // Uncomment after running: npx playwright install firefox
           // {

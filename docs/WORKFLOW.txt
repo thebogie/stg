@@ -15,6 +15,7 @@ WORKFLOW — Primary entrypoints (see scripts/README.md)
 4. Dev + breakpoints (Surreal/Redis in Docker; backend on host)
    ./scripts/dev-debug.sh  then  just backend-watch
    Uses: config/.env.dev
+   Prod snapshot: SURREAL_SEED_DIR + SURREAL_SEED_FORCE=1 — see docs/DAILY_WORKFLOW.md
 
 5. Backend (terminal 1 — all in Docker)
    ./scripts/start-back.sh              # start (build if needed)

@@ -379,6 +379,7 @@ mod tests {
                 email: "test@example.com".to_string(),
                 created_at: chrono::Utc::now().fixed_offset(),
                 is_admin: false,
+            is_active: true,
             },
             session_id: "session_123".to_string(),
         }
@@ -431,6 +432,7 @@ mod tests {
             email: "test@example.com".to_string(),
             created_at: chrono::Utc::now().fixed_offset(),
             is_admin: false,
+            is_active: true,
         };
         assert_eq!(player.firstname, "John");
         assert_eq!(player.handle, "john_doe");
@@ -446,6 +448,7 @@ mod tests {
             email: "test@example.com".to_string(),
             created_at: chrono::Utc::now().fixed_offset(),
             is_admin: false,
+            is_active: true,
         };
         assert!(player.validate().is_ok());
     }
@@ -459,6 +462,7 @@ mod tests {
             email: "test@example.com".to_string(),
             created_at: chrono::Utc::now().fixed_offset(),
             is_admin: false,
+            is_active: true,
         };
         let json = serde_json::to_string(&player).unwrap();
         let deserialized: PlayerDto = serde_json::from_str(&json).unwrap();
@@ -517,6 +521,7 @@ mod tests {
             email: "test@example.com".to_string(),
             created_at: chrono::Utc::now().fixed_offset(),
             is_admin: false,
+            is_active: true,
         };
         player.firstname = "".to_string();
         let result = player.validate();
@@ -534,6 +539,7 @@ mod tests {
             email: "test@example.com".to_string(),
             created_at: chrono::Utc::now().fixed_offset(),
             is_admin: false,
+            is_active: true,
         };
         player.email = "invalid-email".to_string();
         let result = player.validate();
@@ -599,6 +605,7 @@ mod tests {
             email: "john.jane+test@example.com".to_string(),
             created_at: chrono::Utc::now().fixed_offset(),
             is_admin: false,
+            is_active: true,
         };
         assert!(player.validate().is_ok());
     }

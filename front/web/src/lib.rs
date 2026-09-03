@@ -30,6 +30,7 @@ pub mod pages {
     pub mod analytics;
     pub mod analytics_dashboard;
     pub mod analytics_test;
+    pub mod components;
     pub mod game_details;
     pub mod games;
     pub mod home;

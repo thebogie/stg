@@ -1,156 +1,26 @@
-use crate::api::contests::contest_key_from_any;
+mod links;
+mod types;
+
+use links::*;
+use types::{AnalyticsDashboardProps, AnalyticsTab, GameRecommendation, VenuePerformance};
+
 use crate::api::games::get_game_analytics;
 use crate::api::games::search_games;
 use crate::api::utils::authenticated_get;
 use crate::components::chart_renderer::ChartRenderer;
+use crate::pages::components::head_to_head_modal::HeadToHeadModal;
 use crate::Route;
 use gloo_net::http::Request;
 use serde_json::Value;
+use shared::dto::analytics::HeadToHeadRecordDto;
 use shared::dto::game::GameDto;
-use urlencoding::encode;
 use wasm_bindgen::prelude::*;
-use web_sys::console;
 use yew::prelude::*;
 use yew_router::prelude::*;
 
 #[wasm_bindgen(module = "/src/js/timezone.js")]
 extern "C" {
     fn getBrowserIanaTimezone() -> String;
-}
-
-fn player_timezone_query(tz: &str) -> String {
-    format!(
-        "timezone={}",
-        encode(&shared::timezone::normalize_iana_timezone(tz))
-    )
-}
-
-fn format_in_player_timezone(value: &str, tz: &str) -> String {
-    shared::timezone::format_rfc3339_short(value, tz)
-}
-
-fn timezone_label(tz: &str) -> String {
-    shared::timezone::get_timezone_abbreviation(tz)
-}
-
-/// Short "what you're seeing" + "how it helps your play" blurb under section headings.
-fn section_guide(what: &str, player_value: &str) -> Html {
-    html! {
-        <div class="section-guide">
-            <p class="section-guide-what">{what}</p>
-            <p class="section-guide-value"><strong>{"How this helps you: "}</strong>{player_value}</p>
-        </div>
-    }
-}
-
-fn player_profile_key(player_id: &str) -> String {
-    player_id.rsplit('/').next().unwrap_or(player_id).to_string()
-}
-
-fn artifact_label_or_link(id: Option<&str>, label: &str, route: impl FnOnce(String) -> Route) -> Html {
-    let id = id.unwrap_or("").trim();
-    if id.is_empty() {
-        html! { <span>{label}</span> }
-    } else {
-        html! {
-            <Link<Route> to={route(id.to_string())} classes="text-blue-600 hover:text-blue-800 hover:underline">
-                {label}
-            </Link<Route>>
-        }
-    }
-}
-
-fn game_link_from(v: &Value, id_key: &str, name_key: &str, fallback: &str) -> Html {
-    let id = v.get(id_key).and_then(|x| x.as_str());
-    let name = v.get(name_key).and_then(|x| x.as_str()).unwrap_or(fallback);
-    artifact_label_or_link(id, name, |id| Route::GameDetails { game_id: id })
-}
-
-fn venue_link_from(v: &Value, id_key: &str, name_key: &str, fallback: &str) -> Html {
-    let id = v.get(id_key).and_then(|x| x.as_str());
-    let name = v.get(name_key).and_then(|x| x.as_str()).unwrap_or(fallback);
-    artifact_label_or_link(id, name, |id| Route::VenueDetails { venue_id: id })
-}
-
-fn venue_link(id: &str, label: &str) -> Html {
-    artifact_label_or_link(Some(id), label, |id| Route::VenueDetails { venue_id: id })
-}
-
-fn game_link(id: &str, label: &str) -> Html {
-    artifact_label_or_link(Some(id), label, |id| Route::GameDetails { game_id: id })
-}
-
-fn contest_link(contest_id: &str, label: &str) -> Html {
-    let key = contest_key_from_any(contest_id);
-    if key.is_empty() {
-        html! { <span>{label}</span> }
-    } else {
-        html! {
-            <Link<Route> to={Route::ContestDetails { contest_id: key }} classes="text-blue-600 hover:text-blue-800 hover:underline">
-                {label}
-            </Link<Route>>
-        }
-    }
-}
-
-fn contest_label_from_json(c: &Value) -> String {
-    c.get("contest_name")
-        .and_then(|v| v.as_str())
-        .filter(|s| !s.is_empty())
-        .map(String::from)
-        .or_else(|| {
-            c.get("most_popular_game")
-                .and_then(|v| v.as_str())
-                .filter(|s| !s.is_empty())
-                .map(String::from)
-        })
-        .unwrap_or_else(|| {
-            c.get("contest_id")
-                .and_then(|v| v.as_str())
-                .unwrap_or("Contest")
-                .to_string()
-        })
-}
-
-fn player_link_from_id(player_id: &str, label: &str) -> Html {
-    let key = player_profile_key(player_id);
-    if key.is_empty() {
-        html! { <span>{label}</span> }
-    } else {
-        html! {
-            <Link<Route> to={Route::PlayerProfile { player_id: key }} classes="text-blue-600 hover:text-blue-800 hover:underline">
-                {label}
-            </Link<Route>>
-        }
-    }
-}
-
-#[derive(Clone, Debug, PartialEq)]
-struct GameRecommendation {
-    game_id: String,
-    game_name: String,
-    reason: String,
-    score: f64,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-struct VenuePerformance {
-    venue_id: String,
-    venue_name: String,
-    total_contests: u64,
-    win_rate: f64,
-}
-
-#[derive(Properties, PartialEq, Clone)]
-pub struct AnalyticsDashboardProps {}
-
-#[derive(Clone, PartialEq)]
-enum AnalyticsTab {
-    Overview,
-    Contests,
-    Venues,
-    Games,
-    Players,
 }
 
 #[function_component(AnalyticsDashboard)]
@@ -210,6 +80,13 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
     let tab_analytics_loading = use_state(|| false);
     let tab_analytics_error = use_state(|| None::<String>);
     let player_timezone = use_state(|| String::from("UTC"));
+    let system_health = use_state(|| None::<Value>);
+    let system_health_loading = use_state(|| false);
+    let h2h_modal_open = use_state(|| false);
+    let h2h_modal_loading = use_state(|| false);
+    let h2h_modal_error = use_state(|| None::<String>);
+    let h2h_modal_record = use_state(|| None::<HeadToHeadRecordDto>);
+    let h2h_modal_opponent = use_state(|| (String::new(), String::new()));
 
     {
         let player_timezone = player_timezone.clone();
@@ -364,13 +241,15 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
         })
     };
 
-    // Load platform stats
+    // Load platform stats (Overview tab only)
     {
         let platform_stats = platform_stats.clone();
         let loading = loading.clone();
         let error = error.clone();
+        let current_tab = current_tab.clone();
 
-        use_effect_with((), move |_| {
+        use_effect_with((*current_tab).clone(), move |tab| {
+            if *tab == AnalyticsTab::Overview {
             loading.set(true);
             error.set(None);
 
@@ -379,11 +258,6 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
                     Ok(response) => {
                         if response.ok() {
                             if let Ok(stats) = response.json::<Value>().await {
-                                console::log_1(
-                                    &format!("Platform stats received: {:?}", stats).into(),
-                                );
-
-                                // Always show real data. Sample data is only for manual testing.
                                 platform_stats.set(Some(stats));
                             } else {
                                 error.set(Some("Failed to parse platform stats".to_string()));
@@ -394,10 +268,6 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
                                 .text()
                                 .await
                                 .unwrap_or_else(|_| "Unknown error".to_string());
-                            console::error_1(
-                                &format!("Platform stats request failed: {} - {}", status, text)
-                                    .into(),
-                            );
                             error.set(Some(format!(
                                 "Platform stats request failed: {} - {}",
                                 status, text
@@ -405,24 +275,25 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
                         }
                     }
                     Err(e) => {
-                        console::error_1(&format!("Failed to fetch platform stats: {}", e).into());
                         error.set(Some(format!("Failed to fetch platform stats: {}", e)));
                     }
                 }
                 loading.set(false);
             });
-
+            }
             || ()
         });
     }
 
-    // Load Glicko2 leaderboard
+    // Load Glicko2 leaderboard (Players tab only)
     {
         let glicko_leaderboard = glicko_leaderboard.clone();
         let glicko_loading = glicko_loading.clone();
         let glicko_error = glicko_error.clone();
+        let current_tab = current_tab.clone();
 
-        use_effect_with((), move |_| {
+        use_effect_with((*current_tab).clone(), move |tab| {
+            if *tab == AnalyticsTab::Players {
             glicko_loading.set(true);
             glicko_error.set(None);
 
@@ -436,19 +307,6 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
                     Ok(response) => {
                         if response.ok() {
                             if let Ok(leaderboard) = response.json::<Vec<Value>>().await {
-                                console::log_1(
-                                    &format!(
-                                        "Glicko2 leaderboard received: {} players",
-                                        leaderboard.len()
-                                    )
-                                    .into(),
-                                );
-                                console::log_1(
-                                    &format!("First player: {:?}", leaderboard.first()).into(),
-                                );
-                                console::log_1(
-                                    &format!("Last player: {:?}", leaderboard.last()).into(),
-                                );
                                 glicko_leaderboard.set(Some(leaderboard));
                             } else {
                                 glicko_error
@@ -460,13 +318,6 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
                                 .text()
                                 .await
                                 .unwrap_or_else(|_| "Unknown error".to_string());
-                            console::error_1(
-                                &format!(
-                                    "Glicko2 leaderboard request failed: {} - {}",
-                                    status, text
-                                )
-                                .into(),
-                            );
                             glicko_error.set(Some(format!(
                                 "Glicko2 leaderboard request failed: {} - {}",
                                 status, text
@@ -474,89 +325,107 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
                         }
                     }
                     Err(e) => {
-                        console::error_1(
-                            &format!("Failed to fetch Glicko2 leaderboard: {}", e).into(),
-                        );
                         glicko_error
                             .set(Some(format!("Failed to fetch Glicko2 leaderboard: {}", e)));
                     }
                 }
                 glicko_loading.set(false);
             });
-
+            }
             || ()
         });
     }
 
-    // Load contest trends chart
+    // Load contest trends chart (Contests tab)
     {
         let contest_trends_chart = contest_trends_chart.clone();
         let error = error.clone();
+        let current_tab = current_tab.clone();
+        let player_timezone = player_timezone.clone();
 
-        use_effect_with((), move |_| {
-            wasm_bindgen_futures::spawn_local(async move {
-                match Request::get("/api/analytics/charts/contest-trends?months=12&title=Contest%20Trends%20Over%20Time")
+        use_effect_with(
+            ((*current_tab).clone(), (*player_timezone).clone()),
+            move |(tab, tz)| {
+                if *tab == AnalyticsTab::Contests {
+                let tz = (*tz).clone();
+                wasm_bindgen_futures::spawn_local(async move {
+                    match Request::get(&format!(
+                        "/api/analytics/charts/contest-trends?months=12&title=Contest%20Trends%20Over%20Time&{}",
+                        player_timezone_query(&tz)
+                    ))
                     .send()
                     .await
-                {
-                    Ok(response) => {
-                        if let Ok(chart_data) = response.text().await {
-                            contest_trends_chart.set(Some(chart_data));
-                        } else {
-                            error.set(Some("Failed to parse contest trends chart".to_string()));
+                    {
+                        Ok(response) => {
+                            if let Ok(chart_data) = response.text().await {
+                                contest_trends_chart.set(Some(chart_data));
+                            } else {
+                                error.set(Some("Failed to parse contest trends chart".to_string()));
+                            }
+                        }
+                        Err(e) => {
+                            error.set(Some(format!("Failed to fetch contest trends chart: {}", e)));
                         }
                     }
-                    Err(e) => {
-                        error.set(Some(format!("Failed to fetch contest trends chart: {}", e)));
-                    }
+                });
                 }
-            });
-
-            || ()
-        });
+                || ()
+            },
+        );
     }
 
-    // Load contest heatmap data (weekday x hour buckets)
+    // Load contest heatmap data (Contests tab only)
     {
         let contest_heatmap = contest_heatmap.clone();
         let contest_heatmap_loading = contest_heatmap_loading.clone();
         let contest_heatmap_error = contest_heatmap_error.clone();
         let heatmap_weeks = heatmap_weeks.clone();
         let player_timezone = player_timezone.clone();
-        use_effect_with((heatmap_weeks.clone(), (*player_timezone).clone()), move |(weeks, tz)| {
-            let w = **weeks;
-            let tz = (*tz).clone();
-            contest_heatmap_loading.set(true);
-            contest_heatmap_error.set(None);
-            wasm_bindgen_futures::spawn_local(async move {
-                match Request::get(&format!(
-                    "/api/analytics/contests/heatmap?weeks={}&{}",
-                    w,
-                    player_timezone_query(&tz)
-                ))
+        let current_tab = current_tab.clone();
+        use_effect_with(
+            (
+                (*current_tab).clone(),
+                heatmap_weeks.clone(),
+                (*player_timezone).clone(),
+            ),
+            move |(tab, weeks, tz)| {
+                if *tab == AnalyticsTab::Contests {
+                let w = **weeks;
+                let tz = (*tz).clone();
+                contest_heatmap_loading.set(true);
+                contest_heatmap_error.set(None);
+                wasm_bindgen_futures::spawn_local(async move {
+                    match Request::get(&format!(
+                        "/api/analytics/contests/heatmap?weeks={}&{}",
+                        w,
+                        player_timezone_query(&tz)
+                    ))
                     .send()
                     .await
-                {
-                    Ok(resp) => {
-                        if resp.ok() {
-                            match resp.json::<Value>().await {
-                                Ok(data) => contest_heatmap.set(Some(data)),
-                                Err(e) => contest_heatmap_error
-                                    .set(Some(format!("Failed to parse heatmap: {}", e))),
+                    {
+                        Ok(resp) => {
+                            if resp.ok() {
+                                match resp.json::<Value>().await {
+                                    Ok(data) => contest_heatmap.set(Some(data)),
+                                    Err(e) => contest_heatmap_error
+                                        .set(Some(format!("Failed to parse heatmap: {}", e))),
+                                }
+                            } else {
+                                contest_heatmap_error
+                                    .set(Some(format!("Heatmap request failed: {}", resp.status())));
                             }
-                        } else {
+                        }
+                        Err(e) => {
                             contest_heatmap_error
-                                .set(Some(format!("Heatmap request failed: {}", resp.status())));
+                                .set(Some(format!("Failed to fetch heatmap: {}", e)))
                         }
                     }
-                    Err(e) => {
-                        contest_heatmap_error.set(Some(format!("Failed to fetch heatmap: {}", e)))
-                    }
+                    contest_heatmap_loading.set(false);
+                });
                 }
-                contest_heatmap_loading.set(false);
-            });
-            || ()
-        });
+                || ()
+            },
+        );
     }
 
     // Load recent contests for Contests tab
@@ -566,9 +435,7 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
         let recent_contests_loading = recent_contests_loading.clone();
         let recent_contests_error = recent_contests_error.clone();
         use_effect_with((*current_tab).clone(), move |tab| {
-            if *tab != AnalyticsTab::Contests {
-                return;
-            }
+            if *tab == AnalyticsTab::Contests {
             recent_contests_loading.set(true);
             recent_contests_error.set(None);
             let recent_contests = recent_contests.clone();
@@ -594,14 +461,18 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
                 }
                 recent_contests_loading.set(false);
             });
+            }
+            || ()
         });
     }
 
-    // Load platform insights
+    // Load platform insights (Overview tab)
     {
         let insights_state = insights.clone();
         let error = error.clone();
-        use_effect_with((), move |_| {
+        let current_tab = current_tab.clone();
+        use_effect_with((*current_tab).clone(), move |tab| {
+            if *tab == AnalyticsTab::Overview {
             wasm_bindgen_futures::spawn_local(async move {
                 match Request::get("/api/analytics/insights").send().await {
                     Ok(response) => {
@@ -616,15 +487,18 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
                     }
                 }
             });
+            }
             || ()
         });
     }
 
-    // Load games by player count distribution
+    // Load games by player count distribution (Games tab)
     {
         let game_popularity_chart = game_popularity_chart.clone();
         let error = error.clone();
-        use_effect_with((), move |_| {
+        let current_tab = current_tab.clone();
+        use_effect_with((*current_tab).clone(), move |tab| {
+            if *tab == AnalyticsTab::Games {
             wasm_bindgen_futures::spawn_local(async move {
                 match Request::get("/api/analytics/charts/game-popularity?title=Games%20by%20Player%20Count%20Distribution")
                                 .send()
@@ -642,37 +516,75 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
                                 }
                             }
             });
+            }
             || ()
         });
     }
 
-    // Load activity metrics chart
+    // Load activity metrics chart (Overview tab)
     {
         let activity_metrics_chart = activity_metrics_chart.clone();
         let error = error.clone();
-        use_effect_with((), move |_| {
+        let current_tab = current_tab.clone();
+        let player_timezone = player_timezone.clone();
+        use_effect_with(
+            ((*current_tab).clone(), (*player_timezone).clone()),
+            move |(tab, tz)| {
+                if *tab == AnalyticsTab::Overview {
+                let tz = (*tz).clone();
+                wasm_bindgen_futures::spawn_local(async move {
+                    match Request::get(&format!(
+                        "/api/analytics/charts/activity-metrics?days=180&title=Monthly%20Activity&{}",
+                        player_timezone_query(&tz)
+                    ))
+                    .send()
+                    .await
+                    {
+                        Ok(response) => {
+                            if let Ok(chart_data) = response.text().await {
+                                activity_metrics_chart.set(Some(chart_data));
+                            } else {
+                                error.set(Some("Failed to parse activity metrics chart".to_string()));
+                            }
+                        }
+                        Err(e) => {
+                            error.set(Some(format!(
+                                "Failed to fetch activity metrics chart: {}",
+                                e
+                            )));
+                        }
+                    }
+                });
+                }
+                || ()
+            },
+        );
+    }
+
+    // Load system health (Overview tab)
+    {
+        let system_health = system_health.clone();
+        let system_health_loading = system_health_loading.clone();
+        let current_tab = current_tab.clone();
+        use_effect_with((*current_tab).clone(), move |tab| {
+            if *tab == AnalyticsTab::Overview {
+            system_health_loading.set(true);
             wasm_bindgen_futures::spawn_local(async move {
-                match Request::get(
-                    "/api/analytics/charts/activity-metrics?days=60&title=Daily%20Activity",
-                )
-                .send()
-                .await
-                {
+                match Request::get("/health/detailed").send().await {
                     Ok(response) => {
-                        if let Ok(chart_data) = response.text().await {
-                            activity_metrics_chart.set(Some(chart_data));
-                        } else {
-                            error.set(Some("Failed to parse activity metrics chart".to_string()));
+                        if response.ok() {
+                            if let Ok(data) = response.json::<Value>().await {
+                                system_health.set(Some(data));
+                            }
                         }
                     }
                     Err(e) => {
-                        error.set(Some(format!(
-                            "Failed to fetch activity metrics chart: {}",
-                            e
-                        )));
+                        log::warn!("Failed to fetch system health: {}", e);
                     }
                 }
+                system_health_loading.set(false);
             });
+            }
             || ()
         });
     }
@@ -689,8 +601,12 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
         let networking_loading = networking_loading.clone();
 
         let auth = auth.clone();
-        use_effect_with(auth.state.player.clone(), move |player| {
-            if let Some(user_id) = player.as_ref().map(|p| p.id.clone()) {
+        let current_tab = current_tab.clone();
+        use_effect_with(
+            (auth.state.player.clone(), (*current_tab).clone()),
+            move |(player, tab)| {
+                if *tab == AnalyticsTab::Players {
+                    if let Some(user_id) = player.as_ref().map(|p| p.id.clone()) {
             // Load venue performance for the current user
             let set_venue_performance = venue_performance.clone();
             let set_venue_loading = venue_loading.clone();
@@ -905,10 +821,60 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
                 set_networking_loading.set(false);
             });
 
-            }
-            || ()
-        });
+                    }
+                }
+                || ()
+            },
+        );
     }
+
+    let on_open_h2h_history = {
+        let h2h_modal_open = h2h_modal_open.clone();
+        let h2h_modal_loading = h2h_modal_loading.clone();
+        let h2h_modal_error = h2h_modal_error.clone();
+        let h2h_modal_record = h2h_modal_record.clone();
+        let h2h_modal_opponent = h2h_modal_opponent.clone();
+        Callback::from(move |(opponent_id, opponent_handle): (String, String)| {
+            h2h_modal_open.set(true);
+            h2h_modal_loading.set(true);
+            h2h_modal_error.set(None);
+            h2h_modal_record.set(None);
+            h2h_modal_opponent.set((opponent_id.clone(), opponent_handle.clone()));
+            let h2h_modal_record = h2h_modal_record.clone();
+            let h2h_modal_loading = h2h_modal_loading.clone();
+            let h2h_modal_error = h2h_modal_error.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                match authenticated_get(&format!(
+                    "/api/analytics/player/head-to-head/{}",
+                    opponent_id
+                ))
+                .send()
+                .await
+                {
+                    Ok(response) if response.ok() => {
+                        match response.json::<HeadToHeadRecordDto>().await {
+                            Ok(record) => h2h_modal_record.set(Some(record)),
+                            Err(e) => {
+                                h2h_modal_error.set(Some(format!("Failed to parse H2H record: {}", e)))
+                            }
+                        }
+                    }
+                    Ok(response) => {
+                        h2h_modal_error.set(Some(format!("H2H request failed: {}", response.status())))
+                    }
+                    Err(e) => {
+                        h2h_modal_error.set(Some(format!("Failed to load H2H record: {}", e)))
+                    }
+                }
+                h2h_modal_loading.set(false);
+            });
+        })
+    };
+
+    let on_close_h2h_modal = {
+        let h2h_modal_open = h2h_modal_open.clone();
+        Callback::from(move |_| h2h_modal_open.set(false))
+    };
 
     html! {
         <div class="analytics-dashboard">
@@ -1094,7 +1060,7 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
                             <div class="dashboard-section">
                                 <h2>{"📊 Week-over-Week Growth"}</h2>
                                 {section_guide(
-                                    "Contests and unique active players in the last 7 days compared with the prior 7 days. The mini bar chart shows contest volume by calendar week in your timezone.",
+                                    "Contests and unique active players this calendar week compared with last week, both in your timezone. The mini bar chart shows contest volume by ISO week.",
                                     "Know if this is a busy week to find open tables or a quiet one to organize your own game. Rising activity often means more opponents at your skill level."
                                 )}
                                 {if let Some(wow) = data.get("week_over_week") {
@@ -1461,39 +1427,62 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
                             }}>
                                 {"🔄 Refresh Dashboard"}
                             </button>
-                            <button class="action-button secondary" onclick={|_| {
-                                log::info!("Export functionality would be implemented here");
-                            }}>
-                                {"📊 Export Data"}
-                            </button>
-                            <button class="action-button secondary" onclick={|_| {
-                                log::info!("Report generation would be implemented here");
-                            }}>
-                                {"📋 Generate Report"}
-                            </button>
                         </div>
                     </div>
 
                     // System Health Section
                     <div class="dashboard-section">
                         <h2>{"💚 System Health"}</h2>
-                        <div class="health-grid">
-                            <div class="health-card">
-                                <h3>{"Database Status"}</h3>
-                                <div class="health-indicator online">{"🟢 Online"}</div>
-                                <div class="health-details">{"All collections accessible"}</div>
-                            </div>
-                            <div class="health-card">
-                                <h3>{"Cache Status"}</h3>
-                                <div class="health-indicator online">{"🟢 Online"}</div>
-                                <div class="health-details">{"Redis cache active"}</div>
-                            </div>
-                            <div class="health-card">
-                                <h3>{"API Response"}</h3>
-                                <div class="health-indicator online">{"🟢 Online"}</div>
-                                <div class="health-details">{"Endpoints responding"}</div>
-                            </div>
-                        </div>
+                        if *system_health_loading {
+                            <div class="h-20 rounded-lg bg-gray-100 animate-pulse"></div>
+                        } else if let Some(health) = &*system_health {
+                            {{
+                                let db_ok = health
+                                    .get("services")
+                                    .and_then(|s| s.get("database"))
+                                    .and_then(|d| d.get("status"))
+                                    .and_then(|s| s.as_str())
+                                    == Some("healthy");
+                                let redis_ok = health
+                                    .get("services")
+                                    .and_then(|s| s.get("redis"))
+                                    .and_then(|d| d.get("status"))
+                                    .and_then(|s| s.as_str())
+                                    == Some("healthy");
+                                let api_ok = health.get("status").and_then(|s| s.as_str()) == Some("ok");
+                                html! {
+                                    <div class="health-grid">
+                                        <div class="health-card">
+                                            <h3>{"Database Status"}</h3>
+                                            <div class={classes!("health-indicator", if db_ok { "online" } else { "offline" })}>
+                                                {if db_ok { "🟢 Online" } else { "🔴 Offline" }}
+                                            </div>
+                                            <div class="health-details">
+                                                {health["services"]["database"]["message"].as_str().unwrap_or("Database check")}
+                                            </div>
+                                        </div>
+                                        <div class="health-card">
+                                            <h3>{"Cache Status"}</h3>
+                                            <div class={classes!("health-indicator", if redis_ok { "online" } else { "offline" })}>
+                                                {if redis_ok { "🟢 Online" } else { "🔴 Offline" }}
+                                            </div>
+                                            <div class="health-details">
+                                                {health["services"]["redis"]["message"].as_str().unwrap_or("Redis check")}
+                                            </div>
+                                        </div>
+                                        <div class="health-card">
+                                            <h3>{"API Response"}</h3>
+                                            <div class={classes!("health-indicator", if api_ok { "online" } else { "offline" })}>
+                                                {if api_ok { "🟢 Online" } else { "🔴 Degraded" }}
+                                            </div>
+                                            <div class="health-details">{"Platform health endpoint"}</div>
+                                        </div>
+                                    </div>
+                                }
+                            }}
+                        } else {
+                            <div class="no-data"><p>{"Health status unavailable"}</p></div>
+                        }
                     </div>
                     }
 
@@ -1707,14 +1696,19 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
                                                         .unwrap_or_else(|| "—".to_string());
                                                     let players = c["participant_count"].as_i64().unwrap_or(0);
                                                     let duration = c["duration_minutes"].as_i64().unwrap_or(0);
-                                                    let game = c.get("most_popular_game").and_then(|v| v.as_str()).unwrap_or("—");
+                                                    let game_name = c.get("most_popular_game").and_then(|v| v.as_str()).unwrap_or("—");
+                                                    let game_cell = if let Some(gid) = c.get("most_popular_game_id").and_then(|v| v.as_str()).filter(|s| !s.is_empty()) {
+                                                        html! { <td class="px-4 py-2">{game_link(gid, game_name)}</td> }
+                                                    } else {
+                                                        html! { <td class="px-4 py-2 text-gray-600">{game_name}</td> }
+                                                    };
                                                     html! {
                                                         <tr class="hover:bg-gray-50">
                                                             <td class="px-4 py-2">{contest_link(contest_id, &label)}</td>
                                                             <td class="px-4 py-2 text-gray-600">{when}</td>
                                                             <td class="px-4 py-2">{players}</td>
                                                             <td class="px-4 py-2">{format!("{} min", duration)}</td>
-                                                            <td class="px-4 py-2 text-gray-600">{game}</td>
+                                                            {game_cell}
                                                         </tr>
                                                     }
                                                 })}
@@ -2184,7 +2178,20 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
 
                     // Players Tab
                     if *current_tab == AnalyticsTab::Players {
-                        if *tab_analytics_loading {
+                        if auth.state.player.is_none() {
+                            <div class="dashboard-section">
+                                <h2>{"👤 Player Analytics"}</h2>
+                                <div class="no-data">
+                                    <p>{"Sign in to view your personal analytics, head-to-head records, and recommendations."}</p>
+                                    <button class="action-button primary mt-4" onclick={{
+                                        let navigator = navigator.clone();
+                                        Callback::from(move |_| { navigator.push(&Route::Login); })
+                                    }}>
+                                        {"Sign in"}
+                                    </button>
+                                </div>
+                            </div>
+                        } else if *tab_analytics_loading {
                             <div class="dashboard-section"><div class="h-24 rounded-lg bg-gray-100 animate-pulse"></div></div>
                         } else if let Some(data) = &*tab_analytics {
                             <div class="dashboard-section">
@@ -2274,16 +2281,32 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
                                                     <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">{"Contests"}</th>
                                                     <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">{"Your Wins"}</th>
                                                     <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">{"Win %"}</th>
+                                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">{"History"}</th>
                                                 </tr></thead>
                                                 <tbody class="bg-white divide-y divide-gray-200">
-                                                    {for h2h.iter().map(|o| html! {
+                                                    {for h2h.iter().map(|o| {
+                                                        let opponent_id = o["opponent_id"].as_str().unwrap_or("").to_string();
+                                                        let opponent_handle = o["opponent_handle"].as_str().unwrap_or("").to_string();
+                                                        let on_open_h2h_history = on_open_h2h_history.clone();
+                                                        html! {
                                                         <tr>
-                                                            <td class="px-4 py-2">{player_link_from_id(o["opponent_id"].as_str().unwrap_or(""), o["opponent_handle"].as_str().unwrap_or(""))}</td>
+                                                            <td class="px-4 py-2">{player_link_from_id(&opponent_id, &opponent_handle)}</td>
                                                             <td class="px-4 py-2">{o["total_contests"].as_i64().unwrap_or(0)}</td>
                                                             <td class="px-4 py-2">{o["my_wins"].as_i64().unwrap_or(0)}</td>
                                                             <td class="px-4 py-2">{format!("{:.0}%", o["my_win_rate"].as_f64().unwrap_or(0.0))}</td>
+                                                            <td class="px-4 py-2">
+                                                                <button class="text-blue-600 hover:underline text-sm" onclick={{
+                                                                    let opponent_id = opponent_id.clone();
+                                                                    let opponent_handle = opponent_handle.clone();
+                                                                    Callback::from(move |_| {
+                                                                        on_open_h2h_history.emit((opponent_id.clone(), opponent_handle.clone()));
+                                                                    })
+                                                                }}>
+                                                                    {"View contests"}
+                                                                </button>
+                                                            </td>
                                                         </tr>
-                                                    })}
+                                                    }})}
                                                 </tbody>
                                             </table>
                                         </div>
@@ -2540,6 +2563,16 @@ pub fn analytics_dashboard(_props: &AnalyticsDashboardProps) -> Html {
                     </div>
                     }
                 </div>
+            }
+            if *h2h_modal_open {
+                <HeadToHeadModal
+                    record={(*h2h_modal_record).clone()}
+                    opponent_handle={h2h_modal_opponent.1.clone()}
+                    opponent_name={h2h_modal_opponent.1.clone()}
+                    loading={*h2h_modal_loading}
+                    error={(*h2h_modal_error).clone()}
+                    on_close={on_close_h2h_modal}
+                />
             }
         </div>
     }

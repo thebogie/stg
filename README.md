@@ -87,14 +87,14 @@ A comprehensive gaming platform built with Rust for managing tournaments, compet
    echo "Backend:  http://localhost:${BACKEND_PORT}"
    ```
 
-For full setup and workflows, see **[docs/README.md](docs/README.md)** and **[docs/WORKFLOW.txt](docs/WORKFLOW.txt)**. Production deploy: **[docs/GHCR_SETUP.md](docs/GHCR_SETUP.md)**.
+For full setup and workflows, see **[docs/DAILY_WORKFLOW.md](docs/DAILY_WORKFLOW.md)** (local dev, prod snapshot) and **[docs/README.md](docs/README.md)**. Production deploy: **[docs/GHCR_SETUP.md](docs/GHCR_SETUP.md)**.
 
 ## Documentation
 
 - **[Documentation index](docs/README.md)** – Start here for all docs
+- **[Daily workflow](docs/DAILY_WORKFLOW.md)** – Local dev, prod snapshot import, test, deploy
 - **[Project structure](docs/PROJECT_STRUCTURE.md)** – Repo layout and run commands
-- **[Workflow](docs/WORKFLOW.txt)** – CI, backend, frontend, production (one page)
-- **[Development setup](docs/setup/DEVELOPMENT_SETUP.md)** – Environment and local run
+- **[Development setup](docs/setup/DEVELOPMENT_SETUP.md)** – One-time env setup and troubleshooting
 - **[Testing](docs/testing/HOW_TO_RUN_TESTS.md)** – How to run tests
 - **[Deployment (GHCR)](docs/GHCR_SETUP.md)** – Build on push, pull on production
 

@@ -630,6 +630,7 @@ impl AnalyticsUseCase {
                     average_placement: 0.0,
                     duration_minutes: 0,
                     most_popular_game: None,
+                    most_popular_game_id: None,
                     difficulty_rating: 5.0,
                     excitement_rating: 5.0,
                     started_at: None,
@@ -827,9 +828,25 @@ impl AnalyticsUseCase {
     pub async fn get_contest_trends_chart(
         &self,
         months: i32,
+        timezone: Option<&str>,
         config: Option<ChartConfig>,
     ) -> Result<Chart> {
-        let trends = self.get_contest_trends(months).await?;
+        let tz = Self::normalize_timezone(timezone);
+        let monthly = self.repo.get_monthly_contest_trends(months, &tz).await?;
+        let trends: Vec<MonthlyContestsDto> = monthly
+            .iter()
+            .filter_map(|(key, _, count)| {
+                let parts: Vec<&str> = key.split('-').collect();
+                if parts.len() != 2 {
+                    return None;
+                }
+                Some(MonthlyContestsDto {
+                    year: parts[0].parse().ok()?,
+                    month: parts[1].parse().ok()?,
+                    contests: *count,
+                })
+            })
+            .collect();
         self.visualization.contest_trends(&trends, config)
     }
 
@@ -937,7 +954,7 @@ impl AnalyticsUseCase {
         }
 
         // Contest trends
-        if let Ok(trends_chart) = self.get_contest_trends_chart(12, config.clone()).await {
+        if let Ok(trends_chart) = self.get_contest_trends_chart(12, None, config.clone()).await {
             charts.push(trends_chart);
         }
 
@@ -964,7 +981,7 @@ impl AnalyticsUseCase {
                 self.get_achievement_distribution_chart("player/1", config)
                     .await
             }
-            ("line", "contest_trends") => self.get_contest_trends_chart(12, config).await,
+            ("line", "contest_trends") => self.get_contest_trends_chart(12, None, config).await,
             ("scatter", "contest_analysis") => self.get_contest_analysis_chart(20, config).await,
             ("radar", "player_comparison") => {
                 let player_ids = vec![
@@ -974,7 +991,7 @@ impl AnalyticsUseCase {
                 ];
                 self.get_player_comparison_chart(&player_ids, config).await
             }
-            ("line", "activity_metrics") => self.get_activity_metrics_chart(30, config).await,
+            ("line", "activity_metrics") => self.get_activity_metrics_chart(30, None, config).await,
             _ => Err(shared::SharedError::Conversion(format!(
                 "Unsupported chart type: {} for data type: {}",
                 chart_type, data_type
@@ -1173,27 +1190,36 @@ impl AnalyticsUseCase {
 }
 
 impl AnalyticsUseCase {
-    /// Generate monthly activity metrics (MAU and contests/month)
+    /// Generate monthly activity metrics (MAU and contests/month) from real data.
     pub async fn get_activity_metrics_chart(
         &self,
         days: i32,
+        timezone: Option<&str>,
         config: Option<ChartConfig>,
     ) -> Result<Chart> {
-        // Show monthly trends - this makes more sense with the data we have
-        let months = (days / 30).max(6); // Show at least 6 months
+        use std::collections::HashMap;
 
-        // Get platform stats to show meaningful trends
-        let stats = self.repo.get_platform_stats().await?;
+        let tz = Self::normalize_timezone(timezone);
+        let months = (days / 30).max(6);
+        let contest_rows = self.repo.get_monthly_contest_trends(months, &tz).await?;
+        let player_rows = self.repo.get_monthly_active_players(months, &tz).await?;
 
-        // Generate monthly labels
-        let mut month_labels: Vec<String> = Vec::new();
-        for i in (0..months).rev() {
-            let month = chrono::Utc::now() - chrono::Duration::days((i * 30) as i64);
-            let label = month.format("%b %Y").to_string();
-            month_labels.push(label);
+        let mut labels: HashMap<String, String> = HashMap::new();
+        let mut contests_by_month: HashMap<String, i32> = HashMap::new();
+        let mut players_by_month: HashMap<String, i32> = HashMap::new();
+
+        for (key, label, count) in contest_rows {
+            labels.insert(key.clone(), label);
+            contests_by_month.insert(key, count);
+        }
+        for (key, label, count) in player_rows {
+            labels.entry(key.clone()).or_insert(label);
+            players_by_month.insert(key, count);
         }
 
-        // Create monthly activity series based on platform stats
+        let mut month_keys: Vec<String> = labels.keys().cloned().collect();
+        month_keys.sort();
+
         let mut monthly_players = crate::analytics::visualization::ChartSeries {
             name: "Monthly Active Players".to_string(),
             data: Vec::new(),
@@ -1205,22 +1231,14 @@ impl AnalyticsUseCase {
             color: None,
         };
 
-        // Generate realistic monthly data based on platform stats
-        let base_monthly_players = stats.active_players_30d as f64;
-        let base_monthly_contests = stats.contests_30d as f64;
-
-        for (i, month_label) in month_labels.iter().enumerate() {
-            // Add some monthly variation and growth trend
-            let growth_factor = 1.0 + (i as f64 * 0.05); // 5% monthly growth
-            let variation = 0.9 + (i as f64 * 0.1) % 0.2; // Small monthly variation
-
-            let player_count = (base_monthly_players * growth_factor * variation).round() as f64;
-            let contest_count = (base_monthly_contests * growth_factor * variation).round() as f64;
-
+        for key in month_keys {
+            let label = labels.get(&key).cloned().unwrap_or(key.clone());
+            let player_count = players_by_month.get(&key).copied().unwrap_or(0) as f64;
+            let contest_count = contests_by_month.get(&key).copied().unwrap_or(0) as f64;
             monthly_players
                 .data
                 .push(crate::analytics::visualization::DataPoint {
-                    label: month_label.clone(),
+                    label: label.clone(),
                     value: player_count,
                     color: None,
                     metadata: None,
@@ -1228,7 +1246,7 @@ impl AnalyticsUseCase {
             monthly_contests
                 .data
                 .push(crate::analytics::visualization::DataPoint {
-                    label: month_label.clone(),
+                    label,
                     value: contest_count,
                     color: None,
                     metadata: None,
@@ -1237,13 +1255,20 @@ impl AnalyticsUseCase {
 
         let chart = crate::analytics::visualization::Chart {
             chart_type: crate::analytics::visualization::ChartType::Line,
-            config: ChartConfig { title: "Monthly Activity Trends".to_string(), ..config.unwrap_or_default() },
-            data: crate::analytics::visualization::ChartData::MultiSeries(vec![monthly_players, monthly_contests]),
+            config: ChartConfig {
+                title: "Monthly Activity Trends".to_string(),
+                ..config.unwrap_or_default()
+            },
+            data: crate::analytics::visualization::ChartData::MultiSeries(vec![
+                monthly_players,
+                monthly_contests,
+            ]),
             metadata: std::collections::HashMap::from([
-                ("description".to_string(), "Monthly trends showing active players and contest frequency over time. Helps identify growth patterns and seasonal activity.".to_string()),
-                ("x_axis".to_string(), "Month (Last 6 Months)".to_string()),
+                ("description".to_string(), "Monthly unique active players and contest counts from recorded results.".to_string()),
+                ("x_axis".to_string(), format!("Month ({})", shared::timezone::get_timezone_abbreviation(&tz))),
                 ("y_axis".to_string(), "Number of Players/Contests".to_string()),
-                ("insight".to_string(), "Compare player engagement with contest frequency to optimize platform growth.".to_string()),
+                ("insight".to_string(), "Compare player engagement with contest frequency to spot growth or seasonal dips.".to_string()),
+                ("timezone".to_string(), tz),
             ]),
         };
         Ok(chart)
@@ -1537,8 +1562,8 @@ impl AnalyticsUseCase {
         let tz = Self::normalize_timezone(timezone);
         let (new_players, returning) = self.repo.get_new_vs_returning_players(30).await?;
         let completion = self.repo.get_platform_completion_rate().await?;
-        let (contests_this, contests_last) = self.repo.get_week_over_week_contests().await?;
-        let (players_this, players_last) = self.repo.get_week_over_week_active_players().await?;
+        let (contests_this, contests_last) = self.repo.get_week_over_week_contests(&tz).await?;
+        let (players_this, players_last) = self.repo.get_week_over_week_active_players(&tz).await?;
         let sparkline = self.repo.get_weekly_contest_sparkline(8, &tz).await?;
         Ok(OverviewTabDto {
             timezone: tz.clone(),
@@ -1624,12 +1649,14 @@ impl AnalyticsUseCase {
         })
     }
 
-    pub async fn get_games_tab(&self) -> Result<GamesTabDto> {
+    pub async fn get_games_tab(&self, timezone: Option<&str>) -> Result<GamesTabDto> {
+        let tz = Self::normalize_timezone(timezone);
         let platform = self.get_platform_stats().await?;
         let fit_score = self.repo.get_player_count_fit_score().await?;
         let longevity = self.repo.get_game_monthly_longevity(5).await?;
         let cross_venue = self.repo.get_cross_venue_game_popularity(10).await?;
         Ok(GamesTabDto {
+            timezone: tz,
             top_games: platform.top_games,
             player_count_fit_score_pct: Self::finite_f64(fit_score),
             longevity_trends: longevity

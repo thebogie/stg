@@ -1,4 +1,6 @@
+use crate::Route;
 use yew::prelude::*;
+use yew_router::prelude::*;
 use shared::dto::analytics::HeadToHeadRecordDto;
 
 #[derive(Properties, PartialEq, Clone)]
@@ -73,8 +75,22 @@ pub fn head_to_head_modal(props: &HeadToHeadModalProps) -> Html {
                                     html! {
                                         <tr>
                                             <td class="px-3 py-2 text-sm text-gray-700">{date_str}</td>
-                                            <td class="px-3 py-2 text-sm text-gray-700">{&c.contest_name}</td>
-                                            <td class="px-3 py-2 text-sm text-gray-700">{&c.game_name}</td>
+                                            <td class="px-3 py-2 text-sm text-gray-700">
+                                                <Link<Route> to={Route::ContestDetails { contest_id: c.contest_id.rsplit('/').next().unwrap_or(&c.contest_id).to_string() }} classes="text-blue-600 hover:underline artifact-link">
+                                                    {&c.contest_name}
+                                                </Link<Route>>
+                                            </td>
+                                            <td class="px-3 py-2 text-sm text-gray-700">
+                                                {if let Some(gid) = &c.game_id {
+                                                    html! {
+                                                        <Link<Route> to={Route::GameDetails { game_id: gid.clone() }} classes="text-blue-600 hover:underline artifact-link">
+                                                            {&c.game_name}
+                                                        </Link<Route>>
+                                                    }
+                                                } else {
+                                                    html! { {&c.game_name} }
+                                                }}
+                                            </td>
                                             <td class="px-3 py-2 text-sm text-gray-700">{&c.venue_name}</td>
                                             <td class="px-3 py-2 text-sm text-gray-700">{c.my_placement}</td>
                                             <td class="px-3 py-2 text-sm text-gray-700">{c.opponent_placement}</td>

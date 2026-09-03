@@ -57,5 +57,6 @@ Path-scoped rules live in **`.cursor/rules/`** (`*.mdc`). They reinforce the sam
 
 - `docs/PROJECT_STRUCTURE.md` — tree and commands
 - `docs/WORKFLOW.txt` — CI, backend, frontend, production
-- `docs/setup/DEVELOPMENT_SETUP.md` — environment
+- `docs/DAILY_WORKFLOW.md` — daily local dev (prod snapshot, start commands)
+- `docs/setup/DEVELOPMENT_SETUP.md` — one-time environment setup
 - `docs/testing/HOW_TO_RUN_TESTS.md` — tests

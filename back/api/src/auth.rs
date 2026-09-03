@@ -1,4 +1,5 @@
 use crate::player::repository::PlayerRepositoryImpl;
+use crate::observability::events::log_auth_event;
 use actix_web::{
     body::{BoxBody, MessageBody},
     dev::{forward_ready, Service, ServiceRequest, ServiceResponse, Transform},
@@ -25,14 +26,14 @@ pub struct AuthMiddleware {
 impl SessionValidator for AuthMiddleware {
     async fn validate_session(&self, session_id: &str) -> Result<String, Error> {
         let mut conn = self.redis.get_async_connection().await.map_err(|e| {
-            log::error!("Failed to connect to Redis: {}", e);
+            log_auth_event("auth.session.invalid", None, Some(&e.to_string()));
             ErrorUnauthorized("Redis connection error")
         })?;
 
         conn.get::<_, Option<String>>(session_id)
             .await
             .map_err(|e| {
-                log::error!("Error retrieving session from Redis: {}", e);
+                log_auth_event("auth.session.invalid", None, Some(&e.to_string()));
                 ErrorUnauthorized("Invalid or expired session")
             })?
             .ok_or_else(|| ErrorUnauthorized("Invalid or expired session"))
@@ -173,21 +174,11 @@ where
             };
 
             if let Some(email) = email {
-                log::debug!("Authentication successful for user on {} {}", method, path);
                 req.extensions_mut().insert(email);
-                log::debug!(
-                    "Forwarding authenticated request to service handler for {} {}",
-                    method,
-                    path
-                );
                 let res = service.call(req).await?;
                 Ok(res.map_into_boxed_body())
             } else {
-                log::warn!(
-                    "Authentication failed: Invalid or expired session for {} {}",
-                    method,
-                    path
-                );
+                log_auth_event("auth.session.invalid", None, Some("expired or missing session"));
                 Ok(req.error_response(ErrorUnauthorized("Invalid or expired session")))
             }
         })

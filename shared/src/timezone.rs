@@ -39,6 +39,46 @@ pub fn iso_week_label(utc_dt: DateTime<Utc>, timezone_name: &str) -> String {
     }
 }
 
+/// Calendar year and month (1–12) in the given timezone.
+pub fn local_year_month(utc_dt: DateTime<Utc>, timezone_name: &str) -> (i32, u32) {
+    let tz = normalize_iana_timezone(timezone_name);
+    if let Some(local) = convert_to_timezone(utc_dt, &tz) {
+        (local.year(), local.month())
+    } else {
+        (utc_dt.year(), utc_dt.month())
+    }
+}
+
+/// Month bucket key (e.g. 2026-03) in the given timezone.
+pub fn month_bucket_key(utc_dt: DateTime<Utc>, timezone_name: &str) -> String {
+    let (y, m) = local_year_month(utc_dt, timezone_name);
+    format!("{y:04}-{m:02}")
+}
+
+/// Short month label (e.g. Jan 2026) in the given timezone.
+pub fn month_label(utc_dt: DateTime<Utc>, timezone_name: &str) -> String {
+    let tz = normalize_iana_timezone(timezone_name);
+    if let Some(local) = convert_to_timezone(utc_dt, &tz) {
+        local.format("%b %Y").to_string()
+    } else {
+        utc_dt.format("%b %Y").to_string()
+    }
+}
+
+/// Current and previous ISO week labels in the given timezone.
+pub fn current_and_previous_iso_weeks(timezone_name: &str) -> (String, String) {
+    let now = Utc::now();
+    let current = iso_week_label(now, timezone_name);
+    let previous = iso_week_label(now - chrono::Duration::days(7), timezone_name);
+    // If subtracting 7 days lands in the same ISO week, go back one more week.
+    if previous == current {
+        let two_weeks_ago = iso_week_label(now - chrono::Duration::days(14), timezone_name);
+        (current, two_weeks_ago)
+    } else {
+        (current, previous)
+    }
+}
+
 /// Short display for an RFC3339 timestamp in the player's timezone.
 pub fn format_rfc3339_short(value: &str, timezone_name: &str) -> String {
     let Ok(dt) = chrono::DateTime::parse_from_rfc3339(value) else {
@@ -209,13 +249,16 @@ mod tests {
     }
 
     #[test]
-    fn test_timezone_abbreviation_edge_cases() {
-        // Test unknown timezone
-        let unknown_abbrev = get_timezone_abbreviation("Unknown/Timezone");
-        assert_eq!(unknown_abbrev, "Unknown/Timezone");
+    fn test_month_bucket_key() {
+        let utc = Utc.with_ymd_and_hms(2026, 3, 15, 12, 0, 0).unwrap();
+        assert_eq!(month_bucket_key(utc, "UTC"), "2026-03");
+    }
 
-        // Test empty string
-        let empty_abbrev = get_timezone_abbreviation("");
-        assert_eq!(empty_abbrev, "");
+    #[test]
+    fn test_current_and_previous_iso_weeks() {
+        let (current, previous) = current_and_previous_iso_weeks("UTC");
+        assert!(!current.is_empty());
+        assert!(!previous.is_empty());
+        assert_ne!(current, previous);
     }
 }

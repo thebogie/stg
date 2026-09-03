@@ -1,89 +1,62 @@
 use actix_web::{web, App, HttpServer};
+use backend::config::LoggingConfig;
 use backend::db::{connect_surreal, Db};
 use backend::error::ApiError;
+use backend::observability::events::log_shutdown;
+use backend::observability::{init_observability, AppSpanGuard};
 use backend::player::session::RedisSessionStore;
 use backend::third_party::BGGService;
-use log::error;
 use utoipa::OpenApi;
+
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        tokio::signal::ctrl_c()
+            .await
+            .expect("failed to install Ctrl+C handler");
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("failed to install SIGTERM handler")
+            .recv()
+            .await;
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => log_shutdown("SIGINT"),
+        _ = terminate => log_shutdown("SIGTERM"),
+    }
+}
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    // Initialize structured logging
-    let env = std::env::var("RUST_ENV").unwrap_or_else(|_| "development".to_string());
-    let is_production = env.eq_ignore_ascii_case("production");
+    dotenv::dotenv().ok();
+    let logging = LoggingConfig::from_env();
+    let _obs: AppSpanGuard = init_observability(&logging).map_err(std::io::Error::other)?;
 
-    // Initialize logging based on environment
-    // In production, use structured JSON logging with tracing
-    // In development, use human-readable logging
-    if is_production {
-        // Production: Use JSON logging with tracing
-        // Bridge log crate to tracing (must be done before subscriber init)
-        let bridge_init_result = tracing_log::LogTracer::builder()
-            .with_max_level(log::LevelFilter::Trace)
-            .init();
-
-        // Only initialize tracing subscriber if bridge succeeded or wasn't needed
-        // Use try_init() to avoid panic if subscriber already initialized
-        if let Err(e) = tracing_subscriber::fmt()
-            .json()
-            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-            .try_init()
-        {
-            // If tracing bridge failed, warn but continue
-            if let Err(bridge_err) = bridge_init_result {
-                eprintln!(
-                    "Warning: Failed to initialize tracing bridge: {}. Continuing without log bridge.",
-                    bridge_err
-                );
-            }
-            // If subscriber init failed (already initialized), that's okay - use existing
-            eprintln!(
-                "Warning: Failed to initialize tracing subscriber: {}. Using existing logger.",
-                e
-            );
-        }
-    } else {
-        // Development: Use human-readable logging with tracing
-        // Bridge log crate to tracing
-        let bridge_init_result = tracing_log::LogTracer::builder()
-            .with_max_level(log::LevelFilter::Trace)
-            .init();
-
-        // Only initialize tracing subscriber if bridge succeeded or wasn't needed
-        // Use try_init() to avoid panic if subscriber already initialized
-        if let Err(e) = tracing_subscriber::fmt()
-            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-            .try_init()
-        {
-            // If tracing bridge failed, warn but continue
-            if let Err(bridge_err) = bridge_init_result {
-                eprintln!(
-                    "Warning: Failed to initialize tracing bridge: {}. Continuing without log bridge.",
-                    bridge_err
-                );
-            }
-            // If subscriber init failed (already initialized), that's okay - use existing
-            eprintln!(
-                "Warning: Failed to initialize tracing subscriber: {}. Using existing logger.",
-                e
-            );
-        }
-    }
-
-    // Load configuration from environment variables
     let config = match backend::config::Config::load() {
         Ok(config) => config,
         Err(e) => {
-            error!("Failed to load configuration: {}", e);
+            backend::observability::events::log_config_error(&e.to_string());
             return Err(std::io::Error::other(e.to_string()));
         }
     };
+
+    backend::observability::events::log_startup(
+        &config.logging,
+        &config.server.host,
+        config.server.port,
+    );
 
     // Initialize Redis client
     let redis_client = match redis::Client::open(config.redis.url.clone()) {
         Ok(client) => client,
         Err(e) => {
-            error!("Failed to create Redis client: {}", e);
+            tracing::error!(event = "redis.connect.error", error.message = %e, "failed to create Redis client");
             return Err(std::io::Error::new(
                 std::io::ErrorKind::ConnectionRefused,
                 e.to_string(),
@@ -100,7 +73,7 @@ async fn main() -> std::io::Result<()> {
     let db: Db = match connect_surreal(&config.database).await {
         Ok(d) => d,
         Err(e) => {
-            error!("SurrealDB connection failed: {}", e);
+            tracing::error!(event = "db.connect.error", error.message = %e, "SurrealDB connection failed");
             return Err(std::io::Error::new(
                 std::io::ErrorKind::ConnectionRefused,
                 e.to_string(),
@@ -289,7 +262,10 @@ async fn main() -> std::io::Result<()> {
     };
     let metrics_data = web::Data::new(metrics.clone());
 
-    HttpServer::new(move || {
+    let mut ratings_scheduler_shutdown = ratings_scheduler.clone();
+    let mut sell_cleanup_scheduler_shutdown = sell_cleanup_scheduler.clone();
+
+    let server = HttpServer::new(move || {
         // Configure JSON error handler to always return JSON (not HTML)
         let json_config = actix_web::web::JsonConfig::default()
             .limit(256 * 1024)
@@ -686,7 +662,20 @@ async fn main() -> std::io::Result<()> {
                 );
             })
     })
+    .workers(config.server.workers)
     .bind((config.server.host.as_str(), config.server.port))?
-    .run()
-    .await
+    .run();
+
+    let server_handle = server.handle();
+
+    tokio::select! {
+        res = server => res?,
+        _ = shutdown_signal() => {
+            ratings_scheduler_shutdown.stop();
+            sell_cleanup_scheduler_shutdown.stop();
+            server_handle.stop(true).await;
+        }
+    }
+
+    Ok(())
 }

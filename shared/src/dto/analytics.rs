@@ -34,6 +34,7 @@ pub struct ContestStatsDto {
     pub average_placement: f64,
     pub duration_minutes: i32,
     pub most_popular_game: Option<String>,
+    pub most_popular_game_id: Option<String>,
     pub difficulty_rating: f64,
     pub excitement_rating: f64,
     pub started_at: Option<DateTime<FixedOffset>>,
@@ -487,6 +488,7 @@ impl From<&ContestStats> for ContestStatsDto {
             average_placement: stats.average_placement,
             duration_minutes: stats.duration_minutes,
             most_popular_game: stats.most_popular_game.clone(),
+            most_popular_game_id: stats.most_popular_game_id.clone(),
             difficulty_rating: stats.difficulty_rating,
             excitement_rating: stats.excitement_rating,
             started_at: stats.started_at,
@@ -734,6 +736,7 @@ pub struct CrossVenueGameDto {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GamesTabDto {
+    pub timezone: String,
     pub top_games: Vec<GamePopularityDto>,
     pub player_count_fit_score_pct: f64,
     pub longevity_trends: Vec<GameLongevityDto>,

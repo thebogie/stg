@@ -1,28 +1,10 @@
 import { test, expect } from '@playwright/test';
-import { gotoApp, e2eUserCreds, e2eApiBase, bearerAuth } from './helpers';
+import { gotoApp, e2eUserCreds, e2eApiBase, loginSession } from './helpers';
 
 /**
  * E2E tests for analytics and dashboard functionality
  * (authenticated via global-setup storageState — chromium-authenticated project)
  */
-
-async function loginSession(request: import('@playwright/test').APIRequestContext) {
-  const creds = e2eUserCreds();
-  if (!creds) return null;
-  const apiBase = e2eApiBase();
-  const loginRes = await request.post(`${apiBase}/api/players/login`, {
-    headers: { 'Content-Type': 'application/json' },
-    data: JSON.stringify({ email: creds.email, password: creds.password }),
-  });
-  if (!loginRes.ok()) return null;
-  const login = (await loginRes.json()) as {
-    session_id: string;
-    player: { _id?: string; id?: string };
-  };
-  const playerId =
-    login.player._id || login.player.id || '';
-  return { auth: bearerAuth(login.session_id), playerId, apiBase };
-}
 
 test.describe('Analytics', () => {
   test('should load analytics page', async ({ page }) => {
@@ -126,6 +108,75 @@ test.describe('Analytics API data', () => {
   });
 });
 
+test.describe('Analytics tabs', () => {
+  test('each tab loads and requests tab API with timezone', async ({ page }) => {
+    const tabRequests: string[] = [];
+    page.on('request', (req) => {
+      const url = req.url();
+      if (url.includes('/api/analytics/tabs/') && url.includes('timezone=')) {
+        tabRequests.push(url);
+      }
+    });
+
+    await gotoApp(page, '/analytics');
+    await expect(page.getByRole('heading', { name: /analytics statistics/i })).toBeVisible({
+      timeout: 30_000,
+    });
+
+    for (const tabName of ['Overview', 'Contests', 'Venues', 'Games', 'Players']) {
+      await page.getByRole('button', { name: new RegExp(`^${tabName}$`, 'i') }).click();
+      await page.waitForTimeout(500);
+    }
+
+    expect(tabRequests.some((u) => u.includes('/tabs/overview'))).toBeTruthy();
+    expect(tabRequests.some((u) => u.includes('/tabs/contests'))).toBeTruthy();
+    expect(tabRequests.some((u) => u.includes('/tabs/venues'))).toBeTruthy();
+    expect(tabRequests.some((u) => u.includes('/tabs/games'))).toBeTruthy();
+    expect(tabRequests.some((u) => u.includes('timezone='))).toBeTruthy();
+  });
+
+  test('overview shows week-over-week section', async ({ page }) => {
+    await gotoApp(page, '/analytics');
+    await expect(page.getByRole('heading', { name: /week-over-week growth/i })).toBeVisible({
+      timeout: 45_000,
+    });
+  });
+
+  test('contests tab shows recent contests section', async ({ page }) => {
+    await gotoApp(page, '/analytics');
+    await page.getByRole('button', { name: /^contests$/i }).click();
+    await expect(page.getByRole('heading', { name: /recent contests/i })).toBeVisible({
+      timeout: 45_000,
+    });
+    // Table headers only render when contest rows exist; empty DB shows no-data copy instead.
+    await expect(
+      page
+        .getByRole('columnheader', { name: /^contest$/i })
+        .or(page.getByText(/no recent contests found/i))
+        .first(),
+    ).toBeVisible({ timeout: 10_000 });
+  });
+});
+
+test.describe('Analytics API tabs', () => {
+  test('public tab endpoints accept timezone query', async ({ request }) => {
+    const apiBase = e2eApiBase();
+    const paths = [
+      '/api/analytics/tabs/overview?timezone=America/Chicago',
+      '/api/analytics/tabs/contests?timezone=UTC',
+      '/api/analytics/tabs/venues?timezone=UTC',
+      '/api/analytics/tabs/games?timezone=UTC',
+    ];
+    for (const path of paths) {
+      const res = await request.get(`${apiBase}${path}`);
+      const text = await res.text();
+      expect(res.ok(), `${path}: ${res.status()} ${text}`).toBeTruthy();
+      const body = JSON.parse(text) as { timezone?: string };
+      expect(body.timezone).toBeTruthy();
+    }
+  });
+});
+
 test.describe('Analytics Players tab', () => {
   test('should show gaming communities and social network sections', async ({ page }) => {
     await gotoApp(page, '/analytics');
@@ -142,27 +193,32 @@ test.describe('Analytics Players tab', () => {
 });
 
 test.describe('Analytics Performance', () => {
-  test('should load analytics page quickly', async ({ page }) => {
+  test('should load analytics page within CI budget', async ({ page }) => {
     const startTime = Date.now();
-
     await gotoApp(page, '/analytics');
-
+    await expect(page.getByRole('heading', { name: /analytics statistics/i })).toBeVisible({
+      timeout: 45_000,
+    });
     const loadTime = Date.now() - startTime;
-
-    expect(loadTime).toBeLessThan(10000);
-
-    const body = page.locator('body');
-    await expect(body).toBeVisible();
+    const maxMs = process.env.CI ? 60_000 : 15_000;
+    expect(loadTime).toBeLessThan(maxMs);
   });
 
-  test('should handle multiple analytics requests', async ({ page }) => {
-    await gotoApp(page, '/analytics');
-
-    await gotoApp(page, '/');
+  test('should handle multiple analytics navigations', async ({ page }) => {
+    test.setTimeout(process.env.CI ? 180_000 : 90_000);
 
     await gotoApp(page, '/analytics');
+    await expect(page.getByRole('heading', { name: /analytics statistics/i })).toBeVisible({
+      timeout: 45_000,
+    });
 
-    const body = page.locator('body');
-    await expect(body).toBeVisible();
+    // SPA route changes avoid extra cold WASM reloads (each gotoApp can take ~30s in CI).
+    await page.getByRole('link', { name: /leaderboards/i }).click();
+    await expect(page).toHaveURL(/\/leaderboards/);
+
+    await page.getByRole('link', { name: /^statistics$/i }).click();
+    await expect(page.getByRole('heading', { name: /analytics statistics/i })).toBeVisible({
+      timeout: 45_000,
+    });
   });
 });

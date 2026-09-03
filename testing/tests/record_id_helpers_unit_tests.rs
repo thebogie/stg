@@ -14,6 +14,14 @@ fn normalize_record_id_string_handles_colon_backticks_and_angles() {
         ("game:⟨abc⟩", "game/abc"),
         ("game:`⟨abc⟩`", "game/abc"),
         ("game/abc", "game/abc"),
+        (
+            "player:u'6454dd46-3ce2-44ab-ba69-e5d50e6a4d12'",
+            "player/6454dd46-3ce2-44ab-ba69-e5d50e6a4d12",
+        ),
+        (
+            "player/u'6454dd46-3ce2-44ab-ba69-e5d50e6a4d12'",
+            "player/6454dd46-3ce2-44ab-ba69-e5d50e6a4d12",
+        ),
     ];
     for (input, expected) in cases {
         assert_eq!(normalize_record_id_string(input), expected, "input={input}");
@@ -22,17 +30,25 @@ fn normalize_record_id_string_handles_colon_backticks_and_angles() {
 
 #[test]
 fn record_id_to_key_strips_prefix_and_wrappers() {
-    let table = "venue";
-    let cases = vec![
+    let venue_cases = vec![
         ("venue/abc", "abc"),
         ("venue:abc", "abc"),
         ("venue:`abc`", "abc"),
         ("venue:⟨abc⟩", "abc"),
         ("venue/⟨abc⟩", "abc"),
     ];
-    for (id, expected_key) in cases {
-        assert_eq!(record_id_to_key(id, table), expected_key, "id={id}");
+    for (id, expected_key) in venue_cases {
+        assert_eq!(record_id_to_key(id, "venue"), expected_key, "id={id}");
     }
+    let uuid = "6454dd46-3ce2-44ab-ba69-e5d50e6a4d12";
+    assert_eq!(
+        record_id_to_key(&format!("player:u'{uuid}'"), "player"),
+        uuid
+    );
+    assert_eq!(
+        record_id_to_key(&format!("player/u'{uuid}'"), "player"),
+        uuid
+    );
 }
 
 #[test]

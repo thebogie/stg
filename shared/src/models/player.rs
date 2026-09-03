@@ -49,6 +49,14 @@ pub struct Player {
     /// Whether the player has administrative privileges
     #[serde(rename = "isAdmin")]
     pub is_admin: bool,
+
+    /// Whether the player can log in (false = deactivated; contest history is kept)
+    #[serde(rename = "isActive", default = "default_active")]
+    pub is_active: bool,
+}
+
+fn default_active() -> bool {
+    true
 }
 
 impl Player {
@@ -73,6 +81,7 @@ impl Player {
             password,
             created_at: created_at.with_timezone(&Utc),
             is_admin,
+            is_active: true,
         };
         player.validate_fields()?;
         Ok(player)
@@ -96,12 +105,16 @@ impl Player {
             password,
             created_at: created_at.with_timezone(&Utc),
             is_admin,
+            is_active: true,
         };
         player.validate_fields()?;
         Ok(player)
     }
 
-    /// Validates the player data
+    /// Whether this account may log in.
+    pub fn can_login(&self) -> bool {
+        self.is_active
+    }
     pub fn validate_fields(&self) -> Result<()> {
         self.validate()
             .map_err(|e| SharedError::Validation(e.to_string()))
@@ -191,6 +204,7 @@ mod tests {
             password: "hashed_password".to_string(),
             created_at: chrono::Utc::now(),
             is_admin: false,
+            is_active: true,
         }
     }
 
@@ -297,6 +311,7 @@ mod tests {
             password: "hashed_password".to_string(),
             created_at: chrono::Utc::now(),
             is_admin: false,
+            is_active: true,
         };
         assert!(player.validate().is_ok());
     }

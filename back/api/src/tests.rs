@@ -33,6 +33,7 @@ mod tests {
             password: "hashed_password".to_string(),
             created_at: Utc::now(),
             is_admin: false,
+            is_active: true,
         };
 
         assert_eq!(player.handle, "testuser");
@@ -51,6 +52,7 @@ mod tests {
             password: "hashed_password".to_string(),
             created_at: Utc::now(),
             is_admin: false,
+            is_active: true,
         };
 
         // Test basic validation
@@ -207,6 +209,7 @@ mod tests {
             password: "hashed_password".to_string(),
             created_at: Utc::now(),
             is_admin: false,
+            is_active: true,
         };
 
         let start = std::time::Instant::now();

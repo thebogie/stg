@@ -5,45 +5,15 @@ use actix_web::{
     Error,
 };
 use futures_util::future::{ready, LocalBoxFuture, Ready};
-use log::{error, info, warn};
 use std::rc::Rc;
-use std::sync::{
-    atomic::{AtomicU64, Ordering},
-    Arc,
-};
+use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Instant;
-use uuid::Uuid;
+use tracing::Instrument;
 
 use crate::metrics::{record_http_request, Metrics};
-
-// Global counter for fast test ID generation
-static REQUEST_COUNTER: AtomicU64 = AtomicU64::new(0);
-
-/// Generate a request ID - fast counter-based for tests, UUID v4 for production
-fn generate_request_id() -> String {
-    // Check if we're in test mode (cfg(test) or RUST_ENV=test)
-    let is_test = cfg!(test)
-        || std::env::var("RUST_ENV")
-            .unwrap_or_default()
-            .eq_ignore_ascii_case("test");
-
-    if is_test {
-        // Fast counter-based ID for tests (much faster than UUID generation)
-        // Uses atomic counter + thread ID for uniqueness without crypto overhead
-        let counter = REQUEST_COUNTER.fetch_add(1, Ordering::Relaxed);
-        let thread_id = std::thread::current().id();
-        // Format thread ID as hex for compact representation
-        let thread_hash = format!("{:?}", thread_id)
-            .replace("ThreadId(", "")
-            .replace(")", "")
-            .replace("0x", "");
-        format!("test-{}-{}", thread_hash, counter)
-    } else {
-        // Production: Use proper UUID v4 for security and uniqueness
-        Uuid::new_v4().to_string()
-    }
-}
+use crate::observability::context::{user_id_from_extensions, RequestContext, clear_request_scope, set_request_scope};
+use crate::observability::events::log_http_request;
 
 pub struct Logger {
     metrics: Option<Arc<Metrics>>,
@@ -106,83 +76,83 @@ where
         self.service.poll_ready(cx)
     }
 
-    fn call(&self, req: ServiceRequest) -> Self::Future {
+    fn call(&self, mut req: ServiceRequest) -> Self::Future {
         let svc = self.service.clone();
         let metrics = self.metrics.clone();
         let start_time = Instant::now();
         let method = req.method().clone();
-        let uri = req.uri().clone();
+        let uri_path = req.path().to_string();
         let peer_addr = req.peer_addr().map(|addr| addr.to_string());
 
-        // Generate correlation ID for this request
-        // Use fast counter-based ID for tests, UUID v4 for production
-        let correlation_id = generate_request_id();
-        req.extensions_mut().insert(correlation_id.clone());
+        let ctx = RequestContext::from_request(&req);
+        let request_id = ctx.request_id.clone();
+        let trace_id = ctx.trace_id.clone();
+        ctx.attach_to_request(&mut req);
 
-        // Increment in-flight requests if metrics are available
         if let Some(ref m) = metrics {
             m.http.requests_in_flight.inc();
         }
 
-        Box::pin(async move {
-            let mut res = svc.call(req).await?;
-            let duration = start_time.elapsed();
+        let span = tracing::info_span!(
+            "http_request",
+            request_id = %request_id,
+            trace_id = tracing::field::Empty,
+            http.method = %method,
+            http.path = %normalize_endpoint(&uri_path),
+        );
+        if let Some(ref tid) = trace_id {
+            span.record("trace_id", tid.as_str());
+        }
 
-            // Decrement in-flight requests
-            if let Some(ref m) = metrics {
-                m.http.requests_in_flight.dec();
-            }
+        Box::pin(
+            async move {
+                set_request_scope(&request_id, None);
+                let result = async {
+                    let mut res = svc.call(req).await?;
+                    let duration = start_time.elapsed();
 
-            // Add correlation ID to response header
-            if let Ok(header_value) = HeaderValue::try_from(correlation_id.as_str()) {
-                res.headers_mut()
-                    .insert(HeaderName::from_static("x-request-id"), header_value);
-            }
+                    if let Some(ref m) = metrics {
+                        m.http.requests_in_flight.dec();
+                    }
 
-            let status = res.status();
-            let status_code = status.as_u16();
+                    ctx.set_response_header(res.headers_mut());
 
-            // Record metrics if available
-            if let Some(ref m) = metrics {
-                // Normalize endpoint path (remove IDs, etc.) for better metric grouping
-                let endpoint = normalize_endpoint(uri.path());
-                record_http_request(m, method.as_str(), &endpoint, status_code, duration);
-            }
+                    let status_code = res.status().as_u16();
+                    let normalized_path = normalize_endpoint(&uri_path);
+                    let user_id = user_id_from_extensions(res.request());
+                    if let Some(ref uid) = user_id {
+                        set_request_scope(&request_id, Some(uid));
+                    }
 
-            if status_code >= 500 {
-                error!(
-                    "request_id={} {} {} {} {}ms {}",
-                    correlation_id,
-                    method,
-                    uri,
-                    status_code,
-                    duration.as_millis(),
-                    peer_addr.unwrap_or_else(|| "unknown".to_string())
-                );
-            } else if status_code >= 400 {
-                warn!(
-                    "request_id={} {} {} {} {}ms {}",
-                    correlation_id,
-                    method,
-                    uri,
-                    status_code,
-                    duration.as_millis(),
-                    peer_addr.unwrap_or_else(|| "unknown".to_string())
-                );
-            } else {
-                info!(
-                    "request_id={} {} {} {} {}ms {}",
-                    correlation_id,
-                    method,
-                    uri,
-                    status_code,
-                    duration.as_millis(),
-                    peer_addr.unwrap_or_else(|| "unknown".to_string())
-                );
-            }
+                    if let Some(ref m) = metrics {
+                        record_http_request(
+                            m,
+                            method.as_str(),
+                            &normalized_path,
+                            status_code,
+                            duration,
+                        );
+                    }
 
-            Ok(res)
-        })
+                    log_http_request(
+                        method.as_str(),
+                        &normalized_path,
+                        status_code,
+                        duration.as_millis(),
+                        &request_id,
+                        user_id.as_deref(),
+                        peer_addr.as_deref().unwrap_or("unknown"),
+                    );
+
+                    Ok(res)
+                }
+                .instrument(span)
+                .await;
+
+                clear_request_scope();
+                result
+            },
+        )
     }
 }
 
@@ -345,23 +315,25 @@ where
             match &result {
                 Ok(res) => {
                     let status = res.status().as_u16();
-                    info!(
-                        "admin_audit method={} path={} status={} durationMs={} email={}",
-                        method,
-                        path,
-                        status,
-                        duration_ms,
-                        email.unwrap_or_else(|| "unknown".into())
+                    tracing::info!(
+                        event = "admin.audit",
+                        http.method = %method,
+                        http.path = %path,
+                        http.status_code = status,
+                        duration_ms = duration_ms,
+                        user_id = email.as_deref().unwrap_or("unknown"),
+                        "admin action"
                     );
                 }
                 Err(e) => {
-                    error!(
-                        "admin_audit method={} path={} error='{}' durationMs={} email={}",
-                        method,
-                        path,
-                        e,
-                        duration_ms,
-                        email.unwrap_or_else(|| "unknown".into())
+                    tracing::error!(
+                        event = "admin.audit",
+                        http.method = %method,
+                        http.path = %path,
+                        duration_ms = duration_ms,
+                        user_id = email.as_deref().unwrap_or("unknown"),
+                        error.message = %e,
+                        "admin action failed"
                     );
                 }
             }

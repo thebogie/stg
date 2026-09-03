@@ -117,51 +117,217 @@ impl AnalyticsRepository {
         })
     }
 
-    pub async fn get_week_over_week_contests(&self) -> Result<(i32, i32)> {
-        let this_week = self.get_contests_in_period(7).await?;
+    pub async fn get_week_over_week_contests(&self, timezone: &str) -> Result<(i32, i32)> {
+        let (this_week, last_week) = shared::timezone::current_and_previous_iso_weeks(timezone);
         let mut res = self
             .db()
             .query(
-                "SELECT count() AS count FROM contest WHERE start >= time::now() - duration::from_days(14) AND start < time::now() - duration::from_days(7) GROUP ALL",
+                "SELECT start FROM contest WHERE start >= time::now() - duration::from_days(21)",
             )
             .await
             .map_err(|e| shared::SharedError::Database(e.to_string()))?;
         let rows: Vec<serde_json::Value> = res.take(0).unwrap_or_default();
-        let last_week = rows
-            .first()
-            .and_then(|r| r.get("count"))
-            .map(scalar_i64)
-            .unwrap_or(0) as i32;
-        Ok((this_week, last_week))
+        let mut this_count = 0i32;
+        let mut last_count = 0i32;
+        for row in &rows {
+            let Some(start_s) = row.get("start").and_then(|v| v.as_str()) else {
+                continue;
+            };
+            if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(start_s) {
+                let week =
+                    shared::timezone::iso_week_label(dt.with_timezone(&chrono::Utc), timezone);
+                if week == this_week {
+                    this_count += 1;
+                } else if week == last_week {
+                    last_count += 1;
+                }
+            }
+        }
+        Ok((this_count, last_count))
     }
 
-    pub async fn get_week_over_week_active_players(&self) -> Result<(i32, i32)> {
-        let this_week = self.get_active_players(7).await?;
-        let sql = r#"
-            SELECT count() AS count
-            FROM (
-                SELECT `out` AS player_id
-                FROM resulted_in
-                WHERE `in` IN (
-                    SELECT VALUE id FROM contest
-                    WHERE start >= time::now() - duration::from_days(14)
-                      AND start < time::now() - duration::from_days(7)
-                )
-                GROUP BY `out`
-            ) GROUP ALL
-        "#;
+    pub async fn get_week_over_week_active_players(&self, timezone: &str) -> Result<(i32, i32)> {
+        let (this_week, last_week) = shared::timezone::current_and_previous_iso_weeks(timezone);
+        let mut res_c = self
+            .db()
+            .query(
+                "SELECT string::concat(id) AS contest_id, start FROM contest WHERE start >= time::now() - duration::from_days(21)",
+            )
+            .await
+            .map_err(|e| shared::SharedError::Database(e.to_string()))?;
+        let c_rows: Vec<serde_json::Value> = res_c.take(0).unwrap_or_default();
+        let mut contest_week: HashMap<String, String> = HashMap::new();
+        for row in &c_rows {
+            let Some(cid_val) = row.get("contest_id") else {
+                continue;
+            };
+            let cid = canonical_id_from_value(cid_val, "contest");
+            let Some(start_s) = row.get("start").and_then(|v| v.as_str()) else {
+                continue;
+            };
+            if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(start_s) {
+                let week =
+                    shared::timezone::iso_week_label(dt.with_timezone(&chrono::Utc), timezone);
+                contest_week.insert(cid, week);
+            }
+        }
+        if contest_week.is_empty() {
+            return Ok((0, 0));
+        }
+        let rid_param: Vec<String> = contest_week
+            .keys()
+            .map(|s| s.replace('/', ":"))
+            .collect();
+        let mut res_ri = self
+            .db()
+            .query("SELECT `in` AS contest_id, `out` AS player_id FROM resulted_in WHERE `in` INSIDE $rids")
+            .bind(("rids", rid_param))
+            .await
+            .map_err(|e| shared::SharedError::Database(e.to_string()))?;
+        let ri_rows: Vec<serde_json::Value> = res_ri.take(0).unwrap_or_default();
+        let mut this_players: HashSet<String> = HashSet::new();
+        let mut last_players: HashSet<String> = HashSet::new();
+        for row in &ri_rows {
+            let Some(cid_val) = row.get("contest_id") else {
+                continue;
+            };
+            let cid = canonical_id_from_value(cid_val, "contest");
+            let Some(week) = contest_week.get(&cid) else {
+                continue;
+            };
+            let Some(pid_val) = row.get("player_id") else {
+                continue;
+            };
+            let pid = canonical_id_from_value(pid_val, "player");
+            if week == &this_week {
+                this_players.insert(pid);
+            } else if week == &last_week {
+                last_players.insert(pid);
+            }
+        }
+        Ok((this_players.len() as i32, last_players.len() as i32))
+    }
+
+    /// Monthly contest counts bucketed in the player's timezone.
+    pub async fn get_monthly_contest_trends(
+        &self,
+        months: i32,
+        timezone: &str,
+    ) -> Result<Vec<(String, String, i32)>> {
+        let days = months.saturating_mul(31);
         let mut res = self
             .db()
-            .query(sql)
+            .query(
+                "SELECT start FROM contest WHERE start >= time::now() - duration::from_days($days)",
+            )
+            .bind(("days", days))
             .await
             .map_err(|e| shared::SharedError::Database(e.to_string()))?;
         let rows: Vec<serde_json::Value> = res.take(0).unwrap_or_default();
-        let last_week = rows
-            .first()
-            .and_then(|r| r.get("count"))
-            .map(scalar_i64)
-            .unwrap_or(0) as i32;
-        Ok((this_week, last_week))
+        let mut by_month: HashMap<String, (String, i32)> = HashMap::new();
+        for row in &rows {
+            let Some(start_s) = row.get("start").and_then(|v| v.as_str()) else {
+                continue;
+            };
+            if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(start_s) {
+                let utc = dt.with_timezone(&chrono::Utc);
+                let key = shared::timezone::month_bucket_key(utc, timezone);
+                let label = shared::timezone::month_label(utc, timezone);
+                by_month
+                    .entry(key)
+                    .and_modify(|(_, c)| *c += 1)
+                    .or_insert((label, 1));
+            }
+        }
+        let mut out: Vec<(String, String, i32)> = by_month
+            .into_iter()
+            .map(|(key, (label, count))| (key, label, count))
+            .collect();
+        out.sort_by(|a, b| a.0.cmp(&b.0));
+        Ok(out)
+    }
+
+    /// Unique active players per calendar month in the player's timezone.
+    pub async fn get_monthly_active_players(
+        &self,
+        months: i32,
+        timezone: &str,
+    ) -> Result<Vec<(String, String, i32)>> {
+        let days = months.saturating_mul(31);
+        let mut res_c = self
+            .db()
+            .query(
+                "SELECT string::concat(id) AS contest_id, start FROM contest WHERE start >= time::now() - duration::from_days($days)",
+            )
+            .bind(("days", days))
+            .await
+            .map_err(|e| shared::SharedError::Database(e.to_string()))?;
+        let c_rows: Vec<serde_json::Value> = res_c.take(0).unwrap_or_default();
+        let mut contest_month: HashMap<String, String> = HashMap::new();
+        for row in &c_rows {
+            let Some(cid_val) = row.get("contest_id") else {
+                continue;
+            };
+            let cid = canonical_id_from_value(cid_val, "contest");
+            let Some(start_s) = row.get("start").and_then(|v| v.as_str()) else {
+                continue;
+            };
+            if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(start_s) {
+                let key =
+                    shared::timezone::month_bucket_key(dt.with_timezone(&chrono::Utc), timezone);
+                contest_month.insert(cid, key);
+            }
+        }
+        if contest_month.is_empty() {
+            return Ok(Vec::new());
+        }
+        let rid_param: Vec<String> = contest_month
+            .keys()
+            .map(|s| s.replace('/', ":"))
+            .collect();
+        let mut res_ri = self
+            .db()
+            .query("SELECT `in` AS contest_id, `out` AS player_id FROM resulted_in WHERE `in` INSIDE $rids")
+            .bind(("rids", rid_param))
+            .await
+            .map_err(|e| shared::SharedError::Database(e.to_string()))?;
+        let ri_rows: Vec<serde_json::Value> = res_ri.take(0).unwrap_or_default();
+        let mut by_month: HashMap<String, HashSet<String>> = HashMap::new();
+        for row in &ri_rows {
+            let Some(cid_val) = row.get("contest_id") else {
+                continue;
+            };
+            let cid = canonical_id_from_value(cid_val, "contest");
+            let Some(month_key) = contest_month.get(&cid) else {
+                continue;
+            };
+            let Some(pid_val) = row.get("player_id") else {
+                continue;
+            };
+            let pid = canonical_id_from_value(pid_val, "player");
+            by_month.entry(month_key.clone()).or_default().insert(pid);
+        }
+        let mut out: Vec<(String, String, i32)> = by_month
+            .into_iter()
+            .map(|(key, players)| {
+                let label = if let Ok(dt) = chrono::NaiveDate::parse_from_str(
+                    &format!("{}-01", key),
+                    "%Y-%m-%d",
+                ) {
+                    shared::timezone::month_label(
+                        dt.and_hms_opt(12, 0, 0)
+                            .unwrap()
+                            .and_utc(),
+                        timezone,
+                    )
+                } else {
+                    key.clone()
+                };
+                (key, label, players.len() as i32)
+            })
+            .collect();
+        out.sort_by(|a, b| a.0.cmp(&b.0));
+        Ok(out)
     }
 
     pub async fn get_weekly_contest_sparkline(

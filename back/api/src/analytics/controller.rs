@@ -235,9 +235,10 @@ impl AnalyticsController {
     pub async fn get_games_tab(
         &self,
         _req: HttpRequest,
-        _query: web::Query<std::collections::HashMap<String, String>>,
+        query: web::Query<std::collections::HashMap<String, String>>,
     ) -> Result<HttpResponse, actix_web::Error> {
-        match self.usecase.get_games_tab().await {
+        let timezone = query.get("timezone").map(|s| s.as_str());
+        match self.usecase.get_games_tab(timezone).await {
             Ok(data) => Ok(HttpResponse::Ok().json(data)),
             Err(e) => {
                 log::error!("Failed to get games tab analytics: {}", e);
@@ -853,10 +854,11 @@ impl AnalyticsController {
             .unwrap_or(12);
 
         let config = self.parse_chart_config(&query);
+        let timezone = query.get("timezone").map(|s| s.as_str());
 
         match self
             .usecase
-            .get_contest_trends_chart(months, Some(config))
+            .get_contest_trends_chart(months, timezone, Some(config))
             .await
         {
             Ok(chart) => Ok(HttpResponse::Ok().json(chart)),
@@ -880,9 +882,10 @@ impl AnalyticsController {
             .and_then(|d| d.parse::<i32>().ok())
             .unwrap_or(30);
         let config = self.parse_chart_config(&query);
+        let timezone = query.get("timezone").map(|s| s.as_str());
         match self
             .usecase
-            .get_activity_metrics_chart(days, Some(config))
+            .get_activity_metrics_chart(days, timezone, Some(config))
             .await
         {
             Ok(chart) => Ok(HttpResponse::Ok().json(chart)),

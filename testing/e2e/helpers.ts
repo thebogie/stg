@@ -1,4 +1,6 @@
 import { expect, type Locator, type Page } from '@playwright/test';
+import fs from 'node:fs';
+import path from 'node:path';
 
 export async function gotoApp(page: Page, path: string) {
   const timeout = process.env.CI ? 90_000 : 45_000;
@@ -50,6 +52,24 @@ export function e2eAdminCreds(): E2ECreds | null {
   return { email, password };
 }
 
+/** API login + localStorage session for an admin user (requires E2E_ADMIN_* env). */
+export async function loginAdmin(page: Page): Promise<LoginSession> {
+  const creds = e2eAdminCreds();
+  if (!creds) {
+    throw new Error('E2E_ADMIN_EMAIL and E2E_ADMIN_PASSWORD must be set');
+  }
+  const session = await applyApiSession(page, creds);
+  await expectLoggedIn(page);
+  return session;
+}
+
+/** Bearer token from gloo_storage (set by applyApiSession / login). */
+export async function storedSessionId(page: Page): Promise<string> {
+  const raw = await page.evaluate(() => localStorage.getItem('session_id'));
+  if (!raw) throw new Error('session_id missing from localStorage');
+  return JSON.parse(raw) as string;
+}
+
 export function appBaseUrl() {
   return process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:50003';
 }
@@ -61,6 +81,102 @@ export function e2eApiBase() {
 
 export function bearerAuth(session_id: string) {
   return { Authorization: `Bearer ${session_id}` };
+}
+
+/** Login via direct backend URL (E2E_BACKEND_URL). Used by API-only E2E specs. */
+export async function loginSession(
+  request: import('@playwright/test').APIRequestContext,
+) {
+  const creds = e2eUserCreds();
+  if (!creds) return null;
+
+  const fromSetup = readSessionFromAuthFile(creds);
+  // #region agent log
+  fetch('http://localhost:7327/ingest/092d89aa-ec11-4f83-9ed9-0567d2046e3c',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'4e07b4'},body:JSON.stringify({sessionId:'4e07b4',hypothesisId:'H4',location:'helpers.ts:loginSession',message:'loginSession start',data:{hasCreds:true,hasAuthFile:!!fromSetup,emailDomain:creds.email.split('@')[1]||''},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
+  if (fromSetup && (await verifyApiSession(request, fromSetup.auth))) {
+    return fromSetup;
+  }
+
+  const apiBase = e2eApiBase();
+  const baseURL = appBaseUrl();
+  const urls = [`${baseURL}/api/players/login`, `${apiBase}/api/players/login`];
+  const seen = new Set<string>();
+
+  for (const url of urls) {
+    if (seen.has(url)) continue;
+    seen.add(url);
+    const loginRes = await request.post(url, {
+      headers: { 'Content-Type': 'application/json' },
+      data: JSON.stringify({ email: creds.email, password: creds.password }),
+    });
+    // #region agent log
+    fetch('http://localhost:7327/ingest/092d89aa-ec11-4f83-9ed9-0567d2046e3c',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'4e07b4'},body:JSON.stringify({sessionId:'4e07b4',hypothesisId:'H4',location:'helpers.ts:loginSession:post',message:'login POST',data:{url,status:loginRes.status(),ok:loginRes.ok()},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
+    if (loginRes.ok()) {
+      const login = (await loginRes.json()) as {
+        session_id: string;
+        player: { _id?: string; id?: string };
+      };
+      const playerId = login.player._id || login.player.id || '';
+      return { auth: bearerAuth(login.session_id), playerId, apiBase };
+    }
+  }
+  return null;
+}
+
+function readSessionFromAuthFile(
+  creds: E2ECreds,
+): {
+  auth: ReturnType<typeof bearerAuth>;
+  playerId: string;
+  apiBase: string;
+} | null {
+  try {
+    const authPath = path.join('_build', '.auth', 'user.json');
+    if (!fs.existsSync(authPath)) return null;
+    const state = JSON.parse(fs.readFileSync(authPath, 'utf8')) as {
+      origins?: Array<{
+        localStorage?: Array<{ name: string; value: string }>;
+      }>;
+    };
+    const storage = state.origins?.[0]?.localStorage ?? [];
+    const sessionRaw = storage.find((e) => e.name === 'session_id')?.value;
+    const playerRaw = storage.find((e) => e.name === 'player')?.value;
+    if (!sessionRaw || !playerRaw) return null;
+    const session_id = JSON.parse(sessionRaw) as string;
+    const player = JSON.parse(playerRaw) as {
+      _id?: string;
+      id?: string;
+      email?: string;
+    };
+    const playerEmail = typeof player.email === 'string' ? player.email : '';
+    if (
+      playerEmail &&
+      playerEmail.toLowerCase() !== creds.email.toLowerCase()
+    ) {
+      return null;
+    }
+    const playerId = player._id || player.id || '';
+    if (!session_id || !playerId) return null;
+    return { auth: bearerAuth(session_id), playerId, apiBase: e2eApiBase() };
+  } catch {
+    return null;
+  }
+}
+
+/** Verify Bearer session is still valid against /api/players/me. */
+async function verifyApiSession(
+  request: import('@playwright/test').APIRequestContext,
+  auth: ReturnType<typeof bearerAuth>,
+): Promise<boolean> {
+  const baseURL = appBaseUrl();
+  const apiBase = e2eApiBase();
+  for (const url of [`${baseURL}/api/players/me`, `${apiBase}/api/players/me`]) {
+    const me = await request.get(url, { headers: auth });
+    if (me.ok()) return true;
+  }
+  return false;
 }
 
 /** POST /api/players/login (Caddy proxy first, then direct backend). */

@@ -6,6 +6,8 @@ pub enum PlayerError {
     NotFound,
     InvalidPassword,
     AlreadyExists,
+    AccountDisabled,
+    ValidationError(String),
     DatabaseError(String),
     SessionError(String),
 }
@@ -16,6 +18,8 @@ impl fmt::Display for PlayerError {
             PlayerError::NotFound => write!(f, "Player not found"),
             PlayerError::InvalidPassword => write!(f, "Invalid password"),
             PlayerError::AlreadyExists => write!(f, "Player already exists"),
+            PlayerError::AccountDisabled => write!(f, "Account is deactivated"),
+            PlayerError::ValidationError(msg) => write!(f, "{}", msg),
             PlayerError::DatabaseError(msg) => write!(f, "Database error: {}", msg),
             PlayerError::SessionError(msg) => write!(f, "Session error: {}", msg),
         }
@@ -28,6 +32,8 @@ impl From<PlayerError> for ApiError {
             PlayerError::NotFound => ApiError::not_found(&err.to_string()),
             PlayerError::InvalidPassword => ApiError::unauthorized(&err.to_string()),
             PlayerError::AlreadyExists => ApiError::bad_request(&err.to_string()),
+            PlayerError::AccountDisabled => ApiError::forbidden(&err.to_string()),
+            PlayerError::ValidationError(msg) => ApiError::bad_request(&msg),
             PlayerError::DatabaseError(msg) => ApiError::database_error(&msg),
             PlayerError::SessionError(msg) => ApiError::internal_error(&msg),
         }

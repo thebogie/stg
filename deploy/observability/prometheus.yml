@@ -1,0 +1,11 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: stg-backend
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["stg-backend:50002"]
+        labels:
+          service: stg-backend

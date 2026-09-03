@@ -2402,6 +2402,7 @@ impl AnalyticsRepository {
             average_placement: 0.0,
             duration_minutes: 0,
             most_popular_game: None,
+            most_popular_game_id: None,
             difficulty_rating: 5.0,
             excitement_rating: 5.0,
             last_updated: chrono::Utc::now().into(),
@@ -2748,7 +2749,7 @@ impl AnalyticsRepository {
                 })
                 .collect()
         };
-        let mut by_contest: std::collections::HashMap<String, (Vec<i32>, Vec<String>)> =
+        let mut by_contest: std::collections::HashMap<String, (Vec<i32>, Vec<(String, String)>)> =
             std::collections::HashMap::new();
         for r in res_rows {
             if let (Some(rid), Some(place)) = (r.contest_rid, r.place) {
@@ -2760,11 +2761,16 @@ impl AnalyticsRepository {
             if let (Some(rid), Some(gid)) = (r.contest_rid, r.game_id) {
                 let rid_norm = rid.replace("contest:", "contest/");
                 let gid_norm = gid.replace('/', ":");
+                let canonical_id = gid.replace("game:", "game/");
                 let name = game_id_to_name
                     .get(&gid_norm)
                     .cloned()
                     .unwrap_or_else(|| "Unknown".to_string());
-                by_contest.entry(rid_norm).or_default().1.push(name);
+                by_contest
+                    .entry(rid_norm)
+                    .or_default()
+                    .1
+                    .push((canonical_id, name));
             }
         }
         let mut out = Vec::with_capacity(contests.len());
@@ -2782,16 +2788,17 @@ impl AnalyticsRepository {
             } else {
                 places.iter().map(|&p| f64::from(p)).sum::<f64>() / places.len() as f64
             };
-            let most_popular_game = {
-                let mut counts: std::collections::HashMap<String, usize> =
+            let (most_popular_game, most_popular_game_id) = {
+                let mut counts: std::collections::HashMap<(String, String), usize> =
                     std::collections::HashMap::new();
-                for g in &games {
-                    *counts.entry(g.clone()).or_insert(0) += 1;
+                for (gid, name) in &games {
+                    *counts.entry((gid.clone(), name.clone())).or_insert(0) += 1;
                 }
                 counts
                     .into_iter()
                     .max_by_key(|(_, c)| *c)
-                    .map(|(name, _)| name)
+                    .map(|((gid, name), _)| (Some(name), Some(gid)))
+                    .unwrap_or((None, None))
             };
             let difficulty = self
                 .get_contest_difficulty_analysis(&contest_id)
@@ -2817,6 +2824,7 @@ impl AnalyticsRepository {
                 average_placement,
                 duration_minutes: c.duration_minutes.unwrap_or(0),
                 most_popular_game,
+                most_popular_game_id,
                 difficulty_rating: difficulty,
                 excitement_rating: excitement,
                 last_updated: chrono::Utc::now().into(),
@@ -4187,6 +4195,165 @@ impl AnalyticsRepository {
         let mut opponent_wins = 0;
         let default_dt =
             chrono::Utc::now().with_timezone(&chrono::FixedOffset::east_opt(0).unwrap());
+
+        let contest_ids: Vec<String> = by_contest.keys().cloned().collect();
+        let rid_param: Vec<String> = contest_ids.iter().map(|s| s.replace('/', ":")).collect();
+
+        let mut contest_names: std::collections::HashMap<String, String> =
+            std::collections::HashMap::new();
+        let mut contest_starts: std::collections::HashMap<
+            String,
+            chrono::DateTime<chrono::FixedOffset>,
+        > = std::collections::HashMap::new();
+        let mut contest_games: std::collections::HashMap<String, (Option<String>, String)> =
+            std::collections::HashMap::new();
+        let mut contest_venues: std::collections::HashMap<String, (Option<String>, String)> =
+            std::collections::HashMap::new();
+
+        if !rid_param.is_empty() {
+            let mut meta_res = self
+                .db
+                .query(
+                    "SELECT string::concat(id) AS id, name, start FROM contest WHERE id INSIDE $rids",
+                )
+                .bind(("rids", rid_param.clone()))
+                .await
+                .map_err(|e| SharedError::Database(e.to_string()))?;
+            let meta_rows: Vec<serde_json::Value> = meta_res.take(0).unwrap_or_default();
+            for row in meta_rows {
+                let Some(id_raw) = row.get("id").and_then(|v| v.as_str()) else {
+                    continue;
+                };
+                let cid = id_raw.replace("contest:", "contest/");
+                let name = row
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                if !name.is_empty() {
+                    contest_names.insert(cid.clone(), name);
+                }
+                if let Some(start_s) = row.get("start").and_then(|v| v.as_str()) {
+                    if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(start_s) {
+                        contest_starts.insert(
+                            cid,
+                            dt.with_timezone(&chrono::FixedOffset::east_opt(0).unwrap()),
+                        );
+                    }
+                }
+            }
+
+            let mut pw_res = self
+                .db
+                .query(
+                    "SELECT string::concat(`in`) AS contest_id, string::concat(`out`) AS game_id FROM played_with WHERE `in` INSIDE $rids",
+                )
+                .bind(("rids", rid_param.clone()))
+                .await
+                .map_err(|e| SharedError::Database(e.to_string()))?;
+            let pw_rows: Vec<serde_json::Value> = pw_res.take(0).unwrap_or_default();
+            let game_ids: Vec<String> = pw_rows
+                .iter()
+                .filter_map(|r| r.get("game_id").and_then(|v| v.as_str()))
+                .map(|s| s.replace('/', ":"))
+                .collect::<std::collections::HashSet<_>>()
+                .into_iter()
+                .collect();
+            let game_names = if game_ids.is_empty() {
+                std::collections::HashMap::new()
+            } else {
+                let mut name_res = self
+                    .db
+                    .query("SELECT string::concat(id) AS game_id, name FROM game WHERE id INSIDE $ids")
+                    .bind(("ids", game_ids))
+                    .await
+                    .map_err(|e| SharedError::Database(e.to_string()))?;
+                let name_rows: Vec<serde_json::Value> = name_res.take(0).unwrap_or_default();
+                name_rows
+                    .into_iter()
+                    .filter_map(|v| {
+                        let id = v.get("game_id")?.as_str()?.replace("game:", "game/");
+                        let name = v.get("name")?.as_str()?.to_string();
+                        Some((id, name))
+                    })
+                    .collect()
+            };
+            for row in pw_rows {
+                let Some(cid_raw) = row.get("contest_id").and_then(|v| v.as_str()) else {
+                    continue;
+                };
+                let cid = cid_raw.replace("contest:", "contest/");
+                let gid = row
+                    .get("game_id")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.replace("game:", "game/"));
+                let name = gid
+                    .as_ref()
+                    .and_then(|g| game_names.get(g))
+                    .cloned()
+                    .unwrap_or_default();
+                contest_games
+                    .entry(cid)
+                    .or_insert((gid, name));
+            }
+
+            let mut pa_res = self
+                .db
+                .query(
+                    "SELECT string::concat(`in`) AS contest_id, string::concat(`out`) AS venue_id FROM played_at WHERE `in` INSIDE $rids",
+                )
+                .bind(("rids", rid_param))
+                .await
+                .map_err(|e| SharedError::Database(e.to_string()))?;
+            let pa_rows: Vec<serde_json::Value> = pa_res.take(0).unwrap_or_default();
+            let venue_ids: Vec<String> = pa_rows
+                .iter()
+                .filter_map(|r| r.get("venue_id").and_then(|v| v.as_str()))
+                .map(|s| s.replace('/', ":"))
+                .collect::<std::collections::HashSet<_>>()
+                .into_iter()
+                .collect();
+            let venue_names = if venue_ids.is_empty() {
+                std::collections::HashMap::new()
+            } else {
+                let mut name_res = self
+                    .db
+                    .query(
+                        "SELECT string::concat(id) AS venue_id, displayName AS name FROM venue WHERE id INSIDE $ids",
+                    )
+                    .bind(("ids", venue_ids))
+                    .await
+                    .map_err(|e| SharedError::Database(e.to_string()))?;
+                let name_rows: Vec<serde_json::Value> = name_res.take(0).unwrap_or_default();
+                name_rows
+                    .into_iter()
+                    .filter_map(|v| {
+                        let id = v.get("venue_id")?.as_str()?.replace("venue:", "venue/");
+                        let name = v.get("name")?.as_str()?.to_string();
+                        Some((id, name))
+                    })
+                    .collect()
+            };
+            for row in pa_rows {
+                let Some(cid_raw) = row.get("contest_id").and_then(|v| v.as_str()) else {
+                    continue;
+                };
+                let cid = cid_raw.replace("contest:", "contest/");
+                let vid = row
+                    .get("venue_id")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.replace("venue:", "venue/"));
+                let name = vid
+                    .as_ref()
+                    .and_then(|v| venue_names.get(v))
+                    .cloned()
+                    .unwrap_or_default();
+                contest_venues
+                    .entry(cid)
+                    .or_insert((vid, name));
+            }
+        }
+
         let mut contest_history: Vec<shared::dto::analytics::HeadToHeadContestDto> = Vec::new();
         for (cid, (my_place, opp_place)) in by_contest {
             if my_place == 1 && opp_place != 1 {
@@ -4194,20 +4361,33 @@ impl AnalyticsRepository {
             } else if opp_place == 1 && my_place != 1 {
                 opponent_wins += 1;
             }
+            let contest_name = contest_names
+                .get(&cid)
+                .cloned()
+                .unwrap_or_else(|| cid.clone());
+            let contest_date = contest_starts.get(&cid).copied().unwrap_or(default_dt);
+            let (game_id, game_name) = contest_games
+                .get(&cid)
+                .cloned()
+                .unwrap_or((None, String::new()));
+            let (venue_id, venue_name) = contest_venues
+                .get(&cid)
+                .cloned()
+                .unwrap_or((None, String::new()));
             contest_history.push(shared::dto::analytics::HeadToHeadContestDto {
                 contest_id: cid.clone(),
-                contest_name: cid,
-                game_id: None,
-                game_name: String::new(),
-                venue_id: None,
-                venue_name: String::new(),
+                contest_name,
+                game_id,
+                game_name,
+                venue_id,
+                venue_name,
                 my_placement: my_place,
                 opponent_placement: opp_place,
                 i_won: my_place == 1 && opp_place != 1,
-                contest_date: default_dt,
+                contest_date,
             });
         }
-        contest_history.sort_by(|a, b| a.contest_id.cmp(&b.contest_id));
+        contest_history.sort_by(|a, b| b.contest_date.cmp(&a.contest_date));
         let total_contests = contest_history.len() as i32;
         let my_win_rate = if total_contests > 0 {
             (my_wins as f64 * 100.0) / total_contests as f64

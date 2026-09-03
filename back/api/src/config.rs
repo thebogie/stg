@@ -33,7 +33,7 @@ pub struct Config {
     pub google: GoogleConfig,
     pub bgg: BGGConfig,
     pub _security: SecurityConfig,
-    pub _logging: LoggingConfig,
+    pub logging: LoggingConfig,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -73,7 +73,54 @@ pub struct SecurityConfig {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct LoggingConfig {
-    // Remove unused fields
+    pub service_name: String,
+    pub environment: String,
+    pub version: String,
+    pub format: String,
+    pub default_filter: String,
+}
+
+impl LoggingConfig {
+    /// Load logging settings from environment (before full `Config::load` if needed).
+    pub fn from_env() -> Self {
+        Self::build(
+            &env::var("RUST_ENV").unwrap_or_else(|_| "development".to_string()),
+        )
+    }
+
+    fn build(rust_env: &str) -> Self {
+        let is_production = rust_env.eq_ignore_ascii_case("production");
+        let default_filter = env::var("RUST_LOG").unwrap_or_else(|_| {
+            if is_production {
+                "info".to_string()
+            } else {
+                "debug".to_string()
+            }
+        });
+        let format = env::var("LOG_FORMAT").unwrap_or_else(|_| {
+            if is_production {
+                "json".to_string()
+            } else {
+                "pretty".to_string()
+            }
+        });
+        let image_tag = env::var("IMAGE_TAG").unwrap_or_default();
+        let pkg_version = env!("CARGO_PKG_VERSION");
+        let version = if image_tag.is_empty() {
+            pkg_version.to_string()
+        } else {
+            format!("{} ({})", pkg_version, image_tag)
+        };
+
+        LoggingConfig {
+            service_name: env::var("LOG_SERVICE_NAME")
+                .unwrap_or_else(|_| "stg-backend".to_string()),
+            environment: rust_env.to_string(),
+            version,
+            format,
+            default_filter,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -151,7 +198,7 @@ impl Config {
             google: Self::load_google_config(&environment),
             bgg: Self::load_bgg_config(&environment),
             _security: Self::load_security_config(&environment),
-            _logging: Self::load_logging_config(&environment),
+            logging: Self::load_logging_config(&environment),
         };
 
         config.validate()?;
@@ -387,17 +434,12 @@ impl Config {
     }
 
     fn load_logging_config(env: &Environment) -> LoggingConfig {
-        match env {
-            Environment::Development => LoggingConfig {
-                // Remove unused fields
-            },
-            Environment::Production => LoggingConfig {
-                // Remove unused fields
-            },
-            Environment::Test => LoggingConfig {
-                // Remove unused fields
-            },
-        }
+        let rust_env = match env {
+            Environment::Development => "development",
+            Environment::Production => "production",
+            Environment::Test => "test",
+        };
+        LoggingConfig::build(rust_env)
     }
 
     fn load_google_config(_env: &Environment) -> GoogleConfig {
@@ -448,20 +490,24 @@ impl Config {
     }
 
     fn log_configuration(&self) {
-        info!("Configuration loaded successfully");
-        info!("Environment: {:?}", self.environment);
-        info!(
-            "Server: {}:{} (workers: {})",
-            self.server.host, self.server.port, self.server.workers
+        tracing::info!(
+            event = "config.loaded",
+            environment = ?self.environment,
+            server.host = %self.server.host,
+            server.port = self.server.port,
+            server.workers = self.server.workers,
+            database.name = %self.database.name,
+            database.pool_size = self.database.pool_size,
+            redis.host = %crate::observability::events::url_host_for_log(&self.redis.url),
+            redis.pool_size = self.redis.pool_size,
+            "configuration loaded"
         );
-        info!(
-            "Database: {} (pool: {})",
-            self.database.name, self.database.pool_size
-        );
-        info!("Redis: {} (pool: {})", self.redis.url, self.redis.pool_size);
 
         if self.environment == Environment::Development {
-            warn!("Running in development mode - some security features are disabled");
+            tracing::warn!(
+                event = "config.warning",
+                "running in development mode — some security features are disabled"
+            );
         }
     }
 
@@ -480,6 +526,16 @@ impl Config {
 mod tests {
     use super::*;
     use std::env;
+
+    fn test_logging_config() -> LoggingConfig {
+        LoggingConfig {
+            service_name: "stg-backend".to_string(),
+            environment: "test".to_string(),
+            version: "0.0.0".to_string(),
+            format: "pretty".to_string(),
+            default_filter: "info".to_string(),
+        }
+    }
 
     #[test]
     fn test_environment_parsing() {
@@ -565,7 +621,7 @@ mod tests {
                 api_token: None,
             },
             _security: SecurityConfig {},
-            _logging: LoggingConfig {},
+            logging: test_logging_config(),
         };
 
         assert_eq!(config.environment, Environment::Development);
@@ -609,7 +665,7 @@ mod tests {
                 api_token: None,
             },
             _security: SecurityConfig {},
-            _logging: LoggingConfig {},
+            logging: test_logging_config(),
         };
 
         assert_eq!(config.environment, Environment::Production);
@@ -653,7 +709,7 @@ mod tests {
                 api_token: None,
             },
             _security: SecurityConfig {},
-            _logging: LoggingConfig {},
+            logging: test_logging_config(),
         };
 
         assert_eq!(config.environment, Environment::Production);
@@ -720,7 +776,7 @@ mod tests {
                 api_token: None,
             },
             _security: SecurityConfig {},
-            _logging: LoggingConfig {},
+            logging: test_logging_config(),
         };
 
         assert!(config.is_production());
@@ -784,13 +840,12 @@ mod tests {
         // Remove unused fields
     }
 
+
     #[test]
     fn test_logging_config_structure() {
-        let _logging_config = LoggingConfig {
-            // Remove unused fields
-        };
-
-        // Remove unused fields
+        let logging = test_logging_config();
+        assert_eq!(logging.service_name, "stg-backend");
+        assert_eq!(logging.format, "pretty");
     }
 
     #[test]
@@ -828,7 +883,7 @@ mod tests {
                 api_token: None,
             },
             _security: SecurityConfig {},
-            _logging: LoggingConfig {},
+            logging: test_logging_config(),
         };
 
         assert_eq!(config.server.host, "0.0.0.0");

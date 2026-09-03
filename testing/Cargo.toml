@@ -37,6 +37,7 @@ actix-rt = "2.9"
 
 # HTTP client for API tests
 reqwest = { version = "0.11", features = ["json"] }
+urlencoding = "2"
 
 # Base64 encoding for HTTP auth
 base64 = "0.21"
